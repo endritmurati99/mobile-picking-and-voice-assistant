@@ -1,4 +1,4 @@
-.PHONY: help setup up down logs seed test clean
+.PHONY: help setup build-all build-backend build-odoo up down logs seed test test-api clean
 
 SHELL := /bin/bash
 -include .env
@@ -8,16 +8,25 @@ help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 setup: ## Erstmalige Einrichtung
-	@test -f .env || (cp .env.example .env && echo "⚠️  .env erstellt — Werte ausfüllen!" && exit 1)
+	@test -f .env || (cp .env.example .env && echo "WARNUNG: .env erstellt - Werte ausfuellen!" && exit 1)
 	@echo "Baue Docker Images..."
 	docker compose build
-	@echo "✅ Setup fertig. Zertifikate: bash infrastructure/scripts/setup-certs.sh <LAN-IP>"
+	@echo "Setup fertig. Zertifikate: bash infrastructure/scripts/setup-certs.sh <LAN-IP>"
+
+build-all: ## Alle Docker Images bauen
+	docker compose build
+
+build-backend: ## Nur Backend Image bauen
+	docker compose build backend
+
+build-odoo: ## Nur Odoo Image bauen
+	docker compose build odoo
 
 up: ## Stack starten
 	docker compose up -d
-	@echo "⏳ Warte auf Services..."
+	@echo "Warte auf Services..."
 	@sleep 10
-	@echo "✅ Stack läuft."
+	@echo "Stack laeuft."
 
 down: ## Stack stoppen
 	docker compose down
@@ -36,6 +45,9 @@ seed: ## Seed-Daten laden
 
 test: ## Backend-Tests
 	cd backend && python -m pytest tests/ -v
+
+test-api: ## API-Rauchtest
+	python infrastructure/scripts/test-api.py
 
 clean: ## Alles entfernen
 	docker compose down -v --rmi local

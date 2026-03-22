@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Read(./Notzien (Obsidian)/.obsidian/**)",
+      "Read(./**/__pycache__/**)",
+      "Read(./**/.pytest_cache/**)",
+      "Read(./**/node_modules/**)",
+      "Read(./**/*.png)",
+      "Read(./**/*.jpg)",
+      "Read(./**/*.jpeg)",
+      "Read(./**/*.zip)",
+      "Read(./Mobile Picking und Voice Assistant/.env)",
+      "Read(./Mobile Picking und Voice Assistant/infrastructure/certs/*.pem)",
+      "Read(./Mobile Picking und Voice Assistant/infrastructure/certs/*.key)",
+      "Read(./Mobile Picking und Voice Assistant/infrastructure/certs/*.crt)"
+    ],
+    "allow": [
+      "Bash(docker compose:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/log_obsidian_change.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
