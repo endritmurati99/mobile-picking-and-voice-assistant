@@ -32,8 +32,15 @@ make down
 make logs
 make logs-backend
 make logs-odoo
+make install-backend-deps
+make install-ui-deps
 make test
+make test-ui
 make test-api
+make verify-code
+make verify-ui
+make verify-stack
+make verify
 make seed
 ```
 
@@ -46,11 +53,37 @@ docker compose restart backend
 docker compose restart odoo
 ```
 
+Windows ohne `make`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File infrastructure/scripts/workflow.ps1 verify
+powershell -ExecutionPolicy Bypass -File infrastructure/scripts/workflow.ps1 logs-backend
+powershell -ExecutionPolicy Bypass -File infrastructure/scripts/workflow.ps1 install-backend-deps
+powershell -ExecutionPolicy Bypass -File infrastructure/scripts/workflow.ps1 install-ui-deps
+```
+
+PostgreSQL-MCP:
+
+```bash
+claude mcp list
+```
+
+Der Projekt-MCP `postgres-local` wird ueber `.mcp.json` geladen und nutzt den lokalen, nur auf `127.0.0.1` gebundenen PostgreSQL-Port.
+
+Lokaler Test-Bootstrap:
+
+- `install-backend-deps` installiert Backend-Testabhaengigkeiten projektlokal nach `backend/.deps/`
+- Die Test-Abhaengigkeiten werden aus `backend/requirements-dev.txt` geladen
+- `test` und `verify-code` nutzen diesen lokalen Pfad automatisch
+- `install-ui-deps` installiert Playwright plus Chromium fuer den lokalen Browser-Verify-Layer
+- `test-ui` und `verify-ui` starten reproduzierbare PWA-Browser-Tests ueber Playwright
+
 ## Delegation
 
 - Nutze den Subagent `frontend-vanilla-pwa` proaktiv fuer Arbeit in `pwa/`, HTML/CSS/Vanilla-JS, mobile Browser-Probleme und UI-Regressionen.
 - Nutze den Subagent `odoo-backend-specialist` proaktiv fuer Odoo-Modelle, JSON-RPC, FastAPI-Endpoints und Datenflussfragen.
 - Nutze den Subagent `n8n-workflow-operator` proaktiv fuer `n8n/workflows/`, Webhook-Tests und Automatisierungsskripte.
+- Nutze den Subagent `code-reviewer` proaktiv nach groesseren Aenderungen fuer Bug-Risiken, Regressionen und fehlende Tests.
 
 ## Kontext-Hygiene
 
@@ -64,6 +97,14 @@ docker compose restart odoo
 - Jede relevante Code-Aenderung muss in Obsidian nachvollziehbar sein.
 - Der Projekt-Hook schreibt Datei-Aenderungen automatisch nach `Notzien (Obsidian)/04 - Ressourcen/Claude Code Aenderungslog.md`.
 - Bei Architektur- oder Prozessentscheidungen zusaetzlich die Daily Note fuer den aktuellen Tag aktualisieren.
+
+## Completion Criteria
+
+- Wenn Claude in der aktuellen Session Dateien editiert hat, darf der Task erst abgeschlossen werden, wenn der Obsidian-Sync-Hook erfolgreich gelaufen ist.
+- Bei Aenderungen an `backend/`, `odoo/`, `pwa/` oder relevanten Infrastruktur-Skripten muss `verify-code` erfolgreich sein.
+- Bei Aenderungen an `pwa/`, den Playwright-Specs oder der UI-Testkonfiguration muss `verify-ui` erfolgreich sein.
+- Wenn der lokale Stack laeuft, wird zusaetzlich `verify-stack` erwartet.
+- Diese Kriterien werden technisch ueber den `TaskCompleted`-Hook in `.claude/settings.json` durchgesetzt.
 
 ## Tiefere Referenzen
 

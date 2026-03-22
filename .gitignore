@@ -1,4 +1,5 @@
 .claude/settings.local.json
+.claude/state/
 .vscode/
 
 # Local Obsidian workspace state
@@ -11,6 +12,12 @@ Thumbs.db
 # Common caches
 **/__pycache__/
 **/.pytest_cache/
+**/.deps/
+**/node_modules/
+
+# Playwright artifacts
+**/playwright-report/
+**/test-results/
 
 # Archive artifacts
 *.zip

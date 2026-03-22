@@ -1,4 +1,4 @@
-.PHONY: help setup build-all build-backend build-odoo up down logs seed test test-api clean
+.PHONY: help setup install-backend-deps install-ui-deps build-all build-backend build-odoo up down logs seed test test-ui test-api verify-code verify-ui verify-stack verify clean
 
 SHELL := /bin/bash
 -include .env
@@ -12,6 +12,13 @@ setup: ## Erstmalige Einrichtung
 	@echo "Baue Docker Images..."
 	docker compose build
 	@echo "Setup fertig. Zertifikate: bash infrastructure/scripts/setup-certs.sh <LAN-IP>"
+
+install-backend-deps: ## Lokale Python-Abhaengigkeiten fuer Backend-Tests installieren
+	cd backend && python -m pip install --target .deps -r requirements-dev.txt
+
+install-ui-deps: ## Playwright und Browser-Abhaengigkeiten installieren
+	npm.cmd install
+	npx.cmd playwright install chromium
 
 build-all: ## Alle Docker Images bauen
 	docker compose build
@@ -44,10 +51,27 @@ seed: ## Seed-Daten laden
 	python infrastructure/scripts/seed-odoo.py --url http://localhost:8069 --db $${ODOO_DB:-picking} --user $${ODOO_USER:-admin} --api-key $${ODOO_API_KEY}
 
 test: ## Backend-Tests
-	cd backend && python -m pytest tests/ -v
+	cd backend && PYTHONPATH=.deps python -m pytest -p pytest_asyncio tests/ -v
+
+test-ui: ## Browser-Tests fuer die PWA
+	npx.cmd playwright test
 
 test-api: ## API-Rauchtest
 	python infrastructure/scripts/test-api.py
+
+verify-code: ## Schneller Code-Check ohne laufenden Stack
+	$(MAKE) test
+
+verify-ui: ## UI-Check der PWA ueber Playwright
+	$(MAKE) test-ui
+
+verify-stack: ## Stack-Check gegen laufende lokale Instanz
+	$(MAKE) test-api
+
+verify: ## Voller Verify-Lauf: Tests plus API-Rauchtest
+	$(MAKE) verify-code
+	$(MAKE) verify-ui
+	$(MAKE) verify-stack
 
 clean: ## Alles entfernen
 	docker compose down -v --rmi local

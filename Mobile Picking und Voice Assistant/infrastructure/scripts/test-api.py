@@ -19,10 +19,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default="https://localhost")
     parser.add_argument(
-        "--no-verify",
+        "--verify-tls",
         action="store_true",
-        default=True,
-        help="Disable TLS verification for self-signed certs",
+        help="Enable TLS verification instead of accepting self-signed certs",
     )
     parser.add_argument(
         "--expect-odoo-down",
@@ -33,7 +32,7 @@ def main():
 
     client = httpx.Client(
         base_url=args.base_url,
-        verify=not args.no_verify,
+        verify=args.verify_tls,
         timeout=10,
     )
 

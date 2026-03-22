@@ -1,0 +1,12 @@
+{
+  "name": "mobile-picking-voice-assistant",
+  "private": true,
+  "scripts": {
+    "test:ui": "playwright test",
+    "test:ui:headed": "playwright test --headed",
+    "test:ui:codegen": "playwright codegen http://127.0.0.1:4173 --device=\"Pixel 7\""
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1"
+  }
+}

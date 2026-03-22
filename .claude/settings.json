@@ -2,6 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "deny": [
+      "Read(./**/.git/**)",
       "Read(./Notzien (Obsidian)/.obsidian/**)",
       "Read(./**/__pycache__/**)",
       "Read(./**/.pytest_cache/**)",
@@ -28,6 +29,17 @@
             "type": "command",
             "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/log_obsidian_change.py\"",
             "timeout": 10
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/enforce_completion.py\"",
+            "timeout": 180
           }
         ]
       }

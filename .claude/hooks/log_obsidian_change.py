@@ -33,6 +33,38 @@ def ensure_header(note_path: Path) -> None:
     )
 
 
+def update_state(project_dir: Path, session_id: str | None, display_path: str, timestamp: str) -> None:
+    state_dir = project_dir / ".claude" / "state"
+    state_path = state_dir / "last_obsidian_sync.json"
+    state_dir.mkdir(parents=True, exist_ok=True)
+
+    if state_path.exists():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            state = {}
+    else:
+        state = {}
+
+    if state.get("session_id") != session_id:
+        state = {"session_id": session_id, "edited_paths": []}
+
+    edited_paths = state.get("edited_paths", [])
+    if display_path not in edited_paths:
+        edited_paths.append(display_path)
+
+    state.update(
+        {
+            "session_id": session_id,
+            "last_synced_at": timestamp,
+            "last_synced_file": display_path,
+            "edited_paths": edited_paths,
+        }
+    )
+
+    state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
 def main() -> None:
     raw_bytes = sys.stdin.buffer.read()
     if not raw_bytes:
@@ -70,6 +102,8 @@ def main() -> None:
 
     with note_path.open("a", encoding="utf-8") as handle:
         handle.write(f"- {timestamp} | {tool_name} | `{display_path}`\n")
+
+    update_state(project_dir, payload.get("session_id"), display_path, timestamp)
 
 
 if __name__ == "__main__":

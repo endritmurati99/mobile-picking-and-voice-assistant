@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "postgres-local": {
+      "command": "python",
+      "args": [
+        ".claude/mcp/start_postgres_mcp.py"
+      ]
+    }
+  }
+}
