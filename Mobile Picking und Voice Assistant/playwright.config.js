@@ -1,5 +1,10 @@
 const { defineConfig, devices } = require('@playwright/test');
 
+const reporter = [['list']];
+if (process.env.PLAYWRIGHT_HTML_REPORT === '1') {
+  reporter.push(['html', { open: 'never' }]);
+}
+
 module.exports = defineConfig({
   testDir: './e2e',
   timeout: 30_000,
@@ -7,7 +12,7 @@ module.exports = defineConfig({
     timeout: 5_000,
   },
   fullyParallel: true,
-  reporter: [['list'], ['html', { open: 'never' }]],
+  reporter,
   use: {
     baseURL: 'http://127.0.0.1:4173',
     trace: 'retain-on-failure',

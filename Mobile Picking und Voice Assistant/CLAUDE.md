@@ -37,11 +37,14 @@ make install-ui-deps
 make test
 make test-ui
 make test-visual
+make test-visual-diff
+make test-visual-diff-update
 make test-a11y
 make test-api
 make verify-code
 make verify-ui
 make verify-visual
+make verify-visual-diff
 make verify-a11y
 make verify-workflows
 make verify-stack
@@ -84,6 +87,8 @@ Lokaler Test-Bootstrap:
 - `test-ui` und `verify-ui` starten reproduzierbare PWA-Browser-Tests ueber Playwright
 - `test-visual` und `verify-visual` erzeugen semantisch validierte Mobile-Artefakte der PWA unter `.claude/artifacts/`, standardmaessig mit gemockter API und Mobile-Viewport
 - lies fuer den Visual-Loop zuerst `.claude/artifacts/ui_state-index.json`, dann nur bei Bedarf die einzelnen PNG-Dateien
+- `test-visual-diff` und `verify-visual-diff` pruefen 3 stabile Mobile-Baselines per Playwright-Snapshot-Test
+- `test-visual-diff-update` aktualisiert bewusst die Baselines, wenn ein Layout gewollt veraendert wurde
 - `test-a11y` und `verify-a11y` pruefen die Kern-Views der PWA automatisiert mit Axe + Playwright
 - `verify-workflows` prueft die Vertraege zwischen `n8n/workflows/*.json` und den `n8n.fire(...)`-Payloads im Backend
 
@@ -113,6 +118,7 @@ Lokaler Test-Bootstrap:
 - Bei Aenderungen an `backend/`, `odoo/`, `pwa/` oder relevanten Infrastruktur-Skripten muss `verify-code` erfolgreich sein.
 - Bei Aenderungen an `pwa/`, den Playwright-Specs oder der UI-Testkonfiguration muss `verify-ui` erfolgreich sein.
 - Bei sichtbaren UI-Aenderungen an `pwa/` oder den visuellen Testskripten muss zusaetzlich `verify-visual` erfolgreich sein; reine Backend-Aenderungen sollen diesen Schritt nicht unnoetig triggern.
+- Bei sichtbaren UI-Aenderungen an `pwa/` oder den visuellen Testskripten muss zusaetzlich `verify-visual-diff` gegen die Baselines erfolgreich sein.
 - Bei Aenderungen an `pwa/` oder den UI-Specs muss zusaetzlich `verify-a11y` erfolgreich sein.
 - Bei Aenderungen an `n8n/workflows/` oder Backend-Webhook-Vertraegen muss `verify-workflows` erfolgreich sein.
 - Wenn der lokale Stack laeuft, wird zusaetzlich `verify-stack` erwartet.

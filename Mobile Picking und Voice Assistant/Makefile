@@ -1,4 +1,4 @@
-.PHONY: help setup install-backend-deps install-ui-deps build-all build-backend build-odoo up down logs seed test test-ui test-visual test-a11y test-api verify-code verify-ui verify-visual verify-a11y verify-workflows verify-stack verify clean
+.PHONY: help setup install-backend-deps install-ui-deps build-all build-backend build-odoo up down logs seed test test-ui test-visual test-visual-diff test-visual-diff-update test-a11y test-api verify-code verify-ui verify-visual verify-visual-diff verify-a11y verify-workflows verify-stack verify clean
 
 SHELL := /bin/bash
 -include .env
@@ -54,10 +54,16 @@ test: ## Backend-Tests
 	cd backend && PYTHONPATH=.deps python -m pytest -p pytest_asyncio tests/ -v
 
 test-ui: ## Browser-Tests fuer die PWA
-	npx.cmd playwright test
+	npx.cmd playwright test e2e/confirm-flow.spec.js e2e/pickings.spec.js e2e/quality-alert.spec.js
 
 test-visual: ## Visuelles PWA-Artefakt fuer den Mobile-Viewport erzeugen
 	node e2e/capture-sight.js
+
+test-visual-diff: ## Visuelle Snapshot-Tests fuer stabile Kern-Views
+	npx.cmd playwright test e2e/visual.spec.js
+
+test-visual-diff-update: ## Snapshot-Baselines fuer visuelle Tests aktualisieren
+	npx.cmd playwright test e2e/visual.spec.js --update-snapshots
 
 test-a11y: ## Accessibility-Checks fuer die PWA mit Axe + Playwright
 	npx.cmd playwright test e2e/a11y.spec.js
@@ -77,6 +83,9 @@ verify-ui: ## UI-Check der PWA ueber Playwright
 verify-visual: ## Visuellen PWA-Zustand als Artefakt erfassen
 	$(MAKE) test-visual
 
+verify-visual-diff: ## Visuelle Snapshot-Checks fuer Kern-Views
+	$(MAKE) test-visual-diff
+
 verify-a11y: ## Accessibility-Check der PWA ueber Axe + Playwright
 	$(MAKE) test-a11y
 
@@ -87,6 +96,7 @@ verify: ## Voller Verify-Lauf: Tests plus API-Rauchtest
 	$(MAKE) verify-code
 	$(MAKE) verify-ui
 	$(MAKE) verify-visual
+	$(MAKE) verify-visual-diff
 	$(MAKE) verify-a11y
 	$(MAKE) verify-workflows
 	$(MAKE) verify-stack

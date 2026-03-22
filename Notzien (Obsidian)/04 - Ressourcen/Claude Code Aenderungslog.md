@@ -153,6 +153,17 @@ Automatisches Protokoll fuer von Claude Code bearbeitete Dateien.
 - 2026-03-22 22:06:21 | workflow | `Notzien (Obsidian)/01 - Architektur/Claude Code Workflow.md`
 - 2026-03-22 22:10:05 | bootstrap | `.claude/rules/odoo.md`
 - 2026-03-22 22:10:06 | workflow | `Notzien (Obsidian)/01 - Architektur/Claude Code Workflow.md`
+- 2026-03-22 22:19:10 | bootstrap | `Mobile Picking und Voice Assistant/e2e/visual.spec.js`
+- 2026-03-22 22:19:11 | workflow | `Mobile Picking und Voice Assistant/Makefile`
+- 2026-03-22 22:19:12 | workflow | `Mobile Picking und Voice Assistant/infrastructure/scripts/workflow.ps1`
+- 2026-03-22 22:19:13 | workflow | `Mobile Picking und Voice Assistant/CLAUDE.md`
+- 2026-03-22 22:19:14 | verification | `Mobile Picking und Voice Assistant/e2e/visual.spec.js-snapshots/picking-list-mobile-chromium-win32.png`
+- 2026-03-22 22:19:15 | verification | `Mobile Picking und Voice Assistant/e2e/visual.spec.js-snapshots/picking-detail-mobile-chromium-win32.png`
+- 2026-03-22 22:19:16 | verification | `Mobile Picking und Voice Assistant/e2e/visual.spec.js-snapshots/quality-alert-mobile-chromium-win32.png`
+- 2026-03-22 22:21:10 | workflow | `.claude/hooks/enforce_completion.py`
+- 2026-03-22 22:21:11 | workflow | `.claude/rules/frontend.md`
+- 2026-03-22 22:21:12 | workflow | `Mobile Picking und Voice Assistant/playwright.config.js`
+- 2026-03-22 22:22:20 | workflow | `Notzien (Obsidian)/01 - Architektur/Claude Code Workflow.md`
 - 2026-03-22 22:05:12 | Edit | `Mobile Picking und Voice Assistant/docker-compose.yml`
 - 2026-03-22 22:06:32 | Edit | `Mobile Picking und Voice Assistant/backend/app/services/whisper_client.py`
 - 2026-03-22 22:10:18 | Write | `C:/Users/endri/.claude/projects/c--Users-endri/memory/project_future_nlp_voice.md`
@@ -162,3 +173,5 @@ Automatisches Protokoll fuer von Claude Code bearbeitete Dateien.
 - 2026-03-22 22:11:25 | Write | `Mobile Picking und Voice Assistant/backend/app/services/whisper_client.py`
 - 2026-03-22 22:17:16 | Write | `Mobile Picking und Voice Assistant/pwa/js/voice.js`
 - 2026-03-22 22:17:26 | Edit | `Mobile Picking und Voice Assistant/pwa/js/app.js`
+- 2026-03-22 22:19:19 | Write | `Mobile Picking und Voice Assistant/pwa/js/voice.js`
+- 2026-03-22 22:21:32 | Write | `Mobile Picking und Voice Assistant/pwa/js/voice.js`

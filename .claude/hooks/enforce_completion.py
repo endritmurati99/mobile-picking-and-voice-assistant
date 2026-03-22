@@ -222,6 +222,20 @@ def main() -> int:
     else:
         print("Completion check: verify-visual uebersprungen, keine sichtbaren UI-Aenderungen erkannt.")
 
+    if requires_visual_verify(edited_paths):
+        verify_visual_diff = run_command(
+            ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(workflow_script), "verify-visual-diff"],
+            cwd=app_root,
+        )
+        if verify_visual_diff.returncode != 0:
+            sys.stderr.write("verify-visual-diff fehlgeschlagen. Bitte gleiche die visuellen Baselines oder das Layout ab.\n")
+            sys.stderr.write(verify_visual_diff.stdout)
+            sys.stderr.write(verify_visual_diff.stderr)
+            return 2
+        print("Completion check: verify-visual-diff erfolgreich.")
+    else:
+        print("Completion check: verify-visual-diff uebersprungen, keine sichtbaren UI-Aenderungen erkannt.")
+
     if requires_ui_verify(edited_paths):
         verify_a11y = run_command(
             ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(workflow_script), "verify-a11y"],

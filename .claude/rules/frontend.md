@@ -11,6 +11,7 @@ paths:
 - Bei UI-Aenderungen stabile, testbare DOM-Strukturen beibehalten und `verify-ui` gruen halten.
 - Bei sichtbaren UI-Aenderungen an Layout, CSS, HTML oder UI-relevanten `pwa/*.js` Dateien zusaetzlich `verify-visual` ausfuehren.
 - `verify-visual` erzeugt semantisch validierte Mobile-Artefakte unter `.claude/artifacts/`.
+- Fuer gewollte Layout-Aenderungen danach `verify-visual-diff` gegen die committed Baselines laufen lassen; bei absichtlichen UI-Aenderungen die Snapshots bewusst aktualisieren.
 - Lies zuerst `.claude/artifacts/ui_state-index.json`; die einzelnen PNGs nur dann, wenn du wirklich visuell nachpruefen musst.
 - Ein visueller Check zaehlt erst, wenn der Capture-Lauf nicht nur `#app`, sondern den Ready-State der jeweiligen View bestaetigt.
 - HTTPS-, Service-Worker-, Kamera- und Mikrofon-Annahmen nicht stillschweigend aufbrechen.

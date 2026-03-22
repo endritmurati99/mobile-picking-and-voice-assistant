@@ -89,6 +89,7 @@ Der Workflow enthaelt jetzt explizite Verify-Targets im Projekt-`Makefile`:
 - `make verify-code` fuer schnelle Backend-Tests ohne laufenden Stack
 - `make verify-ui` fuer reproduzierbare PWA-Browser-Tests mit Playwright
 - `make verify-visual` fuer visuelle PWA-Artefakte der Kernscreens unter `.claude/artifacts/`
+- `make verify-visual-diff` fuer echte visuelle Baseline-Checks der Kernscreens
 - `make verify-a11y` fuer automatische Accessibility-Checks der Kernscreens mit Axe + Playwright
 - `make verify-workflows` fuer die Vertraege zwischen Backend-Webhooks und `n8n/workflows/*.json`
 - `make verify-stack` fuer den API-Rauchtest gegen den laufenden lokalen Stack
@@ -111,6 +112,7 @@ Aktueller Praxispunkt:
 - die Browser-Tests laufen bewusst gegen eine lokale statische PWA plus gemockte `/api/*`-Antworten, damit UI-Regressionen reproduzierbar und ohne Live-Daten abpruefbar bleiben
 - `e2e/capture-sight.js` erzeugt fuer `list`, `detail` und `alert` reproduzierbare Mobile-Screenshots und Metadaten unter `.claude/artifacts/`
 - der Visual-Loop schreibt jetzt zusaetzlich ein kompaktes `.claude/artifacts/ui_state-index.json`, damit nicht immer erst PNGs geladen werden muessen
+- `e2e/visual.spec.js` haelt zusaetzlich committed Baselines fuer `list`, `detail` und `alert`, damit echte Layout-Regressionen maschinell auffallen
 - die Accessibility-Pruefung liegt separat in `e2e/a11y.spec.js` und scannt Picking-Liste, Picking-Detail und Quality-Alert-Form mit `@axe-core/playwright`
 - fuer n8n gibt es jetzt ein leichtgewichtiges Validierungsskript `infrastructure/scripts/verify-workflows.py`, das `n8n.fire(...)`-Payloads im Backend gegen die tatsaechlich referenzierten `$json.*`-Felder in den Workflow-JSONs prueft
 - die Webhook-Workflows `pick-confirmed.json` und `quality-alert-created.json` wurden auf die aktuell gelieferten Backend-Payloads ausgerichtet
@@ -132,6 +134,7 @@ Wirkung:
 - fuer relevante Code-Aenderungen wird automatisch `verify-code` ausgefuehrt
 - fuer relevante PWA- oder Playwright-Aenderungen wird automatisch `verify-ui` ausgefuehrt
 - fuer sichtbare UI-Aenderungen an `pwa/*.css`, `pwa/*.html`, UI-relevanten `pwa/*.js` oder am Visual-Capture-Setup wird zusaetzlich `verify-visual` ausgefuehrt
+- fuer sichtbare UI-Aenderungen wird jetzt zusaetzlich `verify-visual-diff` gegen die committed Baselines ausgefuehrt
 - fuer relevante PWA- oder Playwright-Aenderungen wird zusaetzlich `verify-a11y` ausgefuehrt
 - fuer relevante Backend-Webhook- oder `n8n/workflows/`-Aenderungen wird automatisch `verify-workflows` ausgefuehrt
 - `verify-stack` wird zusaetzlich erzwungen, wenn der lokale Stack erkennbar laeuft
@@ -153,6 +156,7 @@ Aktueller Verifikationsstand:
 - `workflow.ps1 verify-code`: 25/25 Backend-Tests gruen
 - `workflow.ps1 verify-ui`: 3/3 Playwright-Browser-Tests gruen
 - `workflow.ps1 verify-visual`: visuelle Artefakte fuer `list`, `detail` und `alert` werden erfolgreich erzeugt
+- `workflow.ps1 verify-visual-diff`: 3/3 visuelle Snapshot-Checks gruen
 - `workflow.ps1 verify-a11y`: 3/3 Axe-Checks gegen die Kern-Views gruen
 - `workflow.ps1 verify-workflows`: Workflow-Vertragspruefung gruen
 - `workflow.ps1 verify-stack`: API-Smoke-Test 7/7 gruen
@@ -165,6 +169,8 @@ Visual-Sight-Fazit:
 - der Live-Capture gegen `https://localhost` wurde erfolgreich mit `ignoreHTTPSErrors` verifiziert
 - der Screenshot gilt nicht mehr schon dann als "gut", wenn nur `#app` sichtbar ist; pro View werden jetzt semantische Ready-Checks geprueft, z. B. Picking-Karte, Confirm-Button oder Alert-Form-Felder
 - die Artefakte laufen jetzt im kleineren Viewport-Capture mit CSS-Scale statt Full-Page-Shots, um Dateigroesse und spaeteren Analyseaufwand zu senken
+- `verify-ui` ist wieder strikt funktional getrennt; A11y und visuelle Diffs laufen in eigenen, klar benannten Schritten
+- der Playwright-HTML-Reporter ist nicht mehr standardmaessig aktiv, damit der Windows-Verify-Loop keine `EBUSY`-Locks auf `playwright-report/` erzeugt
 
 Bewusste Nicht-Uebernahmen aus der Review-Idee:
 - kein Umzug des Capture-Skripts nach `infrastructure/scripts/`, weil es absichtlich die bestehenden `e2e`-Helper und Mock-API wiederverwendet
@@ -183,6 +189,6 @@ Debugging-Erkenntnis:
 
 ## Naechste sinnvolle Schritte
 
-1. auf den Visual-Artefakten aufbauend echte visuelle Snapshot- oder Diff-Checks fuer 1-2 Kernscreens einfuehren
+1. spaeter die visuellen Baselines auf weitere kritische States ausdehnen, wenn die UI stabil genug dafuer ist
 2. spaeter den Smoke-Test weiter haerten, falls die transienten Stack-Effekte erneut auftauchen
 3. mittelfristig einen sauberen Contract-First-Pfad zwischen Backend und PWA definieren
