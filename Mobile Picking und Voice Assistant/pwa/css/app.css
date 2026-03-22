@@ -3,7 +3,9 @@
     --surface: #16213e;
     --primary: #0f3460;
     --accent: #e94560;
+    --accent-text: #ff7f96;
     --text: #eee;
+    --text-primary: #eee;
     --text-muted: #999;
     --success: #4caf50;
     --warning: #ff9800;
@@ -39,10 +41,53 @@ nav {
     border-radius: var(--radius); cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
 .nav-btn:active { opacity: 0.7; transform: scale(0.95); }
+.nav-btn.hidden { display: none; }
+/* ── Picking-Detail Card (Move-Line) ── */
 .pick-card { background: var(--surface); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
 .pick-card .product { font-size: 1.2rem; font-weight: 600; }
-.pick-card .location { color: var(--accent); font-size: 1rem; margin-top: 4px; }
+.pick-card .location { color: var(--accent-text); font-size: 1rem; margin-top: 4px; }
 .pick-card .quantity { font-size: 2rem; font-weight: 700; margin-top: 8px; }
+
+/* ── Picking-Liste: Grid-Layout ── */
+.pick-list-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+}
+@media (min-width: 600px) {
+    .pick-list-grid { grid-template-columns: 1fr 1fr; }
+    main { padding: 20px; }
+}
+@media (min-width: 900px) {
+    .pick-list-grid { grid-template-columns: repeat(3, 1fr); }
+}
+.pick-list-card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    cursor: pointer;
+    border-left: 4px solid var(--accent);
+    transition: background 0.15s;
+}
+.pick-list-card:active { background: #1e2d4a; }
+.plc-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+.plc-name { font-size: 1rem; font-weight: 700; }
+.plc-badge {
+    font-size: 0.7rem;
+    background: rgba(233,69,96,0.2);
+    color: var(--accent-text);
+    padding: 2px 8px;
+    border-radius: 10px;
+    white-space: nowrap;
+}
+.plc-partner { font-size: 0.9rem; color: var(--text-muted); }
+.plc-date { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
 .btn-confirm {
     width: 100%; min-height: var(--touch-min); background: var(--success); color: #000;
     border: none; border-radius: var(--radius); font-size: 1.1rem; font-weight: 600;

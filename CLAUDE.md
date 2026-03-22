@@ -12,6 +12,7 @@ Repository-Einstiegspunkt fuer Claude Code im Root von `Bachelor/`.
 - Fuer Implementierung, Tests und Infrastruktur im Produktcode ist `Mobile Picking und Voice Assistant/CLAUDE.md` die operative Hauptanweisung.
 - Fuer Architekturtexte und Fortschrittsnotizen arbeite gezielt in `Notzien (Obsidian)/`, aber nicht in `.obsidian/`.
 - Starte bei Produktarbeit bevorzugt im Verzeichnis `Mobile Picking und Voice Assistant/`, damit der Kontext klein bleibt.
+- Fuer kurze Windows-Kommandos im Repo-Root nutze bevorzugt `workflow.ps1` oder `workflow.cmd`, damit du die langen Pfade mit Leerzeichen nicht dauernd tippen musst.
 
 ## Kontext-Hygiene
 

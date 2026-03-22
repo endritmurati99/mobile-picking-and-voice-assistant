@@ -10,8 +10,8 @@
  */
 import { getPickings, getPickingDetail, confirmLine, createQualityAlert, recognizeVoice } from './api.js';
 import { setState, getState, subscribe, renderPickCard, renderLoading, renderError, showToast } from './ui.js';
-import { initHIDScanner, showManualInput } from './scanner.js';
-import { speak, captureAndRecognize, isVoiceSupported } from './voice.js';
+import { initHIDScanner, showManualInput, openCameraScanner } from './scanner.js';
+import { speak, stopSpeaking, captureAndRecognize, isVoiceSupported, toggleVoiceMode, isVoiceModeActive } from './voice.js';
 import { startCamera, capturePhoto, stopCamera, createFileInput } from './camera.js';
 import { initPWA } from './pwa.js';
 
@@ -30,11 +30,23 @@ function formatLocationForSpeech(locationPath) {
 const mainEl = () => document.getElementById('main');
 const statusEl = () => document.getElementById('status-indicator');
 const btnVoice = () => document.getElementById('btn-voice');
+const btnScan = () => document.getElementById('btn-scan');
 const btnAlert = () => document.getElementById('btn-alert');
+
+// ── Toolbar-Steuerung ────────────────────────────────────────
+// Zeigt/versteckt die Nav-Buttons je nach aktuellem View.
+// 'detail' → alle sichtbar, sonst alle versteckt.
+function updateToolbar(view) {
+    const buttons = [btnVoice(), btnScan(), btnAlert()];
+    const show = view === 'detail';
+    buttons.forEach(b => { if (b) b.classList.toggle('hidden', !show); });
+}
 
 // ── Picking-Liste ────────────────────────────────────────────
 
 async function loadPickingList() {
+    stopSpeaking();
+    updateToolbar('list');
     mainEl().innerHTML = renderLoading();
     try {
         const pickings = await getPickings();
@@ -45,19 +57,24 @@ async function loadPickingList() {
             return;
         }
 
-        mainEl().innerHTML = pickings.map(p => `
-            <div class="pick-card" data-id="${p.id}" style="cursor:pointer">
-                <div class="product">${p.name}</div>
-                <div class="location">
-                    ${p.partner_id ? p.partner_id[1] : '—'}
+        mainEl().innerHTML = `<div class="pick-list-grid">${pickings.map(p => {
+            const date = p.scheduled_date
+                ? new Date(p.scheduled_date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
+                : '';
+            const partner = p.partner_id ? p.partner_id[1] : '—';
+            const typeName = p.picking_type_id ? p.picking_type_id[1] : '';
+            return `
+            <div class="pick-list-card" data-id="${p.id}">
+                <div class="plc-header">
+                    <span class="plc-name">${p.name}</span>
+                    ${typeName ? `<span class="plc-badge">${typeName}</span>` : ''}
                 </div>
-                <div class="quantity" style="font-size:0.85rem;margin-top:4px;">
-                    ${p.scheduled_date ? new Date(p.scheduled_date).toLocaleDateString('de-DE') : ''} · ${p.state}
-                </div>
-            </div>
-        `).join('');
+                <div class="plc-partner">${partner}</div>
+                ${date ? `<div class="plc-date">📅 ${date}</div>` : ''}
+            </div>`;
+        }).join('')}</div>`;
 
-        mainEl().querySelectorAll('.pick-card[data-id]').forEach(card => {
+        mainEl().querySelectorAll('.pick-list-card[data-id]').forEach(card => {
             card.addEventListener('click', () => loadPickingDetail(Number(card.dataset.id)));
         });
     } catch (e) {
@@ -97,9 +114,11 @@ async function loadPickingDetail(pickingId) {
 function renderCurrentLine() {
     const { currentPicking, currentLineIndex } = getState();
     if (!currentPicking) return;
+    updateToolbar('detail');
 
     const lines = currentPicking.move_lines || [];
     if (currentLineIndex >= lines.length) {
+        updateToolbar('complete');
         mainEl().innerHTML = `
             <div style="padding:20px;text-align:center">
                 <div style="font-size:2rem;margin-bottom:12px">✅</div>
@@ -199,31 +218,35 @@ async function handleScan(barcode) {
     }
 }
 
-// ── Voice-PTT ─────────────────────────────────────────────────
+// ── Voice-Toggle-Modus ───────────────────────────────────────
 
-let voiceSession = null;
-
-async function onVoicePress() {
+function onVoiceToggle() {
     if (!isVoiceSupported()) {
-        showToast('Voice nicht verfügbar', 'warning');
+        showToast('Mikrofon nicht verfügbar', 'warning');
         return;
     }
-    if (voiceSession) return; // bereits aktiv
 
-    btnVoice().style.background = 'var(--danger)';
-    voiceSession = await captureAndRecognize();
+    toggleVoiceMode(handleVoiceIntent, (active) => {
+        const btn = btnVoice();
+        if (!btn) return;
+        if (active) {
+            btn.style.background = 'var(--danger)';
+            btn.setAttribute('aria-label', 'Sprachmodus beenden');
+            showToast('Sprachmodus aktiv — sprich ein Kommando', 'info');
+        } else {
+            btn.style.background = '';
+            btn.setAttribute('aria-label', 'Sprachmodus starten');
+            showToast('Sprachmodus beendet', 'info');
+        }
+    });
 }
 
-async function onVoiceRelease() {
-    if (!voiceSession) return;
-    btnVoice().style.background = '';
+async function handleVoiceIntent(result) {
+    if (!result || result.intent === 'error') return;
 
-    const result = await voiceSession.stop();
-    voiceSession = null;
-
-    if (!result || result.intent === 'error') {
-        showToast('Nicht erkannt', 'warning');
-        return;
+    // Visuelles Feedback: was wurde erkannt
+    if (result.text) {
+        showToast(`"${result.text}"`, 'info');
     }
 
     const { currentPicking, currentLineIndex } = getState();
@@ -251,14 +274,20 @@ async function onVoiceRelease() {
         case 'done':
             if (currentPicking) speak('Auftrag wird abgeschlossen.');
             break;
+        case 'help':
+            speak('Verfügbare Kommandos: bestätigen, weiter, zurück, wiederholen, Problem, fertig.');
+            break;
         default:
-            showToast(`"${result.text}"`, 'info');
+            // Text wurde schon als Toast angezeigt
+            break;
     }
 }
 
 // ── Quality-Alert-Formular ────────────────────────────────────
 
 function openQualityAlertForm() {
+    stopSpeaking();
+    updateToolbar('alert');
     const { currentPicking, currentLineIndex } = getState();
     const lines = currentPicking?.move_lines || [];
     const line = lines[currentLineIndex];
@@ -266,10 +295,11 @@ function openQualityAlertForm() {
     mainEl().innerHTML = `
         <div style="padding:16px">
             <h2 style="margin-bottom:16px;font-size:1rem">Problem melden</h2>
+            <label for="qa-description" style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--text-muted)">Beschreibung</label>
             <textarea id="qa-description" placeholder="Beschreibung des Problems..."
                 style="width:100%;height:80px;padding:8px;border-radius:8px;background:var(--surface);color:var(--text-primary);border:1px solid #444;font-size:1rem"></textarea>
             <div style="margin-top:8px">
-                <label style="font-size:0.85rem;color:var(--text-muted)">Priorität</label>
+                <label for="qa-priority" style="font-size:0.85rem;color:var(--text-muted)">Priorität</label>
                 <select id="qa-priority" style="width:100%;margin-top:4px;padding:8px;border-radius:8px;background:var(--surface);color:var(--text-primary);border:1px solid #444">
                     <option value="0">Normal</option>
                     <option value="2">Hoch</option>
@@ -283,28 +313,71 @@ function openQualityAlertForm() {
             </div>
         </div>`;
 
-    // Foto-Input
+    // Foto-Input mit Vorschau
     const photoArea = document.getElementById('photo-area');
-    let photoFile = null;
-    const fileInput = createFileInput((file) => {
-        photoFile = file;
-        showToast('Foto hinzugefügt', 'success');
+    let photoFiles = [];
+
+    const fileInput = createFileInput((files) => {
+        photoFiles = photoFiles.concat(files);
+        renderPhotoPreview();
+        showToast(`${files.length} Foto${files.length > 1 ? 's' : ''} hinzugefügt`, 'success');
     });
+
     const photoBtn = document.createElement('button');
-    photoBtn.textContent = '📷 Foto aufnehmen';
+    photoBtn.type = 'button';
+    photoBtn.textContent = '📷 Fotos hinzufügen';
+    photoBtn.setAttribute('aria-label', 'Fotos hinzufügen');
     photoBtn.style.cssText = 'width:100%;padding:10px;background:var(--surface);color:var(--text-primary);border:1px solid #444;border-radius:8px;font-size:0.95rem';
     photoBtn.addEventListener('click', () => fileInput.click());
+
+    const previewGrid = document.createElement('div');
+    previewGrid.id = 'photo-preview-grid';
+    previewGrid.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;';
+
+    function renderPhotoPreview() {
+        previewGrid.innerHTML = '';
+        photoFiles.forEach((file, idx) => {
+            const url = URL.createObjectURL(file);
+            const wrapper = document.createElement('div');
+            wrapper.style.cssText = 'position:relative;width:80px;height:80px;';
+
+            const img = document.createElement('img');
+            img.src = url;
+            img.style.cssText = 'width:80px;height:80px;object-fit:cover;border-radius:6px;border:1px solid #444;';
+
+            const del = document.createElement('button');
+            del.type = 'button';
+            del.textContent = '✕';
+            del.setAttribute('aria-label', `Foto ${idx + 1} entfernen`);
+            del.style.cssText = 'position:absolute;top:2px;right:2px;background:rgba(0,0,0,0.6);color:#fff;border:none;border-radius:50%;width:20px;height:20px;font-size:0.7rem;cursor:pointer;padding:0;line-height:20px;';
+            del.addEventListener('click', () => {
+                photoFiles.splice(idx, 1);
+                renderPhotoPreview();
+            });
+
+            wrapper.appendChild(img);
+            wrapper.appendChild(del);
+            previewGrid.appendChild(wrapper);
+        });
+    }
+
     photoArea.appendChild(fileInput);
     photoArea.appendChild(photoBtn);
+    photoArea.appendChild(previewGrid);
 
     document.getElementById('qa-cancel').addEventListener('click', () => {
         if (currentPicking) loadPickingDetail(currentPicking.id);
         else loadPickingList();
     });
 
-    document.getElementById('qa-submit').addEventListener('click', async () => {
+    const submitBtn = document.getElementById('qa-submit');
+    submitBtn.addEventListener('click', async () => {
         const description = document.getElementById('qa-description').value.trim();
         if (!description) { showToast('Bitte Beschreibung eingeben', 'warning'); return; }
+
+        // Doppelklick-Schutz
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Wird gesendet…';
 
         const priority = document.getElementById('qa-priority').value;
         const formData = new FormData();
@@ -312,7 +385,7 @@ function openQualityAlertForm() {
         formData.append('priority', priority);
         if (currentPicking) formData.append('picking_id', String(currentPicking.id));
         if (line?.product_id) formData.append('product_id', String(line.product_id));
-        if (photoFile) formData.append('photo', photoFile);
+        photoFiles.forEach(f => formData.append('photos', f));
 
         try {
             const result = await createQualityAlert(formData);
@@ -321,6 +394,8 @@ function openQualityAlertForm() {
             if (currentPicking) loadPickingDetail(currentPicking.id);
             else loadPickingList();
         } catch (e) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Absenden';
             showToast('Fehler beim Erstellen: ' + e.message, 'error');
         }
     });
@@ -340,12 +415,28 @@ async function init() {
     // HID-Barcode-Scanner (Bluetooth/USB)
     initHIDScanner((barcode) => handleScan(barcode));
 
-    // Voice-Buttons (Push-to-Talk)
+    // Voice-Button (Toggle-Modus)
     const voiceBtn = btnVoice();
     if (voiceBtn) {
-        voiceBtn.addEventListener('pointerdown', onVoicePress);
-        voiceBtn.addEventListener('pointerup', onVoiceRelease);
-        voiceBtn.addEventListener('pointerleave', onVoiceRelease);
+        voiceBtn.addEventListener('click', onVoiceToggle);
+    }
+
+    // Tastenkürzel: M = Voice-Toggle (e.repeat ignorieren bei gehaltenem Taster)
+    document.addEventListener('keydown', (e) => {
+        if (e.repeat) return;
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+        if (e.key === 'm' || e.key === 'M') {
+            e.preventDefault();
+            onVoiceToggle();
+        }
+    });
+
+    // Scan-Button → Kamera-Barcode-Scanner öffnen
+    const scanBtn = btnScan();
+    if (scanBtn) {
+        scanBtn.addEventListener('click', () => {
+            openCameraScanner((barcode) => handleScan(barcode));
+        });
     }
 
     // Quality-Alert-Button

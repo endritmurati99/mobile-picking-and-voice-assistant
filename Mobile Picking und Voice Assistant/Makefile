@@ -1,4 +1,4 @@
-.PHONY: help setup install-backend-deps install-ui-deps build-all build-backend build-odoo up down logs seed test test-ui test-api verify-code verify-ui verify-workflows verify-stack verify clean
+.PHONY: help setup install-backend-deps install-ui-deps build-all build-backend build-odoo up down logs seed test test-ui test-visual test-a11y test-api verify-code verify-ui verify-visual verify-a11y verify-workflows verify-stack verify clean
 
 SHELL := /bin/bash
 -include .env
@@ -56,6 +56,12 @@ test: ## Backend-Tests
 test-ui: ## Browser-Tests fuer die PWA
 	npx.cmd playwright test
 
+test-visual: ## Visuelles PWA-Artefakt fuer den Mobile-Viewport erzeugen
+	node e2e/capture-sight.js
+
+test-a11y: ## Accessibility-Checks fuer die PWA mit Axe + Playwright
+	npx.cmd playwright test e2e/a11y.spec.js
+
 test-api: ## API-Rauchtest
 	python infrastructure/scripts/test-api.py
 
@@ -68,12 +74,20 @@ verify-code: ## Schneller Code-Check ohne laufenden Stack
 verify-ui: ## UI-Check der PWA ueber Playwright
 	$(MAKE) test-ui
 
+verify-visual: ## Visuellen PWA-Zustand als Artefakt erfassen
+	$(MAKE) test-visual
+
+verify-a11y: ## Accessibility-Check der PWA ueber Axe + Playwright
+	$(MAKE) test-a11y
+
 verify-stack: ## Stack-Check gegen laufende lokale Instanz
 	$(MAKE) test-api
 
 verify: ## Voller Verify-Lauf: Tests plus API-Rauchtest
 	$(MAKE) verify-code
 	$(MAKE) verify-ui
+	$(MAKE) verify-visual
+	$(MAKE) verify-a11y
 	$(MAKE) verify-workflows
 	$(MAKE) verify-stack
 

@@ -31,7 +31,7 @@ PATTERNS = {
     "photo": [r"\b(foto|photo|bild|kamera|aufnahme)\b"],
     "repeat": [r"\b(wiederholen|nochmal|noch\s*mal|bitte\s*was|wie\s*bitte)\b"],
     "pause": [r"\b(pause|stopp|stop|halt|warten)\b"],
-    "done": [r"\b(fertig|abgeschlossen|ende|beenden)\b"],
+    "done": [r"\b(fertig|erledigt|abgeschlossen|ende|beenden)\b"],
     "help": [r"\b(hilfe|help|was\s*kann\s*ich)\b"],
 }
 

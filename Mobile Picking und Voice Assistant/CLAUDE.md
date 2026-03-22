@@ -36,9 +36,13 @@ make install-backend-deps
 make install-ui-deps
 make test
 make test-ui
+make test-visual
+make test-a11y
 make test-api
 make verify-code
 make verify-ui
+make verify-visual
+make verify-a11y
 make verify-workflows
 make verify-stack
 make verify
@@ -78,6 +82,9 @@ Lokaler Test-Bootstrap:
 - `test` und `verify-code` nutzen diesen lokalen Pfad automatisch
 - `install-ui-deps` installiert Playwright plus Chromium fuer den lokalen Browser-Verify-Layer
 - `test-ui` und `verify-ui` starten reproduzierbare PWA-Browser-Tests ueber Playwright
+- `test-visual` und `verify-visual` erzeugen semantisch validierte Mobile-Artefakte der PWA unter `.claude/artifacts/`, standardmaessig mit gemockter API und Mobile-Viewport
+- lies fuer den Visual-Loop zuerst `.claude/artifacts/ui_state-index.json`, dann nur bei Bedarf die einzelnen PNG-Dateien
+- `test-a11y` und `verify-a11y` pruefen die Kern-Views der PWA automatisiert mit Axe + Playwright
 - `verify-workflows` prueft die Vertraege zwischen `n8n/workflows/*.json` und den `n8n.fire(...)`-Payloads im Backend
 
 ## Delegation
@@ -105,6 +112,8 @@ Lokaler Test-Bootstrap:
 - Wenn Claude in der aktuellen Session Dateien editiert hat, darf der Task erst abgeschlossen werden, wenn der Obsidian-Sync-Hook erfolgreich gelaufen ist.
 - Bei Aenderungen an `backend/`, `odoo/`, `pwa/` oder relevanten Infrastruktur-Skripten muss `verify-code` erfolgreich sein.
 - Bei Aenderungen an `pwa/`, den Playwright-Specs oder der UI-Testkonfiguration muss `verify-ui` erfolgreich sein.
+- Bei sichtbaren UI-Aenderungen an `pwa/` oder den visuellen Testskripten muss zusaetzlich `verify-visual` erfolgreich sein; reine Backend-Aenderungen sollen diesen Schritt nicht unnoetig triggern.
+- Bei Aenderungen an `pwa/` oder den UI-Specs muss zusaetzlich `verify-a11y` erfolgreich sein.
 - Bei Aenderungen an `n8n/workflows/` oder Backend-Webhook-Vertraegen muss `verify-workflows` erfolgreich sein.
 - Wenn der lokale Stack laeuft, wird zusaetzlich `verify-stack` erwartet.
 - Diese Kriterien werden technisch ueber den `TaskCompleted`-Hook in `.claude/settings.json` durchgesetzt.

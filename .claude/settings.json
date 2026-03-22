@@ -1,6 +1,10 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
+    "allow": [
+      "Bash(docker compose:*)",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__list_console_messages"
+    ],
     "deny": [
       "Read(./**/.git/**)",
       "Read(./Notzien (Obsidian)/.obsidian/**)",
@@ -15,9 +19,6 @@
       "Read(./Mobile Picking und Voice Assistant/infrastructure/certs/*.pem)",
       "Read(./Mobile Picking und Voice Assistant/infrastructure/certs/*.key)",
       "Read(./Mobile Picking und Voice Assistant/infrastructure/certs/*.crt)"
-    ],
-    "allow": [
-      "Bash(docker compose:*)"
     ]
   },
   "hooks": {

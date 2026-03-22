@@ -16,7 +16,7 @@ class OdooClient:
         self._url = settings.odoo_url
         self._db = settings.odoo_db
         self._uid = None
-        self._client = httpx.AsyncClient(timeout=30.0)
+        self._client = httpx.AsyncClient(timeout=120.0)
 
     async def _json_rpc(self, service: str, method: str, args: list) -> Any:
         payload = {

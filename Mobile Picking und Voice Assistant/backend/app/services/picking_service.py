@@ -22,8 +22,8 @@ class PickingService:
         self._n8n = n8n
 
     async def get_open_pickings(self) -> list[dict]:
-        """Load open pickings and their moves."""
-        pickings = await self._odoo.search_read(
+        """Load open pickings (list view — no moves needed)."""
+        return await self._odoo.search_read(
             "stock.picking",
             [("state", "=", "assigned")],
             [
@@ -31,31 +31,9 @@ class PickingService:
                 "partner_id",
                 "scheduled_date",
                 "state",
-                "move_ids",
-                "location_id",
-                "location_dest_id",
                 "picking_type_id",
             ],
         )
-        for picking in pickings:
-            move_ids = picking.get("move_ids") or []
-            if move_ids:
-                picking["moves"] = await self._odoo.search_read(
-                    "stock.move",
-                    [("id", "in", move_ids)],
-                    [
-                        "product_id",
-                        "product_uom_qty",
-                        "quantity",
-                        "location_id",
-                        "location_dest_id",
-                        "state",
-                        "picked",
-                    ],
-                )
-            else:
-                picking["moves"] = []
-        return pickings
 
     async def get_picking_detail(self, picking_id: int) -> dict:
         """Load a single picking with move-line details and product barcodes."""
@@ -219,7 +197,11 @@ class PickingService:
             [move_ids],
             {"fields": ["picked"]},
         )
-        all_done = bool(moves) and all(move.get("picked") for move in moves)
+        all_done = bool(moves) and all(
+            move.get("picked")
+            or move.get("quantity_done", 0) >= move.get("quantity", 0)
+            for move in moves
+        )
 
         picking_complete = False
         if all_done:

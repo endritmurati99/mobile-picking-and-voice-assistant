@@ -2,11 +2,14 @@
   "name": "mobile-picking-voice-assistant",
   "private": true,
   "scripts": {
+    "capture:visual": "node e2e/capture-sight.js",
     "test:ui": "playwright test",
+    "test:a11y": "playwright test e2e/a11y.spec.js",
     "test:ui:headed": "playwright test --headed",
     "test:ui:codegen": "playwright codegen http://127.0.0.1:4173 --device=\"Pixel 7\""
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.0",
     "@playwright/test": "^1.56.1"
   }
 }

@@ -20,6 +20,22 @@ Das Repository wurde auf einen schlankeren Claude-Code-Workflow umgestellt, dami
 - Spezialisierte Subagents liegen in `.claude/agents/`
 - Datei-Aenderungen werden ueber einen Hook nach Obsidian protokolliert
 
+## DX-Fazit zu Leerzeichen in Pfaden
+
+Die Leerzeichen in `Mobile Picking und Voice Assistant/` und `Notzien (Obsidian)/` sind vor allem ein Command-Line-Thema, kein Laufzeitfehler.
+
+Bewusste Entscheidung:
+- keine sofortige Umbenennung der Wurzelordner, weil das in einem bereits aktiven und lokal veraenderten Repo einen grossen Blast Radius ueber Hooks, MCP, Obsidian-Links und offene Arbeitsstaende haette
+- stattdessen kurze, leerzeichenfreie Einstiegspunkte im Repo-Root: `workflow.ps1` und `workflow.cmd`
+
+Praxisnutzen:
+- `workflow verify`
+- `workflow verify-ui`
+- `workflow logs-backend`
+- `workflow paths`
+
+Damit verschwindet die Tipp-Reibung im Alltag, ohne dass die bestehende Struktur heute aufwendig umgezogen werden muss.
+
 ## Wichtige Entscheidungen
 
 ### 1. Keine tote `.claudecodeignore`
@@ -58,6 +74,12 @@ Es gibt jetzt drei fokussierte Subagents:
 
 Damit kann Claude Code Aufgaben gezielter delegieren, ohne die gesamte Projektoberflaeche gleichzeitig im Kontext zu halten.
 
+Ergaenzend gibt es jetzt pfadgebundene Regeln fuer:
+
+- `frontend.md` fuer `pwa/**`
+- `backend.md` fuer `backend/**`
+- `odoo.md` fuer `odoo/**`
+
 ### 3a. Verifikation als Standardpfad
 
 Der Workflow enthaelt jetzt explizite Verify-Targets im Projekt-`Makefile`:
@@ -66,9 +88,11 @@ Der Workflow enthaelt jetzt explizite Verify-Targets im Projekt-`Makefile`:
 - `make install-ui-deps` fuer Playwright und den Chromium-Testbrowser
 - `make verify-code` fuer schnelle Backend-Tests ohne laufenden Stack
 - `make verify-ui` fuer reproduzierbare PWA-Browser-Tests mit Playwright
+- `make verify-visual` fuer visuelle PWA-Artefakte der Kernscreens unter `.claude/artifacts/`
+- `make verify-a11y` fuer automatische Accessibility-Checks der Kernscreens mit Axe + Playwright
 - `make verify-workflows` fuer die Vertraege zwischen Backend-Webhooks und `n8n/workflows/*.json`
 - `make verify-stack` fuer den API-Rauchtest gegen den laufenden lokalen Stack
-- `make verify` fuer Backend-, UI- und Stack-Checks hintereinander
+- `make verify` fuer Backend-, UI-, Visual-, A11y-, Workflow- und Stack-Checks hintereinander
 
 Dadurch wird Verifikation zu einem festen Teil des Workflows statt zu einem manuellen Nachgedanken.
 
@@ -85,6 +109,9 @@ Aktueller Praxispunkt:
 - test-spezifische Pakete wie `pytest-asyncio` liegen getrennt in `backend/requirements-dev.txt`
 - die PWA hat jetzt zusaetzlich ein lokales Playwright-Projekt mit `playwright.config.js`, `package.json` und Specs unter `e2e/`
 - die Browser-Tests laufen bewusst gegen eine lokale statische PWA plus gemockte `/api/*`-Antworten, damit UI-Regressionen reproduzierbar und ohne Live-Daten abpruefbar bleiben
+- `e2e/capture-sight.js` erzeugt fuer `list`, `detail` und `alert` reproduzierbare Mobile-Screenshots und Metadaten unter `.claude/artifacts/`
+- der Visual-Loop schreibt jetzt zusaetzlich ein kompaktes `.claude/artifacts/ui_state-index.json`, damit nicht immer erst PNGs geladen werden muessen
+- die Accessibility-Pruefung liegt separat in `e2e/a11y.spec.js` und scannt Picking-Liste, Picking-Detail und Quality-Alert-Form mit `@axe-core/playwright`
 - fuer n8n gibt es jetzt ein leichtgewichtiges Validierungsskript `infrastructure/scripts/verify-workflows.py`, das `n8n.fire(...)`-Payloads im Backend gegen die tatsaechlich referenzierten `$json.*`-Felder in den Workflow-JSONs prueft
 - die Webhook-Workflows `pick-confirmed.json` und `quality-alert-created.json` wurden auf die aktuell gelieferten Backend-Payloads ausgerichtet
 
@@ -104,6 +131,8 @@ Wirkung:
 - wenn Claude in der Session Dateien bearbeitet hat, wird vor Task-Abschluss geprueft, ob der Obsidian-Sync erfolgreich war
 - fuer relevante Code-Aenderungen wird automatisch `verify-code` ausgefuehrt
 - fuer relevante PWA- oder Playwright-Aenderungen wird automatisch `verify-ui` ausgefuehrt
+- fuer sichtbare UI-Aenderungen an `pwa/*.css`, `pwa/*.html`, UI-relevanten `pwa/*.js` oder am Visual-Capture-Setup wird zusaetzlich `verify-visual` ausgefuehrt
+- fuer relevante PWA- oder Playwright-Aenderungen wird zusaetzlich `verify-a11y` ausgefuehrt
 - fuer relevante Backend-Webhook- oder `n8n/workflows/`-Aenderungen wird automatisch `verify-workflows` ausgefuehrt
 - `verify-stack` wird zusaetzlich erzwungen, wenn der lokale Stack erkennbar laeuft
 
@@ -123,9 +152,29 @@ Wichtige Sicherheitsentscheidung:
 Aktueller Verifikationsstand:
 - `workflow.ps1 verify-code`: 25/25 Backend-Tests gruen
 - `workflow.ps1 verify-ui`: 3/3 Playwright-Browser-Tests gruen
+- `workflow.ps1 verify-visual`: visuelle Artefakte fuer `list`, `detail` und `alert` werden erfolgreich erzeugt
+- `workflow.ps1 verify-a11y`: 3/3 Axe-Checks gegen die Kern-Views gruen
 - `workflow.ps1 verify-workflows`: Workflow-Vertragspruefung gruen
 - `workflow.ps1 verify-stack`: API-Smoke-Test 7/7 gruen
-- `workflow.ps1 verify`: Backend-Tests gruen, Playwright 3/3 gruen, Workflow-Vertragspruefung gruen und API-Smoke-Test 7/7 gruen
+- `workflow.ps1 verify`: Backend-Tests gruen, Playwright 6/6 inkl. A11y gruen, visuelle Artefakte gruen, Workflow-Vertragspruefung gruen und API-Smoke-Test 7/7 gruen
+
+Visual-Sight-Fazit:
+- der Loop arbeitet standardmaessig gegen die lokale statische PWA auf `http://127.0.0.1:4173`
+- die API wird dabei standardmaessig gemockt, damit visuelle Regressionen nicht vom Live-Stack abhaengen
+- bei Bedarf kann der Capture-Lauf ueber Umgebungsvariablen auf einen Live-Stack mit HTTPS umgebogen werden
+- der Live-Capture gegen `https://localhost` wurde erfolgreich mit `ignoreHTTPSErrors` verifiziert
+- der Screenshot gilt nicht mehr schon dann als "gut", wenn nur `#app` sichtbar ist; pro View werden jetzt semantische Ready-Checks geprueft, z. B. Picking-Karte, Confirm-Button oder Alert-Form-Felder
+- die Artefakte laufen jetzt im kleineren Viewport-Capture mit CSS-Scale statt Full-Page-Shots, um Dateigroesse und spaeteren Analyseaufwand zu senken
+
+Bewusste Nicht-Uebernahmen aus der Review-Idee:
+- kein Umzug des Capture-Skripts nach `infrastructure/scripts/`, weil es absichtlich die bestehenden `e2e`-Helper und Mock-API wiederverwendet
+- keine neue zweite PWA-Rule-Datei, weil die vorhandene `.claude/rules/frontend.md` bereits der richtige path-spezifische Einstiegspunkt ist
+- keine automatische Obsidian-Sonderzeile aus `log_obsidian_change.py` fuer jeden Visual-Check, damit der Hook weiter klar fuer Dateimutationen und nicht fuer beliebige Kommandos zustaendig bleibt
+
+Praktische A11y-Fixes aus der ersten Einfuehrung:
+- Kontrast der Positions-/Badge-Texte in der Picking-UI angehoben
+- explizite Labels fuer Beschreibung und Prioritaet im Quality-Alert-Formular
+- zugaengliche `aria-label`s fuer Foto-Hinzufuegen und Foto-Entfernen
 
 Debugging-Erkenntnis:
 - der Proxy musste nicht umgebaut werden
@@ -134,6 +183,6 @@ Debugging-Erkenntnis:
 
 ## Naechste sinnvolle Schritte
 
-1. `verify-a11y` mit `@axe-core/playwright` fuer die Kernscreens ergaenzen
-2. optional ein zusaetzliches `.claude/rules/odoo.md` fuer `odoo/**` ergaenzen
-3. spaeter den Smoke-Test weiter haerten, falls die transienten Stack-Effekte erneut auftauchen
+1. auf den Visual-Artefakten aufbauend echte visuelle Snapshot- oder Diff-Checks fuer 1-2 Kernscreens einfuehren
+2. spaeter den Smoke-Test weiter haerten, falls die transienten Stack-Effekte erneut auftauchen
+3. mittelfristig einen sauberen Contract-First-Pfad zwischen Backend und PWA definieren
