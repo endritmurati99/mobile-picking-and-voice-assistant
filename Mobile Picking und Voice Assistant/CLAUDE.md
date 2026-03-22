@@ -39,6 +39,7 @@ make test-ui
 make test-api
 make verify-code
 make verify-ui
+make verify-workflows
 make verify-stack
 make verify
 make seed
@@ -77,6 +78,7 @@ Lokaler Test-Bootstrap:
 - `test` und `verify-code` nutzen diesen lokalen Pfad automatisch
 - `install-ui-deps` installiert Playwright plus Chromium fuer den lokalen Browser-Verify-Layer
 - `test-ui` und `verify-ui` starten reproduzierbare PWA-Browser-Tests ueber Playwright
+- `verify-workflows` prueft die Vertraege zwischen `n8n/workflows/*.json` und den `n8n.fire(...)`-Payloads im Backend
 
 ## Delegation
 
@@ -103,6 +105,7 @@ Lokaler Test-Bootstrap:
 - Wenn Claude in der aktuellen Session Dateien editiert hat, darf der Task erst abgeschlossen werden, wenn der Obsidian-Sync-Hook erfolgreich gelaufen ist.
 - Bei Aenderungen an `backend/`, `odoo/`, `pwa/` oder relevanten Infrastruktur-Skripten muss `verify-code` erfolgreich sein.
 - Bei Aenderungen an `pwa/`, den Playwright-Specs oder der UI-Testkonfiguration muss `verify-ui` erfolgreich sein.
+- Bei Aenderungen an `n8n/workflows/` oder Backend-Webhook-Vertraegen muss `verify-workflows` erfolgreich sein.
 - Wenn der lokale Stack laeuft, wird zusaetzlich `verify-stack` erwartet.
 - Diese Kriterien werden technisch ueber den `TaskCompleted`-Hook in `.claude/settings.json` durchgesetzt.
 

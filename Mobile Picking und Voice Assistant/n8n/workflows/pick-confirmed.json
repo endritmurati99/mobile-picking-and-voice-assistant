@@ -20,7 +20,7 @@
         "conditions": {
           "boolean": [
             {
-              "value1": "={{ $json.picking_complete }}",
+              "value1": "={{ !!$json.picking_id }}",
               "value2": true
             }
           ]
@@ -43,7 +43,7 @@
     },
     {
       "parameters": {
-        "content": "=📦 Picking **{{ $json.picking_name }}** wurde vollständig abgeschlossen.\n\nAbgeschlossen von: {{ $json.user }}\nZeit: {{ $now.format('dd.MM.yyyy HH:mm') }}"
+        "content": "=Picking **{{ $json.picking_id }}** wurde vollstaendig abgeschlossen.\n\nAbgeschlossen von: {{ $json.completed_by }}\nZeit: {{ $now.format('dd.MM.yyyy HH:mm') }}"
       },
       "name": "Log Completion",
       "type": "n8n-nodes-base.set",

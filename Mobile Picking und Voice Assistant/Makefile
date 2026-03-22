@@ -1,4 +1,4 @@
-.PHONY: help setup install-backend-deps install-ui-deps build-all build-backend build-odoo up down logs seed test test-ui test-api verify-code verify-ui verify-stack verify clean
+.PHONY: help setup install-backend-deps install-ui-deps build-all build-backend build-odoo up down logs seed test test-ui test-api verify-code verify-ui verify-workflows verify-stack verify clean
 
 SHELL := /bin/bash
 -include .env
@@ -59,6 +59,9 @@ test-ui: ## Browser-Tests fuer die PWA
 test-api: ## API-Rauchtest
 	python infrastructure/scripts/test-api.py
 
+verify-workflows: ## n8n-Workflow-Vertraege gegen Backend-Webhooks pruefen
+	python infrastructure/scripts/verify-workflows.py
+
 verify-code: ## Schneller Code-Check ohne laufenden Stack
 	$(MAKE) test
 
@@ -71,6 +74,7 @@ verify-stack: ## Stack-Check gegen laufende lokale Instanz
 verify: ## Voller Verify-Lauf: Tests plus API-Rauchtest
 	$(MAKE) verify-code
 	$(MAKE) verify-ui
+	$(MAKE) verify-workflows
 	$(MAKE) verify-stack
 
 clean: ## Alles entfernen

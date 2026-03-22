@@ -25,7 +25,7 @@
     },
     {
       "parameters": {
-        "content": "=⚠️ **Quality Alert {{ $json.alert_name }}** erstellt\n\nProdukt: {{ $json.product_name }}\nPicking: {{ $json.picking_name }}\nPriorität: {{ $json.priority }}\nBeschreibung: {{ $json.description }}"
+        "content": "=Quality Alert **{{ $json.name }}** erstellt\n\nAlert-ID: {{ $json.alert_id }}\nPicking-ID: {{ $json.picking_id }}\nPrioritaet: {{ $json.priority }}\nFotos: {{ $json.photo_count }}"
       },
       "name": "Format Alert",
       "type": "n8n-nodes-base.set",

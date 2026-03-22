@@ -7,6 +7,7 @@ from pathlib import Path
 
 VERIFY_PREFIXES = (
     "Mobile Picking und Voice Assistant/backend/",
+    "Mobile Picking und Voice Assistant/n8n/workflows/",
     "Mobile Picking und Voice Assistant/odoo/",
     "Mobile Picking und Voice Assistant/pwa/",
     "Mobile Picking und Voice Assistant/infrastructure/scripts/",
@@ -25,6 +26,11 @@ CODE_VERIFY_PREFIXES = (
     "Mobile Picking und Voice Assistant/odoo/",
     "Mobile Picking und Voice Assistant/infrastructure/scripts/",
     "Mobile Picking und Voice Assistant/docker-compose.yml",
+)
+
+WORKFLOW_VERIFY_PREFIXES = (
+    "Mobile Picking und Voice Assistant/backend/app/",
+    "Mobile Picking und Voice Assistant/n8n/workflows/",
 )
 
 
@@ -85,6 +91,10 @@ def requires_code_verify(edited_paths: list[str]) -> bool:
 
 def requires_ui_verify(edited_paths: list[str]) -> bool:
     return any(path.startswith(UI_VERIFY_PREFIXES) for path in edited_paths)
+
+
+def requires_workflow_verify(edited_paths: list[str]) -> bool:
+    return any(path.startswith(WORKFLOW_VERIFY_PREFIXES) for path in edited_paths)
 
 
 def run_command(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -178,6 +188,20 @@ def main() -> int:
         print("Completion check: verify-ui erfolgreich.")
     else:
         print("Completion check: verify-ui uebersprungen, keine PWA/UI-Aenderungen erkannt.")
+
+    if requires_workflow_verify(edited_paths):
+        verify_workflows = run_command(
+            ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(workflow_script), "verify-workflows"],
+            cwd=app_root,
+        )
+        if verify_workflows.returncode != 0:
+            sys.stderr.write("verify-workflows fehlgeschlagen. Bitte gleiche Backend- und n8n-Vertraege ab.\n")
+            sys.stderr.write(verify_workflows.stdout)
+            sys.stderr.write(verify_workflows.stderr)
+            return 2
+        print("Completion check: verify-workflows erfolgreich.")
+    else:
+        print("Completion check: verify-workflows uebersprungen, keine Workflow-relevanten Aenderungen erkannt.")
 
     if stack_is_running(app_root):
         verify_stack = run_command(

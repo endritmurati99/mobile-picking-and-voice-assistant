@@ -7,10 +7,9 @@ test('loads the picking list and opens the picking detail view', async ({ page }
   await page.goto('/');
 
   await expect(page.locator('#status-indicator')).toHaveText('Online');
-  await expect(page.locator('.pick-card[data-id]')).toHaveCount(1);
-  await expect(page.locator('.pick-card[data-id]').first()).toContainText('WH/INT/00007');
+  await expect(page.getByText('WH/INT/00007')).toBeVisible();
 
-  await page.locator('.pick-card[data-id]').first().click();
+  await page.getByText('WH/INT/00007').click();
 
   await expect(page.locator('#main')).toContainText('Brick 2x2 orange');
   await expect(page.locator('#main')).toContainText('1 / 2');

@@ -5,7 +5,7 @@ test('submits a quality alert from the active picking context', async ({ page })
   const api = await mockPwaApi(page);
 
   await page.goto('/');
-  await page.locator('.pick-card[data-id]').first().click();
+  await page.getByText('WH/INT/00007').click();
 
   await page.locator('#btn-alert').click();
 

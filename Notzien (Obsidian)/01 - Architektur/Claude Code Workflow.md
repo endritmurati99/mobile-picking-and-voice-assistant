@@ -66,6 +66,7 @@ Der Workflow enthaelt jetzt explizite Verify-Targets im Projekt-`Makefile`:
 - `make install-ui-deps` fuer Playwright und den Chromium-Testbrowser
 - `make verify-code` fuer schnelle Backend-Tests ohne laufenden Stack
 - `make verify-ui` fuer reproduzierbare PWA-Browser-Tests mit Playwright
+- `make verify-workflows` fuer die Vertraege zwischen Backend-Webhooks und `n8n/workflows/*.json`
 - `make verify-stack` fuer den API-Rauchtest gegen den laufenden lokalen Stack
 - `make verify` fuer Backend-, UI- und Stack-Checks hintereinander
 
@@ -84,6 +85,8 @@ Aktueller Praxispunkt:
 - test-spezifische Pakete wie `pytest-asyncio` liegen getrennt in `backend/requirements-dev.txt`
 - die PWA hat jetzt zusaetzlich ein lokales Playwright-Projekt mit `playwright.config.js`, `package.json` und Specs unter `e2e/`
 - die Browser-Tests laufen bewusst gegen eine lokale statische PWA plus gemockte `/api/*`-Antworten, damit UI-Regressionen reproduzierbar und ohne Live-Daten abpruefbar bleiben
+- fuer n8n gibt es jetzt ein leichtgewichtiges Validierungsskript `infrastructure/scripts/verify-workflows.py`, das `n8n.fire(...)`-Payloads im Backend gegen die tatsaechlich referenzierten `$json.*`-Felder in den Workflow-JSONs prueft
+- die Webhook-Workflows `pick-confirmed.json` und `quality-alert-created.json` wurden auf die aktuell gelieferten Backend-Payloads ausgerichtet
 
 ### 4. Obsidian-Logging als fester Workflow-Baustein
 
@@ -101,6 +104,7 @@ Wirkung:
 - wenn Claude in der Session Dateien bearbeitet hat, wird vor Task-Abschluss geprueft, ob der Obsidian-Sync erfolgreich war
 - fuer relevante Code-Aenderungen wird automatisch `verify-code` ausgefuehrt
 - fuer relevante PWA- oder Playwright-Aenderungen wird automatisch `verify-ui` ausgefuehrt
+- fuer relevante Backend-Webhook- oder `n8n/workflows/`-Aenderungen wird automatisch `verify-workflows` ausgefuehrt
 - `verify-stack` wird zusaetzlich erzwungen, wenn der lokale Stack erkennbar laeuft
 
 Damit wird "fertig" nicht mehr nur textlich behauptet, sondern technisch ueberprueft.
@@ -119,10 +123,17 @@ Wichtige Sicherheitsentscheidung:
 Aktueller Verifikationsstand:
 - `workflow.ps1 verify-code`: 25/25 Backend-Tests gruen
 - `workflow.ps1 verify-ui`: 3/3 Playwright-Browser-Tests gruen
-- `workflow.ps1 verify`: Backend-Tests gruen, Playwright 3/3 gruen und API-Smoke-Test 7/7 gegen `https://localhost`
+- `workflow.ps1 verify-workflows`: Workflow-Vertragspruefung gruen
+- `workflow.ps1 verify-stack`: API-Smoke-Test 7/7 gruen
+- `workflow.ps1 verify`: Backend-Tests gruen, Playwright 3/3 gruen, Workflow-Vertragspruefung gruen und API-Smoke-Test 7/7 gruen
+
+Debugging-Erkenntnis:
+- der Proxy musste nicht umgebaut werden
+- rohe Requests gegen `https://localhost/api/*` und Direktaufrufe gegen `http://127.0.0.1:8000/api/*` lieferten identische JSON-/422-Antworten
+- die zuvor roten `verify-stack`-Laeufe waren damit kein belastbarer Beleg fuer einen Prefix- oder `handle_path`-Fehler in Caddy
 
 ## Naechste sinnvolle Schritte
 
-1. Playwright-MCP gezielt fuer visuelle Debug-Sessions und Screenshots am Live-Stack testen
-2. `verify-a11y` mit `@axe-core/playwright` fuer die Kernscreens ergaenzen
-3. n8n-Workflow-Validator als Skript oder Subagent ergaenzen
+1. `verify-a11y` mit `@axe-core/playwright` fuer die Kernscreens ergaenzen
+2. optional ein zusaetzliches `.claude/rules/odoo.md` fuer `odoo/**` ergaenzen
+3. spaeter den Smoke-Test weiter haerten, falls die transienten Stack-Effekte erneut auftauchen

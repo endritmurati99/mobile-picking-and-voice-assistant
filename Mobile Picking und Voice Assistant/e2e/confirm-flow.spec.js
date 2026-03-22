@@ -5,7 +5,7 @@ test('confirms both move lines and reaches the completion view', async ({ page }
   const api = await mockPwaApi(page);
 
   await page.goto('/');
-  await page.locator('.pick-card[data-id]').first().click();
+  await page.getByText('WH/INT/00007').click();
 
   await page.locator('.btn-confirm').click();
 

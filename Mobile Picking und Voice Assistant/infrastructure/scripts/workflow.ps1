@@ -18,6 +18,7 @@ param(
         "test-api",
         "verify-code",
         "verify-ui",
+        "verify-workflows",
         "verify-stack",
         "verify",
         "clean",
@@ -64,6 +65,7 @@ Available tasks:
   test-api
   verify-code
   verify-ui
+  verify-workflows
   verify-stack
   verify
   clean
@@ -133,6 +135,7 @@ try {
         }
         "test-ui" { Invoke-Step { npx.cmd playwright test } }
         "test-api" { Invoke-Step { python infrastructure/scripts/test-api.py } }
+        "verify-workflows" { Invoke-Step { python infrastructure/scripts/verify-workflows.py } }
         "verify-code" {
             Invoke-Step { & $PSCommandPath test }
         }
@@ -145,6 +148,7 @@ try {
         "verify" {
             Invoke-Step { & $PSCommandPath verify-code }
             Invoke-Step { & $PSCommandPath verify-ui }
+            Invoke-Step { & $PSCommandPath verify-workflows }
             Invoke-Step { & $PSCommandPath verify-stack }
         }
         "clean" { Invoke-Step { docker compose down -v --rmi local } }
