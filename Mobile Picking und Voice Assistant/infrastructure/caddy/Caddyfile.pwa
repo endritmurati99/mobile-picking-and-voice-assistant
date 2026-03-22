@@ -1,0 +1,10 @@
+:80 {
+    root * /srv
+    file_server
+    try_files {path} /index.html
+
+    header {
+        Service-Worker-Allowed "/"
+        Cache-Control "no-cache, no-store, must-revalidate"
+    }
+}

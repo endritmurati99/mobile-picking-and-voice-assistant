@@ -1,0 +1,37 @@
+# Environment
+.env
+*.env.local
+
+# Zertifikate
+infrastructure/certs/*.pem
+infrastructure/certs/*.crt
+infrastructure/certs/*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Node
+node_modules/
+
+# Docker
+docker-compose.override.yml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Odoo
+odoo/filestore/
+
+# n8n
+.n8n/

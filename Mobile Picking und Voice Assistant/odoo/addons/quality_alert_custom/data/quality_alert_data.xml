@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <record id="seq_quality_alert" model="ir.sequence">
+        <field name="name">Quality Alert</field>
+        <field name="code">quality.alert.custom</field>
+        <field name="prefix">QA/</field>
+        <field name="padding">4</field>
+    </record>
+    <record id="stage_new" model="quality.alert.stage.custom">
+        <field name="name">Neu</field>
+        <field name="sequence">10</field>
+    </record>
+    <record id="stage_in_progress" model="quality.alert.stage.custom">
+        <field name="name">In Bearbeitung</field>
+        <field name="sequence">20</field>
+    </record>
+    <record id="stage_done" model="quality.alert.stage.custom">
+        <field name="name">Erledigt</field>
+        <field name="sequence">30</field>
+        <field name="fold">True</field>
+    </record>
+</odoo>

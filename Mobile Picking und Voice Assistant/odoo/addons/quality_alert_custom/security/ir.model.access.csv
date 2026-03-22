@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_quality_alert_user,quality.alert.custom.user,model_quality_alert_custom,group_quality_user,1,1,1,0
+access_quality_alert_manager,quality.alert.custom.manager,model_quality_alert_custom,group_quality_manager,1,1,1,1
+access_quality_alert_stage_user,quality.alert.stage.custom.user,model_quality_alert_stage_custom,group_quality_user,1,0,0,0
+access_quality_alert_stage_manager,quality.alert.stage.custom.manager,model_quality_alert_stage_custom,group_quality_manager,1,1,1,1

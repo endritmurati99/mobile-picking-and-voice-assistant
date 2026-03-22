@@ -1,0 +1,15 @@
+{
+    "name": "LogILab Picking Assistant",
+    "short_name": "Picking",
+    "description": "Mobiler Picking-Assistent mit Voice und Qualitätserfassung",
+    "start_url": "/",
+    "display": "standalone",
+    "orientation": "portrait",
+    "theme_color": "#1a1a2e",
+    "background_color": "#1a1a2e",
+    "lang": "de",
+    "icons": [
+        { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+        { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+    ]
+}

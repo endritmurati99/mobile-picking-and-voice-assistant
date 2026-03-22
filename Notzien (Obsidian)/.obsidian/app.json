@@ -1,0 +1,13 @@
+{
+  "promptDelete": false,
+  "defaultViewMode": "source",
+  "livePreview": true,
+  "legacyEditor": false,
+  "foldHeading": true,
+  "foldIndent": true,
+  "showLineNumber": false,
+  "tabSize": 2,
+  "useTab": false,
+  "readableLineLength": true,
+  "showFrontmatter": false
+}

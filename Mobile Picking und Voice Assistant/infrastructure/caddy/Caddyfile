@@ -1,0 +1,30 @@
+{$LAN_HOST}:443 {
+    tls /certs/cert.pem /certs/key.pem
+
+    handle /api/* {
+        reverse_proxy backend:8000
+    }
+
+    @odoo_path path /odoo /odoo/*
+    handle @odoo_path {
+        redir http://{$LAN_HOST}:8069/ 308
+    }
+
+    handle /n8n/* {
+        uri strip_prefix /n8n
+        reverse_proxy n8n:5678
+    }
+
+    handle /* {
+        reverse_proxy pwa:80
+    }
+
+    log {
+        output stdout
+        format console
+    }
+}
+
+{$LAN_HOST}:80 {
+    redir https://{$LAN_HOST}{uri} permanent
+}

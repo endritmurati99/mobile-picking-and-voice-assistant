@@ -1,0 +1,16 @@
+.claude/
+.vscode/
+
+# Local Obsidian workspace state
+Notzien (Obsidian)/.obsidian/workspace.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Common caches
+**/__pycache__/
+**/.pytest_cache/
+
+# Archive artifacts
+*.zip

@@ -1,0 +1,142 @@
+version: "3.8"
+
+services:
+  # ── Reverse Proxy ──────────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "443:443"
+      - "80:80"
+    environment:
+      LAN_HOST: ${LAN_HOST:-localhost}
+    volumes:
+      - ./infrastructure/caddy/Caddyfile:/etc/caddy/Caddyfile
+      - ./infrastructure/certs:/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - picking-net
+
+  # ── PostgreSQL ─────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-odoo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD muss gesetzt sein}
+      POSTGRES_DB: postgres
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./infrastructure/scripts/init-n8n-db.sql:/docker-entrypoint-initdb.d/init-n8n-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-odoo}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - picking-net
+
+  # ── Odoo 18 Community ─────────────────────────────────────
+  odoo:
+    build:
+      context: ./odoo
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      HOST: db
+      PORT: 5432
+      USER: ${POSTGRES_USER:-odoo}
+      PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "8069:8069"
+    volumes:
+      - odoo_data:/var/lib/odoo
+      - ./odoo/odoo.conf:/etc/odoo/odoo.conf:ro
+      - ./odoo/addons:/mnt/extra-addons:ro
+    networks:
+      - picking-net
+
+  # ── App-Backend (FastAPI) ──────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - odoo
+      - vosk
+    environment:
+      ODOO_URL: http://odoo:8069
+      ODOO_DB: ${ODOO_DB:-picking}
+      ODOO_USER: ${ODOO_USER:-admin}
+      ODOO_API_KEY: ${ODOO_API_KEY:?ODOO_API_KEY muss gesetzt sein}
+      VOSK_URL: ws://vosk:2700
+      N8N_WEBHOOK_BASE: http://n8n:5678/webhook
+      N8N_WEBHOOK_SECRET: ${N8N_WEBHOOK_SECRET}
+      CORS_ORIGINS: "https://${LAN_HOST:-localhost}"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ./backend/app:/app/app:ro
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info", "--reload"]
+    networks:
+      - picking-net
+
+  # ── Vosk STT Server (Deutsch) ──────────────────────────────
+  vosk:
+    image: alphacep/kaldi-de:latest
+    restart: unless-stopped
+    networks:
+      - picking-net
+
+  # ── n8n ────────────────────────────────────────────────────
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: db
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: ${POSTGRES_USER:-odoo}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY muss gesetzt sein}
+      WEBHOOK_URL: https://${LAN_HOST:-localhost}/n8n/
+      N8N_PATH: /n8n/
+      N8N_HOST: 0.0.0.0
+      N8N_PORT: 5678
+      EXECUTIONS_PROCESS: main
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: 168
+      GENERIC_TIMEZONE: Europe/Berlin
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - picking-net
+
+  # ── PWA Static Server ──────────────────────────────────────
+  pwa:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    volumes:
+      - ./pwa:/srv:ro
+      - ./infrastructure/caddy/Caddyfile.pwa:/etc/caddy/Caddyfile
+    networks:
+      - picking-net
+
+volumes:
+  pg_data:
+  odoo_data:
+  caddy_data:
+  caddy_config:
+  n8n_data:
+
+networks:
+  picking-net:
+    driver: bridge

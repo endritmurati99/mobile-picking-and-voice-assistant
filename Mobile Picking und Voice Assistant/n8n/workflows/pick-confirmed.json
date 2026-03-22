@@ -1,0 +1,74 @@
+{
+  "name": "Pick Confirmed",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pick-confirmed",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.picking_complete }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "Picking komplett?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'received' }) }}"
+      },
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [650, 200]
+    },
+    {
+      "parameters": {
+        "content": "=📦 Picking **{{ $json.picking_name }}** wurde vollständig abgeschlossen.\n\nAbgeschlossen von: {{ $json.user }}\nZeit: {{ $now.format('dd.MM.yyyy HH:mm') }}"
+      },
+      "name": "Log Completion",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [650, 400]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [{ "node": "Picking komplett?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Picking komplett?": {
+      "main": [
+        [{ "node": "Respond", "type": "main", "index": 0 }],
+        [{ "node": "Respond", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateId": "pick-confirmed-v1"
+  },
+  "tags": [{ "name": "picking" }]
+}

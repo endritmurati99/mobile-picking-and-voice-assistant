@@ -1,0 +1,48 @@
+{
+  "name": "Quality Alert Created",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "quality-alert-created",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'received', alert_id: $json.alert_id }) }}"
+      },
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "content": "=⚠️ **Quality Alert {{ $json.alert_name }}** erstellt\n\nProdukt: {{ $json.product_name }}\nPicking: {{ $json.picking_name }}\nPriorität: {{ $json.priority }}\nBeschreibung: {{ $json.description }}"
+      },
+      "name": "Format Alert",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [450, 500]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          { "node": "Respond", "type": "main", "index": 0 },
+          { "node": "Format Alert", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "quality" }]
+}

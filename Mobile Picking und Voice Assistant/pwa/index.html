@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#1a1a2e">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="stylesheet" href="/css/app.css">
+    <title>Picking Assistant</title>
+</head>
+<body>
+    <div id="app">
+        <header id="header">
+            <h1>Picking Assistant</h1>
+            <span id="status-indicator" class="status offline">Offline</span>
+        </header>
+        <main id="main"><p>Wird geladen...</p></main>
+        <nav id="nav">
+            <button id="btn-voice" class="nav-btn" aria-label="Voice">🎤</button>
+            <button id="btn-scan" class="nav-btn" aria-label="Scan">📷</button>
+            <button id="btn-alert" class="nav-btn" aria-label="Problem">⚠️</button>
+        </nav>
+    </div>
+    <script src="/js/app.js" type="module"></script>
+</body>
+</html>
