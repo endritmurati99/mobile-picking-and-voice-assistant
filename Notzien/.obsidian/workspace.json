@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "03 - Features/Phase 2 - Backend und PWA Shell.md",
+                "file": "01 - Architektur/System Architektur.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Phase 2 - Backend und PWA Shell"
+              "title": "System Architektur"
             }
           }
         ]
@@ -185,6 +185,10 @@
   },
   "active": "c5a7af473967eac2",
   "lastOpenFiles": [
+    "01 - Architektur/Odoo 18 Entscheidungen.md",
+    "01 - Architektur/System Architektur.md",
+    "02 - Daily Notes/2026-03-21.md",
+    "03 - Features/Phase 2 - Backend und PWA Shell.md",
     "02 - Daily Notes/2026-03-22.md",
     "01 - Architektur/Voice Intent Engine.md",
     "04 - Ressourcen/Links.md",
@@ -193,16 +197,12 @@
     "03 - Features/Phase 5 - n8n Orchestrierung.md",
     "00 - Projekt Übersicht.md",
     "03 - Features/Phase 1 - Odoo Datenmodell.md",
-    "02 - Daily Notes/2026-03-21.md",
     "03 - Features/Phase 6 - Integration und Lagertest.md",
-    "03 - Features/Phase 2 - Backend und PWA Shell.md",
     "03 - Features/Phase 4 - Voice Picking.md",
     "03 - Features/Phase 3 - Barcode Scanning.md",
     "03 - Features/Phase 0 - Infrastruktur.md",
     "01 - Architektur/PWA Implementierungshinweise.md",
-    "01 - Architektur/Odoo 18 Entscheidungen.md",
     "01 - Architektur/Claude Code Workflow.md",
-    "01 - Architektur/API Dokumentation.md",
-    "01 - Architektur/System Architektur.md"
+    "01 - Architektur/API Dokumentation.md"
   ]
 }

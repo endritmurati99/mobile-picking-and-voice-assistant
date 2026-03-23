@@ -223,3 +223,17 @@ Automatisches Protokoll fuer von Claude Code bearbeitete Dateien.
 - 2026-03-23 11:38:18 | Edit | `Notzien/01 - Architektur/Voice Intent Engine.md`
 - 2026-03-23 11:38:28 | Edit | `Notzien/01 - Architektur/Voice Intent Engine.md`
 - 2026-03-23 11:38:38 | Edit | `Notzien/01 - Architektur/Voice Intent Engine.md`
+- 2026-03-23 15:03:40 | Write | `.claude/projects/c--Users-endri-Desktop-Bachelor/memory/project_email_mqtt.md`
+- 2026-03-23 15:04:20 | Write | `.claude/projects/c--Users-endri-Desktop-Bachelor/memory/MEMORY.md`
+- 2026-03-23 15:28:48 | Edit | `Mobile Picking und Voice Assistant/infrastructure/caddy/Caddyfile`
+- 2026-03-23 15:48:05 | Edit | `Mobile Picking und Voice Assistant/pwa/js/voice.js`
+- 2026-03-23 15:48:21 | Edit | `Mobile Picking und Voice Assistant/pwa/js/voice.js`
+- 2026-03-23 15:48:35 | Edit | `Mobile Picking und Voice Assistant/pwa/js/feedback.js`
+- 2026-03-23 15:48:43 | Edit | `Mobile Picking und Voice Assistant/pwa/js/api.js`
+- 2026-03-23 15:52:00 | Edit | `Mobile Picking und Voice Assistant/pwa/js/voice.js`
+- 2026-03-23 15:52:13 | Edit | `Mobile Picking und Voice Assistant/pwa/js/voice.js`
+- 2026-03-23 15:52:20 | Edit | `Mobile Picking und Voice Assistant/pwa/js/voice.js`
+- 2026-03-23 15:52:36 | Edit | `Mobile Picking und Voice Assistant/backend/app/services/picking_service.py`
+- 2026-03-23 15:52:41 | Edit | `Mobile Picking und Voice Assistant/pwa/js/app.js`
+- 2026-03-23 15:53:52 | Write | `Mobile Picking und Voice Assistant/infrastructure/scripts/seed-odoo.py`
+- 2026-03-23 16:58:14 | Edit | `Mobile Picking und Voice Assistant/infrastructure/scripts/seed-odoo.py`

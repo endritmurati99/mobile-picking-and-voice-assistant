@@ -36,11 +36,70 @@ const CHECK_MS = 30;             // Monitor-Intervall
 let onIntentCallback = null;
 let onModeChangeCallback = null;
 
+// ── Voice-Auswahl ────────────────────────────────────────────
+// Lädt deutsche Stimmen asynchron und bevorzugt Enhanced-Qualität.
+let _cachedDeVoice = null;
+
+function _loadBestDeVoice() {
+    const voices = window.speechSynthesis.getVoices();
+    const deVoices = voices.filter(v => v.lang.startsWith('de'));
+    if (!deVoices.length) return null;
+    // Priorität: 1) Markus/Anna Enhanced, 2) beliebig Enhanced, 3) Markus/Anna Compact, 4) kein Eloquence
+    const preferred = ['markus', 'anna'];
+    const byName = deVoices.find(v =>
+        preferred.some(n => v.name.toLowerCase().includes(n)) &&
+        /enhanced/i.test(v.name)
+    );
+    const anyEnhanced = deVoices.find(v => /enhanced|premium/i.test(v.name) && !/eloquence/i.test(v.name));
+    const byNameAny = deVoices.find(v => preferred.some(n => v.name.toLowerCase().includes(n)));
+    const noEloquence = deVoices.find(v => !/eloquence|compact/i.test(v.name));
+    return byName || anyEnhanced || byNameAny || noEloquence || deVoices[0];
+}
+
+if ('speechSynthesis' in window) {
+    // iOS lädt Stimmen asynchron — beim voiceschanged-Event cachen
+    window.speechSynthesis.addEventListener('voiceschanged', () => {
+        _cachedDeVoice = _loadBestDeVoice();
+    });
+    // Sofort versuchen (Desktop-Browser haben Stimmen synchron verfügbar)
+    _cachedDeVoice = _loadBestDeVoice();
+}
+
+// ── iOS TTS Unlock ───────────────────────────────────────────
+// iOS Safari blocks speechSynthesis until the first speak() from a
+// user gesture. We unlock on first touch and replay any queued text.
+let _ttsUnlocked = false;
+let _pendingSpeech = null;
+function _unlockTTS() {
+    if (_ttsUnlocked || !('speechSynthesis' in window)) return;
+    _ttsUnlocked = true;
+    // Dummy utterance to unlock the audio path
+    const u = new SpeechSynthesisUtterance(' ');
+    u.volume = 0.01;
+    u.lang = 'de-DE';
+    window.speechSynthesis.speak(u);
+    // Replay queued speech after unlock
+    if (_pendingSpeech) {
+        const text = _pendingSpeech;
+        _pendingSpeech = null;
+        setTimeout(() => speak(text), 200);
+    }
+}
+document.addEventListener('touchstart', _unlockTTS, { once: true, passive: true });
+document.addEventListener('pointerdown', _unlockTTS, { once: true, passive: true });
+
 // ── TTS ─────────────────────────────────────────────────────
 
 export function speak(text) {
     return new Promise((resolve) => {
         if (!('speechSynthesis' in window)) { resolve(); return; }
+
+        // iOS: queue speech until first user gesture unlocks TTS
+        if (!_ttsUnlocked) {
+            _pendingSpeech = text;
+            resolve();
+            return;
+        }
 
         // Mikrofon stummschalten während TTS
         ttsBusy = true;
@@ -48,30 +107,38 @@ export function speak(text) {
         stopCurrentRecording();
 
         window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'de-DE';
-        utterance.rate = 1.1;
-        utterance.pitch = 1.0;
 
-        function done() {
-            ttsBusy = false;
-            muteMic(false);
-            // Nach TTS: Aufnahme-Zyklus neu starten
-            if (voiceModeActive) {
-                setTimeout(() => {
-                    if (voiceModeActive && !isRecording && !ttsBusy) startListeningCycle();
-                }, 200);
+        // iOS needs a tick after cancel() before the next speak() is accepted
+        setTimeout(() => {
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'de-DE';
+            utterance.rate = 1.1;
+            utterance.pitch = 1.0;
+
+            function done() {
+                ttsBusy = false;
+                muteMic(false);
+                // Nach TTS: Aufnahme-Zyklus neu starten
+                if (voiceModeActive) {
+                    setTimeout(() => {
+                        if (voiceModeActive && !isRecording && !ttsBusy) startListeningCycle();
+                    }, 200);
+                }
+                resolve();
             }
-            resolve();
-        }
 
-        utterance.onend = done;
-        utterance.onerror = done;
+            utterance.onend = done;
+            utterance.onerror = done;
 
-        const voices = window.speechSynthesis.getVoices();
-        const deVoice = voices.find(v => v.lang.startsWith('de'));
-        if (deVoice) utterance.voice = deVoice;
-        window.speechSynthesis.speak(utterance);
+            const allVoices = window.speechSynthesis.getVoices();
+            const deVoice = _cachedDeVoice || _loadBestDeVoice();
+            if (deVoice) utterance.voice = deVoice;
+            // DEBUG: Stimmen-Info in Konsole (kann später entfernt werden)
+            const deNames = allVoices.filter(v => v.lang.startsWith('de')).map(v => v.name).join(' | ');
+            console.log(`[TTS] Verfügbare DE-Stimmen: ${deNames}`);
+            console.log(`[TTS] Gewählt: ${deVoice?.name ?? 'keine (Browser-Default)'}`);
+            window.speechSynthesis.speak(utterance);
+        }, 80);
     });
 }
 
@@ -105,22 +172,34 @@ function stopMonitor() {
 
 // ── Voice-Toggle ────────────────────────────────────────────
 
-export function toggleVoiceMode(onIntent, onModeChange) {
+export function toggleVoiceMode(onIntent, onModeChange, onError) {
     onIntentCallback = onIntent;
     onModeChangeCallback = onModeChange;
     if (voiceModeActive) deactivateVoiceMode();
-    else activateVoiceMode();
+    else activateVoiceMode(onError);
 }
 
 export function isVoiceModeActive() { return voiceModeActive; }
 
-async function activateVoiceMode() {
+async function activateVoiceMode(onError) {
     if (voiceModeActive) return;
     try {
+        // getUserMedia must be called as close to the user gesture as
+        // possible. We await it directly here; callers must ensure this
+        // function is invoked from within a click/pointerdown handler
+        // without any intervening await before this line.
         micStream = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1, sampleRate: 16000 }
+            audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 }
         });
+
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+        // iOS Safari creates AudioContext in 'suspended' state even from
+        // within a user-gesture frame. resume() must be called explicitly.
+        if (audioContext.state === 'suspended') {
+            await audioContext.resume();
+        }
+
         analyser = audioContext.createAnalyser();
         analyser.fftSize = 512;
         audioContext.createMediaStreamSource(micStream).connect(analyser);
@@ -134,6 +213,7 @@ async function activateVoiceMode() {
         console.error('Mikrofon-Zugriff fehlgeschlagen:', e);
         voiceModeActive = false;
         if (onModeChangeCallback) onModeChangeCallback(false);
+        if (onError) onError(e);
     }
 }
 
@@ -247,7 +327,7 @@ async function startListeningCycle() {
 export async function startRecording() {
     if (isRecording) return;
     const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1, sampleRate: 16000 }
+        audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 }
     });
     audioChunks = [];
     const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/mp4';

@@ -1,4 +1,4 @@
-{$LAN_HOST}:443 {
+:443 {
     tls /certs/cert.pem /certs/key.pem
 
     handle /api/* {
@@ -25,6 +25,6 @@
     }
 }
 
-{$LAN_HOST}:80 {
+:80 {
     redir https://{$LAN_HOST}{uri} permanent
 }

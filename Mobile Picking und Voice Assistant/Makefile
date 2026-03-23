@@ -1,4 +1,4 @@
-.PHONY: help setup install-backend-deps install-ui-deps build-all build-backend build-odoo up down logs seed test test-ui test-visual test-visual-diff test-visual-diff-update test-a11y test-api verify-code verify-ui verify-visual verify-visual-diff verify-a11y verify-workflows verify-stack verify clean
+.PHONY: help setup install-backend-deps install-ui-deps build-all build-backend build-odoo up down logs seed test test-ui test-visual test-visual-diff test-visual-diff-update test-a11y test-api test-n8n-api verify-code verify-ui verify-visual verify-visual-diff verify-a11y verify-workflows verify-odoo-schema verify-stack verify clean
 
 SHELL := /bin/bash
 -include .env
@@ -71,8 +71,16 @@ test-a11y: ## Accessibility-Checks fuer die PWA mit Axe + Playwright
 test-api: ## API-Rauchtest
 	python infrastructure/scripts/test-api.py
 
+test-n8n-api: ## n8n Public API mit API-Key pruefen
+	python infrastructure/scripts/test-n8n-api.py
+
 verify-workflows: ## n8n-Workflow-Vertraege gegen Backend-Webhooks pruefen
 	python infrastructure/scripts/verify-workflows.py
+
+verify-odoo-schema: ## Ruflo Odoo Audit
+	@echo "🛡️ Starting Ruflo Odoo Audit..."
+	@ruflo exec odoo-auditor "Validiere das Schema der Tabelle 'quality_alert' gegen die Spezifikation in Obsidian."
+	@echo "✅ Audit completed."
 
 verify-code: ## Schneller Code-Check ohne laufenden Stack
 	$(MAKE) test

@@ -41,6 +41,7 @@ make test-visual-diff
 make test-visual-diff-update
 make test-a11y
 make test-api
+make test-n8n-api
 make verify-code
 make verify-ui
 make verify-visual
@@ -70,13 +71,17 @@ powershell -ExecutionPolicy Bypass -File infrastructure/scripts/workflow.ps1 ins
 powershell -ExecutionPolicy Bypass -File infrastructure/scripts/workflow.ps1 install-ui-deps
 ```
 
-PostgreSQL-MCP:
+MCP:
 
 ```bash
 claude mcp list
 ```
 
-Der Projekt-MCP `postgres-local` wird ueber `.mcp.json` geladen und nutzt den lokalen, nur auf `127.0.0.1` gebundenen PostgreSQL-Port.
+Die Projekt-MCPs werden ueber `.mcp.json` geladen.
+- `postgres-local` nutzt den lokalen, nur auf `127.0.0.1` gebundenen PostgreSQL-Port.
+- n8n MCP wird in Claude Code bewusst **nicht** ueber die geteilte `.mcp.json` konfiguriert, weil dafuer ein persoenlicher MCP-Token noetig ist.
+- Fuer dieses Projekt n8n stattdessen lokal mit `claude mcp add -s local --transport http ...` anbinden, damit keine Secrets im Repo landen.
+- Bei lokalem n8n ueber `https://localhost` braucht Claude Code zusaetzlich oft `SSL_CERT_FILE` und `NODE_EXTRA_CA_CERTS` auf die `mkcert`-Root-CA, sonst scheitert der HTTP-MCP-Handshake trotz korrektem Token.
 
 Lokaler Test-Bootstrap:
 
@@ -109,8 +114,14 @@ Lokaler Test-Bootstrap:
 ## Obsidian-Pflicht
 
 - Jede relevante Code-Aenderung muss in Obsidian nachvollziehbar sein.
-- Der Projekt-Hook schreibt Datei-Aenderungen automatisch nach `Notzien (Obsidian)/04 - Ressourcen/Claude Code Aenderungslog.md`.
+- Der Projekt-Hook schreibt Datei-Aenderungen automatisch nach `Notzien/04 - Ressourcen/Claude Code Aenderungslog.md`.
+- Der Hook legt den Session-Nachweis zusaetzlich in `.claude/state/last_obsidian_sync.json` ab; darauf stuetzt sich der Completion-Check.
+- Fuer schnellen Note-Zugriff zuerst `../Notzien/00 - Projekt Übersicht.md` lesen und dann nur die direkt relevanten Architektur-, Phasen- oder Daily-Notes oeffnen.
+- Obsidian wird in diesem Repo mit normalen Markdown-Dateien, Wikilinks und gezielter Volltextsuche genutzt; es gibt keine separate Obsidian-API oder eigene Metadatenbank.
+- Fuer Code-Arbeit werden Notizen gezielt gelesen und mit `rg` durchsucht, nicht als kompletter Vault in den Kontext gezogen.
 - Bei Architektur- oder Prozessentscheidungen zusaetzlich die Daily Note fuer den aktuellen Tag aktualisieren.
+- Fuer n8n-Integrationen keine Tokens ins Repo schreiben; Public API und MCP laufen bewusst ueber lokale Umgebungsvariablen.
+- Fuer Claude-Code-MCP ist bei n8n der direkte HTTP-Transport der richtige Weg; ein stdio/supergateway-Wrapper ist hier nicht der bevorzugte Projektpfad.
 
 ## Completion Criteria
 
@@ -126,8 +137,8 @@ Lokaler Test-Bootstrap:
 
 ## Tiefere Referenzen
 
-- `../Notzien (Obsidian)/01 - Architektur/System Architektur.md`
-- `../Notzien (Obsidian)/01 - Architektur/Voice Intent Engine.md`
-- `../Notzien (Obsidian)/01 - Architektur/PWA Implementierungshinweise.md`
+- `../Notzien/01 - Architektur/System Architektur.md`
+- `../Notzien/01 - Architektur/Voice Intent Engine.md`
+- `../Notzien/01 - Architektur/PWA Implementierungshinweise.md`
 - `docs/ARCHITECTURE.md`
 - `docs/VOICE_COMMANDS.md`

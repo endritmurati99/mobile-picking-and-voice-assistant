@@ -7,6 +7,9 @@ let audioCtx = null;
 
 function getAudioContext() {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    // iOS Safari suspends AudioContext even when created inside a user
+    // gesture. Resume it every time so beeps are audible on iOS.
+    if (audioCtx.state === 'suspended') audioCtx.resume();
     return audioCtx;
 }
 

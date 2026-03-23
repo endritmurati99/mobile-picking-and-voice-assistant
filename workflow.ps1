@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = $PSScriptRoot
 $appRoot = Join-Path $repoRoot "Mobile Picking und Voice Assistant"
-$brainRoot = Join-Path $repoRoot "Notzien (Obsidian)"
+$brainRoot = Join-Path $repoRoot "Notzien"
 $workflowScript = Join-Path $appRoot "infrastructure\scripts\workflow.ps1"
 
 if (-not (Test-Path $workflowScript)) {

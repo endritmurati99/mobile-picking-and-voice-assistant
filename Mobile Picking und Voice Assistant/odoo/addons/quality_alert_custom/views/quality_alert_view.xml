@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="quality_alert_view_form_inherit_custom" model="ir.ui.view">
+        <field name="name">quality.alert.view.form.inherit.custom</field>
+        <field name="model">quality.alert</field>
+        <field name="inherit_id" ref="quality.quality_alert_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='description']" position="after">
+                <group string="Paperless Picking Zusatzdaten">
+                    <field name="x_picking_id" readonly="1"/>
+                    <field name="x_problem_category"/>
+                    <field name="x_damage_photo" widget="image" class="oe_avatar"/>
+                    <field name="x_description_long"/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+</odoo>

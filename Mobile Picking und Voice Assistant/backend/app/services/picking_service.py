@@ -33,6 +33,7 @@ class PickingService:
                 "scheduled_date",
                 "state",
                 "picking_type_id",
+                "priority",
             ],
         )
 

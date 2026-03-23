@@ -103,7 +103,7 @@ async function loadPickingList() {
         }
 
         const visiblePickings = activeFilter === 'high'
-            ? pickings.filter(p => p.priority === '2' || p.priority === '3')
+            ? pickings.filter(p => p.priority === '1')
             : pickings;
 
         const countText = activeFilter === 'high'
@@ -314,6 +314,11 @@ function onVoiceToggle() {
             btn.setAttribute('aria-label', 'Sprachmodus starten');
             showToast('Sprachmodus beendet', 'info');
         }
+    }, (err) => {
+        const msg = err?.name === 'NotAllowedError'
+            ? 'Mikrofonzugriff verweigert. Bitte in iOS-Einstellungen erlauben: Einstellungen → Datenschutz → Mikrofon → Safari'
+            : `Mikrofon-Fehler: ${err?.message || err}`;
+        showToast(msg, 'warning');
     });
 }
 
@@ -322,7 +327,8 @@ async function handleVoiceIntent(result) {
 
     // Visuelles Feedback: was wurde erkannt
     if (result.text) {
-        showToast(`"${result.text}"`, 'info');
+        const intentLabel = result.intent !== 'unknown' ? ` → ${result.intent}` : ' → nicht erkannt';
+        showToast(`"${result.text}"${intentLabel}`, result.intent !== 'unknown' ? 'info' : 'warning');
     }
 
     const { currentPicking, currentLineIndex } = getState();
@@ -386,7 +392,7 @@ async function handleVoiceIntent(result) {
             if (currentPicking !== null) break;
             const { pickings } = getState();
             const all = pickings?.length || 0;
-            const high = pickings?.filter(p => p.priority === '2' || p.priority === '3').length || 0;
+            const high = pickings?.filter(p => p.priority === '1').length || 0;
             if (high > 0) speak(`${all} offene Aufträge. ${high} davon dringend.`);
             else speak(`${all} offene Aufträge.`);
             break;
@@ -683,7 +689,7 @@ async function init() {
     // Proaktive Begrüssung nach dem ersten Laden
     const { pickings } = getState();
     const total = pickings?.length || 0;
-    const urgent = pickings?.filter(p => p.priority === '2' || p.priority === '3').length || 0;
+    const urgent = pickings?.filter(p => p.priority === '1').length || 0;
     if (total === 0) {
         speak('Keine offenen Aufträge.');
     } else if (urgent > 0) {

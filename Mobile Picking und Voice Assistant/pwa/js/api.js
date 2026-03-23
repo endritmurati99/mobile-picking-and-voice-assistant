@@ -42,8 +42,14 @@ export async function createQualityAlert(formData) {
 }
 
 export async function recognizeVoice(audioBlob) {
+    // Derive a correct file extension from the blob's MIME type so the
+    // server (ffmpeg/Whisper) can detect the container reliably.
+    // iOS sends audio/mp4 — if we send it as .webm ffmpeg may mis-parse it.
+    const ext = audioBlob.type.includes('mp4') ? 'mp4'
+              : audioBlob.type.includes('ogg')  ? 'ogg'
+              : 'webm';
     const formData = new FormData();
-    formData.append('audio', audioBlob, 'recording.webm');
+    formData.append('audio', audioBlob, `recording.${ext}`);
     const resp = await fetch(`${API_BASE}/voice/recognize`, {
         method: 'POST',
         body: formData,

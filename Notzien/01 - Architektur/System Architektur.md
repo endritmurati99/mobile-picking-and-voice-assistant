@@ -86,4 +86,5 @@ Alle Services im `picking-net` Netzwerk. Inter-Service-Kommunikation über Conta
 - [[Voice Intent Engine]] — Detaillierter Datenfluss PTT→STT→Intent→TTS, Kontext-Zustände
 - [[PWA Implementierungshinweise]] — iOS Safari Einschränkungen, MediaRecorder-Formate, HTTPS-Pflicht
 - [[API Dokumentation]] — Vollständige Endpoint-Spezifikation mit Beispielen
+- [[Webhook vs Polling Evaluierung]] — Testdesign und Implementierungsplan n8n vs. Odoo
 - [[00 - Projekt Übersicht]] — Gesamtüberblick und Phasen-Status

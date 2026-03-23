@@ -140,6 +140,21 @@ async function waitForSemanticReadyState(page, requestedView, readySelectors) {
     throw new Error(`View ${requestedView} ist nicht im Ready-State: Ladezustand noch sichtbar.`);
   }
 
+  if (requestedView === 'list') {
+    await page.waitForFunction(() => {
+      const status = document.querySelector('#status-indicator');
+      if (!status) return false;
+      const text = (status.textContent || '').trim();
+      const isOnline = status.classList.contains('online') && text === 'Online';
+      const isOffline = status.classList.contains('offline') && text === 'Offline';
+      return isOnline || isOffline;
+    }, { timeout: timeoutMs });
+    checks.push({
+      selector: '#status-indicator',
+      state: 'network-status-settled',
+    });
+  }
+
   return checks;
 }
 

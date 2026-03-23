@@ -20,6 +20,7 @@ param(
         "test-visual-diff-update",
         "test-a11y",
         "test-api",
+        "test-n8n-api",
         "verify-code",
         "verify-ui",
         "verify-visual",
@@ -74,6 +75,7 @@ Available tasks:
   test-visual-diff-update
   test-a11y
   test-api
+  test-n8n-api
   verify-code
   verify-ui
   verify-visual
@@ -153,6 +155,7 @@ try {
         "test-visual-diff-update" { Invoke-Step { npx.cmd playwright test e2e/visual.spec.js --update-snapshots } }
         "test-a11y" { Invoke-Step { npx.cmd playwright test e2e/a11y.spec.js } }
         "test-api" { Invoke-Step { python infrastructure/scripts/test-api.py } }
+        "test-n8n-api" { Invoke-Step { python infrastructure/scripts/test-n8n-api.py } }
         "verify-workflows" { Invoke-Step { python infrastructure/scripts/verify-workflows.py } }
         "verify-code" {
             Invoke-Step { & $PSCommandPath test }

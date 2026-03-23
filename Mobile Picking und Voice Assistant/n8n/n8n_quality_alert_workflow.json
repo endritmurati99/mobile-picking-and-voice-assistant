@@ -1,0 +1,93 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "model": "quality.alert",
+        "events": ["create"],
+        "options": {}
+      },
+      "name": "Odoo Trigger",
+      "type": "n8n-nodes-base.odooTrigger",
+      "typeVersion": 1,
+      "position": [100, 300]
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "operation": "get",
+        "model": "quality.alert",
+        "id": "={{$node[\"Odoo Trigger\"].json[\"id\"]}}",
+        "options": {
+          "fields": ["x_problem_category", "x_damage_photo", "description", "x_picking_id"]
+        }
+      },
+      "name": "Get Full Data",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [320, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$node[\"Get Full Data\"].json[\"x_problem_category\"]}}",
+              "value2": "damaged"
+            }
+          ]
+        }
+      },
+      "name": "Is Damaged?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [540, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "picking-system@deine-firma.de",
+        "toEmail": "supervisor@deine-firma.de",
+        "subject": "⚠️ Kritischer Qualitätsalarm: {{$node[\"Get Full Data\"].json[\"x_problem_category\"]}}",
+        "html": "Ein neuer Defekt wurde gemeldet.<br><b>Picking-ID:</b> {{$node[\"Get Full Data\"].json[\"x_picking_id\"]}}<br><b>Beschreibung:</b> {{$node[\"Get Full Data\"].json[\"description\"]}}",
+        "attachments": "x_damage_photo",
+        "options": {}
+      },
+      "name": "Send Email to Supervisor",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 1,
+      "position": [800, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/obsidian/log",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "message",
+              "value": "QA-Alarm archiviert: {{$node[\"Get Full Data\"].json[\"x_problem_category\"]}} für Picking {{$node[\"Get Full Data\"].json[\"x_picking_id\"]}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Log to Obsidian",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [800, 420]
+    }
+  ],
+  "connections": {
+    "Odoo Trigger": {
+      "main": [[{ "node": "Get Full Data", "index": 0 }]]
+    },
+    "Get Full Data": {
+      "main": [[{ "node": "Is Damaged?", "index": 0 }]]
+    },
+    "Is Damaged?": {
+      "main": [
+        [{ "node": "Send Email to Supervisor", "index": 0 }],
+        [{ "node": "Log to Obsidian", "index": 0 }]
+      ]
+    }
+  }
+}

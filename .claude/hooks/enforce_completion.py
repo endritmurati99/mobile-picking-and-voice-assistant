@@ -153,7 +153,7 @@ def main() -> int:
     if not edited_paths:
         return 0
 
-    log_path = project_dir / "Notzien (Obsidian)" / "04 - Ressourcen" / "Claude Code Aenderungslog.md"
+    log_path = project_dir / "Notzien" / "04 - Ressourcen" / "Claude Code Aenderungslog.md"
     if not log_path.exists() or not state.get("last_synced_at"):
         sys.stderr.write(
             "Kein erfolgreicher Obsidian-Sync fuer diese Session gefunden. "
