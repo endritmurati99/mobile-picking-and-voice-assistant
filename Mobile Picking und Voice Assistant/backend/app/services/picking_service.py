@@ -207,11 +207,7 @@ class PickingService:
             [move_ids],
             {"fields": ["picked"]},
         )
-        all_done = bool(moves) and all(
-            move.get("picked")
-            or move.get("quantity_done", 0) >= move.get("quantity", 0)
-            for move in moves
-        )
+        all_done = bool(moves) and all(move.get("picked") for move in moves)
 
         picking_complete = False
         if all_done:

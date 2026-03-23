@@ -11,7 +11,7 @@
 import { getPickings, getPickingDetail, confirmLine, createQualityAlert, recognizeVoice } from './api.js';
 import { setState, getState, subscribe, renderPickCard, renderLoading, renderError, showToast } from './ui.js';
 import { initHIDScanner, showManualInput, openCameraScanner } from './scanner.js';
-import { speak, stopSpeaking, captureAndRecognize, isVoiceSupported, toggleVoiceMode, isVoiceModeActive } from './voice.js';
+import { speak, stopSpeaking, captureAndRecognize, isVoiceSupported, toggleVoiceMode, isVoiceModeActive, stopVoiceMode } from './voice.js';
 import { startCamera, capturePhoto, stopCamera, createFileInput } from './camera.js';
 import { initPWA } from './pwa.js';
 
@@ -66,6 +66,9 @@ function renderRouteHint(picking, currentLineIndex) {
     `;
 }
 
+// ── Filter-State ─────────────────────────────────────────────
+let activeFilter = 'all'; // 'all' | 'high'
+
 // ── DOM-Referenzen ────────────────────────────────────────────
 const mainEl = () => document.getElementById('main');
 const statusEl = () => document.getElementById('status-indicator');
@@ -80,6 +83,7 @@ function updateToolbar(view) {
     const buttons = [btnVoice(), btnScan(), btnAlert()];
     const show = view === 'detail';
     buttons.forEach(b => { if (b) b.classList.toggle('hidden', !show); });
+    if (!show && isVoiceModeActive()) stopVoiceMode();
 }
 
 // ── Picking-Liste ────────────────────────────────────────────
@@ -97,7 +101,24 @@ async function loadPickingList() {
             return;
         }
 
-        mainEl().innerHTML = `<div class="pick-list-grid">${pickings.map(p => {
+        const visiblePickings = activeFilter === 'high'
+            ? pickings.filter(p => p.priority === '2' || p.priority === '3')
+            : pickings;
+
+        const filterBar = `
+    <div class="filter-bar" role="toolbar" aria-label="Aufträge filtern">
+        <button class="filter-btn ${activeFilter === 'all' ? 'filter-btn--active' : ''}"
+                onclick="window._app.setFilter('all')" aria-pressed="${activeFilter === 'all'}">Alle</button>
+        <button class="filter-btn ${activeFilter === 'high' ? 'filter-btn--active' : ''}"
+                onclick="window._app.setFilter('high')" aria-pressed="${activeFilter === 'high'}">⚡ Dringend</button>
+    </div>`;
+
+        if (visiblePickings.length === 0) {
+            mainEl().innerHTML = filterBar + '<p style="padding:20px;color:var(--text-muted)">Keine dringenden Aufträge.</p>';
+            return;
+        }
+
+        mainEl().innerHTML = filterBar + `<div class="pick-list-grid">${visiblePickings.map(p => {
             const date = p.scheduled_date
                 ? new Date(p.scheduled_date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
                 : '';
@@ -122,6 +143,11 @@ async function loadPickingList() {
         statusEl().textContent = 'Offline';
         statusEl().className = 'status offline';
     }
+}
+
+function setFilter(value) {
+    activeFilter = value;
+    loadPickingList();
 }
 
 // ── Picking-Detail ────────────────────────────────────────────
@@ -312,12 +338,50 @@ async function handleVoiceIntent(result) {
         case 'problem':
             openQualityAlertForm();
             break;
-        case 'done':
-            if (currentPicking) speak('Auftrag wird abgeschlossen.');
+        case 'photo':
+            openCameraScanner((barcode) => handleScan(barcode));
             break;
+        case 'pause':
+            if (isVoiceModeActive()) {
+                stopVoiceMode();
+                const voiceBtn = btnVoice();
+                if (voiceBtn) voiceBtn.classList.remove('voice-active');
+            }
+            break;
+        case 'done': {
+            const remaining = lines.filter(l => !l.picked).length;
+            if (remaining === 0) {
+                await speak('Auftrag abgeschlossen.');
+                loadPickingList();
+            } else {
+                speak(`Noch ${remaining} Artikel ausstehend.`);
+            }
+            break;
+        }
         case 'help':
             speak('Verfügbare Kommandos: bestätigen, weiter, zurück, wiederholen, Problem, fertig.');
             break;
+        case 'filter_high':
+            if (currentPicking !== null) break;
+            activeFilter = 'high';
+            await loadPickingList();
+            speak('Gefiltert. Zeige nur dringende Aufträge.');
+            break;
+        case 'filter_normal':
+            if (currentPicking !== null) break;
+            activeFilter = 'all';
+            await loadPickingList();
+            speak('Filter zurückgesetzt. Alle Aufträge.');
+            break;
+        case 'status': {
+            if (currentPicking !== null) break;
+            const { pickings } = getState();
+            const all = pickings?.length || 0;
+            const high = pickings?.filter(p => p.priority === '2' || p.priority === '3').length || 0;
+            if (high > 0) speak(`${all} offene Aufträge. ${high} davon dringend.`);
+            else speak(`${all} offene Aufträge.`);
+            break;
+        }
         default:
             // Text wurde schon als Toast angezeigt
             break;
@@ -332,65 +396,125 @@ function openQualityAlertForm() {
     const { currentPicking, currentLineIndex } = getState();
     const lines = currentPicking?.move_lines || [];
     const line = lines[currentLineIndex];
+    const contextLabel = currentPicking
+        ? `${currentPicking.name}${line?.product_name ? ` · ${line.product_name}` : ''}`
+        : 'Allgemeine Meldung';
 
     mainEl().innerHTML = `
-        <div style="padding:16px">
-            <h2 style="margin-bottom:16px;font-size:1rem">Problem melden</h2>
-            <label for="qa-description" style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--text-muted)">Beschreibung</label>
-            <textarea id="qa-description" placeholder="Beschreibung des Problems..."
-                style="width:100%;height:80px;padding:8px;border-radius:8px;background:var(--surface);color:var(--text-primary);border:1px solid #444;font-size:1rem"></textarea>
-            <div style="margin-top:8px">
-                <label for="qa-priority" style="font-size:0.85rem;color:var(--text-muted)">Priorität</label>
-                <select id="qa-priority" style="width:100%;margin-top:4px;padding:8px;border-radius:8px;background:var(--surface);color:var(--text-primary);border:1px solid #444">
-                    <option value="0">Normal</option>
-                    <option value="2">Hoch</option>
-                    <option value="3">Kritisch</option>
-                </select>
-            </div>
-            <div style="margin-top:12px" id="photo-area"></div>
-            <div style="margin-top:16px;display:flex;gap:8px">
-                <button id="qa-submit" style="flex:1;padding:14px;background:var(--accent);color:#000;border:none;border-radius:8px;font-weight:600;font-size:1rem">Absenden</button>
-                <button id="qa-cancel" style="padding:14px 20px;background:var(--surface);color:var(--text-primary);border:1px solid #444;border-radius:8px;font-size:1rem">Abbrechen</button>
+        <div class="qa-shell">
+            <section class="qa-card" aria-labelledby="qa-title">
+                <div class="qa-header">
+                    <h2 id="qa-title" class="qa-title">Problem melden</h2>
+                    <p class="qa-context">${contextLabel}</p>
+                </div>
+
+                <div class="qa-field-group">
+                    <label for="qa-description" class="qa-label">Beschreibung</label>
+                    <textarea id="qa-description"
+                        class="qa-field qa-textarea"
+                        placeholder="Beschreibung des Problems..."
+                        aria-describedby="qa-description-help"></textarea>
+                    <p id="qa-description-help" class="qa-help">
+                        Kurz und konkret beschreiben, was am Artikel, Lagerort oder Zustand auffällt.
+                    </p>
+                    <p id="qa-description-error" class="qa-field-error" role="alert" hidden></p>
+                </div>
+
+                <div class="qa-field-group">
+                    <label for="qa-priority" class="qa-label">Priorität</label>
+                    <select id="qa-priority" class="qa-field qa-select">
+                        <option value="0">Normal</option>
+                        <option value="2">Hoch</option>
+                        <option value="3">Kritisch</option>
+                    </select>
+                </div>
+
+                <div id="photo-area" class="qa-photo-area"></div>
+            </section>
+
+            <p id="qa-inline-error" class="qa-inline-error" role="alert" hidden></p>
+
+            <div class="qa-actions">
+                <button id="qa-submit" class="qa-submit">Absenden</button>
+                <button id="qa-cancel" class="qa-cancel">Abbrechen</button>
             </div>
         </div>`;
 
     // Foto-Input mit Vorschau
     const photoArea = document.getElementById('photo-area');
+    const descriptionEl = document.getElementById('qa-description');
+    const descriptionErrorEl = document.getElementById('qa-description-error');
+    const inlineErrorEl = document.getElementById('qa-inline-error');
+    const cancelBtn = document.getElementById('qa-cancel');
     let photoFiles = [];
+
+    const clearDescriptionError = () => {
+        descriptionErrorEl.hidden = true;
+        descriptionErrorEl.textContent = '';
+        descriptionEl.removeAttribute('aria-invalid');
+        descriptionEl.setAttribute('aria-describedby', 'qa-description-help');
+    };
+
+    const setDescriptionError = (message) => {
+        descriptionErrorEl.textContent = message;
+        descriptionErrorEl.hidden = false;
+        descriptionEl.setAttribute('aria-invalid', 'true');
+        descriptionEl.setAttribute('aria-describedby', 'qa-description-help qa-description-error');
+    };
+
+    const clearInlineError = () => {
+        inlineErrorEl.hidden = true;
+        inlineErrorEl.textContent = '';
+    };
+
+    const setInlineError = (message) => {
+        inlineErrorEl.textContent = message;
+        inlineErrorEl.hidden = false;
+    };
 
     const fileInput = createFileInput((files) => {
         photoFiles = photoFiles.concat(files);
         renderPhotoPreview();
+        clearInlineError();
         showToast(`${files.length} Foto${files.length > 1 ? 's' : ''} hinzugefügt`, 'success');
     });
+
+    const photoLabel = document.createElement('p');
+    photoLabel.className = 'qa-label';
+    photoLabel.textContent = 'Fotos';
+
+    const photoHelp = document.createElement('p');
+    photoHelp.className = 'qa-help';
+    photoHelp.textContent = 'Optional: 1 oder mehrere Fotos hinzufügen.';
 
     const photoBtn = document.createElement('button');
     photoBtn.type = 'button';
     photoBtn.textContent = '📷 Fotos hinzufügen';
     photoBtn.setAttribute('aria-label', 'Fotos hinzufügen');
-    photoBtn.style.cssText = 'width:100%;padding:10px;background:var(--surface);color:var(--text-primary);border:1px solid #444;border-radius:8px;font-size:0.95rem';
+    photoBtn.className = 'qa-photo-button';
     photoBtn.addEventListener('click', () => fileInput.click());
 
     const previewGrid = document.createElement('div');
     previewGrid.id = 'photo-preview-grid';
-    previewGrid.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;';
+    previewGrid.className = 'qa-photo-preview-grid';
 
     function renderPhotoPreview() {
         previewGrid.innerHTML = '';
         photoFiles.forEach((file, idx) => {
             const url = URL.createObjectURL(file);
             const wrapper = document.createElement('div');
-            wrapper.style.cssText = 'position:relative;width:80px;height:80px;';
+            wrapper.className = 'qa-photo-thumb';
 
             const img = document.createElement('img');
             img.src = url;
-            img.style.cssText = 'width:80px;height:80px;object-fit:cover;border-radius:6px;border:1px solid #444;';
+            img.className = 'qa-photo-image';
+            img.alt = `Ausgewähltes Foto ${idx + 1}`;
 
             const del = document.createElement('button');
             del.type = 'button';
             del.textContent = '✕';
             del.setAttribute('aria-label', `Foto ${idx + 1} entfernen`);
-            del.style.cssText = 'position:absolute;top:2px;right:2px;background:rgba(0,0,0,0.6);color:#fff;border:none;border-radius:50%;width:20px;height:20px;font-size:0.7rem;cursor:pointer;padding:0;line-height:20px;';
+            del.className = 'qa-photo-remove';
             del.addEventListener('click', () => {
                 photoFiles.splice(idx, 1);
                 renderPhotoPreview();
@@ -403,21 +527,39 @@ function openQualityAlertForm() {
     }
 
     photoArea.appendChild(fileInput);
+    photoArea.appendChild(photoLabel);
+    photoArea.appendChild(photoHelp);
     photoArea.appendChild(photoBtn);
     photoArea.appendChild(previewGrid);
 
-    document.getElementById('qa-cancel').addEventListener('click', () => {
+    descriptionEl.addEventListener('input', () => {
+        if (descriptionEl.value.trim()) clearDescriptionError();
+        clearInlineError();
+    });
+
+    cancelBtn.addEventListener('click', () => {
         if (currentPicking) loadPickingDetail(currentPicking.id);
         else loadPickingList();
     });
 
     const submitBtn = document.getElementById('qa-submit');
     submitBtn.addEventListener('click', async () => {
-        const description = document.getElementById('qa-description').value.trim();
-        if (!description) { showToast('Bitte Beschreibung eingeben', 'warning'); return; }
+        const description = descriptionEl.value.trim();
+        clearInlineError();
+
+        if (!description) {
+            setDescriptionError('Bitte Beschreibung eingeben.');
+            descriptionEl.focus();
+            showToast('Bitte Beschreibung eingeben', 'warning');
+            return;
+        }
+
+        clearDescriptionError();
 
         // Doppelklick-Schutz
         submitBtn.disabled = true;
+        cancelBtn.disabled = true;
+        photoBtn.disabled = true;
         submitBtn.textContent = 'Wird gesendet…';
 
         const priority = document.getElementById('qa-priority').value;
@@ -436,7 +578,10 @@ function openQualityAlertForm() {
             else loadPickingList();
         } catch (e) {
             submitBtn.disabled = false;
+            cancelBtn.disabled = false;
+            photoBtn.disabled = false;
             submitBtn.textContent = 'Absenden';
+            setInlineError(`Fehler beim Erstellen: ${e.message}`);
             showToast('Fehler beim Erstellen: ' + e.message, 'error');
         }
     });
@@ -505,9 +650,21 @@ async function init() {
 
     // Picking-Liste laden
     await loadPickingList();
+
+    // Proaktive Begrüssung nach dem ersten Laden
+    const { pickings } = getState();
+    const total = pickings?.length || 0;
+    const urgent = pickings?.filter(p => p.priority === '2' || p.priority === '3').length || 0;
+    if (total === 0) {
+        speak('Keine offenen Aufträge.');
+    } else if (urgent > 0) {
+        speak(`${total} Aufträge offen. ${urgent} davon dringend.`);
+    } else {
+        speak(`${total} Aufträge offen.`);
+    }
 }
 
 // Globaler Zugriff für inline-onclick-Handlers
-window._app = { loadPickingList, loadPickingDetail };
+window._app = { loadPickingList, loadPickingDetail, setFilter };
 
 document.addEventListener('DOMContentLoaded', init);

@@ -33,6 +33,10 @@ PATTERNS = {
     "pause": [r"\b(pause|stopp|stop|halt|warten)\b"],
     "done": [r"\b(fertig|erledigt|abgeschlossen|ende|beenden)\b"],
     "help": [r"\b(hilfe|help|was\s*kann\s*ich)\b"],
+    # Filter-Intents (Picking-Liste)
+    "filter_high": [r"\b(dringend|dringlich|wichtig|hohe?\s*priorität|eilig|priorisiert|kritisch)\b"],
+    "filter_normal": [r"\b(alle|alles|normal|zurücksetzen|filter\s*weg|reset)\b"],
+    "status": [r"\b(wie\s*viele|status|übersicht|wieviele|anzahl|offen|aufträge)\b"],
 }
 
 GERMAN_NUMBERS = {

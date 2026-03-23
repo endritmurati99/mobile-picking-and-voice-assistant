@@ -184,7 +184,7 @@ class TestConfirmPickLine:
         odoo.execute_kw.side_effect = [
             [{"id": 20, "product_id": [5, "Schraube M8"], "quantity": 3}],
             [20],
-            [{"quantity": 3, "quantity_done": 3}],
+            [{"picked": True}],
         ]
         odoo.search_read.return_value = [{"id": 5, "barcode": "4006381333931"}]
         odoo.write = AsyncMock(return_value=True)
@@ -203,8 +203,8 @@ class TestConfirmPickLine:
             [{"id": 20, "product_id": [5, "Schraube M8"], "quantity": 3}],
             [20, 21],  # two lines
             [
-                {"quantity": 3, "quantity_done": 3},   # line 20 done
-                {"quantity": 5, "quantity_done": 0},   # line 21 not done
+                {"picked": True},   # move 20 done
+                {"picked": False},  # move 21 not done yet
             ],
         ]
         odoo.search_read.return_value = [{"id": 5, "barcode": "4006381333931"}]
