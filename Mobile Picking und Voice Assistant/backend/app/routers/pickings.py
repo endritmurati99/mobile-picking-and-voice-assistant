@@ -3,7 +3,8 @@ Picking-Endpoints.
 """
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from app.dependencies import get_picking_service
+from app.dependencies import get_picking_service, get_odoo_client
+from app.services.odoo_client import OdooClient
 
 router = APIRouter()
 
@@ -42,3 +43,32 @@ async def confirm_line(
     return await service.confirm_pick_line(
         picking_id, body.move_line_id, body.scanned_barcode, body.quantity
     )
+
+
+@router.get("/pickings/{picking_id}/stock")
+async def get_stock_for_line(
+    picking_id: int,  # noqa: ARG001 — kept for URL consistency
+    product_id: int,
+    location_id: int,
+    odoo: OdooClient = Depends(get_odoo_client),
+):
+    """
+    Gibt den aktuellen Lagerbestand für ein Produkt an einem Standort zurück.
+    Wird von der PWA aufgerufen wenn der Picker fragt 'Wie viele noch da?'
+    """
+    domain = [("product_id", "=", product_id)]
+    if location_id > 0:
+        domain.append(("location_id", "=", location_id))
+    quants = await odoo.search_read(
+        "stock.quant",
+        domain,
+        ["quantity", "reserved_quantity"],
+    )
+    available = sum(q.get("quantity", 0) - q.get("reserved_quantity", 0) for q in quants)
+    total = sum(q.get("quantity", 0) for q in quants)
+    return {
+        "product_id": product_id,
+        "location_id": location_id,
+        "quantity_available": round(available, 2),
+        "quantity_total": round(total, 2),
+    }

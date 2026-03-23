@@ -33,6 +33,7 @@ PATTERNS = {
     "pause": [r"\b(pause|stopp|stop|halt|warten)\b"],
     "done": [r"\b(fertig|erledigt|abgeschlossen|ende|beenden)\b"],
     "help": [r"\b(hilfe|help|was\s*kann\s*ich)\b"],
+    "stock_query": [r"\b(noch\s+da|im\s+bestand|lagerbestand|wie\s+viel.*vorrat|bestand\s+prüfen)\b"],
     # Filter-Intents (Picking-Liste)
     "filter_high": [r"\b(dringend|dringlich|wichtig|hohe?\s*priorität|eilig|priorisiert|kritisch)\b"],
     "filter_normal": [r"\b(alle|alles|normal|zurücksetzen|filter\s*weg|reset)\b"],

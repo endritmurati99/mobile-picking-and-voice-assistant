@@ -318,3 +318,10 @@ nav {
     border-color: var(--accent);
     font-weight: 600;
 }
+.filter-count {
+    margin-left: auto;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    align-self: center;
+    padding-right: 4px;
+}

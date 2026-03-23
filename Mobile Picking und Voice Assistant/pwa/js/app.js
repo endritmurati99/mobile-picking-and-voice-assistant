@@ -9,6 +9,7 @@
  *   5. Optional: Voice-Kommandos (PTT) + Quality-Alert-Formular
  */
 import { getPickings, getPickingDetail, confirmLine, createQualityAlert, recognizeVoice } from './api.js';
+import { feedbackSuccess, feedbackError } from './feedback.js';
 import { setState, getState, subscribe, renderPickCard, renderLoading, renderError, showToast } from './ui.js';
 import { initHIDScanner, showManualInput, openCameraScanner } from './scanner.js';
 import { speak, stopSpeaking, captureAndRecognize, isVoiceSupported, toggleVoiceMode, isVoiceModeActive, stopVoiceMode } from './voice.js';
@@ -105,12 +106,17 @@ async function loadPickingList() {
             ? pickings.filter(p => p.priority === '2' || p.priority === '3')
             : pickings;
 
+        const countText = activeFilter === 'high'
+            ? `${visiblePickings.length} von ${pickings.length}`
+            : `${pickings.length} Aufträge`;
+
         const filterBar = `
     <div class="filter-bar" role="toolbar" aria-label="Aufträge filtern">
         <button class="filter-btn ${activeFilter === 'all' ? 'filter-btn--active' : ''}"
                 onclick="window._app.setFilter('all')" aria-pressed="${activeFilter === 'all'}">Alle</button>
         <button class="filter-btn ${activeFilter === 'high' ? 'filter-btn--active' : ''}"
                 onclick="window._app.setFilter('high')" aria-pressed="${activeFilter === 'high'}">⚡ Dringend</button>
+        <span class="filter-count">${countText}</span>
     </div>`;
 
         if (visiblePickings.length === 0) {
@@ -245,6 +251,7 @@ async function handleScan(barcode) {
 
     // Prüfe Barcode (leer = Touch-Bestätigung ohne Scan)
     if (barcode && line.product_barcode && barcode !== line.product_barcode) {
+        feedbackError();
         speak(`Falscher Artikel. Erwartet: ${line.product_name}`);
         showToast('Falscher Barcode', 'error');
         return;
@@ -258,11 +265,13 @@ async function handleScan(barcode) {
         });
 
         if (!result.success) {
+            feedbackError();
             speak(result.message || 'Fehler beim Bestätigen.');
             showToast(result.message || 'Fehler', 'error');
             return;
         }
 
+        feedbackSuccess();
         showToast(result.message, 'success');
 
         if (result.picking_complete) {
@@ -380,6 +389,26 @@ async function handleVoiceIntent(result) {
             const high = pickings?.filter(p => p.priority === '2' || p.priority === '3').length || 0;
             if (high > 0) speak(`${all} offene Aufträge. ${high} davon dringend.`);
             else speak(`${all} offene Aufträge.`);
+            break;
+        }
+        case 'stock_query': {
+            if (!line) break;
+            const productId = line.product_id;
+            // location_id is not carried in move_line; use 0 to query across all locations
+            speak(`Ich prüfe den Bestand für ${line.product_name}.`);
+            try {
+                const resp = await fetch(`/api/pickings/${currentPicking.id}/stock?product_id=${productId}&location_id=0`);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data.quantity_available > 0) {
+                        speak(`Laut System sind ${data.quantity_available} Stück verfügbar.`);
+                    } else {
+                        speak(`Laut System ist kein Bestand vorhanden. Soll ich einen Qualitätsalarm auslösen?`);
+                    }
+                }
+            } catch {
+                speak('Bestand konnte nicht abgerufen werden.');
+            }
             break;
         }
         default:
