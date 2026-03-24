@@ -26,7 +26,7 @@ async function expectVisualSnapshot(locator, name) {
 test('picking list matches the mobile visual baseline', async ({ page }) => {
   await mockPwaApi(page);
   await page.goto('/');
-  await expect(page.getByText('WH/INT/00007')).toBeVisible();
+  await expect(page.getByText('4x Brick 2x2 orange')).toBeVisible();
   await expect(page.locator('#status-indicator')).toHaveText('Online');
   await expect(page.locator('#status-indicator')).toHaveClass(/online/);
   await disableMotion(page);
@@ -36,7 +36,7 @@ test('picking list matches the mobile visual baseline', async ({ page }) => {
 test('picking detail matches the mobile visual baseline', async ({ page }) => {
   await mockPwaApi(page);
   await page.goto('/');
-  await page.getByText('WH/INT/00007').click();
+  await page.getByText('4x Brick 2x2 orange').click();
   await expect(page.locator('#main')).toContainText('Brick 2x2 orange');
   await disableMotion(page);
   await expectVisualSnapshot(page.locator('#app'), 'picking-detail.png');
@@ -45,7 +45,7 @@ test('picking detail matches the mobile visual baseline', async ({ page }) => {
 test('quality alert matches the mobile visual baseline', async ({ page }) => {
   await mockPwaApi(page);
   await page.goto('/');
-  await page.getByText('WH/INT/00007').click();
+  await page.getByText('4x Brick 2x2 orange').click();
   await page.locator('#btn-alert').click();
   await expect(page.getByRole('heading', { name: 'Problem melden' })).toBeVisible();
   await disableMotion(page);

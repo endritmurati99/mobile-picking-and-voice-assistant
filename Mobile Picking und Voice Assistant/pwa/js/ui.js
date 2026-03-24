@@ -21,7 +21,7 @@ export function getState() {
 
 export function setState(updates) {
     Object.assign(state, updates);
-    listeners.forEach(fn => fn(state));
+    listeners.forEach((fn) => fn(state));
 }
 
 export function subscribe(fn) {
@@ -29,22 +29,41 @@ export function subscribe(fn) {
     return () => listeners.delete(fn);
 }
 
-// ── UI-Rendering ────────────────────────────────────────────
-
-export function renderPickCard(move) {
+function renderOperationalPickCard({ move, productLabel, locationLabel, zoneLabel, quantityLabel }) {
     return `
         <div class="pick-card">
-            <div class="product">${move.product_name || 'Produkt'}</div>
-            <div class="location">📍 ${move.location_src || 'Lagerort'}</div>
-            <div class="quantity">${move.quantity_demand || 0} Stk.</div>
-            <div style="font-size:0.8rem; color:var(--text-muted); margin-top:4px;" aria-hidden="true">
-                Barcode: ${move.product_barcode || '—'}
+            <div class="pick-card__eyebrow">${zoneLabel}</div>
+            <div class="pick-card__product">${productLabel}</div>
+            <div class="pick-card__location">${locationLabel}</div>
+            <div class="pick-card__meta">
+                <div class="pick-card__quantity">${quantityLabel} Stueck</div>
+                <div class="pick-card__barcode" aria-hidden="true">
+                    Barcode: ${move.product_barcode || '-'}
+                </div>
             </div>
             <button class="btn-confirm" data-line-id="${move.id}">
-                ✅ Bestätigen
+                Bestaetigen
             </button>
         </div>
     `;
+}
+
+export function renderPickCard(move) {
+    const productLabel = move.ui_display || move.product_short_name || move.product_name || 'Produkt';
+    const locationLabel = move.location_src_short || move.location_src || 'Lagerort';
+    const zoneLabel = move.location_src_zone || 'Naechster Platz';
+    const quantity = Number(move.quantity_demand ?? 0);
+    const quantityLabel = Number.isInteger(quantity)
+        ? String(quantity)
+        : quantity.toFixed(2).replace(/\.?0+$/, '');
+
+    return renderOperationalPickCard({
+        move,
+        productLabel,
+        locationLabel,
+        zoneLabel,
+        quantityLabel,
+    });
 }
 
 export function renderLoading() {
@@ -65,7 +84,9 @@ export function showToast(message, type = 'info') {
     `;
     toast.textContent = message;
     document.body.appendChild(toast);
-    requestAnimationFrame(() => { toast.style.opacity = '1'; });
+    requestAnimationFrame(() => {
+        toast.style.opacity = '1';
+    });
     setTimeout(() => {
         toast.style.opacity = '0';
         setTimeout(() => toast.remove(), 300);

@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "capture:visual": "node e2e/capture-sight.js",
+    "test:voice": "node --test pwa/js/tests/*.test.mjs",
     "test:ui": "playwright test",
     "test:a11y": "playwright test e2e/a11y.spec.js",
     "test:ui:headed": "playwright test --headed",

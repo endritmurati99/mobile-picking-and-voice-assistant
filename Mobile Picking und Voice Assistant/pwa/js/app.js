@@ -28,26 +28,83 @@ import {
 import { feedbackSuccess, feedbackError } from './feedback.js';
 import { setState, getState, subscribe, renderPickCard, renderLoading, renderError, showToast } from './ui.js';
 import { initHIDScanner, showManualInput, openCameraScanner } from './scanner.js';
-import { speak, stopSpeaking, isVoiceSupported, toggleVoiceMode, isVoiceModeActive, stopVoiceMode } from './voice.js';
+import {
+    speak,
+    stopSpeaking,
+    isVoiceSupported,
+    toggleVoiceMode,
+    isVoiceModeActive,
+    isPushToTalkActive,
+    startPushToTalk,
+    stopPushToTalk,
+    stopVoiceMode,
+} from './voice.js';
 import { createFileInput } from './camera.js';
 import { initPWA } from './pwa.js';
 
 const CLAIM_HEARTBEAT_MS = 30_000;
+const VOICE_LONG_PRESS_MS = 350;
 
 function formatLocationForSpeech(locationPath) {
     if (!locationPath) return '';
-    const parts = locationPath.split('/');
-    const relevant = parts.slice(-2).join(', ');
-    return relevant.replace(/-/g, ' ').replace(/([A-Z])(\d)/g, '$1 $2');
+    const segments = String(locationPath).split('/').filter(Boolean);
+    const relevant = segments.length ? segments[segments.length - 1] : String(locationPath);
+    return relevant.replace(/-/g, ' ').replace(/([A-Za-z])(\d)/g, '$1 $2');
 }
 
-function formatLocationForDisplay(locationPath) {
+function formatLocationForDisplay(locationPath, shortCode = '', zone = '') {
+    if (shortCode || zone) return [zone, shortCode].filter(Boolean).join(' / ');
     if (!locationPath) return 'Unbekannter Halt';
     return locationPath
         .split('/')
         .filter(Boolean)
         .slice(-2)
-        .join(' · ');
+        .join(' / ');
+}
+
+function formatQuantity(value) {
+    const numeric = Number(value ?? 0);
+    if (Number.isNaN(numeric)) return '0';
+    if (Number.isInteger(numeric)) return String(numeric);
+    return numeric.toFixed(2).replace(/\.?0+$/, '');
+}
+
+function getPickingReference(picking) {
+    return picking?.reference_code || picking?.name || 'Ohne Referenz';
+}
+
+function getPickingTypeLabel(picking) {
+    const rawLabel = picking?.picking_type_id?.[1] || '';
+    return rawLabel.split(':').pop().trim();
+}
+
+function getPickingPrimaryLabel(picking) {
+    return picking?.primary_item_display || getPickingReference(picking);
+}
+
+function getOpenLineLabel(count) {
+    const safeCount = Number(count || 0);
+    return safeCount === 1 ? '1 Position offen' : `${safeCount} Positionen offen`;
+}
+
+function getLineDisplayName(line) {
+    return line?.ui_display || line?.product_short_name || line?.product_name || 'Produkt';
+}
+
+function getLineQuantityLabel(line) {
+    return `${formatQuantity(line?.quantity_demand)} Stueck`;
+}
+
+function getLineSpeechPrompt(line) {
+    if (!line) return '';
+    if (line.voice_instruction_short) return line.voice_instruction_short;
+    const locationShort = line.location_src_short || formatLocationForSpeech(line.location_src);
+    const product = getLineDisplayName(line);
+    return [
+        locationShort ? `${locationShort}.` : '',
+        `${formatQuantity(line.quantity_demand)} Stueck.`,
+        product ? `${product}.` : '',
+    ].filter(Boolean).join(' ');
 }
 
 function renderRouteHint(picking, currentLineIndex) {
@@ -62,20 +119,25 @@ function renderRouteHint(picking, currentLineIndex) {
     const zonePreview = [...new Set(
         remainingLines
             .slice(0, 3)
-            .map(line => formatLocationForDisplay(line.location_src).split(' · ')[0])
+            .map((line) => line.location_src_zone || line.location_src_short || '')
             .filter(Boolean)
     )];
     const nextLine = remainingLines[0];
+    const nextLocation = formatLocationForDisplay(
+        nextLine.location_src,
+        nextLine.location_src_short,
+        nextLine.location_src_zone,
+    );
 
     return `
         <section class="route-hint" aria-label="Optimierte Routenempfehlung">
             <div class="route-hint__eyebrow">Route Intelligence</div>
-            <div class="route-hint__title">Naechster Halt: ${formatLocationForDisplay(nextLine.location_src)}</div>
+            <div class="route-hint__title">Naechster Halt: ${nextLocation}</div>
             <div class="route-hint__meta">
-                ${remainingLines.length} Stopps offen · Laufweg-Score ${remainingTravelScore}
+                ${remainingLines.length} Stopps offen - Laufweg-Score ${remainingTravelScore}
             </div>
             <div class="route-hint__chips">
-                ${zonePreview.map(zone => `<span class="route-hint__chip">${zone}</span>`).join('')}
+                ${zonePreview.map((zone) => `<span class="route-hint__chip">${zone}</span>`).join('')}
             </div>
         </section>
     `;
@@ -84,6 +146,9 @@ function renderRouteHint(picking, currentLineIndex) {
 let activeFilter = 'all';
 let claimHeartbeatTimer = null;
 let claimedPickingId = null;
+let voiceLongPressTimer = null;
+let voiceLongPressStarted = false;
+let suppressNextVoiceClick = false;
 
 const mainEl = () => document.getElementById('main');
 const statusEl = () => document.getElementById('status-indicator');
@@ -95,10 +160,13 @@ const btnAlert = () => document.getElementById('btn-alert');
 function updateToolbar(view) {
     const buttons = [btnVoice(), btnScan(), btnAlert()];
     const show = view === 'detail';
-    buttons.forEach(button => {
+    buttons.forEach((button) => {
         if (button) button.classList.toggle('hidden', !show);
     });
-    if (!show && isVoiceModeActive()) stopVoiceMode();
+    if (!show) {
+        btnVoice()?.classList.remove('nav-btn--ptt');
+        if (isVoiceModeActive()) stopVoiceMode();
+    }
 }
 
 function updatePickerIndicator() {
@@ -112,6 +180,26 @@ function updatePickerIndicator() {
         indicator.textContent = 'Picker waehlen';
         indicator.classList.add('picker-indicator--empty');
     }
+}
+
+function updateVoiceButtonState(active) {
+    const voiceButton = btnVoice();
+    if (!voiceButton) return;
+
+    if (active) {
+        voiceButton.style.background = 'var(--danger)';
+        voiceButton.setAttribute('aria-label', 'Sprachmodus beenden');
+        return;
+    }
+
+    voiceButton.style.background = '';
+    voiceButton.setAttribute('aria-label', 'Sprachmodus starten');
+}
+
+function getVoiceErrorMessage(error) {
+    return error?.name === 'NotAllowedError'
+        ? 'Mikrofonzugriff verweigert. Bitte in den Browser-Einstellungen erlauben.'
+        : `Mikrofon-Fehler: ${error?.message || error}`;
 }
 
 function renderClaimConflict(conflict, pickingId) {
@@ -299,24 +387,41 @@ async function loadPickingList({ skipRelease = false, forcePickerSelection = fal
             return;
         }
 
-        mainEl().innerHTML = filterBar + `<div class="pick-list-grid">${visiblePickings.map(picking => {
-            const date = picking.scheduled_date
-                ? new Date(picking.scheduled_date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
-                : '';
-            const partner = picking.partner_id ? picking.partner_id[1] : '-';
-            const typeName = picking.picking_type_id ? picking.picking_type_id[1] : '';
-            return `
-                <div class="pick-list-card" data-id="${picking.id}">
-                    <div class="plc-header">
-                        <span class="plc-name">${picking.name}</span>
-                        ${typeName ? `<span class="plc-badge">${typeName}</span>` : ''}
-                    </div>
-                    <div class="plc-partner">${partner}</div>
-                    ${date ? `<div class="plc-date">${date}</div>` : ''}
-                </div>`;
-        }).join('')}</div>`;
+        mainEl().innerHTML = filterBar + `
+            <div class="pick-list-grid">
+                ${visiblePickings.map((picking) => {
+                    const date = picking.scheduled_date
+                        ? new Date(picking.scheduled_date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
+                        : '';
+                    const partner = picking.partner_id ? picking.partner_id[1] : '-';
+                    const typeName = getPickingTypeLabel(picking);
+                    const reference = getPickingReference(picking);
+                    const primaryLabel = getPickingPrimaryLabel(picking);
+                    const nextLocation = picking.next_location_short || 'Route offen';
+                    const openLineLabel = getOpenLineLabel(picking.open_line_count);
 
-        mainEl().querySelectorAll('.pick-list-card[data-id]').forEach(card => {
+                    return `
+                        <article class="pick-list-card" data-id="${picking.id}" aria-label="${primaryLabel}">
+                            <div class="plc-header">
+                                <span class="plc-reference">${reference}</span>
+                                <div class="plc-tags">
+                                    ${picking.priority === '1' ? '<span class="plc-priority">Dringend</span>' : ''}
+                                    ${typeName ? `<span class="plc-badge">${typeName}</span>` : ''}
+                                </div>
+                            </div>
+                            <div class="plc-primary">${primaryLabel}</div>
+                            <div class="plc-partner">${partner}</div>
+                            <div class="plc-secondary">
+                                ${date ? `<span>${date}</span>` : '<span>Ohne Termin</span>'}
+                                <span class="plc-location-pill">${nextLocation}</span>
+                            </div>
+                            <div class="plc-footer">${openLineLabel}</div>
+                        </article>
+                    `;
+                }).join('')}
+            </div>`;
+
+        mainEl().querySelectorAll('.pick-list-card[data-id]').forEach((card) => {
             card.addEventListener('click', () => loadPickingDetail(Number(card.dataset.id)));
         });
     } catch (error) {
@@ -361,8 +466,7 @@ async function loadPickingDetail(pickingId) {
 
         const lines = picking.move_lines || [];
         if (lines.length > 0) {
-            const line = lines[0];
-            speak(`Optimierte Route aktiv. Gehe zu ${formatLocationForSpeech(line.location_src)}. Artikel: ${line.product_name}. Menge: ${line.quantity_demand}`);
+            speak(getLineSpeechPrompt(lines[0]));
         }
     } catch (error) {
         if (error instanceof ApiError && error.status === 409 && typeof error.detail === 'object') {
@@ -385,7 +489,7 @@ function renderCurrentLine() {
         mainEl().innerHTML = `
             <div style="padding:20px;text-align:center">
                 <div style="font-size:2rem;margin-bottom:12px">OK</div>
-                <div style="font-size:1.1rem;font-weight:600">${currentPicking.name}</div>
+                <div style="font-size:1.1rem;font-weight:600">${getPickingReference(currentPicking)}</div>
                 <div style="color:var(--text-muted);margin-top:8px">Alle Artikel erfasst.</div>
                 <button onclick="window._app.loadPickingList()"
                         style="margin-top:20px;padding:12px 24px;background:var(--accent);color:#000;border:none;border-radius:8px;font-size:1rem;font-weight:600">
@@ -401,18 +505,26 @@ function renderCurrentLine() {
     mainEl().innerHTML = `
         <div style="padding:12px">
             <div style="color:var(--text-muted);font-size:0.85rem;margin-bottom:12px">
-                ${currentPicking.name} · ${progress}
+                ${getPickingReference(currentPicking)} - ${progress}
                 <span style="float:right">
                     <button onclick="window._app.loadPickingList()"
-                            style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:0.85rem">← Liste</button>
+                            style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:0.85rem">Zur Liste</button>
                 </span>
             </div>
+            <section class="detail-summary" aria-label="Picking Uebersicht">
+                <div class="detail-summary__eyebrow">${currentPicking.partner_id ? currentPicking.partner_id[1] : 'Aktives Picking'}</div>
+                <div class="detail-summary__title">${getLineDisplayName(line)}</div>
+                <div class="detail-summary__subline">
+                    <span>${getLineQuantityLabel(line)}</span>
+                    <span>${line.location_src_short || formatLocationForDisplay(line.location_src)}</span>
+                </div>
+            </section>
             ${renderRouteHint(currentPicking, currentLineIndex)}
             ${renderPickCard({
                 ...line,
                 quantity_demand: line.quantity_demand,
             })}
-            <div id="scan-input-area" style="margin-top:12px"></div>
+            <div id="scan-input-area" class="detail-scan-area"></div>
         </div>`;
 
     const confirmButton = mainEl().querySelector('.btn-confirm');
@@ -439,7 +551,7 @@ async function handleScan(barcode) {
 
     if (barcode && line.product_barcode && barcode !== line.product_barcode) {
         feedbackError();
-        speak(`Falscher Artikel. Erwartet: ${line.product_name}`);
+        speak(`Falscher Artikel. ${getLineDisplayName(line)}.`);
         showToast('Falscher Barcode', 'error');
         return;
     }
@@ -486,7 +598,7 @@ async function handleScan(barcode) {
 
             if (nextIdx < lines.length) {
                 const nextLine = lines[nextIdx];
-                speak(`Naechster Artikel. Gehe zu ${formatLocationForSpeech(nextLine.location_src)}. ${nextLine.product_name}. Menge: ${nextLine.quantity_demand}`);
+                speak(getLineSpeechPrompt(nextLine));
             }
         }
     } catch (error) {
@@ -512,25 +624,36 @@ function onVoiceToggle() {
     toggleVoiceMode(
         handleVoiceIntent,
         (active) => {
-            const voiceButton = btnVoice();
-            if (!voiceButton) return;
-            if (active) {
-                voiceButton.style.background = 'var(--danger)';
-                voiceButton.setAttribute('aria-label', 'Sprachmodus beenden');
-                showToast('Sprachmodus aktiv - sprich ein Kommando', 'info');
-            } else {
-                voiceButton.style.background = '';
-                voiceButton.setAttribute('aria-label', 'Sprachmodus starten');
-                showToast('Sprachmodus beendet', 'info');
-            }
+            updateVoiceButtonState(active);
+            if (active) showToast('Sprachmodus aktiv - sprich ein Kommando', 'info');
+            else showToast('Sprachmodus beendet', 'info');
         },
         (error) => {
-            const message = error?.name === 'NotAllowedError'
-                ? 'Mikrofonzugriff verweigert. Bitte in den Browser-Einstellungen erlauben.'
-                : `Mikrofon-Fehler: ${error?.message || error}`;
-            showToast(message, 'warning');
+            showToast(getVoiceErrorMessage(error), 'warning');
         },
     );
+}
+
+async function startVoiceLongPress() {
+    if (isVoiceModeActive()) return;
+
+    const started = await startPushToTalk(
+        handleVoiceIntent,
+        (error) => showToast(getVoiceErrorMessage(error), 'warning'),
+    );
+    if (!started) return;
+
+    voiceLongPressStarted = true;
+    suppressNextVoiceClick = true;
+    btnVoice()?.classList.add('nav-btn--ptt');
+    showToast('Push-to-Talk aktiv', 'info');
+}
+
+async function finishVoiceLongPress() {
+    if (!voiceLongPressStarted && !isPushToTalkActive()) return;
+    voiceLongPressStarted = false;
+    btnVoice()?.classList.remove('nav-btn--ptt');
+    await stopPushToTalk();
 }
 
 async function handleVoiceIntent(result) {
@@ -550,15 +673,23 @@ async function handleVoiceIntent(result) {
             if (line) await handleScan(line.product_barcode || '');
             break;
         case 'next':
-            if (line) setState({ currentLineIndex: currentLineIndex + 1 });
-            renderCurrentLine();
+            if (line && currentLineIndex < lines.length - 1) {
+                const nextIndex = currentLineIndex + 1;
+                setState({ currentLineIndex: nextIndex });
+                renderCurrentLine();
+                speak(getLineSpeechPrompt(lines[nextIndex]));
+            }
             break;
         case 'previous':
-            if (currentLineIndex > 0) setState({ currentLineIndex: currentLineIndex - 1 });
-            renderCurrentLine();
+            if (currentLineIndex > 0) {
+                const previousIndex = currentLineIndex - 1;
+                setState({ currentLineIndex: previousIndex });
+                renderCurrentLine();
+                speak(getLineSpeechPrompt(lines[previousIndex]));
+            }
             break;
         case 'repeat':
-            if (line) speak(`${formatLocationForSpeech(line.location_src)}. ${line.product_name}. Menge: ${line.quantity_demand}`);
+            if (line) speak(getLineSpeechPrompt(line));
             break;
         case 'problem':
             openQualityAlertForm();
@@ -569,12 +700,11 @@ async function handleVoiceIntent(result) {
         case 'pause':
             if (isVoiceModeActive()) {
                 stopVoiceMode();
-                const voiceButton = btnVoice();
-                if (voiceButton) voiceButton.classList.remove('voice-active');
+                updateVoiceButtonState(false);
             }
             break;
         case 'done': {
-            const remaining = lines.filter(item => !item.picked).length;
+            const remaining = Math.max(lines.length - currentLineIndex - 1, 0);
             if (remaining === 0) {
                 await speak('Auftrag abgeschlossen.');
                 loadPickingList();
@@ -584,7 +714,7 @@ async function handleVoiceIntent(result) {
             break;
         }
         case 'help':
-            speak('Verfuegbare Kommandos: bestaetigen, weiter, zurueck, wiederholen, Problem, fertig.');
+            speak('Kommandos: bestaetigen, weiter, zurueck, wiederholen, Problem, fertig.');
             break;
         case 'filter_high':
             if (currentPicking !== null) break;
@@ -610,7 +740,7 @@ async function handleVoiceIntent(result) {
         case 'stock_query': {
             if (!line) break;
             const productId = line.product_id;
-            speak(`Ich pruefe den Bestand fuer ${line.product_name}.`);
+            speak(`Bestand fuer ${getLineDisplayName(line)}.`);
             try {
                 const response = await fetch(`/api/pickings/${currentPicking.id}/stock?product_id=${productId}&location_id=0`);
                 if (response.ok) {
@@ -639,7 +769,7 @@ function openQualityAlertForm() {
     const lines = currentPicking?.move_lines || [];
     const line = lines[currentLineIndex];
     const contextLabel = currentPicking
-        ? `${currentPicking.name}${line?.product_name ? ` | ${line.product_name}` : ''}`
+        ? `${getPickingReference(currentPicking)}${line ? ` | ${getLineDisplayName(line)}` : ''}`
         : 'Allgemeine Meldung';
 
     mainEl().innerHTML = `
@@ -859,7 +989,37 @@ async function init() {
     initHIDScanner((barcode) => handleScan(barcode));
 
     const voiceButton = btnVoice();
-    if (voiceButton) voiceButton.addEventListener('click', onVoiceToggle);
+    if (voiceButton) {
+        voiceButton.addEventListener('click', (event) => {
+            if (suppressNextVoiceClick) {
+                suppressNextVoiceClick = false;
+                event.preventDefault();
+                return;
+            }
+            onVoiceToggle();
+        });
+
+        voiceButton.addEventListener('pointerdown', () => {
+            if (!isVoiceSupported()) return;
+            voiceLongPressTimer = window.setTimeout(() => {
+                voiceLongPressTimer = null;
+                startVoiceLongPress();
+            }, VOICE_LONG_PRESS_MS);
+        });
+
+        const stopPress = async () => {
+            if (voiceLongPressTimer) {
+                window.clearTimeout(voiceLongPressTimer);
+                voiceLongPressTimer = null;
+                return;
+            }
+            await finishVoiceLongPress();
+        };
+
+        voiceButton.addEventListener('pointerup', stopPress);
+        voiceButton.addEventListener('pointercancel', stopPress);
+        voiceButton.addEventListener('pointerleave', stopPress);
+    }
 
     const scanButton = btnScan();
     if (scanButton) {

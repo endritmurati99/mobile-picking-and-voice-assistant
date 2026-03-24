@@ -5,11 +5,12 @@ test('confirms both move lines and reaches the completion view', async ({ page }
   const api = await mockPwaApi(page);
 
   await page.goto('/');
-  await page.getByText('WH/INT/00007').click();
+  await page.getByText('4x Brick 2x2 orange').click();
 
   await page.locator('.btn-confirm').click();
 
   await expect(page.locator('#main')).toContainText('Brick 2x2 hellgruen');
+  await expect(page.locator('#main')).toContainText('L-E2-P4');
   await expect(page.locator('#main')).toContainText('2 / 2');
   await expect(page.locator('#main .btn-confirm')).toBeVisible();
 

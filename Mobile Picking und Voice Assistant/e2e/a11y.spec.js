@@ -29,14 +29,14 @@ async function expectNoViolations(page, testInfo, includeSelector) {
 test('picking list has no automatically detectable accessibility violations', async ({ page }, testInfo) => {
   await mockPwaApi(page);
   await page.goto('/');
-  await expect(page.getByText('WH/INT/00007')).toBeVisible();
+  await expect(page.getByText('4x Brick 2x2 orange')).toBeVisible();
   await expectNoViolations(page, testInfo, '#app');
 });
 
 test('picking detail has no automatically detectable accessibility violations', async ({ page }, testInfo) => {
   await mockPwaApi(page);
   await page.goto('/');
-  await page.getByText('WH/INT/00007').click();
+  await page.getByText('4x Brick 2x2 orange').click();
   await expect(page.locator('#main')).toContainText('Brick 2x2 orange');
   await expectNoViolations(page, testInfo, '#main');
 });
@@ -44,7 +44,7 @@ test('picking detail has no automatically detectable accessibility violations', 
 test('quality alert form has no automatically detectable accessibility violations', async ({ page }, testInfo) => {
   await mockPwaApi(page);
   await page.goto('/');
-  await page.getByText('WH/INT/00007').click();
+  await page.getByText('4x Brick 2x2 orange').click();
   await page.locator('#btn-alert').click();
   await expect(page.getByRole('heading', { name: 'Problem melden' })).toBeVisible();
   await expectNoViolations(page, testInfo, '#main');

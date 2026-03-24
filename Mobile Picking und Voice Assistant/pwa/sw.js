@@ -1,5 +1,18 @@
-const CACHE_NAME = 'picking-v3';
-const PRECACHE = ['/', '/css/app.css', '/js/app.js'];
+const CACHE_NAME = 'picking-v4';
+const PRECACHE = [
+    '/',
+    '/index.html',
+    '/css/app.css',
+    '/js/api.js',
+    '/js/app.js',
+    '/js/camera.js',
+    '/js/feedback.js',
+    '/js/pwa.js',
+    '/js/scanner.js',
+    '/js/ui.js',
+    '/js/voice.js',
+    '/js/voice-helpers.mjs',
+];
 self.addEventListener('install', e => {
     e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(PRECACHE)).then(() => self.skipWaiting()));
 });

@@ -1,41 +1,36 @@
-.claude/settings.local.json
-.claude/state/
-.claude/artifacts/
-.claude/memory.db
-.claude/projects/
-.claude/agents/
-.claude/commands/
-.claude/helpers/
-.claude/skills/
+# ── Private / local-only ────────────────────────────────────────────────────
+# Claude Code config & memory — stays local, not for the repo
+.claude/
+# Project-level Claude instructions — local only
+CLAUDE.md
+# Obsidian vault — private notes, not for the repo
+Notzien/
+# Root-level workflow wrappers — local convenience scripts
+workflow.cmd
+workflow.ps1
+
+# ── Tool directories ─────────────────────────────────────────────────────────
 .claude-flow/
 .swarm/
 .ruflo/
 .vscode/
 
-# Local Obsidian workspace state
-Notzien (Obsidian)/.obsidian/workspace.json
-
-# OS files
+# ── OS files ─────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 
-# Common caches
+# ── Common caches ─────────────────────────────────────────────────────────────
 **/__pycache__/
 **/.pytest_cache/
 **/.deps/
 **/node_modules/
 
-# Playwright artifacts
+# ── Playwright artifacts ──────────────────────────────────────────────────────
 **/playwright-report/
 **/test-results/
 
-# Archive artifacts
+# ── Archive & media ───────────────────────────────────────────────────────────
 *.zip
-
-# Local media dumps / manual recordings
-Notzien/04 - Ressourcen/Medien/
-
-# Video files (test recordings etc.)
 *.mp4
 *.MP4
 *.mov
