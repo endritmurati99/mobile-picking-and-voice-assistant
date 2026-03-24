@@ -1,79 +1,357 @@
 /**
- * Picking Assistant — Haupt-App-Logik
+ * Picking Assistant - Haupt-App-Logik
  *
  * Flow:
- *   1. Start → Picking-Liste laden
- *   2. Picking auswählen → Move-Lines anzeigen
- *   3. HID-Scan oder Touch-Bestätigung pro Zeile
- *   4. TTS-Feedback nach jeder Aktion
- *   5. Optional: Voice-Kommandos (PTT) + Quality-Alert-Formular
+ *   1. Start -> Picker auswaehlen
+ *   2. Picking-Liste laden
+ *   3. Picking claimen -> Detail laden
+ *   4. HID-Scan oder Touch-Bestaetigung pro Zeile
+ *   5. TTS-Feedback nach jeder Aktion
+ *   6. Optional: Voice-Kommandos + Quality-Alert-Formular
  */
-import { getPickings, getPickingDetail, confirmLine, createQualityAlert, recognizeVoice } from './api.js';
+import {
+    ApiError,
+    claimPicking,
+    clearStoredPicker,
+    confirmLine,
+    createIdempotencyKey,
+    createQualityAlert,
+    getDeviceId,
+    getPickers,
+    getPickingDetail,
+    getPickings,
+    getStoredPicker,
+    releasePicking,
+    setStoredPicker,
+    heartbeatPicking,
+} from './api.js';
+import { feedbackSuccess, feedbackError } from './feedback.js';
 import { setState, getState, subscribe, renderPickCard, renderLoading, renderError, showToast } from './ui.js';
-import { initHIDScanner, showManualInput } from './scanner.js';
-import { speak, captureAndRecognize, isVoiceSupported } from './voice.js';
-import { startCamera, capturePhoto, stopCamera, createFileInput } from './camera.js';
+import { initHIDScanner, showManualInput, openCameraScanner } from './scanner.js';
+import { speak, stopSpeaking, isVoiceSupported, toggleVoiceMode, isVoiceModeActive, stopVoiceMode } from './voice.js';
+import { createFileInput } from './camera.js';
 import { initPWA } from './pwa.js';
 
-// ── Hilfsfunktion: Lagerort für TTS lesbar machen ────────────
-// "WH/Stock/Lager Links/L-E1-P1" → "Lager Links, E 1, P 1"
+const CLAIM_HEARTBEAT_MS = 30_000;
+
 function formatLocationForSpeech(locationPath) {
     if (!locationPath) return '';
     const parts = locationPath.split('/');
-    // Letzten zwei relevanten Teile nehmen (z.B. "Lager Links" + "L-E1-P1")
     const relevant = parts.slice(-2).join(', ');
-    // Bindestriche durch Leerzeichen ersetzen, Großbuchstaben mit Leerzeichen trennen
     return relevant.replace(/-/g, ' ').replace(/([A-Z])(\d)/g, '$1 $2');
 }
 
-// ── DOM-Referenzen ────────────────────────────────────────────
+function formatLocationForDisplay(locationPath) {
+    if (!locationPath) return 'Unbekannter Halt';
+    return locationPath
+        .split('/')
+        .filter(Boolean)
+        .slice(-2)
+        .join(' · ');
+}
+
+function renderRouteHint(picking, currentLineIndex) {
+    const routePlan = picking?.route_plan;
+    const lines = picking?.move_lines || [];
+    if (!routePlan || currentLineIndex >= lines.length) return '';
+
+    const remainingLines = lines.slice(currentLineIndex);
+    const remainingTravelScore = (routePlan.stops || [])
+        .slice(currentLineIndex)
+        .reduce((sum, stop) => sum + (stop.estimated_steps_from_previous || 0), 0);
+    const zonePreview = [...new Set(
+        remainingLines
+            .slice(0, 3)
+            .map(line => formatLocationForDisplay(line.location_src).split(' · ')[0])
+            .filter(Boolean)
+    )];
+    const nextLine = remainingLines[0];
+
+    return `
+        <section class="route-hint" aria-label="Optimierte Routenempfehlung">
+            <div class="route-hint__eyebrow">Route Intelligence</div>
+            <div class="route-hint__title">Naechster Halt: ${formatLocationForDisplay(nextLine.location_src)}</div>
+            <div class="route-hint__meta">
+                ${remainingLines.length} Stopps offen · Laufweg-Score ${remainingTravelScore}
+            </div>
+            <div class="route-hint__chips">
+                ${zonePreview.map(zone => `<span class="route-hint__chip">${zone}</span>`).join('')}
+            </div>
+        </section>
+    `;
+}
+
+let activeFilter = 'all';
+let claimHeartbeatTimer = null;
+let claimedPickingId = null;
+
 const mainEl = () => document.getElementById('main');
 const statusEl = () => document.getElementById('status-indicator');
+const pickerEl = () => document.getElementById('picker-indicator');
 const btnVoice = () => document.getElementById('btn-voice');
+const btnScan = () => document.getElementById('btn-scan');
 const btnAlert = () => document.getElementById('btn-alert');
 
-// ── Picking-Liste ────────────────────────────────────────────
+function updateToolbar(view) {
+    const buttons = [btnVoice(), btnScan(), btnAlert()];
+    const show = view === 'detail';
+    buttons.forEach(button => {
+        if (button) button.classList.toggle('hidden', !show);
+    });
+    if (!show && isVoiceModeActive()) stopVoiceMode();
+}
 
-async function loadPickingList() {
+function updatePickerIndicator() {
+    const indicator = pickerEl();
+    if (!indicator) return;
+    const picker = getState().currentPicker;
+    if (picker?.name) {
+        indicator.textContent = picker.name;
+        indicator.classList.remove('picker-indicator--empty');
+    } else {
+        indicator.textContent = 'Picker waehlen';
+        indicator.classList.add('picker-indicator--empty');
+    }
+}
+
+function renderClaimConflict(conflict, pickingId) {
+    updateToolbar('locked');
+    const owner = conflict?.claimed_by_name || 'einem anderen Picker';
+    const expiresAt = conflict?.claim_expires_at
+        ? new Date(conflict.claim_expires_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+        : 'bald';
+
+    mainEl().innerHTML = `
+        <div class="picker-screen">
+            <section class="picker-card">
+                <div class="picker-card__eyebrow">Claim-Konflikt</div>
+                <h2 class="picker-card__title">Dieses Picking ist gerade gesperrt.</h2>
+                <p class="picker-card__text">
+                    Aktuell arbeitet <strong>${owner}</strong> daran.
+                    Ablauf des Claims: <strong>${expiresAt}</strong>.
+                </p>
+                <div class="picker-card__actions">
+                    <button id="claim-retry" class="picker-option picker-option--primary">Erneut pruefen</button>
+                    <button id="claim-back" class="picker-option">Zurueck zur Liste</button>
+                </div>
+            </section>
+        </div>
+    `;
+
+    document.getElementById('claim-retry')?.addEventListener('click', () => loadPickingDetail(pickingId));
+    document.getElementById('claim-back')?.addEventListener('click', () => loadPickingList({ skipRelease: true }));
+}
+
+function stopClaimHeartbeat() {
+    if (!claimHeartbeatTimer) return;
+    window.clearInterval(claimHeartbeatTimer);
+    claimHeartbeatTimer = null;
+}
+
+function buildOperationKey(scope, parts = [], { unique = false } = {}) {
+    const pickerId = getState().currentPicker?.id || getStoredPicker()?.id || 'anon';
+    return createIdempotencyKey(scope, [pickerId, ...parts], { unique });
+}
+
+function startClaimHeartbeat(pickingId) {
+    stopClaimHeartbeat();
+    claimHeartbeatTimer = window.setInterval(async () => {
+        const picker = getState().currentPicker;
+        if (!picker?.id || claimedPickingId !== pickingId) return;
+        try {
+            await heartbeatPicking(pickingId, {
+                idempotencyKey: buildOperationKey('heartbeat', [pickingId, Date.now()], { unique: true }),
+            });
+        } catch (error) {
+            if (error instanceof ApiError && error.status === 409) {
+                claimedPickingId = null;
+                stopClaimHeartbeat();
+                renderClaimConflict(error.detail, pickingId);
+                return;
+            }
+            console.warn('Claim heartbeat fehlgeschlagen:', error);
+        }
+    }, CLAIM_HEARTBEAT_MS);
+}
+
+async function releaseCurrentClaim(options = {}) {
+    if (!claimedPickingId) return;
+    const pickingId = claimedPickingId;
+    claimedPickingId = null;
+    stopClaimHeartbeat();
+
+    const picker = getState().currentPicker || getStoredPicker();
+    if (!picker?.id) return;
+
+    try {
+        await releasePicking(pickingId, {
+            idempotencyKey: buildOperationKey('release', [pickingId, Date.now()], { unique: true }),
+            keepalive: options.keepalive || false,
+        });
+    } catch (error) {
+        console.warn('Claim release fehlgeschlagen:', error);
+    }
+}
+
+function renderPickerSelection(pickers, { title = 'Picker auswaehlen', intro = 'Bitte waehle deinen Odoo-Benutzer fuer diese Session.' } = {}) {
+    updateToolbar('picker');
+    mainEl().innerHTML = `
+        <div class="picker-screen">
+            <section class="picker-card">
+                <div class="picker-card__eyebrow">Session-Start</div>
+                <h2 class="picker-card__title">${title}</h2>
+                <p class="picker-card__text">${intro}</p>
+                <div class="picker-device">Geraet: ${getDeviceId()}</div>
+                <div class="picker-options">
+                    ${pickers.map(picker => `
+                        <button class="picker-option" data-picker-id="${picker.id}">
+                            ${picker.name}
+                        </button>
+                    `).join('')}
+                </div>
+            </section>
+        </div>
+    `;
+
+    mainEl().querySelectorAll('[data-picker-id]').forEach(button => {
+        button.addEventListener('click', async () => {
+            const pickerId = Number(button.dataset.pickerId);
+            const picker = pickers.find(item => item.id === pickerId);
+            if (!picker) return;
+            setStoredPicker(picker);
+            setState({ currentPicker: picker, deviceId: getDeviceId() });
+            updatePickerIndicator();
+            await loadPickingList({ skipRelease: true });
+        });
+    });
+}
+
+async function ensurePickerSelection({ forceSelection = false } = {}) {
+    const existingPicker = forceSelection ? null : getStoredPicker();
+    const deviceId = getDeviceId();
+
+    if (existingPicker?.id) {
+        setState({ currentPicker: existingPicker, deviceId });
+        updatePickerIndicator();
+        return true;
+    }
+
+    mainEl().innerHTML = renderLoading();
+    try {
+        const pickers = await getPickers();
+        if (!pickers.length) {
+            mainEl().innerHTML = renderError('Keine aktiven Picker in Odoo gefunden.');
+            return false;
+        }
+
+        if (!forceSelection && pickers.length === 1) {
+            setStoredPicker(pickers[0]);
+            setState({ currentPicker: pickers[0], deviceId });
+            updatePickerIndicator();
+            return true;
+        }
+
+        renderPickerSelection(pickers);
+        return false;
+    } catch (error) {
+        mainEl().innerHTML = renderError(`Picker konnten nicht geladen werden: ${error.message}`);
+        return false;
+    }
+}
+
+async function loadPickingList({ skipRelease = false, forcePickerSelection = false } = {}) {
+    stopSpeaking();
+    if (!skipRelease) await releaseCurrentClaim();
+    updateToolbar('list');
+
+    const pickerReady = await ensurePickerSelection({ forceSelection: forcePickerSelection });
+    if (!pickerReady) return;
+
     mainEl().innerHTML = renderLoading();
     try {
         const pickings = await getPickings();
         setState({ pickings, currentPicking: null, currentLineIndex: 0 });
 
         if (!pickings.length) {
-            mainEl().innerHTML = '<p style="padding:20px;color:var(--text-muted)">Keine offenen Aufträge.</p>';
+            mainEl().innerHTML = '<p style="padding:20px;color:var(--text-muted)">Keine offenen Auftraege.</p>';
             return;
         }
 
-        mainEl().innerHTML = pickings.map(p => `
-            <div class="pick-card" data-id="${p.id}" style="cursor:pointer">
-                <div class="product">${p.name}</div>
-                <div class="location">
-                    ${p.partner_id ? p.partner_id[1] : '—'}
-                </div>
-                <div class="quantity" style="font-size:0.85rem;margin-top:4px;">
-                    ${p.scheduled_date ? new Date(p.scheduled_date).toLocaleDateString('de-DE') : ''} · ${p.state}
-                </div>
-            </div>
-        `).join('');
+        const visiblePickings = activeFilter === 'high'
+            ? pickings.filter(picking => picking.priority === '1')
+            : pickings;
 
-        mainEl().querySelectorAll('.pick-card[data-id]').forEach(card => {
+        const countText = activeFilter === 'high'
+            ? `${visiblePickings.length} von ${pickings.length}`
+            : `${pickings.length} Auftraege`;
+
+        const filterBar = `
+            <div class="filter-bar" role="toolbar" aria-label="Auftraege filtern">
+                <button class="filter-btn ${activeFilter === 'all' ? 'filter-btn--active' : ''}"
+                        onclick="window._app.setFilter('all')" aria-pressed="${activeFilter === 'all'}">Alle</button>
+                <button class="filter-btn ${activeFilter === 'high' ? 'filter-btn--active' : ''}"
+                        onclick="window._app.setFilter('high')" aria-pressed="${activeFilter === 'high'}">Dringend</button>
+                <span class="filter-count">${countText}</span>
+            </div>`;
+
+        if (visiblePickings.length === 0) {
+            mainEl().innerHTML = `${filterBar}<p style="padding:20px;color:var(--text-muted)">Keine dringenden Auftraege.</p>`;
+            return;
+        }
+
+        mainEl().innerHTML = filterBar + `<div class="pick-list-grid">${visiblePickings.map(picking => {
+            const date = picking.scheduled_date
+                ? new Date(picking.scheduled_date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
+                : '';
+            const partner = picking.partner_id ? picking.partner_id[1] : '-';
+            const typeName = picking.picking_type_id ? picking.picking_type_id[1] : '';
+            return `
+                <div class="pick-list-card" data-id="${picking.id}">
+                    <div class="plc-header">
+                        <span class="plc-name">${picking.name}</span>
+                        ${typeName ? `<span class="plc-badge">${typeName}</span>` : ''}
+                    </div>
+                    <div class="plc-partner">${partner}</div>
+                    ${date ? `<div class="plc-date">${date}</div>` : ''}
+                </div>`;
+        }).join('')}</div>`;
+
+        mainEl().querySelectorAll('.pick-list-card[data-id]').forEach(card => {
             card.addEventListener('click', () => loadPickingDetail(Number(card.dataset.id)));
         });
-    } catch (e) {
-        mainEl().innerHTML = renderError('Verbindung fehlgeschlagen: ' + e.message);
+    } catch (error) {
+        mainEl().innerHTML = renderError(`Verbindung fehlgeschlagen: ${error.message}`);
         statusEl().textContent = 'Offline';
         statusEl().className = 'status offline';
     }
 }
 
-// ── Picking-Detail ────────────────────────────────────────────
+function setFilter(value) {
+    activeFilter = value;
+    loadPickingList({ skipRelease: true });
+}
 
 async function loadPickingDetail(pickingId) {
+    stopSpeaking();
     mainEl().innerHTML = renderLoading();
+
+    const pickerReady = await ensurePickerSelection();
+    if (!pickerReady) return;
+
+    if (claimedPickingId && claimedPickingId !== pickingId) {
+        await releaseCurrentClaim();
+    }
+
     try {
+        await claimPicking(pickingId, {
+            idempotencyKey: buildOperationKey('claim', [pickingId, Date.now()], { unique: true }),
+        });
+        claimedPickingId = pickingId;
+        startClaimHeartbeat(pickingId);
+
         const picking = await getPickingDetail(pickingId);
         if (picking.error) {
+            await releaseCurrentClaim();
             mainEl().innerHTML = renderError(picking.error);
             return;
         }
@@ -81,33 +359,37 @@ async function loadPickingDetail(pickingId) {
         setState({ currentPicking: picking, currentLineIndex: 0 });
         renderCurrentLine();
 
-        // TTS: ersten Schritt ansagen
         const lines = picking.move_lines || [];
         if (lines.length > 0) {
-            const l = lines[0];
-            speak(`Gehe zu ${formatLocationForSpeech(l.location_src)}. Artikel: ${l.product_name}. Menge: ${l.quantity_demand}`);
+            const line = lines[0];
+            speak(`Optimierte Route aktiv. Gehe zu ${formatLocationForSpeech(line.location_src)}. Artikel: ${line.product_name}. Menge: ${line.quantity_demand}`);
         }
-    } catch (e) {
-        mainEl().innerHTML = renderError('Fehler beim Laden: ' + e.message);
+    } catch (error) {
+        if (error instanceof ApiError && error.status === 409 && typeof error.detail === 'object') {
+            renderClaimConflict(error.detail, pickingId);
+            return;
+        }
+        await releaseCurrentClaim();
+        mainEl().innerHTML = renderError(`Fehler beim Laden: ${error.message}`);
     }
 }
-
-// ── Aktuelle Move-Line anzeigen ───────────────────────────────
 
 function renderCurrentLine() {
     const { currentPicking, currentLineIndex } = getState();
     if (!currentPicking) return;
+    updateToolbar('detail');
 
     const lines = currentPicking.move_lines || [];
     if (currentLineIndex >= lines.length) {
+        updateToolbar('complete');
         mainEl().innerHTML = `
             <div style="padding:20px;text-align:center">
-                <div style="font-size:2rem;margin-bottom:12px">✅</div>
+                <div style="font-size:2rem;margin-bottom:12px">OK</div>
                 <div style="font-size:1.1rem;font-weight:600">${currentPicking.name}</div>
                 <div style="color:var(--text-muted);margin-top:8px">Alle Artikel erfasst.</div>
                 <button onclick="window._app.loadPickingList()"
                         style="margin-top:20px;padding:12px 24px;background:var(--accent);color:#000;border:none;border-radius:8px;font-size:1rem;font-weight:600">
-                    Zurück zur Liste
+                    Zurueck zur Liste
                 </button>
             </div>`;
         return;
@@ -125,6 +407,7 @@ function renderCurrentLine() {
                             style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:0.85rem">← Liste</button>
                 </span>
             </div>
+            ${renderRouteHint(currentPicking, currentLineIndex)}
             ${renderPickCard({
                 ...line,
                 quantity_demand: line.quantity_demand,
@@ -132,13 +415,11 @@ function renderCurrentLine() {
             <div id="scan-input-area" style="margin-top:12px"></div>
         </div>`;
 
-    // Touch-Bestätigung via Button (renderPickCard erstellt .btn-confirm)
-    const btnConfirm = mainEl().querySelector('.btn-confirm');
-    if (btnConfirm) {
-        btnConfirm.addEventListener('click', () => handleScan(line.product_barcode || ''));
+    const confirmButton = mainEl().querySelector('.btn-confirm');
+    if (confirmButton) {
+        confirmButton.addEventListener('click', () => handleScan(line.product_barcode || ''));
     }
 
-    // Manuelle Barcode-Eingabe als Fallback
     const scanArea = document.getElementById('scan-input-area');
     if (scanArea) {
         const manualInput = showManualInput((barcode) => handleScan(barcode));
@@ -146,10 +427,9 @@ function renderCurrentLine() {
     }
 }
 
-// ── Scan-Handler ──────────────────────────────────────────────
-
 async function handleScan(barcode) {
-    const { currentPicking, currentLineIndex } = getState();
+    stopSpeaking();
+    const { currentPicking, currentLineIndex, currentPicker } = getState();
     if (!currentPicking) return;
 
     const lines = currentPicking.move_lines || [];
@@ -157,31 +437,47 @@ async function handleScan(barcode) {
 
     const line = lines[currentLineIndex];
 
-    // Prüfe Barcode (leer = Touch-Bestätigung ohne Scan)
     if (barcode && line.product_barcode && barcode !== line.product_barcode) {
+        feedbackError();
         speak(`Falscher Artikel. Erwartet: ${line.product_name}`);
         showToast('Falscher Barcode', 'error');
         return;
     }
 
     try {
-        const result = await confirmLine(currentPicking.id, {
-            move_line_id: line.id,
-            scanned_barcode: barcode || line.product_barcode || '',
-            quantity: line.quantity_demand,
-        });
+        const result = await confirmLine(
+            currentPicking.id,
+            {
+                move_line_id: line.id,
+                scanned_barcode: barcode || line.product_barcode || '',
+                quantity: line.quantity_demand,
+            },
+            {
+                idempotencyKey: buildOperationKey('confirm-line', [
+                    currentPicking.id,
+                    currentPicker?.id || 'anon',
+                    currentLineIndex,
+                    line.id,
+                    barcode || line.product_barcode || '',
+                    line.quantity_demand,
+                ]),
+            },
+        );
 
         if (!result.success) {
-            speak(result.message || 'Fehler beim Bestätigen.');
+            feedbackError();
+            speak(result.message || 'Fehler beim Bestaetigen.');
             showToast(result.message || 'Fehler', 'error');
             return;
         }
 
+        feedbackSuccess();
         showToast(result.message, 'success');
 
         if (result.picking_complete) {
+            await releaseCurrentClaim();
             speak('Auftrag abgeschlossen.');
-            setState({ currentLineIndex: lines.length }); // zeigt Abschluss-Ansicht
+            setState({ currentLineIndex: lines.length });
             renderCurrentLine();
         } else {
             const nextIdx = currentLineIndex + 1;
@@ -189,41 +485,60 @@ async function handleScan(barcode) {
             renderCurrentLine();
 
             if (nextIdx < lines.length) {
-                const next = lines[nextIdx];
-                speak(`Nächster Artikel. Gehe zu ${formatLocationForSpeech(next.location_src)}. ${next.product_name}. Menge: ${next.quantity_demand}`);
+                const nextLine = lines[nextIdx];
+                speak(`Naechster Artikel. Gehe zu ${formatLocationForSpeech(nextLine.location_src)}. ${nextLine.product_name}. Menge: ${nextLine.quantity_demand}`);
             }
         }
-    } catch (e) {
-        showToast('Verbindungsfehler', 'error');
+    } catch (error) {
+        if (error instanceof ApiError && error.status === 409 && typeof error.detail === 'object') {
+            claimedPickingId = null;
+            stopClaimHeartbeat();
+            renderClaimConflict(error.detail, currentPicking.id);
+            speak('Dieses Picking wurde inzwischen von jemand anderem uebernommen.');
+            return;
+        }
+
+        showToast(error.message || 'Verbindungsfehler', 'error');
         speak('Verbindungsfehler. Bitte erneut versuchen.');
     }
 }
 
-// ── Voice-PTT ─────────────────────────────────────────────────
-
-let voiceSession = null;
-
-async function onVoicePress() {
+function onVoiceToggle() {
     if (!isVoiceSupported()) {
-        showToast('Voice nicht verfügbar', 'warning');
+        showToast('Mikrofon nicht verfuegbar', 'warning');
         return;
     }
-    if (voiceSession) return; // bereits aktiv
 
-    btnVoice().style.background = 'var(--danger)';
-    voiceSession = await captureAndRecognize();
+    toggleVoiceMode(
+        handleVoiceIntent,
+        (active) => {
+            const voiceButton = btnVoice();
+            if (!voiceButton) return;
+            if (active) {
+                voiceButton.style.background = 'var(--danger)';
+                voiceButton.setAttribute('aria-label', 'Sprachmodus beenden');
+                showToast('Sprachmodus aktiv - sprich ein Kommando', 'info');
+            } else {
+                voiceButton.style.background = '';
+                voiceButton.setAttribute('aria-label', 'Sprachmodus starten');
+                showToast('Sprachmodus beendet', 'info');
+            }
+        },
+        (error) => {
+            const message = error?.name === 'NotAllowedError'
+                ? 'Mikrofonzugriff verweigert. Bitte in den Browser-Einstellungen erlauben.'
+                : `Mikrofon-Fehler: ${error?.message || error}`;
+            showToast(message, 'warning');
+        },
+    );
 }
 
-async function onVoiceRelease() {
-    if (!voiceSession) return;
-    btnVoice().style.background = '';
+async function handleVoiceIntent(result) {
+    if (!result || result.intent === 'error') return;
 
-    const result = await voiceSession.stop();
-    voiceSession = null;
-
-    if (!result || result.intent === 'error') {
-        showToast('Nicht erkannt', 'warning');
-        return;
+    if (result.text) {
+        const intentLabel = result.intent !== 'unknown' ? ` -> ${result.intent}` : ' -> nicht erkannt';
+        showToast(`"${result.text}"${intentLabel}`, result.intent !== 'unknown' ? 'info' : 'warning');
     }
 
     const { currentPicking, currentLineIndex } = getState();
@@ -248,63 +563,250 @@ async function onVoiceRelease() {
         case 'problem':
             openQualityAlertForm();
             break;
-        case 'done':
-            if (currentPicking) speak('Auftrag wird abgeschlossen.');
+        case 'photo':
+            openCameraScanner((barcode) => handleScan(barcode));
             break;
+        case 'pause':
+            if (isVoiceModeActive()) {
+                stopVoiceMode();
+                const voiceButton = btnVoice();
+                if (voiceButton) voiceButton.classList.remove('voice-active');
+            }
+            break;
+        case 'done': {
+            const remaining = lines.filter(item => !item.picked).length;
+            if (remaining === 0) {
+                await speak('Auftrag abgeschlossen.');
+                loadPickingList();
+            } else {
+                speak(`Noch ${remaining} Artikel ausstehend.`);
+            }
+            break;
+        }
+        case 'help':
+            speak('Verfuegbare Kommandos: bestaetigen, weiter, zurueck, wiederholen, Problem, fertig.');
+            break;
+        case 'filter_high':
+            if (currentPicking !== null) break;
+            activeFilter = 'high';
+            await loadPickingList({ skipRelease: true });
+            speak('Gefiltert. Zeige nur dringende Auftraege.');
+            break;
+        case 'filter_normal':
+            if (currentPicking !== null) break;
+            activeFilter = 'all';
+            await loadPickingList({ skipRelease: true });
+            speak('Filter zurueckgesetzt. Alle Auftraege.');
+            break;
+        case 'status': {
+            if (currentPicking !== null) break;
+            const { pickings } = getState();
+            const all = pickings?.length || 0;
+            const high = pickings?.filter(picking => picking.priority === '1').length || 0;
+            if (high > 0) speak(`${all} offene Auftraege. ${high} davon dringend.`);
+            else speak(`${all} offene Auftraege.`);
+            break;
+        }
+        case 'stock_query': {
+            if (!line) break;
+            const productId = line.product_id;
+            speak(`Ich pruefe den Bestand fuer ${line.product_name}.`);
+            try {
+                const response = await fetch(`/api/pickings/${currentPicking.id}/stock?product_id=${productId}&location_id=0`);
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.quantity_available > 0) {
+                        speak(`Laut System sind ${data.quantity_available} Stueck verfuegbar.`);
+                    } else {
+                        speak('Laut System ist kein Bestand vorhanden. Soll ich einen Qualitaetsalarm ausloesen?');
+                    }
+                }
+            } catch {
+                speak('Bestand konnte nicht abgerufen werden.');
+            }
+            break;
+        }
         default:
-            showToast(`"${result.text}"`, 'info');
+            break;
     }
 }
 
-// ── Quality-Alert-Formular ────────────────────────────────────
-
 function openQualityAlertForm() {
+    stopSpeaking();
+    updateToolbar('alert');
+
     const { currentPicking, currentLineIndex } = getState();
     const lines = currentPicking?.move_lines || [];
     const line = lines[currentLineIndex];
+    const contextLabel = currentPicking
+        ? `${currentPicking.name}${line?.product_name ? ` | ${line.product_name}` : ''}`
+        : 'Allgemeine Meldung';
 
     mainEl().innerHTML = `
-        <div style="padding:16px">
-            <h2 style="margin-bottom:16px;font-size:1rem">Problem melden</h2>
-            <textarea id="qa-description" placeholder="Beschreibung des Problems..."
-                style="width:100%;height:80px;padding:8px;border-radius:8px;background:var(--surface);color:var(--text-primary);border:1px solid #444;font-size:1rem"></textarea>
-            <div style="margin-top:8px">
-                <label style="font-size:0.85rem;color:var(--text-muted)">Priorität</label>
-                <select id="qa-priority" style="width:100%;margin-top:4px;padding:8px;border-radius:8px;background:var(--surface);color:var(--text-primary);border:1px solid #444">
-                    <option value="0">Normal</option>
-                    <option value="2">Hoch</option>
-                    <option value="3">Kritisch</option>
-                </select>
-            </div>
-            <div style="margin-top:12px" id="photo-area"></div>
-            <div style="margin-top:16px;display:flex;gap:8px">
-                <button id="qa-submit" style="flex:1;padding:14px;background:var(--accent);color:#000;border:none;border-radius:8px;font-weight:600;font-size:1rem">Absenden</button>
-                <button id="qa-cancel" style="padding:14px 20px;background:var(--surface);color:var(--text-primary);border:1px solid #444;border-radius:8px;font-size:1rem">Abbrechen</button>
-            </div>
-        </div>`;
+        <div class="qa-shell">
+            <section class="qa-card" aria-labelledby="qa-title">
+                <div class="qa-header">
+                    <h2 id="qa-title" class="qa-title">Problem melden</h2>
+                    <p class="qa-context">${contextLabel}</p>
+                </div>
 
-    // Foto-Input
+                <div class="qa-field-group">
+                    <label for="qa-description" class="qa-label">Beschreibung</label>
+                    <textarea
+                        id="qa-description"
+                        class="qa-field qa-textarea"
+                        placeholder="Beschreibung des Problems..."
+                        aria-describedby="qa-description-help"
+                    ></textarea>
+                    <p id="qa-description-help" class="qa-help">
+                        Kurz und konkret beschreiben, was am Artikel, Lagerort oder Zustand auffaellt.
+                    </p>
+                    <p id="qa-description-error" class="qa-field-error" role="alert" hidden></p>
+                </div>
+
+                <div class="qa-field-group">
+                    <label for="qa-priority" class="qa-label">Prioritaet</label>
+                    <select id="qa-priority" class="qa-field qa-select">
+                        <option value="0">Normal</option>
+                        <option value="2">Hoch</option>
+                        <option value="3">Kritisch</option>
+                    </select>
+                </div>
+
+                <div id="photo-area" class="qa-photo-area"></div>
+            </section>
+
+            <p id="qa-inline-error" class="qa-inline-error" role="alert" hidden></p>
+
+            <div class="qa-actions">
+                <button id="qa-submit" class="qa-submit">Absenden</button>
+                <button id="qa-cancel" class="qa-cancel">Abbrechen</button>
+            </div>
+        </div>
+    `;
+
     const photoArea = document.getElementById('photo-area');
-    let photoFile = null;
-    const fileInput = createFileInput((file) => {
-        photoFile = file;
-        showToast('Foto hinzugefügt', 'success');
+    const descriptionEl = document.getElementById('qa-description');
+    const descriptionErrorEl = document.getElementById('qa-description-error');
+    const inlineErrorEl = document.getElementById('qa-inline-error');
+    const cancelBtn = document.getElementById('qa-cancel');
+    const submitBtn = document.getElementById('qa-submit');
+    let photoFiles = [];
+
+    const clearDescriptionError = () => {
+        descriptionErrorEl.hidden = true;
+        descriptionErrorEl.textContent = '';
+        descriptionEl.removeAttribute('aria-invalid');
+        descriptionEl.setAttribute('aria-describedby', 'qa-description-help');
+    };
+
+    const setDescriptionError = (message) => {
+        descriptionErrorEl.hidden = false;
+        descriptionErrorEl.textContent = message;
+        descriptionEl.setAttribute('aria-invalid', 'true');
+        descriptionEl.setAttribute('aria-describedby', 'qa-description-help qa-description-error');
+    };
+
+    const clearInlineError = () => {
+        inlineErrorEl.hidden = true;
+        inlineErrorEl.textContent = '';
+    };
+
+    const setInlineError = (message) => {
+        inlineErrorEl.hidden = false;
+        inlineErrorEl.textContent = message;
+    };
+
+    const fileInput = createFileInput((files) => {
+        photoFiles = photoFiles.concat(files);
+        renderPhotoPreview();
+        clearInlineError();
+        showToast(`${files.length} Foto${files.length > 1 ? 's' : ''} hinzugefuegt`, 'success');
     });
+
+    const photoLabel = document.createElement('p');
+    photoLabel.className = 'qa-label';
+    photoLabel.textContent = 'Fotos';
+
+    const photoHelp = document.createElement('p');
+    photoHelp.className = 'qa-help';
+    photoHelp.textContent = 'Optional: 1 oder mehrere Fotos hinzufuegen.';
+
     const photoBtn = document.createElement('button');
-    photoBtn.textContent = '📷 Foto aufnehmen';
-    photoBtn.style.cssText = 'width:100%;padding:10px;background:var(--surface);color:var(--text-primary);border:1px solid #444;border-radius:8px;font-size:0.95rem';
+    photoBtn.type = 'button';
+    photoBtn.className = 'qa-photo-button';
+    photoBtn.textContent = 'Fotos hinzufuegen';
     photoBtn.addEventListener('click', () => fileInput.click());
-    photoArea.appendChild(fileInput);
-    photoArea.appendChild(photoBtn);
 
-    document.getElementById('qa-cancel').addEventListener('click', () => {
-        if (currentPicking) loadPickingDetail(currentPicking.id);
-        else loadPickingList();
+    const previewGrid = document.createElement('div');
+    previewGrid.id = 'photo-preview-grid';
+    previewGrid.className = 'qa-photo-preview-grid';
+
+    function renderPhotoPreview() {
+        previewGrid.innerHTML = '';
+        photoFiles.forEach((file, index) => {
+            const url = URL.createObjectURL(file);
+            const wrapper = document.createElement('div');
+            wrapper.className = 'qa-photo-thumb';
+
+            const image = document.createElement('img');
+            image.src = url;
+            image.alt = `Ausgewaehltes Foto ${index + 1}`;
+            image.className = 'qa-photo-image';
+
+            const removeButton = document.createElement('button');
+            removeButton.type = 'button';
+            removeButton.className = 'qa-photo-remove';
+            removeButton.textContent = 'x';
+            removeButton.setAttribute('aria-label', `Foto ${index + 1} entfernen`);
+            removeButton.addEventListener('click', () => {
+                photoFiles.splice(index, 1);
+                URL.revokeObjectURL(url);
+                renderPhotoPreview();
+            });
+
+            wrapper.appendChild(image);
+            wrapper.appendChild(removeButton);
+            previewGrid.appendChild(wrapper);
+        });
+    }
+
+    photoArea.appendChild(fileInput);
+    photoArea.appendChild(photoLabel);
+    photoArea.appendChild(photoHelp);
+    photoArea.appendChild(photoBtn);
+    photoArea.appendChild(previewGrid);
+
+    descriptionEl.addEventListener('input', () => {
+        if (descriptionEl.value.trim()) clearDescriptionError();
+        clearInlineError();
     });
 
-    document.getElementById('qa-submit').addEventListener('click', async () => {
-        const description = document.getElementById('qa-description').value.trim();
-        if (!description) { showToast('Bitte Beschreibung eingeben', 'warning'); return; }
+    cancelBtn.addEventListener('click', () => {
+        if (currentPicking) {
+            loadPickingDetail(currentPicking.id);
+            return;
+        }
+        loadPickingList();
+    });
+
+    submitBtn.addEventListener('click', async () => {
+        const description = descriptionEl.value.trim();
+        clearInlineError();
+
+        if (!description) {
+            setDescriptionError('Bitte Beschreibung eingeben.');
+            descriptionEl.focus();
+            showToast('Bitte Beschreibung eingeben', 'warning');
+            return;
+        }
+
+        clearDescriptionError();
+
+        submitBtn.disabled = true;
+        cancelBtn.disabled = true;
+        photoBtn.disabled = true;
+        submitBtn.textContent = 'Wird gesendet...';
 
         const priority = document.getElementById('qa-priority').value;
         const formData = new FormData();
@@ -312,57 +814,102 @@ function openQualityAlertForm() {
         formData.append('priority', priority);
         if (currentPicking) formData.append('picking_id', String(currentPicking.id));
         if (line?.product_id) formData.append('product_id', String(line.product_id));
-        if (photoFile) formData.append('photo', photoFile);
+        photoFiles.forEach(file => formData.append('photos', file));
 
         try {
-            const result = await createQualityAlert(formData);
+            const result = await createQualityAlert(
+                formData,
+                {
+                    idempotencyKey: buildOperationKey('quality-alert', [
+                        currentPicking?.id || 'none',
+                        line?.id || 'none',
+                        priority,
+                        description,
+                        ...photoFiles.map(file => `${file.name}:${file.size}`),
+                    ]),
+                },
+            );
             speak('Problem gemeldet. Vielen Dank.');
             showToast(`Alert ${result.name} erstellt`, 'success');
-            if (currentPicking) loadPickingDetail(currentPicking.id);
-            else loadPickingList();
-        } catch (e) {
-            showToast('Fehler beim Erstellen: ' + e.message, 'error');
+            if (currentPicking) {
+                await loadPickingDetail(currentPicking.id);
+                return;
+            }
+            await loadPickingList({ skipRelease: true });
+        } catch (error) {
+            submitBtn.disabled = false;
+            cancelBtn.disabled = false;
+            photoBtn.disabled = false;
+            submitBtn.textContent = 'Absenden';
+            setInlineError(`Fehler beim Erstellen: ${error.message}`);
+            showToast(`Fehler beim Erstellen: ${error.message}`, 'error');
         }
     });
 }
 
-// ── Initialisierung ───────────────────────────────────────────
-
 async function init() {
-    // Service Worker registrieren
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/sw.js').catch(console.error);
     }
 
-    // PWA-Lifecycle (Install-Prompt, Online/Offline)
     initPWA();
+    setState({ deviceId: getDeviceId() });
+    updatePickerIndicator();
 
-    // HID-Barcode-Scanner (Bluetooth/USB)
     initHIDScanner((barcode) => handleScan(barcode));
 
-    // Voice-Buttons (Push-to-Talk)
-    const voiceBtn = btnVoice();
-    if (voiceBtn) {
-        voiceBtn.addEventListener('pointerdown', onVoicePress);
-        voiceBtn.addEventListener('pointerup', onVoiceRelease);
-        voiceBtn.addEventListener('pointerleave', onVoiceRelease);
+    const voiceButton = btnVoice();
+    if (voiceButton) voiceButton.addEventListener('click', onVoiceToggle);
+
+    const scanButton = btnScan();
+    if (scanButton) {
+        scanButton.addEventListener('click', () => {
+            openCameraScanner((barcode) => handleScan(barcode));
+        });
     }
 
-    // Quality-Alert-Button
-    const alertBtn = btnAlert();
-    if (alertBtn) {
-        alertBtn.addEventListener('click', openQualityAlertForm);
+    const alertButton = btnAlert();
+    if (alertButton) alertButton.addEventListener('click', openQualityAlertForm);
+
+    const pickerButton = pickerEl();
+    if (pickerButton) {
+        pickerButton.addEventListener('click', async () => {
+            clearStoredPicker();
+            setState({ currentPicker: null });
+            updatePickerIndicator();
+            await loadPickingList({ forcePickerSelection: true });
+        });
     }
 
-    // State-Änderungen → Header-Status aktualisieren
-    subscribe((state) => {
-        statusEl().textContent = state.loading ? 'Laden...' : 'Online';
+    document.addEventListener('keydown', (event) => {
+        if (event.repeat) return;
+        const tagName = event.target?.tagName;
+        if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') return;
+        if (event.key === 'm' || event.key === 'M') {
+            event.preventDefault();
+            onVoiceToggle();
+        }
     });
 
-    // Backend erreichbar?
+    window.addEventListener('pagehide', () => {
+        releaseCurrentClaim({ keepalive: true });
+    });
+
+    subscribe((state) => {
+        updatePickerIndicator();
+        const status = statusEl();
+        if (!status) return;
+        if (state.loading) {
+            status.textContent = 'Laden...';
+        } else if (navigator.onLine) {
+            status.textContent = 'Online';
+            status.className = 'status online';
+        }
+    });
+
     try {
-        const resp = await fetch('/api/health');
-        if (resp.ok) {
+        const response = await fetch('/api/health');
+        if (response.ok) {
             statusEl().textContent = 'Online';
             statusEl().className = 'status online';
         }
@@ -371,11 +918,24 @@ async function init() {
         statusEl().className = 'status offline';
     }
 
-    // Picking-Liste laden
     await loadPickingList();
+
+    const { pickings } = getState();
+    const total = pickings?.length || 0;
+    const urgent = pickings?.filter(picking => picking.priority === '1').length || 0;
+    if (total === 0) {
+        speak('Keine offenen Auftraege.');
+    } else if (urgent > 0) {
+        speak(`${total} Auftraege offen. ${urgent} davon dringend.`);
+    } else {
+        speak(`${total} Auftraege offen.`);
+    }
 }
 
-// Globaler Zugriff für inline-onclick-Handlers
-window._app = { loadPickingList, loadPickingDetail };
+window._app = {
+    loadPickingList,
+    loadPickingDetail,
+    setFilter,
+};
 
 document.addEventListener('DOMContentLoaded', init);

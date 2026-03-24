@@ -52,6 +52,114 @@ export function isBarcodeDetectorAvailable() {
 }
 
 /**
+ * Kamera-Barcode-Scanner-Overlay öffnen.
+ * - Nutzt BarcodeDetector API wenn verfügbar (automatische Erkennung)
+ * - Fallback: Kamera-Vorschau + manuelle Eingabe
+ * onScan(barcode) wird aufgerufen sobald ein Barcode erkannt wurde.
+ */
+export async function openCameraScanner(onScan) {
+    const overlay = document.createElement('div');
+    overlay.id = 'barcode-scanner-overlay';
+    overlay.style.cssText = [
+        'position:fixed', 'inset:0', 'z-index:500',
+        'background:#000', 'display:flex', 'flex-direction:column',
+    ].join(';');
+
+    const hasDetector = typeof BarcodeDetector !== 'undefined';
+
+    overlay.innerHTML = `
+        <div style="position:relative;flex:1;overflow:hidden;background:#000;">
+            <video id="scanner-video" autoplay playsinline muted
+                   style="width:100%;height:100%;object-fit:cover;"></video>
+            <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;">
+                <div style="width:260px;height:130px;border:3px solid #e94560;border-radius:10px;box-shadow:0 0 0 9999px rgba(0,0,0,0.45);"></div>
+            </div>
+            <div style="position:absolute;top:16px;left:0;right:0;text-align:center;">
+                <span style="background:rgba(0,0,0,0.6);color:#eee;padding:6px 14px;border-radius:20px;font-size:0.85rem;">
+                    ${hasDetector ? 'Barcode in den Rahmen halten' : 'Barcode scannen'}
+                </span>
+            </div>
+        </div>
+        <div style="padding:16px;background:#1a1a2e;display:flex;flex-direction:column;gap:10px;">
+            <div style="display:flex;gap:8px;align-items:center;">
+                <input type="text" id="scanner-manual-input" placeholder="Barcode manuell eingeben"
+                       inputmode="numeric" autocomplete="off"
+                       style="flex:1;padding:12px;border-radius:8px;border:1px solid #444;background:#16213e;color:#eee;font-size:1rem;">
+                <button id="scanner-manual-submit"
+                        style="padding:12px 18px;background:#4caf50;color:#000;border:none;border-radius:8px;font-weight:600;">OK</button>
+            </div>
+            <button id="scanner-close"
+                    style="padding:12px;background:#f44336;color:#fff;border:none;border-radius:8px;font-weight:600;font-size:1rem;">
+                Abbrechen
+            </button>
+        </div>`;
+
+    document.body.appendChild(overlay);
+
+    let videoStream = null;
+    let rafHandle = null;
+
+    const videoEl = document.getElementById('scanner-video');
+
+    // Kamera starten
+    try {
+        videoStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'environment', width: { ideal: 1280 } },
+        });
+        videoEl.srcObject = videoStream;
+    } catch {
+        videoEl.parentElement.style.display = 'none';
+    }
+
+    function close() {
+        if (rafHandle) cancelAnimationFrame(rafHandle);
+        if (videoStream) videoStream.getTracks().forEach(t => t.stop());
+        overlay.remove();
+    }
+
+    document.getElementById('scanner-close').addEventListener('click', close);
+
+    // BarcodeDetector-Loop (automatische Erkennung)
+    if (hasDetector && videoStream) {
+        const detector = new BarcodeDetector({
+            formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'qr_code', 'data_matrix'],
+        });
+
+        async function detectLoop() {
+            if (videoEl.readyState >= 2) {
+                try {
+                    const results = await detector.detect(videoEl);
+                    if (results.length > 0) {
+                        close();
+                        onScan(results[0].rawValue);
+                        return;
+                    }
+                } catch { /* ignorieren */ }
+            }
+            rafHandle = requestAnimationFrame(detectLoop);
+        }
+        videoEl.addEventListener('playing', () => {
+            rafHandle = requestAnimationFrame(detectLoop);
+        });
+    }
+
+    // Manuelle Eingabe (immer als Fallback verfügbar)
+    const manualInput = document.getElementById('scanner-manual-input');
+    const manualSubmit = document.getElementById('scanner-manual-submit');
+    manualInput.focus();
+
+    const submitManual = () => {
+        const val = manualInput.value.trim();
+        if (val.length >= MIN_BARCODE_LENGTH) {
+            close();
+            onScan(val);
+        }
+    };
+    manualSubmit.addEventListener('click', submitManual);
+    manualInput.addEventListener('keydown', e => { if (e.key === 'Enter') submitManual(); });
+}
+
+/**
  * Touch-Fallback: Manuelles Barcode-Eingabefeld anzeigen.
  */
 export function showManualInput(onSubmit) {

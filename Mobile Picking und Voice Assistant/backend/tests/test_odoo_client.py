@@ -14,7 +14,7 @@ class TestOdooClient:
             mock_settings.odoo_api_key = "test-key"
             return OdooClient()
 
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_authenticate_success(self, client):
         """Erfolgreiche Authentifizierung setzt UID."""
         with patch.object(client, "_json_rpc", new_callable=AsyncMock) as mock_rpc:
@@ -23,7 +23,7 @@ class TestOdooClient:
             assert uid == 2
             assert client._uid == 2
 
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_authenticate_failure(self, client):
         """Fehlgeschlagene Auth wirft OdooAPIError."""
         with patch.object(client, "_json_rpc", new_callable=AsyncMock) as mock_rpc:
@@ -31,7 +31,7 @@ class TestOdooClient:
             with pytest.raises(OdooAPIError):
                 await client.authenticate()
 
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_search_read(self, client):
         """search_read gibt Liste von Dicts zurück."""
         client._uid = 2

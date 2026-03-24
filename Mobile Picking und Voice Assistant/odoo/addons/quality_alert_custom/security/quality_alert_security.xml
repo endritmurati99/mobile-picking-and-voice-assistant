@@ -12,4 +12,8 @@
         <field name="category_id" ref="module_category_quality"/>
         <field name="implied_ids" eval="[(4, ref('group_quality_user'))]"/>
     </record>
+    <!-- Alle internen User bekommen automatisch Qualitäts-Nutzer-Rechte (wie stock.group_stock_user) -->
+    <record id="base.group_user" model="res.groups">
+        <field name="implied_ids" eval="[(4, ref('group_quality_user'))]"/>
+    </record>
 </odoo>

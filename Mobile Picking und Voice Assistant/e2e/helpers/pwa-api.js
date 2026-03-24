@@ -40,10 +40,47 @@ function createPickingDetail() {
         location_src: 'WH/Stock/Lager Rechts/L-E2-P4',
       },
     ],
+    route_plan: {
+      strategy: 'zone-first-shortest-walk',
+      total_stops: 2,
+      completed_stops: 0,
+      remaining_stops: 2,
+      estimated_travel_steps: 5,
+      next_move_line_id: 501,
+      next_location_src: 'WH/Stock/Lager Links/L-E1-P1',
+      next_product_name: 'Brick 2x2 orange',
+      zone_sequence: ['Lager Links', 'Lager Rechts'],
+      stops: [
+        {
+          sequence: 1,
+          move_line_id: 501,
+          product_name: 'Brick 2x2 orange',
+          location_src: 'WH/Stock/Lager Links/L-E1-P1',
+          estimated_steps_from_previous: 0,
+        },
+        {
+          sequence: 2,
+          move_line_id: 502,
+          product_name: 'Brick 2x2 hellgruen',
+          location_src: 'WH/Stock/Lager Rechts/L-E2-P4',
+          estimated_steps_from_previous: 5,
+        },
+      ],
+    },
   };
 }
 
+function createPickers() {
+  return [
+    {
+      id: 17,
+      name: 'Max Picker',
+    },
+  ];
+}
+
 async function mockPwaApi(page, options = {}) {
+  const pickers = options.pickers || createPickers();
   const pickings = options.pickings || createPickingList();
   const detail = options.detail || createPickingDetail();
   const confirmResponses = options.confirmResponses || [
@@ -75,8 +112,40 @@ async function mockPwaApi(page, options = {}) {
       return jsonResponse(route, 200, pickings);
     }
 
+    if (path === '/api/pickers' && request.method() === 'GET') {
+      return jsonResponse(route, 200, pickers);
+    }
+
     if (path === `/api/pickings/${detail.id}` && request.method() === 'GET') {
       return jsonResponse(route, 200, detail);
+    }
+
+    if (path === `/api/pickings/${detail.id}/claim` && request.method() === 'POST') {
+      return jsonResponse(route, 200, {
+        success: true,
+        status: 'claimed',
+        picking_id: detail.id,
+        claimed_by_user_id: pickers[0]?.id || 17,
+        claimed_by_name: pickers[0]?.name || 'Max Picker',
+        device_id: 'test-device',
+        claim_expires_at: '2026-03-24 10:02:00',
+      });
+    }
+
+    if (path === `/api/pickings/${detail.id}/heartbeat` && request.method() === 'POST') {
+      return jsonResponse(route, 200, {
+        success: true,
+        status: 'claimed',
+        picking_id: detail.id,
+      });
+    }
+
+    if (path === `/api/pickings/${detail.id}/release` && request.method() === 'POST') {
+      return jsonResponse(route, 200, {
+        success: true,
+        status: 'released',
+        picking_id: detail.id,
+      });
     }
 
     if (path === `/api/pickings/${detail.id}/confirm-line` && request.method() === 'POST') {
@@ -121,5 +190,6 @@ async function mockPwaApi(page, options = {}) {
 module.exports = {
   createPickingDetail,
   createPickingList,
+  createPickers,
   mockPwaApi,
 };

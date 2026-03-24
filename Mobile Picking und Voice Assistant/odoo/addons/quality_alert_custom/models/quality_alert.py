@@ -1,4 +1,5 @@
 from odoo import models, fields, api
+from markupsafe import Markup
 
 
 class QualityAlertStage(models.Model):
@@ -60,8 +61,45 @@ class QualityAlert(models.Model):
         "res.users", string="Erfasst von", default=lambda self: self.env.user,
     )
 
+    # Fotos
     photo = fields.Binary(string="Foto", attachment=True)
     photo_filename = fields.Char(string="Dateiname")
+    photo_count = fields.Integer(string="Anzahl Fotos", compute="_compute_photo_count")
+    photo_gallery = fields.Html(string="Foto-Galerie", compute="_compute_photo_gallery", sanitize=False)
+
+    def _compute_photo_count(self):
+        for rec in self:
+            rec.photo_count = self.env["ir.attachment"].search_count([
+                ("res_model", "=", "quality.alert.custom"),
+                ("res_id", "=", rec.id),
+                ("mimetype", "like", "image"),
+            ])
+
+    def _compute_photo_gallery(self):
+        for rec in self:
+            attachments = self.env["ir.attachment"].search([
+                ("res_model", "=", "quality.alert.custom"),
+                ("res_id", "=", rec.id),
+                ("mimetype", "like", "image"),
+            ])
+            if not attachments:
+                rec.photo_gallery = Markup("<p style='color:#888'>Keine Fotos vorhanden.</p>")
+                continue
+            parts = []
+            for att in attachments:
+                url = f"/web/image/{att.id}"
+                parts.append(
+                    f'<a href="{url}" target="_blank" title="{att.name}">'
+                    f'<img src="{url}" style="max-width:320px;max-height:320px;'
+                    f'border-radius:8px;border:1px solid #ddd;object-fit:cover;"/>'
+                    f'</a>'
+                )
+            html = (
+                '<div style="display:flex;flex-wrap:wrap;gap:12px;padding:8px 0;">'
+                + "".join(parts)
+                + '</div>'
+            )
+            rec.photo_gallery = Markup(html)
 
     def _get_default_stage(self):
         return self.env["quality.alert.stage.custom"].search(
@@ -69,25 +107,46 @@ class QualityAlert(models.Model):
         )
 
     @api.model
-    def _read_group_stage_ids(self, stages, domain, order):
+    def _read_group_stage_ids(self, stages, domain):
         return self.env["quality.alert.stage.custom"].search([])
+
+    def action_set_in_progress(self):
+        stage = self.env.ref(
+            "quality_alert_custom.stage_in_progress", raise_if_not_found=False
+        )
+        if stage:
+            self.write({"stage_id": stage.id})
+
+    def action_set_done(self):
+        stage = self.env.ref(
+            "quality_alert_custom.stage_done", raise_if_not_found=False
+        )
+        if stage:
+            self.write({"stage_id": stage.id})
 
     @api.model
     def api_create_alert(self, vals):
         """
         Atomare Methode für externe Alert-Erstellung.
-        Erstellt Alert + optional Foto-Attachment in einer Transaktion.
+        Akzeptiert photos als Liste von {data_b64, filename}.
+        sudo() wird verwendet, da die Rechteprüfung auf API-Ebene (FastAPI) erfolgt.
         """
-        photo_b64 = vals.pop("photo_base64", None)
-        photo_filename = vals.pop("photo_filename", None)
+        photos = vals.pop("photos", [])
+        single_b64 = vals.pop("photo_base64", None)
+        single_name = vals.pop("photo_filename", None)
+        if single_b64 and single_name:
+            photos.insert(0, {"data_b64": single_b64, "filename": single_name})
 
-        alert = self.create(vals)
+        if photos:
+            vals["photo"] = photos[0]["data_b64"]
 
-        if photo_b64 and photo_filename:
-            self.env["ir.attachment"].create({
-                "name": photo_filename,
+        alert = self.sudo().create(vals)
+
+        for i, p in enumerate(photos):
+            self.env["ir.attachment"].sudo().create({
+                "name": p.get("filename", f"photo_{i}.jpg"),
                 "type": "binary",
-                "datas": photo_b64,
+                "datas": p["data_b64"],
                 "res_model": self._name,
                 "res_id": alert.id,
                 "mimetype": "image/jpeg",

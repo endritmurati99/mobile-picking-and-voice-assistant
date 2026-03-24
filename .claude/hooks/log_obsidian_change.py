@@ -88,7 +88,7 @@ def main() -> None:
         return
 
     project_dir = Path(os.environ.get("CLAUDE_PROJECT_DIR", Path.cwd()))
-    note_path = project_dir / "Notzien (Obsidian)" / "04 - Ressourcen" / "Claude Code Aenderungslog.md"
+    note_path = project_dir / "Notzien" / "04 - Ressourcen" / "Claude Code Aenderungslog.md"
     ensure_header(note_path)
 
     try:

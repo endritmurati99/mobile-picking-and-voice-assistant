@@ -43,7 +43,7 @@
     },
     {
       "parameters": {
-        "content": "=Picking **{{ $json.picking_id }}** wurde vollstaendig abgeschlossen.\n\nAbgeschlossen von: {{ $json.completed_by }}\nZeit: {{ $now.format('dd.MM.yyyy HH:mm') }}"
+        "content": "=Picking **{{ $json.picking_id }}** wurde vollstaendig abgeschlossen.\n\nAbgeschlossen von: {{ $json.completed_by }}\nPicker-ID: {{ $json.completed_by_user_id }}\nGeraet: {{ $json.completed_by_device_id }}\nZeit: {{ $now.format('dd.MM.yyyy HH:mm') }}"
       },
       "name": "Log Completion",
       "type": "n8n-nodes-base.set",

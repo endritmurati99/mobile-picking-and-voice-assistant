@@ -15,9 +15,17 @@ param(
         "seed",
         "test",
         "test-ui",
+        "test-visual",
+        "test-visual-diff",
+        "test-visual-diff-update",
+        "test-a11y",
         "test-api",
+        "test-n8n-api",
         "verify-code",
         "verify-ui",
+        "verify-visual",
+        "verify-visual-diff",
+        "verify-a11y",
         "verify-workflows",
         "verify-stack",
         "verify",
@@ -62,9 +70,17 @@ Available tasks:
   seed
   test
   test-ui
+  test-visual
+  test-visual-diff
+  test-visual-diff-update
+  test-a11y
   test-api
+  test-n8n-api
   verify-code
   verify-ui
+  verify-visual
+  verify-visual-diff
+  verify-a11y
   verify-workflows
   verify-stack
   verify
@@ -133,8 +149,13 @@ try {
                 Pop-Location
             }
         }
-        "test-ui" { Invoke-Step { npx.cmd playwright test } }
+        "test-ui" { Invoke-Step { npx.cmd playwright test e2e/confirm-flow.spec.js e2e/pickings.spec.js e2e/quality-alert.spec.js } }
+        "test-visual" { Invoke-Step { node e2e/capture-sight.js } }
+        "test-visual-diff" { Invoke-Step { npx.cmd playwright test e2e/visual.spec.js } }
+        "test-visual-diff-update" { Invoke-Step { npx.cmd playwright test e2e/visual.spec.js --update-snapshots } }
+        "test-a11y" { Invoke-Step { npx.cmd playwright test e2e/a11y.spec.js } }
         "test-api" { Invoke-Step { python infrastructure/scripts/test-api.py } }
+        "test-n8n-api" { Invoke-Step { python infrastructure/scripts/test-n8n-api.py } }
         "verify-workflows" { Invoke-Step { python infrastructure/scripts/verify-workflows.py } }
         "verify-code" {
             Invoke-Step { & $PSCommandPath test }
@@ -142,12 +163,24 @@ try {
         "verify-ui" {
             Invoke-Step { & $PSCommandPath test-ui }
         }
+        "verify-visual" {
+            Invoke-Step { & $PSCommandPath test-visual }
+        }
+        "verify-visual-diff" {
+            Invoke-Step { & $PSCommandPath test-visual-diff }
+        }
+        "verify-a11y" {
+            Invoke-Step { & $PSCommandPath test-a11y }
+        }
         "verify-stack" {
             Invoke-Step { & $PSCommandPath test-api }
         }
         "verify" {
             Invoke-Step { & $PSCommandPath verify-code }
             Invoke-Step { & $PSCommandPath verify-ui }
+            Invoke-Step { & $PSCommandPath verify-visual }
+            Invoke-Step { & $PSCommandPath verify-visual-diff }
+            Invoke-Step { & $PSCommandPath verify-a11y }
             Invoke-Step { & $PSCommandPath verify-workflows }
             Invoke-Step { & $PSCommandPath verify-stack }
         }

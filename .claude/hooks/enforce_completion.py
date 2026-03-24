@@ -21,6 +21,8 @@ UI_VERIFY_PREFIXES = (
     "Mobile Picking und Voice Assistant/package.json",
 )
 
+VISUAL_VERIFY_SUFFIXES = (".css", ".html", ".js")
+
 CODE_VERIFY_PREFIXES = (
     "Mobile Picking und Voice Assistant/backend/",
     "Mobile Picking und Voice Assistant/odoo/",
@@ -93,6 +95,23 @@ def requires_ui_verify(edited_paths: list[str]) -> bool:
     return any(path.startswith(UI_VERIFY_PREFIXES) for path in edited_paths)
 
 
+def requires_visual_verify(edited_paths: list[str]) -> bool:
+    for path in edited_paths:
+        if path in {
+            "Mobile Picking und Voice Assistant/playwright.config.js",
+            "Mobile Picking und Voice Assistant/package.json",
+            "Mobile Picking und Voice Assistant/package-lock.json",
+            "Mobile Picking und Voice Assistant/e2e/capture-sight.js",
+            ".claude/rules/frontend.md",
+        }:
+            return True
+        if path.startswith("Mobile Picking und Voice Assistant/e2e/helpers/") and path.endswith(".js"):
+            return True
+        if path.startswith("Mobile Picking und Voice Assistant/pwa/") and path.endswith(VISUAL_VERIFY_SUFFIXES):
+            return True
+    return False
+
+
 def requires_workflow_verify(edited_paths: list[str]) -> bool:
     return any(path.startswith(WORKFLOW_VERIFY_PREFIXES) for path in edited_paths)
 
@@ -134,7 +153,7 @@ def main() -> int:
     if not edited_paths:
         return 0
 
-    log_path = project_dir / "Notzien (Obsidian)" / "04 - Ressourcen" / "Claude Code Aenderungslog.md"
+    log_path = project_dir / "Notzien" / "04 - Ressourcen" / "Claude Code Aenderungslog.md"
     if not log_path.exists() or not state.get("last_synced_at"):
         sys.stderr.write(
             "Kein erfolgreicher Obsidian-Sync fuer diese Session gefunden. "
@@ -188,6 +207,48 @@ def main() -> int:
         print("Completion check: verify-ui erfolgreich.")
     else:
         print("Completion check: verify-ui uebersprungen, keine PWA/UI-Aenderungen erkannt.")
+
+    if requires_visual_verify(edited_paths):
+        verify_visual = run_command(
+            ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(workflow_script), "verify-visual"],
+            cwd=app_root,
+        )
+        if verify_visual.returncode != 0:
+            sys.stderr.write("verify-visual fehlgeschlagen. Bitte behebe den visuellen Capture-Loop vor dem Task-Abschluss.\n")
+            sys.stderr.write(verify_visual.stdout)
+            sys.stderr.write(verify_visual.stderr)
+            return 2
+        print("Completion check: verify-visual erfolgreich.")
+    else:
+        print("Completion check: verify-visual uebersprungen, keine sichtbaren UI-Aenderungen erkannt.")
+
+    if requires_visual_verify(edited_paths):
+        verify_visual_diff = run_command(
+            ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(workflow_script), "verify-visual-diff"],
+            cwd=app_root,
+        )
+        if verify_visual_diff.returncode != 0:
+            sys.stderr.write("verify-visual-diff fehlgeschlagen. Bitte gleiche die visuellen Baselines oder das Layout ab.\n")
+            sys.stderr.write(verify_visual_diff.stdout)
+            sys.stderr.write(verify_visual_diff.stderr)
+            return 2
+        print("Completion check: verify-visual-diff erfolgreich.")
+    else:
+        print("Completion check: verify-visual-diff uebersprungen, keine sichtbaren UI-Aenderungen erkannt.")
+
+    if requires_ui_verify(edited_paths):
+        verify_a11y = run_command(
+            ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(workflow_script), "verify-a11y"],
+            cwd=app_root,
+        )
+        if verify_a11y.returncode != 0:
+            sys.stderr.write("verify-a11y fehlgeschlagen. Bitte behebe die Accessibility-Verstoesse vor dem Task-Abschluss.\n")
+            sys.stderr.write(verify_a11y.stdout)
+            sys.stderr.write(verify_a11y.stderr)
+            return 2
+        print("Completion check: verify-a11y erfolgreich.")
+    else:
+        print("Completion check: verify-a11y uebersprungen, keine PWA/UI-Aenderungen erkannt.")
 
     if requires_workflow_verify(edited_paths):
         verify_workflows = run_command(

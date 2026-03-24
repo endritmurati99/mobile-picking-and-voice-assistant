@@ -1,4 +1,4 @@
-.PHONY: help setup install-backend-deps install-ui-deps build-all build-backend build-odoo up down logs seed test test-ui test-api verify-code verify-ui verify-workflows verify-stack verify clean
+.PHONY: help setup install-backend-deps install-ui-deps build-all build-backend build-odoo up down logs seed test test-ui test-visual test-visual-diff test-visual-diff-update test-a11y test-api test-n8n-api verify-code verify-ui verify-visual verify-visual-diff verify-a11y verify-workflows verify-odoo-schema verify-stack verify clean
 
 SHELL := /bin/bash
 -include .env
@@ -54,13 +54,33 @@ test: ## Backend-Tests
 	cd backend && PYTHONPATH=.deps python -m pytest -p pytest_asyncio tests/ -v
 
 test-ui: ## Browser-Tests fuer die PWA
-	npx.cmd playwright test
+	npx.cmd playwright test e2e/confirm-flow.spec.js e2e/pickings.spec.js e2e/quality-alert.spec.js
+
+test-visual: ## Visuelles PWA-Artefakt fuer den Mobile-Viewport erzeugen
+	node e2e/capture-sight.js
+
+test-visual-diff: ## Visuelle Snapshot-Tests fuer stabile Kern-Views
+	npx.cmd playwright test e2e/visual.spec.js
+
+test-visual-diff-update: ## Snapshot-Baselines fuer visuelle Tests aktualisieren
+	npx.cmd playwright test e2e/visual.spec.js --update-snapshots
+
+test-a11y: ## Accessibility-Checks fuer die PWA mit Axe + Playwright
+	npx.cmd playwright test e2e/a11y.spec.js
 
 test-api: ## API-Rauchtest
 	python infrastructure/scripts/test-api.py
 
+test-n8n-api: ## n8n Public API mit API-Key pruefen
+	python infrastructure/scripts/test-n8n-api.py
+
 verify-workflows: ## n8n-Workflow-Vertraege gegen Backend-Webhooks pruefen
 	python infrastructure/scripts/verify-workflows.py
+
+verify-odoo-schema: ## Ruflo Odoo Audit
+	@echo "🛡️ Starting Ruflo Odoo Audit..."
+	@ruflo exec odoo-auditor "Validiere das Schema der Tabelle 'quality_alert' gegen die Spezifikation in Obsidian."
+	@echo "✅ Audit completed."
 
 verify-code: ## Schneller Code-Check ohne laufenden Stack
 	$(MAKE) test
@@ -68,12 +88,24 @@ verify-code: ## Schneller Code-Check ohne laufenden Stack
 verify-ui: ## UI-Check der PWA ueber Playwright
 	$(MAKE) test-ui
 
+verify-visual: ## Visuellen PWA-Zustand als Artefakt erfassen
+	$(MAKE) test-visual
+
+verify-visual-diff: ## Visuelle Snapshot-Checks fuer Kern-Views
+	$(MAKE) test-visual-diff
+
+verify-a11y: ## Accessibility-Check der PWA ueber Axe + Playwright
+	$(MAKE) test-a11y
+
 verify-stack: ## Stack-Check gegen laufende lokale Instanz
 	$(MAKE) test-api
 
 verify: ## Voller Verify-Lauf: Tests plus API-Rauchtest
 	$(MAKE) verify-code
 	$(MAKE) verify-ui
+	$(MAKE) verify-visual
+	$(MAKE) verify-visual-diff
+	$(MAKE) verify-a11y
 	$(MAKE) verify-workflows
 	$(MAKE) verify-stack
 
