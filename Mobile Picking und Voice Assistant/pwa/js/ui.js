@@ -7,6 +7,8 @@ const state = {
     pickings: [],
     currentPicking: null,
     currentLineIndex: 0,
+    currentPicker: null,
+    deviceId: '',
     voiceActive: false,
     loading: false,
 };

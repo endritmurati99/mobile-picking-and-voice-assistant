@@ -85,8 +85,10 @@
     },
     "Is Damaged?": {
       "main": [
-        [{ "node": "Send Email to Supervisor", "index": 0 }],
-        [{ "node": "Log to Obsidian", "index": 0 }]
+        [
+          { "node": "Send Email to Supervisor", "index": 0 },
+          { "node": "Log to Obsidian", "index": 0 }
+        ]
       ]
     }
   }

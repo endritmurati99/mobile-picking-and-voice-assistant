@@ -7,6 +7,7 @@ Odoo 18 notes:
 """
 import re
 
+from app.services.mobile_workflow import PickerIdentity
 from app.services.n8n_webhook import N8NWebhookClient
 from app.services.odoo_client import OdooAPIError, OdooClient
 from app.services.route_optimizer import build_route_plan
@@ -154,6 +155,7 @@ class PickingService:
         move_line_id: int,
         scanned_barcode: str,
         quantity: float,
+        picker_identity: PickerIdentity | None = None,
     ) -> dict:
         """
         Confirm a move line via barcode scan.
@@ -224,11 +226,21 @@ class PickingService:
                 picking_complete = False
 
             if picking_complete:
+                completed_by = "mobile-picking-assistant"
+                completed_by_user_id = False
+                completed_by_device_id = ""
+                if picker_identity and picker_identity.user_id:
+                    completed_by = picker_identity.picker_name or completed_by
+                    completed_by_user_id = picker_identity.user_id
+                    completed_by_device_id = picker_identity.device_id or ""
+
                 await self._n8n.fire(
                     "pick-confirmed",
                     {
                         "picking_id": picking_id,
-                        "completed_by": "mobile-picking-assistant",
+                        "completed_by": completed_by,
+                        "completed_by_user_id": completed_by_user_id,
+                        "completed_by_device_id": completed_by_device_id,
                     },
                 )
 

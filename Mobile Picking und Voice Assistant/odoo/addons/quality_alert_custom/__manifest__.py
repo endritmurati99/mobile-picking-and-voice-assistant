@@ -1,13 +1,16 @@
 {
-    'name': 'Quality Alert Custom (Paperless Picking)',
-    'version': '18.0.1.0.2',
-    'category': 'Operations/Quality',
-    'summary': 'Erweiterung für KI-gestützte Qualitätsmeldungen via PWA.',
-    'depends': ['quality', 'stock'],
-    'data': [
-        'views/quality_alert_view.xml',
+    "name": "Quality Alert Custom",
+    "version": "18.0.1.0.0",
+    "category": "Inventory/Quality",
+    "summary": "Leichtgewichtiges Quality-Alert-Modul für Community Edition",
+    "depends": ["stock", "mail"],
+    "data": [
+        "security/quality_alert_security.xml",
+        "security/ir.model.access.csv",
+        "data/quality_alert_data.xml",
+        "views/quality_alert_views.xml",
     ],
-    'installable': True,
-    'application': False,
-    'license': 'LGPL-3',
+    "installable": True,
+    "application": True,
+    "license": "LGPL-3",
 }

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'picking-v2';
+const CACHE_NAME = 'picking-v3';
 const PRECACHE = ['/', '/css/app.css', '/js/app.js'];
 self.addEventListener('install', e => {
     e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(PRECACHE)).then(() => self.skipWaiting()));

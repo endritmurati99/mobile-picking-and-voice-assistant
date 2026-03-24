@@ -1,6 +1,15 @@
 .claude/settings.local.json
 .claude/state/
 .claude/artifacts/
+.claude/memory.db
+.claude/projects/
+.claude/agents/
+.claude/commands/
+.claude/helpers/
+.claude/skills/
+.claude-flow/
+.swarm/
+.ruflo/
 .vscode/
 
 # Local Obsidian workspace state
@@ -22,3 +31,12 @@ Thumbs.db
 
 # Archive artifacts
 *.zip
+
+# Local media dumps / manual recordings
+Notzien/04 - Ressourcen/Medien/
+
+# Video files (test recordings etc.)
+*.mp4
+*.MP4
+*.mov
+*.MOV

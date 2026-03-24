@@ -6,8 +6,11 @@ Erstellt Mindest-Testdaten für den Picking-PoC:
 - Produkte mit EAN-Barcodes
 - Test-Pickings mit verschiedenen Prioritäten, Terminen und Zuständen
 
-Verwendung:
-    python seed-odoo.py --url http://localhost:8069 --db picking --user admin --api-key <key>
+Verwendung (generische Testdaten):
+    python seed-odoo.py --url http://localhost:8069 --db masterfischer --user admin --api-key admin
+
+Verwendung (BOM-basierte Pickings aus echten Produkten):
+    python seed-odoo.py --url http://localhost:8069 --db masterfischer --user admin --api-key admin --bom-mode
 """
 import argparse
 import sys
@@ -18,9 +21,11 @@ from xmlrpc.client import ServerProxy
 def main():
     parser = argparse.ArgumentParser(description="Odoo Seed-Daten")
     parser.add_argument("--url", default="http://localhost:8069")
-    parser.add_argument("--db", default="picking")
+    parser.add_argument("--db", default="masterfischer")
     parser.add_argument("--user", default="admin")
     parser.add_argument("--api-key", required=True)
+    parser.add_argument("--bom-mode", action="store_true",
+                        help="BOM-basierte Pickings aus echten Produkten erstellen (löscht bestehende nicht-done Pickings)")
     args = parser.parse_args()
 
     common = ServerProxy(f"{args.url}/xmlrpc/2/common")
@@ -42,6 +47,10 @@ def main():
             return existing[0], False
         new_id = execute(model, "create", vals)
         return new_id, True
+
+    if args.bom_mode:
+        seed_bom_pickings(execute)
+        return
 
     # ── Datumshelfer ─────────────────────────────────────────
     today = date.today()
@@ -317,6 +326,176 @@ def main():
         print(f"  [WARN] Pruefung fehlgeschlagen: {e}")
 
     print("\nSeed-Daten komplett!")
+
+
+def seed_bom_pickings(execute):
+    """
+    BOM-Modus: Erstellt Pickings basierend auf echten Stücklisten.
+
+    Jedes Picking entspricht dem Kommissionieren der Bauteile
+    für ein bestimmtes Endprodukt (z.B. Ente Henri, Papagei Moritz).
+    Löscht zuerst alle nicht-abgeschlossenen Pickings.
+    """
+    from datetime import date, timedelta
+    today = date.today()
+    yesterday = (today - timedelta(days=1)).isoformat()
+    tomorrow = (today + timedelta(days=1)).isoformat()
+    today_str = today.isoformat()
+
+    print("BOM-Modus: Bestehende Pickings löschen...")
+
+    # Nicht-abgeschlossene Pickings holen und canceln
+    active_picks = execute(
+        "stock.picking", "search",
+        [("state", "not in", ["done", "cancel"])],
+    )
+    if active_picks:
+        try:
+            execute("stock.picking", "action_cancel", active_picks)
+        except Exception as e:
+            print(f"  [WARN] Cancel teilweise fehlgeschlagen: {e}")
+        try:
+            execute("stock.picking", "unlink", active_picks)
+            print(f"  [OK] {len(active_picks)} Pickings gelöscht")
+        except Exception as e:
+            print(f"  [WARN] Unlink fehlgeschlagen: {e}")
+    else:
+        print("  Keine aktiven Pickings vorhanden.")
+
+    # ── Picking-Typ: Internal Transfers ──────────────────────
+    pick_type = execute(
+        "stock.picking.type", "search_read",
+        [("code", "=", "internal")],
+        fields=["id", "default_location_src_id", "default_location_dest_id"],
+        limit=1,
+    )
+    if not pick_type:
+        print("FEHLER: Kein Internal-Transfer-Picking-Typ gefunden.")
+        return
+    pt = pick_type[0]
+
+    # Manufacturing-Lagerort als Ziel
+    mfg_loc = execute(
+        "stock.location", "search_read",
+        [("usage", "=", "internal"), ("name", "=", "Manufacturing")],
+        fields=["id"], limit=1,
+    )
+    dest_loc_id = mfg_loc[0]["id"] if mfg_loc else pt["default_location_dest_id"][0]
+
+    # ── BOMs laden ────────────────────────────────────────────
+    print("\nBOM-Modus: Lade Stücklisten...")
+    boms = execute(
+        "mrp.bom", "search_read",
+        [],
+        fields=["id", "product_tmpl_id", "code", "bom_line_ids"],
+    )
+    print(f"  {len(boms)} Stücklisten gefunden")
+
+    def get_bom_components(bom_id):
+        lines = execute(
+            "mrp.bom.line", "search_read",
+            [("bom_id", "=", bom_id)],
+            fields=["product_id", "product_qty"],
+        )
+        result = []
+        for line in lines:
+            product_id = line["product_id"][0]
+            # Besten Lagerort mit Bestand finden (nicht Manufacturing)
+            quants = execute(
+                "stock.quant", "search_read",
+                [
+                    ("product_id", "=", product_id),
+                    ("quantity", ">", 0),
+                    ("location_id.usage", "=", "internal"),
+                    ("location_id", "!=", dest_loc_id),
+                ],
+                fields=["location_id", "quantity"],
+                order="quantity desc",
+                limit=1,
+            )
+            if quants:
+                result.append({
+                    "product_id": product_id,
+                    "product_name": line["product_id"][1],
+                    "qty": line["product_qty"],
+                    "location_id": quants[0]["location_id"][0],
+                })
+        return result
+
+    def make_bom_picking(bom, priority="0", scheduled_date=None, origin=None):
+        components = get_bom_components(bom["id"])
+        if not components:
+            print(f"  [SKIP] Keine Komponenten mit Bestand für BOM {bom['id']}")
+            return None
+
+        product_name = bom["product_tmpl_id"][1]
+        picking_origin = origin or f"{product_name} (BOM {bom['code']})"
+
+        vals = {
+            "picking_type_id": pt["id"],
+            "location_id": pt["default_location_src_id"][0] if pt["default_location_src_id"] else False,
+            "location_dest_id": dest_loc_id,
+            "priority": priority,
+            "origin": picking_origin,
+            "move_ids": [
+                (0, 0, {
+                    "name": c["product_name"],
+                    "product_id": c["product_id"],
+                    "product_uom_qty": c["qty"],
+                    "product_uom": 1,
+                    "location_id": c["location_id"],
+                    "location_dest_id": dest_loc_id,
+                })
+                for c in components
+            ],
+        }
+        if scheduled_date:
+            vals["scheduled_date"] = scheduled_date
+
+        try:
+            pick_id = execute("stock.picking", "create", vals)
+            execute("stock.picking", "action_confirm", [pick_id])
+            execute("stock.picking", "action_assign", [pick_id])
+            return pick_id
+        except Exception as e:
+            print(f"  [WARN] Picking konnte nicht erstellt werden: {e}")
+            return None
+
+    # ── Pickings nach BOM erstellen ───────────────────────────
+    print("\nBOM-Modus: Erstelle Pickings...")
+
+    # Konfiguration: BOM-ID → (priority, scheduled_date, label)
+    # BOMs 12-22 vorhanden: Sparkasse, Papagei, Burger, Windkraft, Wal,
+    #                        Krebs Max, Erwin, Blume, LKW, Ente Henri, Helikopter
+    picking_config = [
+        # BOM-ID, Priorität, Datum, Label
+        (21, "0",  today_str, "Normal, heute"),       # Ente Henri
+        (13, "1",  today_str, "DRINGEND, heute"),     # Papagei Moritz
+        (16, "0",  tomorrow,  "Normal, morgen"),      # Wal
+        (14, "1",  yesterday, "DRINGEND, überfällig"),# Burger
+        (15, "0",  tomorrow,  "Normal, morgen"),      # Windkraft
+        (17, "1",  today_str, "DRINGEND, heute"),     # Krebs Max
+        (12, "0",  today_str, "Normal, heute"),       # Sparkasse
+        (19, "0",  tomorrow,  "Normal, morgen"),      # Blume
+        (20, "0",  today_str, "Normal, heute"),       # LKW
+    ]
+
+    bom_map = {b["id"]: b for b in boms}
+
+    for bom_id, priority, sched_date, label in picking_config:
+        bom = bom_map.get(bom_id)
+        if not bom:
+            print(f"  [SKIP] BOM {bom_id} nicht gefunden")
+            continue
+
+        product_name = bom["product_tmpl_id"][1]
+        pick_id = make_bom_picking(bom, priority=priority, scheduled_date=sched_date)
+        if pick_id:
+            prio_str = "DRINGEND" if priority == "1" else "Normal  "
+            print(f"  [OK] {prio_str} | {label:25} | {product_name} (BOM {bom['code']}) -> Picking {pick_id}")
+
+    print("\nBOM-basierte Pickings erstellt!")
+    print("Tipp: In der PWA sind die Pickings nun nach echten Lego-Produkten strukturiert.")
 
 
 if __name__ == "__main__":

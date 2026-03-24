@@ -1,19 +1,51 @@
 """
 Quality-Alert-Endpoints.
 Erstellt quality.alert.custom Records in Odoo 18 mit optionalem Foto-Attachment.
-Löst anschließend n8n-Workflow (fire-and-forget) aus.
+Loest anschliessend n8n-Workflow (fire-and-forget) aus.
 """
 import base64
+import hashlib
 import logging
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from typing import List, Optional
 
-from app.dependencies import get_odoo_client, get_n8n_client
-from app.services.odoo_client import OdooClient, OdooAPIError
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+
+from app.config import settings
+from app.dependencies import get_mobile_workflow_service, get_n8n_client, get_odoo_client, get_write_request_context
+from app.services.mobile_workflow import IdempotencyReservation, MobileWorkflowService, WriteRequestContext
 from app.services.n8n_webhook import N8NWebhookClient
+from app.services.odoo_client import OdooAPIError, OdooClient
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _cached_detail(payload: dict | None):
+    if isinstance(payload, dict) and "detail" in payload:
+        return payload["detail"]
+    return payload or "Anfrage konnte nicht verarbeitet werden."
+
+
+def _return_or_raise_replay(reservation: IdempotencyReservation):
+    if not reservation.should_replay:
+        return None
+    payload = reservation.response_payload or {}
+    if reservation.status_code >= 400:
+        raise HTTPException(status_code=reservation.status_code, detail=_cached_detail(payload))
+    return payload
+
+
+async def _finalize_error(
+    workflow: MobileWorkflowService,
+    reservation: IdempotencyReservation,
+    status_code: int,
+    detail,
+) -> None:
+    await workflow.finalize_idempotent_request(
+        reservation,
+        {"detail": detail},
+        status_code,
+    )
 
 
 @router.post("/quality-alerts")
@@ -24,26 +56,69 @@ async def create_quality_alert(
     location_id: Optional[int] = Form(None),
     priority: str = Form("0"),
     photos: List[UploadFile] = File(default=[]),
+    context: WriteRequestContext = Depends(get_write_request_context),
     odoo: OdooClient = Depends(get_odoo_client),
     n8n: N8NWebhookClient = Depends(get_n8n_client),
+    workflow: MobileWorkflowService = Depends(get_mobile_workflow_service),
 ):
     """
     Quality Alert mit optionalen Fotos erstellen (beliebig viele).
-    Alle Fotos werden gebündelt an Odoo gesendet und dort als
-    ir.attachment + photo_ids Many2many gespeichert.
+    Alle Fotos werden gebuendelt an Odoo gesendet und dort als
+    ir.attachment gespeichert.
     """
-    # Alle Fotos in Base64 konvertieren
     photo_list = []
+    photo_fingerprint = []
     for photo in photos:
-        if photo and photo.filename:
-            photo_bytes = await photo.read()
-            if photo_bytes:
-                photo_list.append({
-                    "filename": photo.filename,
-                    "data_b64": base64.b64encode(photo_bytes).decode("utf-8"),
-                })
+        if not photo or not photo.filename:
+            continue
+        photo_bytes = await photo.read()
+        if not photo_bytes:
+            continue
+        digest = hashlib.sha256(photo_bytes).hexdigest()
+        photo_list.append(
+            {
+                "filename": photo.filename,
+                "data_b64": base64.b64encode(photo_bytes).decode("utf-8"),
+            }
+        )
+        photo_fingerprint.append(
+            {
+                "filename": photo.filename,
+                "sha256": digest,
+                "size": len(photo_bytes),
+            }
+        )
 
-    # Payload für Odoo — alle Fotos gebündelt
+    fingerprint = workflow.build_request_fingerprint(
+        {
+            "description": description,
+            "picking_id": picking_id,
+            "product_id": product_id,
+            "location_id": location_id,
+            "priority": priority,
+            "photos": photo_fingerprint,
+        }
+    )
+    reservation = await workflow.begin_idempotent_request(
+        "quality-alerts.create",
+        context,
+        fingerprint,
+        picking_id,
+    )
+    replay = _return_or_raise_replay(reservation)
+    if replay is not None:
+        return replay
+
+    picker_identity = None
+    if context.identity.is_complete:
+        picker_identity = await workflow.resolve_identity(context.identity)
+    elif settings.mobile_header_grace_mode:
+        logger.warning("Grace mode: erstelle Quality Alert ohne vollstaendige Write-Header.")
+    else:
+        detail = "Write-Header fehlen. Bitte PWA aktualisieren."
+        await _finalize_error(workflow, reservation, 400, detail)
+        raise HTTPException(status_code=400, detail=detail)
+
     vals: dict = {"description": description, "priority": priority}
     if picking_id:
         vals["picking_id"] = picking_id
@@ -53,6 +128,8 @@ async def create_quality_alert(
         vals["location_id"] = location_id
     if photo_list:
         vals["photos"] = photo_list
+    if picker_identity and picker_identity.user_id:
+        vals["user_id"] = picker_identity.user_id
 
     try:
         result = await odoo.execute_kw(
@@ -60,19 +137,39 @@ async def create_quality_alert(
             "api_create_alert",
             [vals],
         )
-    except OdooAPIError as e:
-        logger.error(f"Odoo Quality Alert Fehler: {e.message}")
-        raise HTTPException(status_code=502, detail=f"Odoo-Fehler: {e.message}")
+    except OdooAPIError as exc:
+        logger.error("Odoo Quality Alert Fehler: %s", exc.message)
+        detail = f"Odoo-Fehler: {exc.message}"
+        await _finalize_error(workflow, reservation, 502, detail)
+        raise HTTPException(status_code=502, detail=detail) from exc
+    except Exception:
+        await workflow.abort_idempotent_request(reservation)
+        raise
 
     alert_id = result.get("alert_id") if isinstance(result, dict) else None
     name = result.get("name", "") if isinstance(result, dict) else ""
+    reported_by = "mobile-picking-assistant"
+    reported_by_user_id = False
+    reported_by_device_id = ""
+    if picker_identity and picker_identity.user_id:
+        reported_by = picker_identity.picker_name or reported_by
+        reported_by_user_id = picker_identity.user_id
+        reported_by_device_id = picker_identity.device_id or ""
 
-    await n8n.fire("quality-alert-created", {
-        "alert_id": alert_id,
-        "name": name,
-        "picking_id": picking_id,
-        "priority": priority,
-        "photo_count": len(photo_list),
-    })
+    await n8n.fire(
+        "quality-alert-created",
+        {
+            "alert_id": alert_id,
+            "name": name,
+            "picking_id": picking_id,
+            "priority": priority,
+            "photo_count": len(photo_list),
+            "reported_by": reported_by,
+            "reported_by_user_id": reported_by_user_id,
+            "reported_by_device_id": reported_by_device_id,
+        },
+    )
 
-    return {"alert_id": alert_id, "name": name, "photo_count": len(photo_list)}
+    response = {"alert_id": alert_id, "name": name, "photo_count": len(photo_list)}
+    await workflow.finalize_idempotent_request(reservation, response, 200)
+    return response

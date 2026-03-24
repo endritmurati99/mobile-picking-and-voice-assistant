@@ -27,7 +27,7 @@ let ttsBusy = false;
 
 // Schwellwerte (fest, kein Kalibrieren nötig)
 const SPEECH_RMS = 25;           // RMS über 25 = Sprache (Rauschen liegt bei 5-15)
-const SILENCE_AFTER_SPEECH = 400; // ms Stille nach Sprache → stoppen
+const SILENCE_AFTER_SPEECH = 300; // ms Stille nach Sprache → stoppen
 const NO_SPEECH_TIMEOUT = 6000;  // ms ohne Sprache → Neustart
 const MIN_SPEECH_MS = 150;       // Mindest-Sprechdauer
 const MAX_RECORDING_MS = 10000;  // Sicherheits-Timeout
@@ -122,7 +122,7 @@ export function speak(text) {
                 if (voiceModeActive) {
                     setTimeout(() => {
                         if (voiceModeActive && !isRecording && !ttsBusy) startListeningCycle();
-                    }, 200);
+                    }, 100);
                 }
                 resolve();
             }
@@ -363,7 +363,17 @@ export async function captureAndRecognize() {
 }
 
 export function stopSpeaking() {
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    if (ttsBusy) {
+        ttsBusy = false;
+        muteMic(false);
+        if (voiceModeActive) {
+            setTimeout(() => {
+                if (voiceModeActive && !isRecording && !ttsBusy) startListeningCycle();
+            }, 100);
+        }
+    }
 }
 
 export function isVoiceSupported() {

@@ -16,6 +16,10 @@ class Settings(BaseSettings):
 
     cors_origins: str = "https://localhost"
     log_level: str = "info"
+    mobile_claim_ttl_seconds: int = 120
+    mobile_claim_heartbeat_seconds: int = 30
+    mobile_idempotency_ttl_seconds: int = 86400
+    mobile_header_grace_mode: bool = True
 
 
 settings = Settings()

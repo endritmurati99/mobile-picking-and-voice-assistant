@@ -85,7 +85,7 @@ services:
     networks:
       - picking-net
 
-  # ── Whisper STT Server (Deutsch, medium Modell) ────────────
+  # ── Whisper STT Server (Deutsch, small Modell) ─────────────
   whisper:
     image: onerahmet/openai-whisper-asr-webservice:latest
     restart: unless-stopped

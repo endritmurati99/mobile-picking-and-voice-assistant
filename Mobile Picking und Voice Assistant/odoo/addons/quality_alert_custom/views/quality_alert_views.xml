@@ -16,7 +16,7 @@
                         <field name="name"/>
                         <field name="product_id"/>
                         <div class="o_kanban_record_bottom">
-                            <field name="user_id" widget="many2one_avatar_user"/>
+                            <field name="user_id"/>
                         </div>
                     </t>
                 </templates>
@@ -90,7 +90,7 @@
         <field name="view_mode">kanban,list,form</field>
     </record>
 
-    <menuitem id="menu_quality_root" name="Qualität" sequence="25"/>
+    <menuitem id="menu_quality_root" name="Qualität" web_icon="quality_alert_custom,static/description/icon.png" sequence="25"/>
     <menuitem id="menu_quality_alerts" name="Quality Alerts"
               parent="menu_quality_root" action="quality_alert_action" sequence="10"/>
 </odoo>
