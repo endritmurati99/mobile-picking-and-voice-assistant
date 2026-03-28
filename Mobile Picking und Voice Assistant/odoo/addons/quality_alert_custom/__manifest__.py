@@ -1,6 +1,6 @@
 {
     "name": "Quality Alert Custom",
-    "version": "18.0.1.0.0",
+    "version": "18.0.1.1.0",
     "category": "Inventory/Quality",
     "summary": "Leichtgewichtiges Quality-Alert-Modul für Community Edition",
     "depends": ["stock", "mail"],

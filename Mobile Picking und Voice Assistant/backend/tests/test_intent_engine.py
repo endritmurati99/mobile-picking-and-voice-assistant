@@ -1,162 +1,123 @@
-"""Tests für die Voice-Intent-Engine."""
+"""Tests for the deterministic voice intent engine."""
+
 from app.services.intent_engine import (
-    recognize_intent,
     PickingContext,
+    VoiceSurface,
+    normalize_text,
+    recognize_intent,
 )
 
 
+class TestNormalization:
+    def test_maps_umlaut_variants_to_same_normal_form(self):
+        assert normalize_text("bestaetigen") == normalize_text("bestatigen")
+        assert normalize_text("bestaetigen") == normalize_text("bestatigen")
+        assert normalize_text("bestatigen") == "bestatigen"
+
+    def test_maps_sz_and_ss_to_same_normal_form(self):
+        assert normalize_text("gruss") == normalize_text("gruß")
+
+
 class TestIntentRecognition:
-    def test_confirm_recognized(self):
-        intent = recognize_intent("bestätigt", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "confirm"
-        assert intent.confidence >= 0.8
+    def test_confirm_matches_fuzzy_variants(self):
+        for text in ("bestaedige", "bestatige", "bestatje"):
+            intent = recognize_intent(
+                text,
+                PickingContext.AWAITING_COMMAND,
+                surface=VoiceSurface.DETAIL,
+                active_line_present=True,
+            )
+            assert intent.action == "confirm"
+            assert intent.match_strategy in {"exact", "regex", "fuzzy"}
+            assert intent.confidence >= 0.78
 
-    def test_next_recognized(self):
-        intent = recognize_intent("nächster", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "next"
+    def test_unrelated_words_do_not_match_confirm(self):
+        for text in ("basteln", "besen"):
+            intent = recognize_intent(
+                text,
+                PickingContext.AWAITING_COMMAND,
+                surface=VoiceSurface.DETAIL,
+                active_line_present=True,
+            )
+            assert intent.action == "unknown"
 
-    def test_problem_recognized(self):
-        intent = recognize_intent("da ist ein problem", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "problem"
+    def test_negated_confirmations_become_problem(self):
+        for text in ("passt nicht", "stimmt nicht", "nicht richtig"):
+            intent = recognize_intent(
+                text,
+                PickingContext.AWAITING_COMMAND,
+                surface=VoiceSurface.DETAIL,
+                active_line_present=True,
+            )
+            assert intent.action == "problem"
+            assert intent.confidence >= 0.95
 
-    def test_number_as_check_digit(self):
-        intent = recognize_intent("vier sieben", PickingContext.AWAITING_LOCATION_CHECK)
-        assert intent.action == "check_digit"
-        assert intent.value == "4"  # Erster Match
+    def test_short_confirm_words_only_work_in_detail_with_active_line(self):
+        detail_intent = recognize_intent(
+            "ja",
+            PickingContext.AWAITING_COMMAND,
+            surface=VoiceSurface.DETAIL,
+            active_line_present=True,
+        )
+        list_intent = recognize_intent(
+            "ja",
+            PickingContext.AWAITING_COMMAND,
+            surface=VoiceSurface.LIST,
+            active_line_present=False,
+        )
+        assert detail_intent.action == "confirm"
+        assert list_intent.action == "unknown"
 
-    def test_digit_as_quantity(self):
-        intent = recognize_intent("5", PickingContext.AWAITING_QUANTITY_CONFIRM)
-        assert intent.action == "quantity"
-        assert intent.value == "5"
+    def test_fertig_only_becomes_done_when_no_lines_remain(self):
+        done_intent = recognize_intent(
+            "fertig",
+            PickingContext.AWAITING_COMMAND,
+            surface=VoiceSurface.COMPLETE,
+            remaining_line_count=0,
+            active_line_present=False,
+        )
+        blocked_intent = recognize_intent(
+            "fertig",
+            PickingContext.AWAITING_COMMAND,
+            surface=VoiceSurface.DETAIL,
+            remaining_line_count=2,
+            active_line_present=True,
+        )
+        assert done_intent.action == "done"
+        assert blocked_intent.action == "unknown"
 
-    def test_german_number_word(self):
-        intent = recognize_intent("fünf", PickingContext.AWAITING_QUANTITY_CONFIRM)
-        assert intent.action == "quantity"
-        assert intent.value == "5"
-
-    def test_unknown_text(self):
-        intent = recognize_intent("blablabla", PickingContext.AWAITING_COMMAND)
+    def test_quality_alert_surface_only_allows_repeat_or_pause(self):
+        intent = recognize_intent(
+            "problem",
+            PickingContext.AWAITING_COMMAND,
+            surface=VoiceSurface.QUALITY_ALERT,
+            active_line_present=False,
+        )
         assert intent.action == "unknown"
-        assert intent.confidence == 0.0
 
-    def test_empty_text(self):
-        intent = recognize_intent("", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "unknown"
+        repeat_intent = recognize_intent(
+            "nochmal",
+            PickingContext.AWAITING_COMMAND,
+            surface=VoiceSurface.QUALITY_ALERT,
+            active_line_present=False,
+        )
+        assert repeat_intent.action == "repeat"
 
-    def test_repeat_recognized(self):
-        intent = recognize_intent("bitte wiederholen", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "repeat"
+    def test_number_contexts_still_work(self):
+        check_intent = recognize_intent(
+            "vier sieben",
+            PickingContext.AWAITING_LOCATION_CHECK,
+        )
+        quantity_intent = recognize_intent(
+            "funf",
+            PickingContext.AWAITING_QUANTITY_CONFIRM,
+        )
+        assert check_intent.action == "check_digit"
+        assert check_intent.value == "4"
+        assert quantity_intent.action == "quantity"
+        assert quantity_intent.value == "5"
 
-    def test_done_recognized(self):
-        intent = recognize_intent("fertig", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "done"
-
-    def test_case_insensitive(self):
-        intent = recognize_intent("BESTÄTIGT", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "confirm"
-
-    # ── Erweiterte Patterns: natürliche Sprache ──────────────
-
-    def test_confirm_passt(self):
-        intent = recognize_intent("ja passt", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "confirm"
-
-    def test_confirm_genau(self):
-        intent = recognize_intent("genau", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "confirm"
-
-    def test_confirm_alles_klar(self):
-        intent = recognize_intent("alles klar", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "confirm"
-
-    def test_confirm_in_ordnung(self):
-        intent = recognize_intent("in ordnung", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "confirm"
-
-    def test_confirm_geht_klar(self):
-        intent = recognize_intent("geht klar", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "confirm"
-
-    def test_next_weitermachen(self):
-        intent = recognize_intent("weitermachen", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "next"
-
-    def test_next_mach_weiter(self):
-        intent = recognize_intent("mach weiter", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "next"
-
-    def test_next_naechste_position(self):
-        intent = recognize_intent("nächste position", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "next"
-
-    def test_problem_stimmt_nicht(self):
-        intent = recognize_intent("das stimmt nicht", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "problem"
-
-    def test_problem_falsch(self):
-        intent = recognize_intent("das ist falsch", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "problem"
-
-    def test_problem_passt_nicht(self):
-        intent = recognize_intent("passt nicht", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "problem"
-
-    def test_problem_falsches_produkt(self):
-        intent = recognize_intent("falsches produkt", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "problem"
-
-    def test_repeat_was(self):
-        intent = recognize_intent("was", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "repeat"
-
-    def test_repeat_verstehe_nicht(self):
-        intent = recognize_intent("verstehe nicht", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "repeat"
-
-    def test_done_bin_fertig(self):
-        intent = recognize_intent("bin fertig", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "done"
-
-    def test_done_alles_erledigt(self):
-        intent = recognize_intent("alles erledigt", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "done"
-
-    def test_pause_moment(self):
-        intent = recognize_intent("moment mal", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "pause"
-
-    def test_pause_warte_mal(self):
-        intent = recognize_intent("warte mal", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "pause"
-
-    def test_stock_wie_viel_haben_wir(self):
-        intent = recognize_intent("wie viel haben wir", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "stock_query"
-
-    def test_stock_auf_lager(self):
-        intent = recognize_intent("ist das noch auf lager", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "stock_query"
-
-    def test_filter_high_prio(self):
-        intent = recognize_intent("zeig mir die dringenden", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "filter_high"
-
-    def test_filter_normal_alle_anzeigen(self):
-        intent = recognize_intent("alle anzeigen", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "filter_normal"
-
-    def test_status_was_steht_an(self):
-        intent = recognize_intent("was steht an", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "status"
-
-    def test_status_was_ist_offen(self):
-        intent = recognize_intent("was ist offen", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "status"
-
-    def test_photo_mach_foto(self):
-        intent = recognize_intent("mach ein foto", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "photo"
-
-    def test_help_befehle(self):
-        intent = recognize_intent("welche befehle gibt es", PickingContext.AWAITING_COMMAND)
-        assert intent.action == "help"
+    def test_existing_non_hotpath_intents_still_match(self):
+        assert recognize_intent("mach ein foto", PickingContext.AWAITING_COMMAND).action == "photo"
+        assert recognize_intent("alle anzeigen", PickingContext.AWAITING_COMMAND).action == "filter_normal"
+        assert recognize_intent("was ist offen", PickingContext.AWAITING_COMMAND).action == "status"

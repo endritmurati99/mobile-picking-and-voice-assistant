@@ -10,13 +10,25 @@ import httpx
 from typing import Any
 from app.config import settings
 
+# Structured timeout: 5 s to connect, 30 s to read a response.
+# The flat 120 s that was here masked slow Odoo queries silently and
+# blocked the event loop for an entire minute on network hiccups.
+_ODOO_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0)
+
 
 class OdooClient:
     def __init__(self):
         self._url = settings.odoo_url
         self._db = settings.odoo_db
         self._uid = None
-        self._client = httpx.AsyncClient(timeout=120.0)
+        self._client = httpx.AsyncClient(
+            timeout=_ODOO_TIMEOUT,
+            limits=httpx.Limits(
+                max_keepalive_connections=5,
+                max_connections=10,
+                keepalive_expiry=30.0,
+            ),
+        )
 
     async def _json_rpc(self, service: str, method: str, args: list) -> Any:
         payload = {

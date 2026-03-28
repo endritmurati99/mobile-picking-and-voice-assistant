@@ -1,32 +1,31 @@
 # Architecture Decision Records
 
 ## ADR-001: Odoo 18 Community statt Enterprise
-- **Kontext**: Enterprise-Lizenz nicht verfügbar
-- **Entscheidung**: Odoo 18 Community + Custom Quality Module
-- **Konsequenz**: ~3 Tage Mehraufwand für Custom Module, volle Kontrolle über Datenmodell
+- **Kontext**: Enterprise-Lizenz war nicht verfuegbar.
+- **Entscheidung**: Odoo 18 Community plus Custom Modules.
+- **Konsequenz**: Etwas mehr Eigenbau, dafuer volle Kontrolle ueber Datenmodell und Schnittstellen.
 
-## ADR-002: Whisper statt Vosk / Browser-SpeechRecognition
-- **Kontext**: iOS Safari PWA Standalone hat defektes SpeechRecognition (WebKit Bug #215884). Vosk hatte ~15-20% WER für Deutsch — zu ungenau für den Lagereinsatz.
-- **Entscheidung**: Server-Side STT mit Whisper (faster_whisper, small-Modell) im Docker. Migration von Vosk am 2026-03-22.
-- **Konsequenz**: Bessere Erkennungsrate (~8-10% WER), REST statt WebSocket, Backend muss WebM→WAV konvertieren (Whisper-Container hat minimales ffmpeg), ~1-2s Antwortzeit auf CPU
-- **Ursprüngliche Entscheidung**: Vosk im Docker (ADR-002, ersetzt am 2026-03-22)
+## ADR-002: Whisper statt Browser-SpeechRecognition / Vosk
+- **Kontext**: Browser-STT in iOS PWAs ist zu unzuverlaessig, Vosk war fuer Deutsch im Lagerkontext nicht treffsicher genug.
+- **Entscheidung**: Server-side STT mit Whisper.
+- **Konsequenz**: Bessere Erkennung, dafuer etwas mehr Latenz und Audio-Konvertierung im Backend.
 
-## ADR-003: n8n nicht im Voice-Pfad
-- **Kontext**: n8n-Webhook-Latenz ~40ms Baseline + sequentielle Ausführung
-- **Entscheidung**: Voice-Loop direkt über App-Backend, n8n nur für Folgeaktionen
-- **Konsequenz**: Einhaltung <1s Latenz-Budget, n8n bleibt Orchestrator
+## ADR-003: n8n nicht im normalen Voice-Pfad
+- **Kontext**: Der Picker darf fuer `confirm`, `next`, `done` und andere Standardkommandos nie auf LLM- oder Workflow-Latenz warten.
+- **Entscheidung**: Der normale Voice-Loop bleibt komplett im App-Backend. n8n ist nur fuer einen separaten Exception-Assist-Pfad erlaubt (`/api/voice/assist`) und bleibt dort read-only.
+- **Konsequenz**: Hot Path bleibt deterministisch und schnell. Ausnahmefragen koennen langsamer sein, sind aber mit lokalem Zwischensatz, Timeout und Circuit Breaker abgesichert.
 
-## ADR-004: HID-Scanner als Primär-Scan-Methode
-- **Kontext**: Kamera-Scanning: ~90% Erstversuch, HID: >99.5%
-- **Entscheidung**: Bluetooth-HID-Scanner primär, Touch-Fallback sekundär
-- **Konsequenz**: Hardware-Kosten ~80€, deutlich höhere Zuverlässigkeit
+## ADR-004: HID-Scanner als Primaer-Scan-Methode
+- **Kontext**: Kamera-Scanning war im Vergleich zu HID-Scannern weniger robust.
+- **Entscheidung**: Bluetooth-HID-Scanner sind Primaerpfad, Kamera und Touch bleiben Fallbacks.
+- **Konsequenz**: Hoehere Zuverlaessigkeit im Betrieb bei etwas mehr Hardware-Aufwand.
 
-## ADR-005: FastAPI statt Express
-- **Kontext**: Odoo-Integration benötigt XML-RPC, Audio-Processing benötigt ffmpeg
-- **Entscheidung**: Python/FastAPI
-- **Konsequenz**: Native xmlrpc.client, einfache Whisper-Integration, async/await
+## ADR-005: FastAPI als Command Gatekeeper
+- **Kontext**: n8n soll direkt aus Odoo lesen koennen, aber nicht unkontrolliert den fachlichen Zustand mutieren.
+- **Entscheidung**: Operative Writes nach Odoo laufen ausschliesslich ueber FastAPI-Commands.
+- **Konsequenz**: Es gibt genau einen kontrollierten Schreibpfad fuer Quality Assessments, Replenishment-Folgeaktionen und spaetere AI-Kommandos.
 
-## ADR-006: Voice-Toggle statt Push-to-Talk
-- **Kontext**: Push-to-Talk erfordert dauerhaftes Halten des Buttons — unpraktisch im Lagerbetrieb mit vollen Händen. Nutzer wünscht sich "Mic einmal drücken und dann freihändig sprechen".
-- **Entscheidung**: Voice-Toggle-Modus mit automatischer Silence Detection (RMS-basiert, fester Schwellwert 25, 700ms Stille-Timeout)
-- **Konsequenz**: Komplexere Audio-Pipeline (Mic-Muting während TTS, setInterval-Monitor, Loop), aber deutlich bessere Usability. Legacy PTT bleibt als Fallback im Code.
+## ADR-006: Circuit Breaker fuer den Sync-Assist-Pfad
+- **Kontext**: Ein abgestuerzter oder langsamer n8n-Container darf den Picker nicht bei jeder Ausnahmefrage erneut ausbremsen.
+- **Entscheidung**: `request_reply()` oeffnet nach drei Fehlversuchen einen In-Memory-Circuit-Breaker fuer 60 Sekunden.
+- **Konsequenz**: Folgeanfragen schlagen waehrend dieser Zeit sofort auf den FastAPI-Fallback um und halten den Voice-Flow stabil.

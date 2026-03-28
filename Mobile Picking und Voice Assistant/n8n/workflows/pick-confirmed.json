@@ -6,69 +6,81 @@
         "httpMethod": "POST",
         "path": "pick-confirmed",
         "responseMode": "responseNode",
-        "options": {
-          "rawBody": false
-        }
+        "options": {}
       },
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [250, 300]
+      "position": [240, 280]
     },
     {
       "parameters": {
         "conditions": {
           "boolean": [
             {
-              "value1": "={{ !!$json.picking_id }}",
+              "value1": "={{ !!$json.payload.picking_id }}",
               "value2": true
             }
           ]
         }
       },
-      "name": "Picking komplett?",
+      "name": "Has Picking?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [450, 300]
+      "position": [460, 280]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "completion_log",
+              "value": "=Picking {{ $json.payload.picking_id }} abgeschlossen von {{ $json.payload.completed_by }} auf Geraet {{ $json.payload.completed_by_device_id }}.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "name": "Format Completion",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [680, 360]
     },
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ status: 'received' }) }}"
+        "responseBody": "={{ JSON.stringify({ status: 'received', tts_text: 'Completion Event empfangen.', source: 'n8n', correlation_id: $json.correlation_id }) }}"
       },
       "name": "Respond",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [650, 200]
-    },
-    {
-      "parameters": {
-        "content": "=Picking **{{ $json.picking_id }}** wurde vollstaendig abgeschlossen.\n\nAbgeschlossen von: {{ $json.completed_by }}\nPicker-ID: {{ $json.completed_by_user_id }}\nGeraet: {{ $json.completed_by_device_id }}\nZeit: {{ $now.format('dd.MM.yyyy HH:mm') }}"
-      },
-      "name": "Log Completion",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3,
-      "position": [650, 400]
+      "position": [680, 160]
     }
   ],
   "connections": {
     "Webhook": {
       "main": [
-        [{ "node": "Picking komplett?", "type": "main", "index": 0 }]
+        [
+          { "node": "Has Picking?", "type": "main", "index": 0 }
+        ]
       ]
     },
-    "Picking komplett?": {
+    "Has Picking?": {
       "main": [
-        [{ "node": "Respond", "type": "main", "index": 0 }],
-        [{ "node": "Respond", "type": "main", "index": 0 }]
+        [
+          { "node": "Respond", "type": "main", "index": 0 },
+          { "node": "Format Completion", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Respond", "type": "main", "index": 0 }
+        ]
       ]
     }
   },
   "settings": {
     "executionOrder": "v1"
   },
-  "meta": {
-    "templateId": "pick-confirmed-v1"
-  },
-  "tags": [{ "name": "picking" }]
+  "tags": [
+    { "name": "picking" }
+  ]
 }

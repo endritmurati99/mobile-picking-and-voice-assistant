@@ -25,7 +25,9 @@ def main():
     parser.add_argument("--user", default="admin")
     parser.add_argument("--api-key", required=True)
     parser.add_argument("--bom-mode", action="store_true",
-                        help="BOM-basierte Pickings aus echten Produkten erstellen (löscht bestehende nicht-done Pickings)")
+                        help="BOM-basierte Pickings aus echten Produkten erstellen (loescht bestehende nicht-done Pickings)")
+    parser.add_argument("--lego-seed", action="store_true",
+                        help="LEGO-Produkte einlagern + Pickings aus BOMs erstellen (ohne bestehende Pickings zu loeschen)")
     args = parser.parse_args()
 
     common = ServerProxy(f"{args.url}/xmlrpc/2/common")
@@ -48,9 +50,74 @@ def main():
         new_id = execute(model, "create", vals)
         return new_id, True
 
+    def ensure_demo_users():
+        print("\nDemo-Benutzer...")
+        companies = execute(
+            "res.company", "search_read",
+            [],
+            {"fields": ["id", "name"], "limit": 1},
+        )
+        if not companies:
+            print("  [WARN] Keine Firma gefunden - Demo-Benutzer werden uebersprungen.")
+            return
+        company_id = companies[0]["id"]
+
+        group_user = execute(
+            "ir.model.data", "search_read",
+            [("module", "=", "base"), ("name", "=", "group_user")],
+            {"fields": ["res_id"], "limit": 1},
+        )
+        if not group_user:
+            print("  [WARN] base.group_user nicht gefunden - Demo-Benutzer werden uebersprungen.")
+            return
+        group_user_id = group_user[0]["res_id"]
+
+        demo_users = [
+            ("Administrator", "admin"),
+            ("Endrit Murati", "endrit.murati"),
+            ("Max Picker", "max.picker"),
+        ]
+
+        for name, login in demo_users:
+            existing = execute(
+                "res.users", "search_read",
+                [("login", "=", login)],
+                {"fields": ["id", "name"], "limit": 1},
+            )
+            if existing:
+                print(f"  [=] existiert: {existing[0]['name']} (Login: {login}, ID: {existing[0]['id']})")
+                continue
+
+            try:
+                user_id = execute(
+                    "res.users",
+                    "create",
+                    {
+                        "name": name,
+                        "login": login,
+                        "email": f"{login}@local.test",
+                        "password": "demo123",
+                        "company_id": company_id,
+                        "company_ids": [(6, 0, [company_id])],
+                        "groups_id": [(6, 0, [group_user_id])],
+                        "notification_type": "email",
+                        "active": True,
+                    },
+                )
+                print(f"  [OK] erstellt: {name} (Login: {login}, ID: {user_id})")
+            except Exception as exc:
+                print(f"  [WARN] Demo-Benutzer {name} konnte nicht erstellt werden: {exc}")
+
+    if args.lego_seed:
+        seed_lego(execute)
+        return
+
     if args.bom_mode:
+        ensure_demo_users()
         seed_bom_pickings(execute)
         return
+
+    ensure_demo_users()
 
     # ── Datumshelfer ─────────────────────────────────────────
     today = date.today()
@@ -326,6 +393,232 @@ def main():
         print(f"  [WARN] Pruefung fehlgeschlagen: {e}")
 
     print("\nSeed-Daten komplett!")
+
+
+def seed_lego(execute):
+    """
+    LEGO-Seed: Bestand fuer alle BOM-Komponenten auffuellen und
+    danach neue Pickings fuer die wichtigsten Lego-Produkte erstellen.
+
+    Loescht keine bestehenden Pickings.
+    """
+    from datetime import date, timedelta
+    today = date.today()
+    yesterday = (today - timedelta(days=1)).isoformat()
+    tomorrow = (today + timedelta(days=1)).isoformat()
+    today_str = today.isoformat()
+
+    # ── Lagerorte laden / erstellen ───────────────────────────
+    print("\nLEGO-Seed: Lagerorte...")
+    stock_loc = execute(
+        "stock.location", "search_read",
+        [("name", "=", "Stock"), ("usage", "=", "internal")],
+        fields=["id"], limit=1,
+    )
+    parent_id = stock_loc[0]["id"] if stock_loc else False
+
+    locations_data = [
+        {"name": "Regal A-01", "barcode": "LOC-A01"},
+        {"name": "Regal A-02", "barcode": "LOC-A02"},
+        {"name": "Regal B-01", "barcode": "LOC-B01"},
+        {"name": "Regal B-02", "barcode": "LOC-B02"},
+        {"name": "Regal C-01", "barcode": "LOC-C01"},
+        {"name": "Regal D-01", "barcode": "LOC-D01"},
+    ]
+    loc_ids = {}
+    for loc in locations_data:
+        existing = execute("stock.location", "search", [("barcode", "=", loc["barcode"])])
+        if existing:
+            loc_ids[loc["barcode"]] = existing[0]
+        else:
+            lid = execute("stock.location", "create",
+                          {**loc, "usage": "internal", "location_id": parent_id})
+            loc_ids[loc["barcode"]] = lid
+            print(f"  [OK] Lagerort erstellt: {loc['name']}")
+    print(f"  {len(loc_ids)} Lagerorte bereit")
+
+    # Auswahl-Lagerorte fuer Bestand-Verteilung
+    restock_locs = [
+        loc_ids.get("LOC-A01"),
+        loc_ids.get("LOC-A02"),
+        loc_ids.get("LOC-B01"),
+        loc_ids.get("LOC-B02"),
+        loc_ids.get("LOC-C01"),
+        loc_ids.get("LOC-D01"),
+    ]
+    restock_locs = [l for l in restock_locs if l]
+
+    # ── BOMs laden (IDs 12-22 = LEGO-Sortiment) ──────────────
+    print("\nLEGO-Seed: Lade Stuecklisten...")
+    lego_bom_ids = [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+    boms = execute(
+        "mrp.bom", "search_read",
+        [("id", "in", lego_bom_ids)],
+        fields=["id", "product_tmpl_id", "code", "bom_line_ids"],
+    )
+    print(f"  {len(boms)} Stuecklisten geladen")
+
+    # ── Alle Komponenten-Produkte sammeln ─────────────────────
+    all_bom_line_ids = []
+    for bom in boms:
+        all_bom_line_ids.extend(bom.get("bom_line_ids", []))
+
+    component_lines = execute(
+        "mrp.bom.line", "search_read",
+        [("bom_id", "in", lego_bom_ids)],
+        fields=["product_id", "product_qty"],
+    ) if all_bom_line_ids else []
+
+    # Einzigartige Produkt-IDs
+    component_product_ids = list({line["product_id"][0] for line in component_lines if line.get("product_id")})
+    print(f"  {len(component_product_ids)} einzigartige Komponenten-Produkte")
+
+    # ── Bestand einbuchen ─────────────────────────────────────
+    print("\nLEGO-Seed: Bestand einbuchen...")
+    import random
+    random.seed(42)  # Reproduzierbar
+
+    stocked = 0
+    for i, product_id in enumerate(component_product_ids):
+        loc_id = restock_locs[i % len(restock_locs)]
+        qty = random.choice([30, 40, 50, 60, 70, 80])
+
+        try:
+            # Vorhandenen Quant suchen
+            existing_quants = execute(
+                "stock.quant", "search",
+                [("product_id", "=", product_id), ("location_id", "=", loc_id)],
+            )
+            if existing_quants:
+                execute("stock.quant", "write", existing_quants,
+                        {"inventory_quantity": qty})
+            else:
+                existing_quants = [execute("stock.quant", "create", {
+                    "product_id": product_id,
+                    "location_id": loc_id,
+                    "inventory_quantity": qty,
+                })]
+            try:
+                execute("stock.quant", "action_apply_inventory", existing_quants)
+            except Exception as apply_err:
+                # Odoo 18: action_apply_inventory gibt None zurueck,
+                # was XML-RPC nicht serialisieren kann - die Einbuchung
+                # wurde aber trotzdem ausgefuehrt.
+                if "marshal None" not in str(apply_err) and "allow_none" not in str(apply_err):
+                    raise
+            stocked += 1
+        except Exception as e:
+            print(f"  [WARN] Bestand fuer Produkt {product_id}: {e}")
+
+    print(f"  {stocked} Produkte eingelagert")
+
+    # ── Pickings aus BOMs erstellen ────────────────────────────
+    print("\nLEGO-Seed: Erstelle Pickings...")
+
+    # Picking-Typ: Internal Transfer
+    pick_type = execute(
+        "stock.picking.type", "search_read",
+        [("code", "=", "internal")],
+        fields=["id", "default_location_src_id", "default_location_dest_id"],
+        limit=1,
+    )
+    if not pick_type:
+        print("  [WARN] Kein Internal-Transfer-Typ gefunden - Pickings werden uebersprungen.")
+        return
+    pt = pick_type[0]
+
+    mfg_loc = execute(
+        "stock.location", "search_read",
+        [("usage", "=", "internal"), ("name", "=", "Manufacturing")],
+        fields=["id"], limit=1,
+    )
+    dest_loc_id = mfg_loc[0]["id"] if mfg_loc else pt["default_location_dest_id"][0]
+
+    # Konfiguration: BOM-ID -> (Prioritaet, Datum, Label)
+    picking_config = [
+        (21, "0",  today_str,  "Normal, heute"),         # Ente Henri
+        (16, "1",  today_str,  "DRINGEND, heute"),       # Wal
+        (15, "0",  tomorrow,   "Normal, morgen"),        # Windkraft
+        (19, "1",  today_str,  "DRINGEND, heute"),       # Blume
+        (12, "0",  today_str,  "Normal, heute"),         # Sparkasse
+        (20, "1",  yesterday,  "DRINGEND, ueberfaellig"),# LKW
+        (13, "0",  tomorrow,   "Normal, morgen"),        # Papagei Moritz
+        (17, "1",  today_str,  "DRINGEND, heute"),       # Krebs Max
+        (18, "0",  tomorrow,   "Normal, morgen"),        # Erwin
+    ]
+
+    bom_map = {b["id"]: b for b in boms}
+    created = 0
+
+    for bom_id, priority, sched_date, label in picking_config:
+        bom = bom_map.get(bom_id)
+        if not bom:
+            print(f"  [SKIP] BOM {bom_id} nicht gefunden")
+            continue
+
+        product_name = bom["product_tmpl_id"][1]
+
+        # Komponenten mit Bestand suchen
+        lines = execute(
+            "mrp.bom.line", "search_read",
+            [("bom_id", "=", bom_id)],
+            fields=["product_id", "product_qty"],
+        )
+        components = []
+        for line in lines:
+            pid = line["product_id"][0]
+            quants = execute(
+                "stock.quant", "search_read",
+                [("product_id", "=", pid), ("quantity", ">", 0),
+                 ("location_id.usage", "=", "internal"),
+                 ("location_id", "!=", dest_loc_id)],
+                fields=["location_id", "quantity"],
+                order="quantity desc",
+                limit=1,
+            )
+            if quants:
+                components.append({
+                    "product_id": pid,
+                    "product_name": line["product_id"][1],
+                    "qty": line["product_qty"],
+                    "location_id": quants[0]["location_id"][0],
+                })
+
+        if not components:
+            print(f"  [SKIP] Keine Komponenten mit Bestand fuer {product_name}")
+            continue
+
+        try:
+            vals = {
+                "picking_type_id": pt["id"],
+                "location_id": pt["default_location_src_id"][0] if pt["default_location_src_id"] else False,
+                "location_dest_id": dest_loc_id,
+                "priority": priority,
+                "origin": f"{product_name} (BOM {bom['code']})",
+                "scheduled_date": sched_date,
+                "move_ids": [
+                    (0, 0, {
+                        "name": c["product_name"],
+                        "product_id": c["product_id"],
+                        "product_uom_qty": c["qty"],
+                        "product_uom": 1,
+                        "location_id": c["location_id"],
+                        "location_dest_id": dest_loc_id,
+                    })
+                    for c in components
+                ],
+            }
+            pick_id = execute("stock.picking", "create", vals)
+            execute("stock.picking", "action_confirm", [pick_id])
+            execute("stock.picking", "action_assign", [pick_id])
+            prio_str = "DRINGEND" if priority == "1" else "Normal  "
+            print(f"  [OK] {prio_str} | {label:25} | {product_name} -> Picking {pick_id}")
+            created += 1
+        except Exception as e:
+            print(f"  [WARN] Picking fuer {product_name} fehlgeschlagen: {e}")
+
+    print(f"\nLEGO-Seed abgeschlossen: {stocked} Produkte eingelagert, {created} Pickings erstellt.")
+    print("Tipp: PWA-Picking-Liste zeigt jetzt LEGO-Produkte mit Kachelbild.")
 
 
 def seed_bom_pickings(execute):

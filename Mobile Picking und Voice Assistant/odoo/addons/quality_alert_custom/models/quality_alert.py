@@ -61,6 +61,34 @@ class QualityAlert(models.Model):
         "res.users", string="Erfasst von", default=lambda self: self.env.user,
     )
 
+    # KI-Auswertung
+    ai_disposition = fields.Selection(
+        [
+            ("sellable", "Verkaufbar"),
+            ("rework", "Nacharbeit"),
+            ("quarantine", "Quarantaene"),
+            ("scrap", "Totalschaden"),
+        ],
+        string="KI-Einstufung",
+        tracking=True,
+    )
+    ai_confidence = fields.Float(string="KI-Konfidenz", tracking=True)
+    ai_summary = fields.Text(string="KI-Zusammenfassung", tracking=True)
+    ai_recommended_action = fields.Text(string="KI-Empfohlene Aktion", tracking=True)
+    ai_last_analyzed_at = fields.Datetime(string="KI-Analysezeitpunkt", tracking=True)
+    ai_provider = fields.Char(string="KI-Provider")
+    ai_model = fields.Char(string="KI-Modell")
+    ai_evaluation_status = fields.Selection(
+        [
+            ("pending", "Ausstehend"),
+            ("completed", "Abgeschlossen"),
+            ("failed", "Fehlgeschlagen"),
+        ],
+        string="KI-Status",
+        tracking=True,
+    )
+    ai_failure_reason = fields.Char(string="KI-Fehlergrund")
+
     # Fotos
     photo = fields.Binary(string="Foto", attachment=True)
     photo_filename = fields.Char(string="Dateiname")

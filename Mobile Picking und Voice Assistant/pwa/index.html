@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <meta name="theme-color" content="#1a1a2e">
+    <meta name="theme-color" content="#121212">
     <link rel="manifest" href="/manifest.json">
     <link rel="stylesheet" href="/css/app.css">
     <title>Picking Assistant</title>
@@ -11,19 +11,51 @@
 <body>
     <div id="app">
         <header id="header">
-            <div class="header-brand">
-                <h1>Picking Assistant</h1>
-                <button id="picker-indicator" type="button" class="picker-indicator picker-indicator--empty">
-                    Picker waehlen
-                </button>
+            <div class="header-row header-row--top">
+                <div class="header-brand">
+                    <div class="header-brand__eyebrow">Industrial Picking</div>
+                    <div class="header-brand__main">
+                        <h1>Picking Assistant</h1>
+                        <span id="task-counter" class="task-counter">0 Aufgaben offen</span>
+                    </div>
+                </div>
+                <label class="header-search" for="search-input">
+                    <span class="sr-only">Suche nach Auftrag, Produkt, SKU oder Platz</span>
+                    <input id="search-input" type="search" placeholder="Suche nach SKU, Platz oder Auftrag" autocomplete="off">
+                </label>
+                <div class="header-status">
+                    <button id="picker-indicator" type="button" class="picker-indicator picker-indicator--empty">
+                        Profil waehlen
+                    </button>
+                    <span id="status-indicator" class="status offline">Offline</span>
+                    <span id="voice-status-indicator" class="status voice-status voice-status--idle">Bereit</span>
+                    <button id="high-contrast-toggle" type="button" class="status-toggle" aria-pressed="false">
+                        Kontrast
+                    </button>
+                    <button id="search-toggle" type="button" class="status-toggle status-toggle--icon" aria-pressed="false" aria-label="Suche einblenden" title="Suche">
+                        &#128269;
+                    </button>
+                </div>
             </div>
-            <span id="status-indicator" class="status offline">Offline</span>
+            <div class="header-row header-row--filters" role="toolbar" aria-label="Auftraege filtern">
+                <div id="filter-chips" class="filter-chips"></div>
+            </div>
         </header>
-        <main id="main"><p>Wird geladen...</p></main>
+        <main id="main" tabindex="0"><p>Wird geladen...</p></main>
+        <div id="app-overlay" class="app-overlay" hidden></div>
         <nav id="nav">
-            <button id="btn-voice" class="nav-btn" aria-label="Voice">🎤</button>
-            <button id="btn-scan" class="nav-btn" aria-label="Scan">📷</button>
-            <button id="btn-alert" class="nav-btn" aria-label="Problem">⚠️</button>
+            <button id="btn-voice" class="nav-btn" aria-label="Sprachmodus starten">
+                <span class="nav-btn__label">Voice</span>
+                <span class="nav-btn__meta">Kommando</span>
+            </button>
+            <button id="btn-scan" class="nav-btn" aria-label="Kamera-Scan starten">
+                <span class="nav-btn__label">Scan</span>
+                <span class="nav-btn__meta">Kamera</span>
+            </button>
+            <button id="btn-alert" class="nav-btn" aria-label="Problem melden">
+                <span class="nav-btn__label">Problem</span>
+                <span class="nav-btn__meta">Melden</span>
+            </button>
         </nav>
     </div>
     <script src="/js/app.js" type="module"></script>

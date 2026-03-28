@@ -1,0 +1,29 @@
+{
+  "workflows": {
+    "error-trigger.json": {
+      "name": "Error Trigger",
+      "id": null,
+      "active": false,
+      "exists": false
+    },
+    "quality-alert-created.json": {
+      "name": "Quality Alert Created",
+      "id": "8eWVrUfTAUvOAbpdug8oP",
+      "active": true,
+      "exists": true
+    },
+    "voice-exception-query.json": {
+      "name": "Voice Exception Query",
+      "id": "B3vBzqOM2J7pkahwUGtsn",
+      "active": false,
+      "exists": true
+    },
+    "shortage-reported.json": {
+      "name": "Shortage Reported",
+      "id": null,
+      "active": false,
+      "exists": false
+    }
+  },
+  "duplicates": {}
+}

@@ -11,18 +11,28 @@
  */
 import {
     ApiError,
+    assistVoice,
     claimPicking,
+    clearActivePicker,
     clearStoredPicker,
     confirmLine,
     createIdempotencyKey,
     createQualityAlert,
+    getActivePicker,
+    getCachedPickers,
     getDeviceId,
     getPickers,
     getPickingDetail,
     getPickings,
-    getStoredPicker,
+    getStoredHighContrastEnabled,
+    getStoredPreferredZone,
+    getStoredSearchQuery,
     releasePicking,
-    setStoredPicker,
+    setActivePicker,
+    setCachedPickers,
+    setStoredHighContrastEnabled,
+    setStoredPreferredZone,
+    setStoredSearchQuery,
     heartbeatPicking,
 } from './api.js';
 import { feedbackSuccess, feedbackError } from './feedback.js';
@@ -38,12 +48,23 @@ import {
     startPushToTalk,
     stopPushToTalk,
     stopVoiceMode,
+    setVoiceRequestContextProvider,
+    setVoiceStatusListener,
 } from './voice.js';
+import {
+    buildVoiceAssistPayload,
+    buildVoiceRequestContext,
+    classifyVoiceResult,
+    getVoiceStatusPresentation,
+} from './voice-runtime.mjs';
 import { createFileInput } from './camera.js';
 import { initPWA } from './pwa.js';
 
 const CLAIM_HEARTBEAT_MS = 30_000;
 const VOICE_LONG_PRESS_MS = 350;
+const DEFAULT_FILTER = 'all';
+const ZONE_FILTER = 'zone';
+const VOICE_ASSIST_SHORTAGE_RE = /\b(fehlt|fehlmenge|mangel|nachschub|leer|restbestand)\b/i;
 
 function formatLocationForSpeech(locationPath) {
     if (!locationPath) return '';
@@ -73,6 +94,10 @@ function getPickingReference(picking) {
     return picking?.reference_code || picking?.name || 'Ohne Referenz';
 }
 
+function getPickingKitName(picking) {
+    return String(picking?.kit_name || '').trim();
+}
+
 function getPickingTypeLabel(picking) {
     const rawLabel = picking?.picking_type_id?.[1] || '';
     return rawLabel.split(':').pop().trim();
@@ -82,9 +107,136 @@ function getPickingPrimaryLabel(picking) {
     return picking?.primary_item_display || getPickingReference(picking);
 }
 
+function getPickingHeadline(picking) {
+    return getPickingKitName(picking) || getPickingPrimaryLabel(picking);
+}
+
+function getPickingSupportingLabel(picking) {
+    if (!getPickingKitName(picking)) return '';
+    return getPickingPrimaryLabel(picking);
+}
+
+function getPickingOpeningPrompt(picking) {
+    const intro = String(picking?.voice_intro || '').trim();
+    if (intro) return intro;
+    const firstLine = picking?.move_lines?.[0];
+    return getLineSpeechPrompt(firstLine);
+}
+
 function getOpenLineLabel(count) {
     const safeCount = Number(count || 0);
     return safeCount === 1 ? '1 Position offen' : `${safeCount} Positionen offen`;
+}
+
+function getTotalLineCount(picking) {
+    const total = Number(picking?.total_line_count ?? 0);
+    return Number.isFinite(total) ? total : 0;
+}
+
+function getCompletedLineCount(picking) {
+    const completed = Number(picking?.completed_line_count ?? 0);
+    return Number.isFinite(completed) ? completed : 0;
+}
+
+function getProgressRatio(picking) {
+    const raw = Number(picking?.progress_ratio ?? 0);
+    const fallbackTotal = getTotalLineCount(picking);
+    const fallbackCompleted = getCompletedLineCount(picking);
+    const fallbackRatio = fallbackTotal > 0 ? fallbackCompleted / fallbackTotal : 0;
+    const safeRatio = Number.isFinite(raw) ? raw : fallbackRatio;
+    return Math.max(0, Math.min(1, safeRatio));
+}
+
+function getProgressLabel(picking) {
+    const total = getTotalLineCount(picking);
+    const completed = getCompletedLineCount(picking);
+    if (total <= 0) return '0 / 0 Positionen';
+    return `${completed} / ${total} Positionen`;
+}
+
+function formatZoneLabel(zoneKey) {
+    if (!zoneKey) return 'Ohne Bereich';
+    return zoneKey
+        .split('-')
+        .filter(Boolean)
+        .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+        .join(' ');
+}
+
+function getPrimaryZoneLabel(picking) {
+    return formatZoneLabel(picking?.primary_zone_key || '');
+}
+
+function getPrimaryItemSku(picking) {
+    return picking?.primary_item_sku || '';
+}
+
+function getListScopeLabel() {
+    if (activeFilter === 'high') return 'Nur dringende Auftraege';
+    if (activeFilter === ZONE_FILTER && preferredZone?.label) return preferredZone.label;
+    return 'Alle Bereiche';
+}
+
+function getThumbnailInitials(label) {
+    return String(label || 'PK')
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part[0]?.toUpperCase() || '')
+        .join('') || 'PK';
+}
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function buildSearchHaystack(picking) {
+    return [
+        getPickingKitName(picking),
+        getPickingReference(picking),
+        getPickingPrimaryLabel(picking),
+        getPrimaryItemSku(picking),
+        picking?.next_location_short,
+        picking?.partner_id?.[1] || '',
+        getPrimaryZoneLabel(picking),
+    ].join(' ').toLowerCase();
+}
+
+function filterBySearch(pickings, query) {
+    const normalizedQuery = String(query || '').trim().toLowerCase();
+    if (!normalizedQuery) return pickings;
+    return pickings.filter((picking) => buildSearchHaystack(picking).includes(normalizedQuery));
+}
+
+function filterByActiveChip(pickings) {
+    if (activeFilter === 'high') {
+        return pickings.filter((picking) => picking.priority === '1');
+    }
+    if (activeFilter === ZONE_FILTER) {
+        return pickings.filter((picking) => picking.primary_zone_key === preferredZone?.key);
+    }
+    return pickings;
+}
+
+function collectZoneOptions(pickings) {
+    const counts = new Map();
+    for (const picking of pickings) {
+        const key = picking.primary_zone_key;
+        if (!key) continue;
+        counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return [...counts.entries()]
+        .map(([key, count]) => ({
+            key,
+            count,
+            label: formatZoneLabel(key),
+        }))
+        .sort((left, right) => left.label.localeCompare(right.label, 'de-DE'));
 }
 
 function getLineDisplayName(line) {
@@ -143,30 +295,148 @@ function renderRouteHint(picking, currentLineIndex) {
     `;
 }
 
-let activeFilter = 'all';
+let activeFilter = DEFAULT_FILTER;
 let claimHeartbeatTimer = null;
 let claimedPickingId = null;
 let voiceLongPressTimer = null;
 let voiceLongPressStarted = false;
 let suppressNextVoiceClick = false;
+let voiceStatusResetTimer = null;
+let searchQuery = getStoredSearchQuery();
+let mobileSearchOpen = Boolean(searchQuery);
+let preferredZone = getStoredPreferredZone();
+let highContrastEnabled = getStoredHighContrastEnabled();
+let sessionState = 'profile_required';
+let pickerCatalog = getCachedPickers();
+const pendingRequestControllers = new Set();
 
 const mainEl = () => document.getElementById('main');
+const headerEl = () => document.getElementById('header');
 const statusEl = () => document.getElementById('status-indicator');
+const voiceStatusEl = () => document.getElementById('voice-status-indicator');
 const pickerEl = () => document.getElementById('picker-indicator');
+const headerSearchEl = () => document.querySelector('.header-search');
+const searchInputEl = () => document.getElementById('search-input');
+const taskCounterEl = () => document.getElementById('task-counter');
+const filterChipsEl = () => document.getElementById('filter-chips');
+const filterRowEl = () => document.querySelector('.header-row--filters');
+const highContrastToggleEl = () => document.getElementById('high-contrast-toggle');
+const searchToggleEl = () => document.getElementById('search-toggle');
+const overlayEl = () => document.getElementById('app-overlay');
+const navEl = () => document.getElementById('nav');
 const btnVoice = () => document.getElementById('btn-voice');
 const btnScan = () => document.getElementById('btn-scan');
 const btnAlert = () => document.getElementById('btn-alert');
 
+function getPickerShortLabel(picker) {
+    const normalizedName = String(picker?.name || '')
+        .trim()
+        .replace(/\s+/g, ' ');
+    if (!normalizedName) return '?';
+    return normalizedName
+        .split(' ')
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part[0]?.toUpperCase() || '')
+        .join('') || '?';
+}
+
+function createManagedAbortController() {
+    const controller = new AbortController();
+    pendingRequestControllers.add(controller);
+    controller.signal.addEventListener('abort', () => {
+        pendingRequestControllers.delete(controller);
+    }, { once: true });
+    return controller;
+}
+
+async function withManagedRequest(task) {
+    const controller = createManagedAbortController();
+    try {
+        return await task(controller.signal);
+    } finally {
+        pendingRequestControllers.delete(controller);
+    }
+}
+
+function abortPendingRequests() {
+    for (const controller of Array.from(pendingRequestControllers)) {
+        controller.abort();
+    }
+    pendingRequestControllers.clear();
+}
+
+function isAbortError(error) {
+    return error?.name === 'AbortError';
+}
+
+function resetSearchUi() {
+    searchQuery = '';
+    mobileSearchOpen = false;
+    setStoredSearchQuery('');
+    const input = searchInputEl();
+    if (input) input.value = '';
+    applyMobileSearchState();
+}
+
+function resetOperatorUiState() {
+    activeFilter = DEFAULT_FILTER;
+    preferredZone = null;
+    setStoredPreferredZone(null);
+    resetSearchUi();
+    setState({
+        pickings: [],
+        currentPicking: null,
+        currentLineIndex: 0,
+    });
+}
+
+function getStatusShortLabel(kind) {
+    switch (kind) {
+        case 'online':
+            return 'ON';
+        case 'offline':
+            return 'OFF';
+        case 'sync':
+            return '...';
+        case 'listening':
+            return 'MIC';
+        case 'speaking':
+            return 'TTS';
+        case 'recognized':
+            return 'OK';
+        case 'uncertain':
+            return '??';
+        case 'idle':
+        default:
+            return 'MIC';
+    }
+}
+
 function updateToolbar(view) {
+    sessionState = view;
     const buttons = [btnVoice(), btnScan(), btnAlert()];
-    const show = view === 'detail';
+    const visualView = view === 'search_expanded' ? 'list' : view;
+    const show = visualView === 'detail';
     buttons.forEach((button) => {
         if (button) button.classList.toggle('hidden', !show);
     });
+    const nav = navEl();
+    if (nav) nav.classList.toggle('hidden', !show);
     if (!show) {
         btnVoice()?.classList.remove('nav-btn--ptt');
         if (isVoiceModeActive()) stopVoiceMode();
     }
+
+    document.body.dataset.view = visualView;
+    document.body.dataset.sessionState = view;
+    const searchInput = searchInputEl();
+    const searchEnabled = view === 'list' || view === 'search_expanded';
+    if (searchInput) searchInput.disabled = !searchEnabled;
+    headerSearchEl()?.toggleAttribute('hidden', !searchEnabled);
+    filterRowEl()?.toggleAttribute('hidden', !searchEnabled);
+    searchToggleEl()?.toggleAttribute('hidden', !searchEnabled);
+    headerEl()?.classList.toggle('header--picker-only', view === 'profile_required');
 }
 
 function updatePickerIndicator() {
@@ -175,25 +445,387 @@ function updatePickerIndicator() {
     const picker = getState().currentPicker;
     if (picker?.name) {
         indicator.textContent = picker.name;
+        indicator.title = picker.name;
+        indicator.setAttribute('aria-label', picker.name);
+        indicator.dataset.shortLabel = getPickerShortLabel(picker);
         indicator.classList.remove('picker-indicator--empty');
     } else {
-        indicator.textContent = 'Picker waehlen';
+        indicator.textContent = 'Profil';
+        indicator.title = 'Profil waehlen';
+        indicator.setAttribute('aria-label', 'Profil waehlen');
+        indicator.dataset.shortLabel = '+';
         indicator.classList.add('picker-indicator--empty');
     }
+}
+
+function updateConnectivityStatus({ loading = false } = {}) {
+    const indicator = statusEl();
+    if (!indicator) return;
+
+    if (loading) {
+        indicator.textContent = 'Sync';
+        indicator.className = 'status status--sync';
+        indicator.dataset.shortLabel = getStatusShortLabel('sync');
+        indicator.title = 'Synchronisiert';
+        return;
+    }
+
+    if (navigator.onLine) {
+        indicator.textContent = 'Online';
+        indicator.className = 'status online';
+        indicator.dataset.shortLabel = getStatusShortLabel('online');
+        indicator.title = 'Online';
+        return;
+    }
+
+    indicator.textContent = 'Offline';
+    indicator.className = 'status offline';
+    indicator.dataset.shortLabel = getStatusShortLabel('offline');
+    indicator.title = 'Offline';
+}
+
+function clearVoiceStatusReset() {
+    if (!voiceStatusResetTimer) return;
+    window.clearTimeout(voiceStatusResetTimer);
+    voiceStatusResetTimer = null;
+}
+
+function updateVoiceStatusIndicator(kind = 'idle', { temporary = false } = {}) {
+    const indicator = voiceStatusEl();
+    if (!indicator) return;
+
+    const presentation = getVoiceStatusPresentation(kind);
+    indicator.textContent = presentation.label;
+    indicator.className = `status voice-status voice-status--${presentation.tone}`;
+    indicator.dataset.shortLabel = getStatusShortLabel(presentation.tone);
+    indicator.title = presentation.label;
+
+    clearVoiceStatusReset();
+    if (temporary) {
+        voiceStatusResetTimer = window.setTimeout(() => {
+            voiceStatusResetTimer = null;
+            updateVoiceStatusIndicator(isVoiceModeActive() || isPushToTalkActive() ? 'listening' : 'idle');
+        }, 1400);
+    }
+}
+
+function getCurrentVoiceView() {
+    return document.body.dataset.view || 'list';
+}
+
+function getCurrentVoiceRequestContext() {
+    const { currentPicking, currentLineIndex } = getState();
+    return buildVoiceRequestContext({
+        view: getCurrentVoiceView(),
+        currentPicking,
+        currentLineIndex,
+    });
+}
+
+function updateTaskCounter(count) {
+    const counter = taskCounterEl();
+    if (!counter) return;
+    const safeCount = Number(count || 0);
+    counter.textContent = safeCount === 1 ? '1 Aufgabe offen' : `${safeCount} Aufgaben offen`;
+}
+
+function applyHighContrastTheme() {
+    document.body.classList.toggle('high-contrast', highContrastEnabled);
+    const toggle = highContrastToggleEl();
+    if (!toggle) return;
+    toggle.setAttribute('aria-pressed', highContrastEnabled ? 'true' : 'false');
+    toggle.classList.toggle('status-toggle--active', highContrastEnabled);
+    toggle.dataset.shortLabel = 'AA';
+    toggle.title = highContrastEnabled ? 'Kontrast aktiv' : 'Kontrast';
+}
+
+function applyMobileSearchState() {
+    document.body.dataset.searchOpen = mobileSearchOpen ? 'true' : 'false';
+    const toggle = searchToggleEl();
+    if (!toggle) return;
+    toggle.setAttribute('aria-pressed', mobileSearchOpen ? 'true' : 'false');
+    toggle.classList.toggle('status-toggle--active', mobileSearchOpen);
+    toggle.title = mobileSearchOpen ? 'Suche geoeffnet' : 'Suche';
+}
+
+function openMobileSearch({ focus = false } = {}) {
+    if (sessionState !== 'list' && sessionState !== 'search_expanded') return;
+    mobileSearchOpen = true;
+    updateToolbar('search_expanded');
+    applyMobileSearchState();
+    if (focus) {
+        window.requestAnimationFrame(() => {
+            searchInputEl()?.focus();
+        });
+    }
+}
+
+async function closeMobileSearch() {
+    mobileSearchOpen = false;
+    if (sessionState === 'search_expanded') updateToolbar('list');
+    applyMobileSearchState();
+    if (!searchQuery && !getState().currentPicking) {
+        await loadPickingList({ skipRelease: true });
+    }
+}
+
+function renderFilterChips(basePickings) {
+    const chipsHost = filterChipsEl();
+    if (!chipsHost) return;
+
+    const urgentCount = basePickings.filter((picking) => picking.priority === '1').length;
+    const zoneCount = preferredZone?.key
+        ? basePickings.filter((picking) => picking.primary_zone_key === preferredZone.key).length
+        : 0;
+    const zoneLabel = preferredZone?.label || 'Mein Bereich';
+
+    chipsHost.innerHTML = `
+        <button type="button" class="filter-chip ${activeFilter === DEFAULT_FILTER ? 'filter-chip--active' : ''}" data-filter="${DEFAULT_FILTER}" aria-pressed="${activeFilter === DEFAULT_FILTER}">
+            Alle (${basePickings.length})
+        </button>
+        <button type="button" class="filter-chip ${activeFilter === 'high' ? 'filter-chip--active' : ''}" data-filter="high" aria-pressed="${activeFilter === 'high'}">
+            Dringend (${urgentCount})
+        </button>
+        <button type="button" class="filter-chip ${activeFilter === ZONE_FILTER ? 'filter-chip--active' : ''}" data-filter="${ZONE_FILTER}" aria-pressed="${activeFilter === ZONE_FILTER}">
+            ${zoneLabel} (${zoneCount})
+        </button>
+    `;
+
+    chipsHost.querySelectorAll('[data-filter]').forEach((button) => {
+        button.addEventListener('click', async () => {
+            await setFilter(button.dataset.filter);
+        });
+    });
+}
+
+function closeOverlay() {
+    const overlay = overlayEl();
+    if (!overlay) return;
+    overlay.onclick = null;
+    overlay.hidden = true;
+    overlay.innerHTML = '';
+}
+
+function openZonePicker(pickings) {
+    const overlay = overlayEl();
+    if (!overlay) return;
+
+    const zones = collectZoneOptions(pickings);
+    if (!zones.length) {
+        showToast('Aktuell sind keine Bereiche verfuegbar.', 'warning');
+        activeFilter = DEFAULT_FILTER;
+        renderPickingsView(pickings);
+        return;
+    }
+
+    overlay.hidden = false;
+    overlay.innerHTML = `
+        <div class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="zone-picker-title">
+            <div class="modal-sheet__eyebrow">Mein Bereich</div>
+            <h2 id="zone-picker-title" class="modal-sheet__title">Bevorzugten Bereich waehlen</h2>
+            <p class="modal-sheet__text">
+                Der Filter zeigt danach Auftraege, deren naechster Halt in diesem Bereich liegt.
+            </p>
+            <div class="modal-sheet__actions modal-sheet__actions--stack">
+                ${zones.map((zone) => `
+                    <button type="button" class="picker-option" data-zone-key="${escapeHtml(zone.key)}" data-zone-label="${escapeHtml(zone.label)}">
+                        ${escapeHtml(zone.label)} <span class="picker-option__meta">${zone.count} Auftraege</span>
+                    </button>
+                `).join('')}
+            </div>
+            <div class="modal-sheet__footer">
+                <button type="button" id="zone-picker-cancel" class="picker-option">Abbrechen</button>
+                ${preferredZone?.key ? '<button type="button" id="zone-picker-clear" class="picker-option">Bereich loeschen</button>' : ''}
+            </div>
+        </div>
+    `;
+
+    overlay.onclick = (event) => {
+        if (event.target === overlay) closeOverlay();
+    };
+
+    overlay.querySelectorAll('[data-zone-key]').forEach((button) => {
+        button.addEventListener('click', async () => {
+            preferredZone = {
+                key: button.dataset.zoneKey,
+                label: button.dataset.zoneLabel,
+            };
+            setStoredPreferredZone(preferredZone);
+            activeFilter = ZONE_FILTER;
+            closeOverlay();
+            await loadPickingList({ skipRelease: true });
+        });
+    });
+
+    overlay.querySelector('#zone-picker-cancel')?.addEventListener('click', () => {
+        closeOverlay();
+    });
+
+    overlay.querySelector('#zone-picker-clear')?.addEventListener('click', async () => {
+        preferredZone = null;
+        setStoredPreferredZone(null);
+        activeFilter = DEFAULT_FILTER;
+        closeOverlay();
+        await loadPickingList({ skipRelease: true });
+    });
+}
+
+function renderListEmptyState(message, detail = 'Passe Suche oder Filter an, um weitere Auftraege einzublenden.') {
+    return `
+        <div class="state-panel">
+            <div class="state-panel__eyebrow">Listenstatus</div>
+            <div class="state-panel__title">${escapeHtml(message)}</div>
+            <div class="state-panel__meta">${escapeHtml(detail)}</div>
+        </div>
+    `;
+}
+
+function renderQueueOverview(visiblePickings) {
+    const urgentCount = visiblePickings.filter((picking) => picking.priority === '1').length;
+    const pickerName = getState().currentPicker?.name || 'Kein Profil aktiv';
+
+    return `
+        <section class="queue-overview" aria-label="Arbeitsbereich">
+            <div class="queue-overview__eyebrow">Arbeitsbereich</div>
+            <div class="queue-overview__title">${visiblePickings.length} offene Auftraege</div>
+            <div class="queue-overview__meta">${escapeHtml(pickerName)}</div>
+            <div class="queue-overview__stats">
+                <div class="queue-stat ${urgentCount > 0 ? 'queue-stat--warning' : ''}">
+                    <span class="queue-stat__label">Dringend</span>
+                    <span class="queue-stat__value">${urgentCount}</span>
+                </div>
+                <div class="queue-stat">
+                    <span class="queue-stat__label">Bereich</span>
+                    <span class="queue-stat__value">${escapeHtml(getListScopeLabel())}</span>
+                </div>
+                <div class="queue-stat">
+                    <span class="queue-stat__label">Suche</span>
+                    <span class="queue-stat__value">${searchQuery ? 'Aktiv' : 'Aus'}</span>
+                </div>
+            </div>
+        </section>
+    `;
+}
+
+function renderPickingListCard(picking) {
+    const reference = getPickingReference(picking);
+    const typeName = getPickingTypeLabel(picking);
+    const primaryLabel = getPickingHeadline(picking);
+    const supportingLabel = getPickingSupportingLabel(picking);
+    const initials = getThumbnailInitials(primaryLabel);
+    const partner = picking.partner_id ? picking.partner_id[1] : 'Ohne Partner';
+    const scheduledDate = picking.scheduled_date
+        ? new Date(picking.scheduled_date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
+        : 'Ohne Termin';
+    const progressPercent = Math.round(getProgressRatio(picking) * 100);
+    const progressLabel = getProgressLabel(picking);
+    const sku = getPrimaryItemSku(picking);
+    const zoneLabel = getPrimaryZoneLabel(picking);
+
+    return `
+        <article class="pick-list-card ${claimedPickingId === picking.id ? 'pick-list-card--active' : ''} ${picking.priority === '1' ? 'pick-list-card--urgent' : ''}" data-id="${picking.id}" aria-label="${escapeHtml(primaryLabel)}">
+            <div class="pick-list-card__header">
+                <span class="pick-list-card__reference">${escapeHtml(reference)}</span>
+                <div class="pick-list-card__badges">
+                    ${typeName ? `<span class="pick-list-card__badge">${escapeHtml(typeName)}</span>` : ''}
+                    ${picking.priority === '1' ? '<span class="pick-list-card__badge pick-list-card__badge--warning">Dringend</span>' : ''}
+                </div>
+            </div>
+            <div class="pick-list-card__body">
+                <div class="pick-list-card__thumb" aria-hidden="true">${picking.primary_product_id ? `<img src="/api/products/${picking.primary_product_id}/image" alt="" loading="lazy" onerror="this.remove()">` : ''}${escapeHtml(initials)}</div>
+                <div class="pick-list-card__content">
+                    <div class="pick-list-card__product">${escapeHtml(primaryLabel)}</div>
+                    ${supportingLabel ? `<div class="pick-list-card__context">${escapeHtml(supportingLabel)}</div>` : ''}
+                    <div class="pick-list-card__meta">
+                        ${sku ? `<span>${escapeHtml(sku)}</span>` : ''}
+                        <span>${escapeHtml(partner)}</span>
+                        <span>${escapeHtml(zoneLabel)}</span>
+                    </div>
+                    <div class="pick-list-card__quantity">${escapeHtml(getOpenLineLabel(picking.open_line_count))}</div>
+                </div>
+                <div class="pick-list-card__location-box">
+                    <div class="pick-list-card__location-label">Naechster Platz</div>
+                    <div class="pick-list-card__location">${escapeHtml(picking.next_location_short || 'Offen')}</div>
+                    <div class="pick-list-card__date">${escapeHtml(scheduledDate)}</div>
+                </div>
+            </div>
+            <div class="pick-list-card__footer">
+                <div class="pick-list-card__progress-copy">${escapeHtml(progressLabel)}</div>
+                <div class="pick-list-card__progress-track" aria-hidden="true">
+                    <span class="pick-list-card__progress-bar" style="width:${progressPercent}%"></span>
+                </div>
+            </div>
+        </article>
+    `;
+}
+
+function renderPickingsView(pickings) {
+    const searchedPickings = filterBySearch(pickings, searchQuery);
+
+    if (activeFilter === ZONE_FILTER && preferredZone?.key) {
+        const availableZones = collectZoneOptions(searchedPickings);
+        if (!availableZones.some((zone) => zone.key === preferredZone.key)) {
+            preferredZone = null;
+            setStoredPreferredZone(null);
+            activeFilter = DEFAULT_FILTER;
+        }
+    }
+
+    renderFilterChips(searchedPickings);
+    const visiblePickings = filterByActiveChip(searchedPickings);
+    updateTaskCounter(visiblePickings.length);
+
+    if (!searchedPickings.length) {
+        mainEl().innerHTML = `
+            <div class="queue-shell">
+                ${renderQueueOverview([])}
+                ${renderListEmptyState(
+                    'Keine Treffer fuer diese Suche.',
+                    'Suche nach Auftrag, Produkt, SKU, Platz oder Partner.'
+                )}
+            </div>
+        `;
+        return;
+    }
+
+    if (!visiblePickings.length) {
+        const filterMessage = activeFilter === 'high'
+            ? 'Keine dringenden Auftraege fuer diese Suche.'
+            : 'In deinem Bereich gibt es aktuell keine passenden Auftraege.';
+        mainEl().innerHTML = `
+            <div class="queue-shell">
+                ${renderQueueOverview([])}
+                ${renderListEmptyState(filterMessage)}
+            </div>
+        `;
+        return;
+    }
+
+    mainEl().innerHTML = `
+        <div class="queue-shell">
+            ${renderQueueOverview(visiblePickings)}
+            <section class="pick-list-grid" aria-label="Offene Picking-Auftraege">
+                ${visiblePickings.map((picking) => renderPickingListCard(picking)).join('')}
+            </section>
+        </div>
+    `;
+
+    mainEl().querySelectorAll('.pick-list-card[data-id]').forEach((card) => {
+        card.addEventListener('click', () => loadPickingDetail(Number(card.dataset.id)));
+    });
 }
 
 function updateVoiceButtonState(active) {
     const voiceButton = btnVoice();
     if (!voiceButton) return;
+    const voiceMeta = voiceButton.querySelector('.nav-btn__meta');
 
-    if (active) {
-        voiceButton.style.background = 'var(--danger)';
-        voiceButton.setAttribute('aria-label', 'Sprachmodus beenden');
-        return;
-    }
-
-    voiceButton.style.background = '';
+    voiceButton.classList.toggle('nav-btn--active', Boolean(active));
     voiceButton.setAttribute('aria-label', 'Sprachmodus starten');
+    if (active) {
+        voiceButton.setAttribute('aria-label', 'Sprachmodus beenden');
+    }
+    if (voiceMeta) voiceMeta.textContent = active ? 'Aktiv' : 'Kommando';
 }
 
 function getVoiceErrorMessage(error) {
@@ -204,6 +836,7 @@ function getVoiceErrorMessage(error) {
 
 function renderClaimConflict(conflict, pickingId) {
     updateToolbar('locked');
+    updateTaskCounter(0);
     const owner = conflict?.claimed_by_name || 'einem anderen Picker';
     const expiresAt = conflict?.claim_expires_at
         ? new Date(conflict.claim_expires_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
@@ -215,8 +848,8 @@ function renderClaimConflict(conflict, pickingId) {
                 <div class="picker-card__eyebrow">Claim-Konflikt</div>
                 <h2 class="picker-card__title">Dieses Picking ist gerade gesperrt.</h2>
                 <p class="picker-card__text">
-                    Aktuell arbeitet <strong>${owner}</strong> daran.
-                    Ablauf des Claims: <strong>${expiresAt}</strong>.
+                    Aktuell arbeitet <strong>${escapeHtml(owner)}</strong> daran.
+                    Ablauf des Claims: <strong>${escapeHtml(expiresAt)}</strong>.
                 </p>
                 <div class="picker-card__actions">
                     <button id="claim-retry" class="picker-option picker-option--primary">Erneut pruefen</button>
@@ -237,7 +870,7 @@ function stopClaimHeartbeat() {
 }
 
 function buildOperationKey(scope, parts = [], { unique = false } = {}) {
-    const pickerId = getState().currentPicker?.id || getStoredPicker()?.id || 'anon';
+    const pickerId = getState().currentPicker?.id || 'anon';
     return createIdempotencyKey(scope, [pickerId, ...parts], { unique });
 }
 
@@ -247,10 +880,12 @@ function startClaimHeartbeat(pickingId) {
         const picker = getState().currentPicker;
         if (!picker?.id || claimedPickingId !== pickingId) return;
         try {
-            await heartbeatPicking(pickingId, {
+            await withManagedRequest((signal) => heartbeatPicking(pickingId, {
                 idempotencyKey: buildOperationKey('heartbeat', [pickingId, Date.now()], { unique: true }),
-            });
+                signal,
+            }));
         } catch (error) {
+            if (isAbortError(error)) return;
             if (error instanceof ApiError && error.status === 409) {
                 claimedPickingId = null;
                 stopClaimHeartbeat();
@@ -268,7 +903,7 @@ async function releaseCurrentClaim(options = {}) {
     claimedPickingId = null;
     stopClaimHeartbeat();
 
-    const picker = getState().currentPicker || getStoredPicker();
+    const picker = getState().currentPicker;
     if (!picker?.id) return;
 
     try {
@@ -281,21 +916,63 @@ async function releaseCurrentClaim(options = {}) {
     }
 }
 
-function renderPickerSelection(pickers, { title = 'Picker auswaehlen', intro = 'Bitte waehle deinen Odoo-Benutzer fuer diese Session.' } = {}) {
-    updateToolbar('picker');
+function renderPickerUnavailable({ message, detail = 'Bitte pruefe die Verbindung und versuche es erneut.' } = {}) {
+    updateToolbar('profile_required');
+    renderFilterChips([]);
+    updateTaskCounter(0);
     mainEl().innerHTML = `
         <div class="picker-screen">
             <section class="picker-card">
                 <div class="picker-card__eyebrow">Session-Start</div>
-                <h2 class="picker-card__title">${title}</h2>
-                <p class="picker-card__text">${intro}</p>
+                <h2 class="picker-card__title">Profile konnten nicht geladen werden</h2>
+                <p class="picker-card__text">${escapeHtml(message)}</p>
+                <p class="picker-card__text">${escapeHtml(detail)}</p>
+                <div class="picker-device">Geraet: ${getDeviceId()}</div>
+                <div class="picker-card__actions">
+                    <button id="picker-retry" class="picker-option picker-option--primary">Erneut versuchen</button>
+                </div>
+            </section>
+        </div>
+    `;
+
+    document.getElementById('picker-retry')?.addEventListener('click', () => {
+        showProfileSelection({ preferCache: false });
+    });
+}
+
+function renderPickerOption(picker) {
+    return `
+        <button class="picker-option picker-option--profile" data-picker-id="${picker.id}">
+            <span class="picker-option__avatar" aria-hidden="true">${escapeHtml(getPickerShortLabel(picker))}</span>
+            <span class="picker-option__copy">
+                <span class="picker-option__name">${escapeHtml(picker.name)}</span>
+                <span class="picker-option__meta">Odoo Benutzer</span>
+            </span>
+        </button>
+    `;
+}
+
+function renderPickerSelection(
+    pickers,
+    {
+        title = 'Profil auswaehlen',
+        intro = 'Bitte waehle deinen Odoo-Benutzer fuer diese Session.',
+        statusNote = '',
+    } = {},
+) {
+    updateToolbar('profile_required');
+    renderFilterChips([]);
+    updateTaskCounter(0);
+    mainEl().innerHTML = `
+        <div class="picker-screen">
+            <section class="picker-card">
+                <div class="picker-card__eyebrow">Session-Start</div>
+                <h2 class="picker-card__title">${escapeHtml(title)}</h2>
+                <p class="picker-card__text">${escapeHtml(intro)}</p>
+                ${statusNote ? `<p class="picker-card__text">${escapeHtml(statusNote)}</p>` : ''}
                 <div class="picker-device">Geraet: ${getDeviceId()}</div>
                 <div class="picker-options">
-                    ${pickers.map(picker => `
-                        <button class="picker-option" data-picker-id="${picker.id}">
-                            ${picker.name}
-                        </button>
-                    `).join('')}
+                    ${pickers.map((picker) => renderPickerOption(picker)).join('')}
                 </div>
             </section>
         </div>
@@ -306,7 +983,7 @@ function renderPickerSelection(pickers, { title = 'Picker auswaehlen', intro = '
             const pickerId = Number(button.dataset.pickerId);
             const picker = pickers.find(item => item.id === pickerId);
             if (!picker) return;
-            setStoredPicker(picker);
+            setActivePicker(picker);
             setState({ currentPicker: picker, deviceId: getDeviceId() });
             updatePickerIndicator();
             await loadPickingList({ skipRelease: true });
@@ -314,130 +991,159 @@ function renderPickerSelection(pickers, { title = 'Picker auswaehlen', intro = '
     });
 }
 
-async function ensurePickerSelection({ forceSelection = false } = {}) {
-    const existingPicker = forceSelection ? null : getStoredPicker();
-    const deviceId = getDeviceId();
+async function refreshPickerCatalogInBackground() {
+    try {
+        const pickers = await withManagedRequest((signal) => getPickers({ signal }));
+        if (!Array.isArray(pickers) || !pickers.length) return;
+        pickerCatalog = pickers;
+        setCachedPickers(pickers);
+        if (sessionState === 'profile_required') {
+            renderPickerSelection(pickerCatalog);
+        }
+    } catch (error) {
+        if (!isAbortError(error)) {
+            console.warn('Picker-Refresh fehlgeschlagen:', error);
+        }
+    }
+}
 
+async function showProfileSelection({ preferCache = true } = {}) {
+    updateToolbar('profile_required');
+    renderFilterChips([]);
+    updateTaskCounter(0);
+
+    const cachedPickers = preferCache ? getCachedPickers() : [];
+    if (cachedPickers.length) {
+        pickerCatalog = cachedPickers;
+        renderPickerSelection(
+            pickerCatalog,
+            navigator.onLine
+                ? {}
+                : {
+                    statusNote: 'Offline: Verwende zuletzt geladene Profile. Die Auftragsliste braucht wieder Netz.',
+                },
+        );
+        if (navigator.onLine) {
+            void refreshPickerCatalogInBackground();
+        }
+        return false;
+    }
+
+    mainEl().innerHTML = renderLoading();
+    try {
+        const pickers = await withManagedRequest((signal) => getPickers({ signal }));
+        if (!Array.isArray(pickers) || !pickers.length) {
+            renderPickerUnavailable({
+                message: 'Keine aktiven Picker in Odoo gefunden.',
+                detail: 'Lege mindestens einen internen Benutzer in Odoo an.',
+            });
+            return false;
+        }
+        pickerCatalog = pickers;
+        setCachedPickers(pickers);
+        renderPickerSelection(pickers);
+        return false;
+    } catch (error) {
+        if (isAbortError(error)) return false;
+        renderPickerUnavailable({
+            message: navigator.onLine
+                ? `Picker konnten nicht geladen werden: ${error.message}`
+                : 'Es besteht aktuell keine Verbindung zum Server.',
+            detail: navigator.onLine
+                ? 'Bitte erneut versuchen.'
+                : 'Ohne bereits gecachte Profile ist keine Profilauswahl moeglich.',
+        });
+        return false;
+    }
+}
+
+async function ensurePickerSelection() {
+    const existingPicker = getActivePicker() || getState().currentPicker;
     if (existingPicker?.id) {
-        setState({ currentPicker: existingPicker, deviceId });
+        setState({ currentPicker: existingPicker, deviceId: getDeviceId() });
         updatePickerIndicator();
         return true;
     }
 
-    mainEl().innerHTML = renderLoading();
-    try {
-        const pickers = await getPickers();
-        if (!pickers.length) {
-            mainEl().innerHTML = renderError('Keine aktiven Picker in Odoo gefunden.');
-            return false;
-        }
-
-        if (!forceSelection && pickers.length === 1) {
-            setStoredPicker(pickers[0]);
-            setState({ currentPicker: pickers[0], deviceId });
-            updatePickerIndicator();
-            return true;
-        }
-
-        renderPickerSelection(pickers);
-        return false;
-    } catch (error) {
-        mainEl().innerHTML = renderError(`Picker konnten nicht geladen werden: ${error.message}`);
-        return false;
-    }
+    await showProfileSelection();
+    return false;
 }
 
-async function loadPickingList({ skipRelease = false, forcePickerSelection = false } = {}) {
+async function switchProfile() {
+    updateToolbar('switching_profile');
+    abortPendingRequests();
     stopSpeaking();
+    closeOverlay();
+    stopClaimHeartbeat();
+    if (isVoiceModeActive()) stopVoiceMode();
+    btnVoice()?.classList.remove('nav-btn--ptt');
+    await releaseCurrentClaim();
+    clearActivePicker();
+    clearStoredPicker();
+    setState({
+        currentPicker: null,
+        currentPicking: null,
+        currentLineIndex: 0,
+        pickings: [],
+    });
+    resetOperatorUiState();
+    updatePickerIndicator();
+    await showProfileSelection();
+}
+
+async function loadPickingList({ skipRelease = false } = {}) {
+    stopSpeaking();
+    closeOverlay();
     if (!skipRelease) await releaseCurrentClaim();
     updateToolbar('list');
 
-    const pickerReady = await ensurePickerSelection({ forceSelection: forcePickerSelection });
+    const pickerReady = await ensurePickerSelection();
     if (!pickerReady) return;
 
     mainEl().innerHTML = renderLoading();
     try {
-        const pickings = await getPickings();
+        const pickings = await withManagedRequest((signal) => getPickings({ signal }));
         setState({ pickings, currentPicking: null, currentLineIndex: 0 });
+        updateConnectivityStatus();
 
         if (!pickings.length) {
-            mainEl().innerHTML = '<p style="padding:20px;color:var(--text-muted)">Keine offenen Auftraege.</p>';
+            renderFilterChips([]);
+            updateTaskCounter(0);
+            mainEl().innerHTML = renderListEmptyState(
+                'Keine offenen Auftraege.',
+                'Sobald Odoo neue Aufgaben freigibt, erscheinen sie hier.'
+            );
             return;
         }
 
-        const visiblePickings = activeFilter === 'high'
-            ? pickings.filter(picking => picking.priority === '1')
-            : pickings;
-
-        const countText = activeFilter === 'high'
-            ? `${visiblePickings.length} von ${pickings.length}`
-            : `${pickings.length} Auftraege`;
-
-        const filterBar = `
-            <div class="filter-bar" role="toolbar" aria-label="Auftraege filtern">
-                <button class="filter-btn ${activeFilter === 'all' ? 'filter-btn--active' : ''}"
-                        onclick="window._app.setFilter('all')" aria-pressed="${activeFilter === 'all'}">Alle</button>
-                <button class="filter-btn ${activeFilter === 'high' ? 'filter-btn--active' : ''}"
-                        onclick="window._app.setFilter('high')" aria-pressed="${activeFilter === 'high'}">Dringend</button>
-                <span class="filter-count">${countText}</span>
-            </div>`;
-
-        if (visiblePickings.length === 0) {
-            mainEl().innerHTML = `${filterBar}<p style="padding:20px;color:var(--text-muted)">Keine dringenden Auftraege.</p>`;
-            return;
-        }
-
-        mainEl().innerHTML = filterBar + `
-            <div class="pick-list-grid">
-                ${visiblePickings.map((picking) => {
-                    const date = picking.scheduled_date
-                        ? new Date(picking.scheduled_date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
-                        : '';
-                    const partner = picking.partner_id ? picking.partner_id[1] : '-';
-                    const typeName = getPickingTypeLabel(picking);
-                    const reference = getPickingReference(picking);
-                    const primaryLabel = getPickingPrimaryLabel(picking);
-                    const nextLocation = picking.next_location_short || 'Route offen';
-                    const openLineLabel = getOpenLineLabel(picking.open_line_count);
-
-                    return `
-                        <article class="pick-list-card" data-id="${picking.id}" aria-label="${primaryLabel}">
-                            <div class="plc-header">
-                                <span class="plc-reference">${reference}</span>
-                                <div class="plc-tags">
-                                    ${picking.priority === '1' ? '<span class="plc-priority">Dringend</span>' : ''}
-                                    ${typeName ? `<span class="plc-badge">${typeName}</span>` : ''}
-                                </div>
-                            </div>
-                            <div class="plc-primary">${primaryLabel}</div>
-                            <div class="plc-partner">${partner}</div>
-                            <div class="plc-secondary">
-                                ${date ? `<span>${date}</span>` : '<span>Ohne Termin</span>'}
-                                <span class="plc-location-pill">${nextLocation}</span>
-                            </div>
-                            <div class="plc-footer">${openLineLabel}</div>
-                        </article>
-                    `;
-                }).join('')}
-            </div>`;
-
-        mainEl().querySelectorAll('.pick-list-card[data-id]').forEach((card) => {
-            card.addEventListener('click', () => loadPickingDetail(Number(card.dataset.id)));
-        });
+        renderPickingsView(pickings);
     } catch (error) {
+        if (isAbortError(error)) return;
+        if (error instanceof ApiError && (error.status === 400 || error.status === 403)) {
+            showToast('Profil bitte neu waehlen.', 'warning');
+            await switchProfile();
+            return;
+        }
         mainEl().innerHTML = renderError(`Verbindung fehlgeschlagen: ${error.message}`);
-        statusEl().textContent = 'Offline';
-        statusEl().className = 'status offline';
+        renderFilterChips([]);
+        updateTaskCounter(0);
+        updateConnectivityStatus();
     }
 }
 
-function setFilter(value) {
-    activeFilter = value;
-    loadPickingList({ skipRelease: true });
+async function setFilter(value) {
+    if (value === ZONE_FILTER && !preferredZone?.key) {
+        openZonePicker(getState().pickings || []);
+        return;
+    }
+
+    activeFilter = value || DEFAULT_FILTER;
+    await loadPickingList({ skipRelease: true });
 }
 
 async function loadPickingDetail(pickingId) {
     stopSpeaking();
+    closeOverlay();
     mainEl().innerHTML = renderLoading();
 
     const pickerReady = await ensurePickerSelection();
@@ -448,13 +1154,14 @@ async function loadPickingDetail(pickingId) {
     }
 
     try {
-        await claimPicking(pickingId, {
+        await withManagedRequest((signal) => claimPicking(pickingId, {
             idempotencyKey: buildOperationKey('claim', [pickingId, Date.now()], { unique: true }),
-        });
+            signal,
+        }));
         claimedPickingId = pickingId;
         startClaimHeartbeat(pickingId);
 
-        const picking = await getPickingDetail(pickingId);
+        const picking = await withManagedRequest((signal) => getPickingDetail(pickingId, { signal }));
         if (picking.error) {
             await releaseCurrentClaim();
             mainEl().innerHTML = renderError(picking.error);
@@ -462,19 +1169,27 @@ async function loadPickingDetail(pickingId) {
         }
 
         setState({ currentPicking: picking, currentLineIndex: 0 });
+        updateConnectivityStatus();
         renderCurrentLine();
 
-        const lines = picking.move_lines || [];
-        if (lines.length > 0) {
-            speak(getLineSpeechPrompt(lines[0]));
+        const openingPrompt = getPickingOpeningPrompt(picking);
+        if (openingPrompt) {
+            speak(openingPrompt);
         }
     } catch (error) {
+        if (isAbortError(error)) return;
         if (error instanceof ApiError && error.status === 409 && typeof error.detail === 'object') {
             renderClaimConflict(error.detail, pickingId);
             return;
         }
+        if (error instanceof ApiError && (error.status === 400 || error.status === 403)) {
+            showToast('Profil bitte neu waehlen.', 'warning');
+            await switchProfile();
+            return;
+        }
         await releaseCurrentClaim();
         mainEl().innerHTML = renderError(`Fehler beim Laden: ${error.message}`);
+        updateConnectivityStatus();
     }
 }
 
@@ -482,44 +1197,64 @@ function renderCurrentLine() {
     const { currentPicking, currentLineIndex } = getState();
     if (!currentPicking) return;
     updateToolbar('detail');
+    closeOverlay();
 
     const lines = currentPicking.move_lines || [];
     if (currentLineIndex >= lines.length) {
         updateToolbar('complete');
         mainEl().innerHTML = `
-            <div style="padding:20px;text-align:center">
-                <div style="font-size:2rem;margin-bottom:12px">OK</div>
-                <div style="font-size:1.1rem;font-weight:600">${getPickingReference(currentPicking)}</div>
-                <div style="color:var(--text-muted);margin-top:8px">Alle Artikel erfasst.</div>
-                <button onclick="window._app.loadPickingList()"
-                        style="margin-top:20px;padding:12px 24px;background:var(--accent);color:#000;border:none;border-radius:8px;font-size:1rem;font-weight:600">
+            <section class="detail-shell detail-shell--complete" aria-label="Picking abgeschlossen">
+                <div class="detail-complete-icon">OK</div>
+                <div class="detail-complete-title">${escapeHtml(getPickingReference(currentPicking))}</div>
+                <div class="detail-complete-copy">Alle Artikel erfasst und synchronisiert.</div>
+                <button onclick="window._app.loadPickingList()" class="detail-complete-button">
                     Zurueck zur Liste
                 </button>
-            </div>`;
+            </section>`;
         return;
     }
 
     const line = lines[currentLineIndex];
     const progress = `${currentLineIndex + 1} / ${lines.length}`;
+    const detailZone = line.location_src_zone || 'Naechster Bereich';
+    const detailLocation = line.location_src_short || formatLocationForDisplay(line.location_src);
+    const detailProduct = getLineDisplayName(line);
+    const detailSku = line.product_sku || line.product_barcode || 'Keine SKU';
+    const detailPartner = currentPicking.partner_id ? currentPicking.partner_id[1] : 'Aktives Picking';
+    const progressPercent = Math.round(((currentLineIndex + 1) / Math.max(lines.length, 1)) * 100);
+    const kitName = getPickingKitName(currentPicking);
 
     mainEl().innerHTML = `
-        <div style="padding:12px">
-            <div style="color:var(--text-muted);font-size:0.85rem;margin-bottom:12px">
-                ${getPickingReference(currentPicking)} - ${progress}
-                <span style="float:right">
-                    <button onclick="window._app.loadPickingList()"
-                            style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:0.85rem">Zur Liste</button>
-                </span>
+        <div class="detail-shell">
+            <div class="detail-meta">
+                <button onclick="window._app.loadPickingList()" class="detail-back">Zur Liste</button>
+                <span class="detail-reference">${escapeHtml(getPickingReference(currentPicking))}</span>
+                <span class="detail-progress">Schritt ${escapeHtml(progress)}</span>
             </div>
+            ${kitName ? `
+                <section class="detail-context" aria-label="Modellkontext">
+                    <div class="detail-context__eyebrow">Modellkontext</div>
+                    <div class="detail-context__title">${escapeHtml(kitName)}</div>
+                    <div class="detail-context__meta">${escapeHtml(detailPartner)}</div>
+                </section>
+            ` : ''}
             <section class="detail-summary" aria-label="Picking Uebersicht">
-                <div class="detail-summary__eyebrow">${currentPicking.partner_id ? currentPicking.partner_id[1] : 'Aktives Picking'}</div>
-                <div class="detail-summary__title">${getLineDisplayName(line)}</div>
+                <div class="detail-summary__eyebrow">${escapeHtml(kitName ? 'Aktueller Griff' : 'Aktueller Pick')}</div>
+                <div class="detail-summary__location">${escapeHtml(detailLocation)}</div>
+                <div class="detail-summary__title">${escapeHtml(detailProduct)}</div>
                 <div class="detail-summary__subline">
-                    <span>${getLineQuantityLabel(line)}</span>
-                    <span>${line.location_src_short || formatLocationForDisplay(line.location_src)}</span>
+                    <span class="detail-summary__quantity">${escapeHtml(getLineQuantityLabel(line))}</span>
+                    <span>${escapeHtml(detailZone)}</span>
+                    <span>${escapeHtml(detailPartner)}</span>
+                    <span>${escapeHtml(detailSku)}</span>
                 </div>
+                <div class="detail-summary__progress-track" aria-hidden="true">
+                    <span class="detail-summary__progress-bar" style="width:${progressPercent}%"></span>
+                </div>
+                <div class="detail-summary__helper">Scanne den Artikel oder bestaetige den Griff per Touch.</div>
             </section>
             ${renderRouteHint(currentPicking, currentLineIndex)}
+            ${currentPicking.has_pending_quality_ai ? '<div class="ai-pending-banner">KI analysiert Qualitaetsfall</div>' : ''}
             ${renderPickCard({
                 ...line,
                 quantity_demand: line.quantity_demand,
@@ -557,7 +1292,7 @@ async function handleScan(barcode) {
     }
 
     try {
-        const result = await confirmLine(
+        const result = await withManagedRequest((signal) => confirmLine(
             currentPicking.id,
             {
                 move_line_id: line.id,
@@ -573,8 +1308,9 @@ async function handleScan(barcode) {
                     barcode || line.product_barcode || '',
                     line.quantity_demand,
                 ]),
+                signal,
             },
-        );
+        ));
 
         if (!result.success) {
             feedbackError();
@@ -609,6 +1345,7 @@ async function handleScan(barcode) {
             speak('Dieses Picking wurde inzwischen von jemand anderem uebernommen.');
             return;
         }
+        if (isAbortError(error)) return;
 
         showToast(error.message || 'Verbindungsfehler', 'error');
         speak('Verbindungsfehler. Bitte erneut versuchen.');
@@ -657,14 +1394,36 @@ async function finishVoiceLongPress() {
 }
 
 async function handleVoiceIntent(result) {
-    if (!result || result.intent === 'error') return;
+    const classification = classifyVoiceResult(result);
+    if (classification.kind === 'error') {
+        updateVoiceStatusIndicator('uncertain', { temporary: true });
+        return;
+    }
 
-    if (result.text) {
+    const { currentPicking, currentLineIndex } = getState();
+
+    if (result?.text) {
         const intentLabel = result.intent !== 'unknown' ? ` -> ${result.intent}` : ' -> nicht erkannt';
         showToast(`"${result.text}"${intentLabel}`, result.intent !== 'unknown' ? 'info' : 'warning');
     }
 
-    const { currentPicking, currentLineIndex } = getState();
+    if (classification.kind === 'unknown') {
+        if (await maybeHandleVoiceAssist(result, currentPicking, currentLineIndex)) return;
+        updateVoiceStatusIndicator('uncertain', { temporary: true });
+        return;
+    }
+
+    if (classification.kind === 'uncertain') {
+        updateVoiceStatusIndicator('uncertain', { temporary: true });
+        showToast(classification.promptText, 'warning');
+        speak(classification.promptText);
+        return;
+    }
+
+    updateVoiceStatusIndicator('recognized', { temporary: true });
+
+    if (await maybeHandleVoiceAssist(result, currentPicking, currentLineIndex)) return;
+
     const lines = currentPicking?.move_lines || [];
     const line = lines[currentLineIndex];
 
@@ -724,41 +1483,67 @@ async function handleVoiceIntent(result) {
             break;
         case 'filter_normal':
             if (currentPicking !== null) break;
-            activeFilter = 'all';
+            activeFilter = DEFAULT_FILTER;
             await loadPickingList({ skipRelease: true });
             speak('Filter zurueckgesetzt. Alle Auftraege.');
             break;
         case 'status': {
             if (currentPicking !== null) break;
             const { pickings } = getState();
-            const all = pickings?.length || 0;
-            const high = pickings?.filter(picking => picking.priority === '1').length || 0;
+            const searched = filterBySearch(pickings || [], searchQuery);
+            const visible = filterByActiveChip(searched);
+            const all = visible.length;
+            const high = visible.filter((picking) => picking.priority === '1').length;
             if (high > 0) speak(`${all} offene Auftraege. ${high} davon dringend.`);
             else speak(`${all} offene Auftraege.`);
             break;
         }
         case 'stock_query': {
-            if (!line) break;
-            const productId = line.product_id;
-            speak(`Bestand fuer ${getLineDisplayName(line)}.`);
-            try {
-                const response = await fetch(`/api/pickings/${currentPicking.id}/stock?product_id=${productId}&location_id=0`);
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.quantity_available > 0) {
-                        speak(`Laut System sind ${data.quantity_available} Stueck verfuegbar.`);
-                    } else {
-                        speak('Laut System ist kein Bestand vorhanden. Soll ich einen Qualitaetsalarm ausloesen?');
-                    }
-                }
-            } catch {
-                speak('Bestand konnte nicht abgerufen werden.');
-            }
             break;
         }
         default:
             break;
     }
+}
+
+function shouldUseVoiceAssist(result, currentPicking) {
+    if (!result?.text) return false;
+    if (result.intent === 'stock_query' || result.intent === 'unknown') return true;
+    if (result.intent === 'problem' && VOICE_ASSIST_SHORTAGE_RE.test(result.text)) return true;
+    if (!currentPicking && result.intent === 'help') return false;
+    return false;
+}
+
+async function maybeHandleVoiceAssist(result, currentPicking, currentLineIndex) {
+    if (!shouldUseVoiceAssist(result, currentPicking)) return false;
+
+    const payload = buildVoiceAssistPayload({
+        result,
+        view: getCurrentVoiceView(),
+        currentPicking,
+        currentLineIndex,
+    });
+
+    updateVoiceStatusIndicator('speaking');
+    showToast('Ich pruefe die Datenbank...', 'info');
+
+    const assistPromise = withManagedRequest((signal) => assistVoice(payload, { signal }));
+    await speak('Ich pruefe die Datenbank.');
+
+    try {
+        const response = await assistPromise;
+        const tone = response?.status === 'fallback' ? 'warning' : 'info';
+        if (response?.tts_text) {
+            showToast(response.tts_text, tone);
+            await speak(response.tts_text);
+        }
+    } catch (error) {
+        if (isAbortError(error)) return true;
+        const message = error?.message || 'Ich kann das gerade nicht sicher beantworten.';
+        showToast(message, 'warning');
+        await speak(message);
+    }
+    return true;
 }
 
 function openQualityAlertForm() {
@@ -777,7 +1562,7 @@ function openQualityAlertForm() {
             <section class="qa-card" aria-labelledby="qa-title">
                 <div class="qa-header">
                     <h2 id="qa-title" class="qa-title">Problem melden</h2>
-                    <p class="qa-context">${contextLabel}</p>
+                    <p class="qa-context">${escapeHtml(contextLabel)}</p>
                 </div>
 
                 <div class="qa-field-group">
@@ -944,10 +1729,11 @@ function openQualityAlertForm() {
         formData.append('priority', priority);
         if (currentPicking) formData.append('picking_id', String(currentPicking.id));
         if (line?.product_id) formData.append('product_id', String(line.product_id));
+        if (line?.location_src_id) formData.append('location_id', String(line.location_src_id));
         photoFiles.forEach(file => formData.append('photos', file));
 
         try {
-            const result = await createQualityAlert(
+            const result = await withManagedRequest((signal) => createQualityAlert(
                 formData,
                 {
                     idempotencyKey: buildOperationKey('quality-alert', [
@@ -957,16 +1743,18 @@ function openQualityAlertForm() {
                         description,
                         ...photoFiles.map(file => `${file.name}:${file.size}`),
                     ]),
+                    signal,
                 },
-            );
-            speak('Problem gemeldet. Vielen Dank.');
-            showToast(`Alert ${result.name} erstellt`, 'success');
+            ));
+            speak('Problem gemeldet. Die KI-Bewertung laeuft.');
+            showToast(`Alert ${result.name} erstellt - KI-Bewertung laeuft...`, 'success');
             if (currentPicking) {
                 await loadPickingDetail(currentPicking.id);
                 return;
             }
             await loadPickingList({ skipRelease: true });
         } catch (error) {
+            if (isAbortError(error)) return;
             submitBtn.disabled = false;
             cancelBtn.disabled = false;
             photoBtn.disabled = false;
@@ -983,8 +1771,73 @@ async function init() {
     }
 
     initPWA();
+    clearStoredPicker();
+    clearActivePicker();
+    resetOperatorUiState();
     setState({ deviceId: getDeviceId() });
+    applyHighContrastTheme();
     updatePickerIndicator();
+    updateTaskCounter(0);
+    updateVoiceStatusIndicator('idle');
+    renderFilterChips([]);
+    setVoiceRequestContextProvider(getCurrentVoiceRequestContext);
+    setVoiceStatusListener((state) => {
+        updateVoiceStatusIndicator(state);
+    });
+
+    const searchInput = searchInputEl();
+    if (searchInput) {
+        searchInput.value = searchQuery;
+        searchInput.addEventListener('input', async (event) => {
+            if (!getState().currentPicker) return;
+            searchQuery = event.target.value || '';
+            setStoredSearchQuery(searchQuery);
+            if (searchQuery && !mobileSearchOpen) {
+                openMobileSearch();
+            }
+            if (getState().currentPicking) return;
+            await loadPickingList({ skipRelease: true });
+        });
+        searchInput.addEventListener('search', async () => {
+            if (!getState().currentPicker) return;
+            searchQuery = searchInput.value || '';
+            setStoredSearchQuery(searchQuery);
+            if (searchQuery) {
+                openMobileSearch();
+                return;
+            }
+            await closeMobileSearch();
+        });
+    }
+
+    applyMobileSearchState();
+
+    const highContrastToggle = highContrastToggleEl();
+    if (highContrastToggle) {
+        highContrastToggle.addEventListener('click', () => {
+            highContrastEnabled = !highContrastEnabled;
+            setStoredHighContrastEnabled(highContrastEnabled);
+            applyHighContrastTheme();
+        });
+    }
+
+    const searchToggle = searchToggleEl();
+    if (searchToggle) {
+        searchToggle.addEventListener('click', async () => {
+            if (!getState().currentPicker) return;
+            if (!mobileSearchOpen) {
+                openMobileSearch({ focus: true });
+                return;
+            }
+
+            if (searchQuery) {
+                openMobileSearch({ focus: true });
+                return;
+            }
+
+            await closeMobileSearch();
+        });
+    }
 
     initHIDScanner((barcode) => handleScan(barcode));
 
@@ -1034,10 +1887,7 @@ async function init() {
     const pickerButton = pickerEl();
     if (pickerButton) {
         pickerButton.addEventListener('click', async () => {
-            clearStoredPicker();
-            setState({ currentPicker: null });
-            updatePickerIndicator();
-            await loadPickingList({ forcePickerSelection: true });
+            await switchProfile();
         });
     }
 
@@ -1054,42 +1904,25 @@ async function init() {
     window.addEventListener('pagehide', () => {
         releaseCurrentClaim({ keepalive: true });
     });
+    window.addEventListener('online', () => updateConnectivityStatus());
+    window.addEventListener('offline', () => updateConnectivityStatus());
 
     subscribe((state) => {
         updatePickerIndicator();
-        const status = statusEl();
-        if (!status) return;
-        if (state.loading) {
-            status.textContent = 'Laden...';
-        } else if (navigator.onLine) {
-            status.textContent = 'Online';
-            status.className = 'status online';
-        }
+        updateConnectivityStatus({ loading: state.loading });
     });
 
     try {
         const response = await fetch('/api/health');
         if (response.ok) {
-            statusEl().textContent = 'Online';
-            statusEl().className = 'status online';
+            updateConnectivityStatus();
         }
     } catch {
-        statusEl().textContent = 'Offline';
-        statusEl().className = 'status offline';
+        updateConnectivityStatus();
     }
 
-    await loadPickingList();
-
-    const { pickings } = getState();
-    const total = pickings?.length || 0;
-    const urgent = pickings?.filter(picking => picking.priority === '1').length || 0;
-    if (total === 0) {
-        speak('Keine offenen Auftraege.');
-    } else if (urgent > 0) {
-        speak(`${total} Auftraege offen. ${urgent} davon dringend.`);
-    } else {
-        speak(`${total} Auftraege offen.`);
-    }
+    updateToolbar('profile_required');
+    await showProfileSelection();
 }
 
 window._app = {
@@ -1098,4 +1931,5 @@ window._app = {
     setFilter,
 };
 
-document.addEventListener('DOMContentLoaded', init);
+// Module scripts are always deferred — DOMContentLoaded is not needed.
+init();

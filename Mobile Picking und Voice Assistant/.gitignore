@@ -35,3 +35,5 @@ odoo/filestore/
 
 # n8n
 .n8n/
+n8n/backups/**/.env.snapshot
+n8n/tmp/

@@ -1,0 +1,76 @@
+{
+  "name": "Voice Exception Query",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voice-exception-query",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [220, 280]
+    },
+    {
+      "parameters": {
+        "functionCode": "const request = items[0]?.json || {};\nconst input = request.body || request;\nconst payload = input.payload || {};\nconst kitName = String(payload.kit_name || '').trim();\nconst lineName = String(payload.line_display_name || 'dem aktuellen Artikel').trim();\nconst question = String(payload.text || '').trim();\nconst intent = String(payload.intent || 'unknown');\nconst stockSummary = String(payload.stock_summary_text || '').trim();\nconst obsidianContext = String(payload.obsidian_context_text || '').trim();\nconst voiceIntro = String(payload.voice_intro || '').trim();\nconst currentLocation = String(payload.current_location_label || '').trim();\nconst recommendation = payload.default_recommendation || null;\nconst defaultRecommendationText = String(payload.default_recommendation_text || '').trim();\nconst pickingContext = input.picking_context || {};\nlet ttsText = '';\nif (intent === 'stock_query' && stockSummary) {\n  ttsText = stockSummary;\n} else if (intent === 'problem' && recommendation) {\n  const sourceName = (typeof recommendation === 'object' && recommendation.recommended_location) ? recommendation.recommended_location : 'einem Alternativplatz';\n  ttsText = `Am aktuellen Platz ${currentLocation || 'des Artikels'} ist kein verfuegbarer Bestand mehr vorhanden. Ich habe einen Nachschub aus ${sourceName} vorbereitet.`;\n} else if (obsidianContext) {\n  ttsText = `Du baust ${kitName || 'gerade einen Auftrag'}. ${obsidianContext}`;\n} else if (voiceIntro) {\n  ttsText = voiceIntro;\n} else if (kitName) {\n  ttsText = `Du baust ${kitName}. Aktuell geht es um ${lineName}.`;\n} else {\n  ttsText = `Aktuell geht es um ${lineName}. Frage: ${question || 'keine Frage uebermittelt'}.`;\n}\nconst altLocationIds = Array.isArray(pickingContext.alternative_location_ids) ? pickingContext.alternative_location_ids : [];\nreturn [{ json: {\n  status: 'ok',\n  tts_text: ttsText,\n  action: 'none',\n  referenced_product_id: null,\n  referenced_location_id: null,\n  confidence: 0.8,\n  source: 'n8n-context-agent',\n  correlation_id: input.correlation_id,\n  recommendation,\n  default_recommendation_text: defaultRecommendationText,\n  picking_context: pickingContext,\n  alt_location_ids: altLocationIds,\n} }];"
+      },
+      "name": "AI Synthesize",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [470, 280]
+    },
+    {
+      "parameters": {
+        "functionCode": "const input = items[0]?.json || {};\nconst VALID_ACTIONS = ['none', 'ask_supervisor', 'check_alt_location', 'suggest_replenishment'];\nconst pickingContext = input.picking_context || {};\nconst altLocationIds = input.alt_location_ids || [];\nlet ttsText = input.tts_text;\nlet action = input.action;\nlet referencedProductId = input.referenced_product_id;\nlet referencedLocationId = input.referenced_location_id;\nlet confidence = input.confidence;\nconst fallbackTts = input.default_recommendation_text || ttsText || 'Bitte wende dich an den Schichtleiter.';\nlet validationFailed = false;\nif (!ttsText || typeof ttsText !== 'string' || ttsText.trim() === '') {\n  validationFailed = true;\n}\nif (!VALID_ACTIONS.includes(action)) {\n  validationFailed = true;\n}\nif (referencedProductId !== null && referencedProductId !== pickingContext.product_id) {\n  validationFailed = true;\n}\nif (referencedLocationId !== null) {\n  const isMainLocation = referencedLocationId === pickingContext.location_id;\n  const isAltLocation = altLocationIds.includes(referencedLocationId);\n  if (!isMainLocation && !isAltLocation) {\n    validationFailed = true;\n  }\n}\nif (typeof confidence !== 'number' || confidence < 0.5) {\n  validationFailed = true;\n}\nif (validationFailed) {\n  ttsText = fallbackTts;\n  action = 'none';\n  referencedProductId = null;\n  referencedLocationId = null;\n  confidence = 0.5;\n}\nreturn [{ json: {\n  status: input.status || 'ok',\n  tts_text: ttsText,\n  action,\n  referenced_product_id: referencedProductId,\n  referenced_location_id: referencedLocationId,\n  confidence,\n  source: input.source,\n  correlation_id: input.correlation_id,\n  recommendation: input.recommendation || null,\n} }];"
+      },
+      "name": "Validate Response",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [720, 280]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: $json.status, tts_text: $json.tts_text, action: $json.action, referenced_product_id: $json.referenced_product_id, referenced_location_id: $json.referenced_location_id, confidence: $json.confidence, source: $json.source, correlation_id: $json.correlation_id, recommendation: $json.recommendation || null }) }}"
+      },
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [970, 280]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          { "node": "AI Synthesize", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "AI Synthesize": {
+      "main": [
+        [
+          { "node": "Validate Response", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Validate Response": {
+      "main": [
+        [
+          { "node": "Respond", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "error-trigger"
+  },
+  "tags": [
+    { "name": "voice" },
+    { "name": "cqrs" }
+  ]
+}

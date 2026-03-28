@@ -5,6 +5,7 @@ test('confirms both move lines and reaches the completion view', async ({ page }
   const api = await mockPwaApi(page);
 
   await page.goto('/');
+  await page.getByRole('button', { name: 'Endrit Murati' }).click();
   await page.getByText('4x Brick 2x2 orange').click();
 
   await page.locator('.btn-confirm').click();
@@ -16,7 +17,7 @@ test('confirms both move lines and reaches the completion view', async ({ page }
 
   await page.locator('.btn-confirm').click();
 
-  await expect(page.locator('#main')).toContainText('Alle Artikel erfasst.');
+  await expect(page.locator('#main')).toContainText('Alle Artikel erfasst und synchronisiert.');
   await expect(page.locator('#main button')).toContainText('Liste');
   await expect.poll(() => api.getConfirmCalls()).toBe(2);
   await expect.poll(() => api.getLastConfirmRequest()).toMatchObject({

@@ -12,6 +12,7 @@ from app.main import app
 from app.services.mobile_workflow import (
     ClaimConflictError,
     IdempotencyReservation,
+    InvalidPickerIdentityError,
     PickerIdentity,
 )
 
@@ -83,6 +84,10 @@ def test_confirm_line_replays_cached_response_without_duplicate_write():
                     "scanned_barcode": "1234567890",
                     "quantity": 2,
                 },
+                headers={
+                    "X-Picker-User-Id": "7",
+                    "X-Device-Id": "device-1",
+                },
             )
     finally:
         app.dependency_overrides.clear()
@@ -115,7 +120,11 @@ def test_confirm_line_returns_409_for_conflicting_idempotency_key():
                     "scanned_barcode": "1234567890",
                     "quantity": 2,
                 },
-                headers={"Idempotency-Key": "dup-1"},
+                headers={
+                    "Idempotency-Key": "dup-1",
+                    "X-Picker-User-Id": "7",
+                    "X-Device-Id": "device-1",
+                },
             )
     finally:
         app.dependency_overrides.clear()
@@ -168,7 +177,7 @@ def test_quality_alert_replays_cached_response_without_duplicate_odoo_write():
     odoo = MagicMock()
     odoo.execute_kw = AsyncMock()
     n8n = MagicMock()
-    n8n.fire = AsyncMock()
+    n8n.fire_event = AsyncMock()
     _override_dependencies(workflow=workflow, odoo=odoo, n8n=n8n)
 
     try:
@@ -176,7 +185,11 @@ def test_quality_alert_replays_cached_response_without_duplicate_odoo_write():
             response = client.post(
                 "/api/quality-alerts",
                 data={"description": "Palette beschaedigt", "priority": "2"},
-                headers={"Idempotency-Key": "qa-1"},
+                headers={
+                    "Idempotency-Key": "qa-1",
+                    "X-Picker-User-Id": "7",
+                    "X-Device-Id": "device-1",
+                },
             )
     finally:
         app.dependency_overrides.clear()
@@ -184,4 +197,88 @@ def test_quality_alert_replays_cached_response_without_duplicate_odoo_write():
     assert response.status_code == 200
     assert response.json() == {"alert_id": 42, "name": "QA-100", "photo_count": 0}
     odoo.execute_kw.assert_not_awaited()
-    n8n.fire.assert_not_awaited()
+    n8n.fire_event.assert_not_awaited()
+
+
+def test_list_pickings_requires_picker_header():
+    workflow = _create_workflow_mock()
+    picking_service = MagicMock()
+    picking_service.get_open_pickings = AsyncMock(return_value=[])
+    _override_dependencies(workflow=workflow, picking_service=picking_service)
+
+    try:
+        with TestClient(app) as client:
+            response = client.get("/api/pickings")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "X-Picker-User-Id ist erforderlich."
+    picking_service.get_open_pickings.assert_not_awaited()
+
+
+def test_list_pickings_returns_403_for_inactive_picker():
+    workflow = _create_workflow_mock()
+    workflow.resolve_identity = AsyncMock(side_effect=InvalidPickerIdentityError(99))
+    picking_service = MagicMock()
+    picking_service.get_open_pickings = AsyncMock(return_value=[])
+    _override_dependencies(workflow=workflow, picking_service=picking_service)
+
+    try:
+        with TestClient(app) as client:
+            response = client.get("/api/pickings", headers={"X-Picker-User-Id": "99"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Unbekannter oder inaktiver Picker."
+    picking_service.get_open_pickings.assert_not_awaited()
+
+
+def test_confirm_line_requires_full_identity_headers():
+    workflow = _create_workflow_mock()
+    picking_service = MagicMock()
+    picking_service.confirm_pick_line = AsyncMock()
+    _override_dependencies(workflow=workflow, picking_service=picking_service)
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/pickings/44/confirm-line",
+                json={
+                    "move_line_id": 900,
+                    "scanned_barcode": "1234567890",
+                    "quantity": 2,
+                },
+                headers={"X-Picker-User-Id": "7"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "X-Picker-User-Id und X-Device-Id sind fuer diese Aktion erforderlich."
+    picking_service.confirm_pick_line.assert_not_awaited()
+
+
+def test_quality_alert_requires_full_identity_headers():
+    workflow = _create_workflow_mock()
+    odoo = MagicMock()
+    odoo.execute_kw = AsyncMock()
+    n8n = MagicMock()
+    n8n.fire_event = AsyncMock()
+    _override_dependencies(workflow=workflow, odoo=odoo, n8n=n8n)
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/quality-alerts",
+                data={"description": "Palette beschaedigt", "priority": "2"},
+                headers={"X-Picker-User-Id": "7"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "X-Picker-User-Id und X-Device-Id sind fuer diese Aktion erforderlich."
+    odoo.execute_kw.assert_not_awaited()
+    n8n.fire_event.assert_not_awaited()

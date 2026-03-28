@@ -10,11 +10,13 @@
                 <field name="product_id"/>
                 <field name="user_id"/>
                 <field name="stage_id"/>
+                <field name="ai_disposition"/>
                 <templates>
                     <t t-name="card">
                         <field name="priority" widget="priority"/>
                         <field name="name"/>
                         <field name="product_id"/>
+                        <field name="ai_disposition"/>
                         <div class="o_kanban_record_bottom">
                             <field name="user_id"/>
                         </div>
@@ -61,6 +63,28 @@
                         <page string="Fotos">
                             <field name="photo_gallery" nolabel="1"/>
                         </page>
+                        <page string="KI-Bewertung">
+                            <group>
+                                <group>
+                                    <field name="ai_evaluation_status" widget="badge"
+                                           decoration-info="ai_evaluation_status == 'pending'"
+                                           decoration-success="ai_evaluation_status == 'completed'"
+                                           decoration-danger="ai_evaluation_status == 'failed'"/>
+                                    <field name="ai_failure_reason" invisible="ai_evaluation_status != 'failed'"/>
+                                    <field name="ai_disposition"/>
+                                    <field name="ai_confidence"/>
+                                    <field name="ai_last_analyzed_at"/>
+                                </group>
+                                <group>
+                                    <field name="ai_provider"/>
+                                    <field name="ai_model"/>
+                                </group>
+                            </group>
+                            <group>
+                                <field name="ai_summary"/>
+                                <field name="ai_recommended_action"/>
+                            </group>
+                        </page>
                     </notebook>
                 </sheet>
                 <chatter/>
@@ -78,6 +102,12 @@
                 <field name="picking_id"/>
                 <field name="priority"/>
                 <field name="stage_id"/>
+                <field name="ai_disposition"/>
+                <field name="ai_evaluation_status" widget="badge"
+                       decoration-info="ai_evaluation_status == 'pending'"
+                       decoration-success="ai_evaluation_status == 'completed'"
+                       decoration-danger="ai_evaluation_status == 'failed'"
+                       optional="show"/>
                 <field name="user_id"/>
                 <field name="create_date"/>
             </list>
