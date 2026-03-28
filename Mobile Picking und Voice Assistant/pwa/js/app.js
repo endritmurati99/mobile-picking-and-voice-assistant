@@ -171,6 +171,12 @@ function getPrimaryItemSku(picking) {
     return picking?.primary_item_sku || '';
 }
 
+function getListScopeLabel() {
+    if (activeFilter === 'high') return 'Nur dringende Auftraege';
+    if (activeFilter === ZONE_FILTER && preferredZone?.label) return preferredZone.label;
+    return 'Alle Bereiche';
+}
+
 function getThumbnailInitials(label) {
     return String(label || 'PK')
         .split(/\s+/)
@@ -667,9 +673,37 @@ function openZonePicker(pickings) {
 function renderListEmptyState(message, detail = 'Passe Suche oder Filter an, um weitere Auftraege einzublenden.') {
     return `
         <div class="state-panel">
-            <div class="state-panel__title">${message}</div>
-            <div class="state-panel__meta">${detail}</div>
+            <div class="state-panel__eyebrow">Listenstatus</div>
+            <div class="state-panel__title">${escapeHtml(message)}</div>
+            <div class="state-panel__meta">${escapeHtml(detail)}</div>
         </div>
+    `;
+}
+
+function renderQueueOverview(visiblePickings) {
+    const urgentCount = visiblePickings.filter((picking) => picking.priority === '1').length;
+    const pickerName = getState().currentPicker?.name || 'Kein Profil aktiv';
+
+    return `
+        <section class="queue-overview" aria-label="Arbeitsbereich">
+            <div class="queue-overview__eyebrow">Arbeitsbereich</div>
+            <div class="queue-overview__title">${visiblePickings.length} offene Auftraege</div>
+            <div class="queue-overview__meta">${escapeHtml(pickerName)}</div>
+            <div class="queue-overview__stats">
+                <div class="queue-stat ${urgentCount > 0 ? 'queue-stat--warning' : ''}">
+                    <span class="queue-stat__label">Dringend</span>
+                    <span class="queue-stat__value">${urgentCount}</span>
+                </div>
+                <div class="queue-stat">
+                    <span class="queue-stat__label">Bereich</span>
+                    <span class="queue-stat__value">${escapeHtml(getListScopeLabel())}</span>
+                </div>
+                <div class="queue-stat">
+                    <span class="queue-stat__label">Suche</span>
+                    <span class="queue-stat__value">${searchQuery ? 'Aktiv' : 'Aus'}</span>
+                </div>
+            </div>
+        </section>
     `;
 }
 
@@ -742,10 +776,15 @@ function renderPickingsView(pickings) {
     updateTaskCounter(visiblePickings.length);
 
     if (!searchedPickings.length) {
-        mainEl().innerHTML = renderListEmptyState(
-            'Keine Treffer fuer diese Suche.',
-            'Suche nach Auftrag, Produkt, SKU, Platz oder Partner.'
-        );
+        mainEl().innerHTML = `
+            <div class="queue-shell">
+                ${renderQueueOverview([])}
+                ${renderListEmptyState(
+                    'Keine Treffer fuer diese Suche.',
+                    'Suche nach Auftrag, Produkt, SKU, Platz oder Partner.'
+                )}
+            </div>
+        `;
         return;
     }
 
@@ -753,14 +792,22 @@ function renderPickingsView(pickings) {
         const filterMessage = activeFilter === 'high'
             ? 'Keine dringenden Auftraege fuer diese Suche.'
             : 'In deinem Bereich gibt es aktuell keine passenden Auftraege.';
-        mainEl().innerHTML = renderListEmptyState(filterMessage);
+        mainEl().innerHTML = `
+            <div class="queue-shell">
+                ${renderQueueOverview([])}
+                ${renderListEmptyState(filterMessage)}
+            </div>
+        `;
         return;
     }
 
     mainEl().innerHTML = `
-        <section class="pick-list-grid" aria-label="Offene Picking-Auftraege">
-            ${visiblePickings.map((picking) => renderPickingListCard(picking)).join('')}
-        </section>
+        <div class="queue-shell">
+            ${renderQueueOverview(visiblePickings)}
+            <section class="pick-list-grid" aria-label="Offene Picking-Auftraege">
+                ${visiblePickings.map((picking) => renderPickingListCard(picking)).join('')}
+            </section>
+        </div>
     `;
 
     mainEl().querySelectorAll('.pick-list-card[data-id]').forEach((card) => {
@@ -771,15 +818,14 @@ function renderPickingsView(pickings) {
 function updateVoiceButtonState(active) {
     const voiceButton = btnVoice();
     if (!voiceButton) return;
+    const voiceMeta = voiceButton.querySelector('.nav-btn__meta');
 
-    if (active) {
-        voiceButton.style.background = 'var(--danger)';
-        voiceButton.setAttribute('aria-label', 'Sprachmodus beenden');
-        return;
-    }
-
-    voiceButton.style.background = '';
+    voiceButton.classList.toggle('nav-btn--active', Boolean(active));
     voiceButton.setAttribute('aria-label', 'Sprachmodus starten');
+    if (active) {
+        voiceButton.setAttribute('aria-label', 'Sprachmodus beenden');
+    }
+    if (voiceMeta) voiceMeta.textContent = active ? 'Aktiv' : 'Kommando';
 }
 
 function getVoiceErrorMessage(error) {
@@ -802,8 +848,8 @@ function renderClaimConflict(conflict, pickingId) {
                 <div class="picker-card__eyebrow">Claim-Konflikt</div>
                 <h2 class="picker-card__title">Dieses Picking ist gerade gesperrt.</h2>
                 <p class="picker-card__text">
-                    Aktuell arbeitet <strong>${owner}</strong> daran.
-                    Ablauf des Claims: <strong>${expiresAt}</strong>.
+                    Aktuell arbeitet <strong>${escapeHtml(owner)}</strong> daran.
+                    Ablauf des Claims: <strong>${escapeHtml(expiresAt)}</strong>.
                 </p>
                 <div class="picker-card__actions">
                     <button id="claim-retry" class="picker-option picker-option--primary">Erneut pruefen</button>
@@ -879,8 +925,8 @@ function renderPickerUnavailable({ message, detail = 'Bitte pruefe die Verbindun
             <section class="picker-card">
                 <div class="picker-card__eyebrow">Session-Start</div>
                 <h2 class="picker-card__title">Profile konnten nicht geladen werden</h2>
-                <p class="picker-card__text">${message}</p>
-                <p class="picker-card__text">${detail}</p>
+                <p class="picker-card__text">${escapeHtml(message)}</p>
+                <p class="picker-card__text">${escapeHtml(detail)}</p>
                 <div class="picker-device">Geraet: ${getDeviceId()}</div>
                 <div class="picker-card__actions">
                     <button id="picker-retry" class="picker-option picker-option--primary">Erneut versuchen</button>
@@ -892,6 +938,18 @@ function renderPickerUnavailable({ message, detail = 'Bitte pruefe die Verbindun
     document.getElementById('picker-retry')?.addEventListener('click', () => {
         showProfileSelection({ preferCache: false });
     });
+}
+
+function renderPickerOption(picker) {
+    return `
+        <button class="picker-option picker-option--profile" data-picker-id="${picker.id}">
+            <span class="picker-option__avatar" aria-hidden="true">${escapeHtml(getPickerShortLabel(picker))}</span>
+            <span class="picker-option__copy">
+                <span class="picker-option__name">${escapeHtml(picker.name)}</span>
+                <span class="picker-option__meta">Odoo Benutzer</span>
+            </span>
+        </button>
+    `;
 }
 
 function renderPickerSelection(
@@ -909,16 +967,12 @@ function renderPickerSelection(
         <div class="picker-screen">
             <section class="picker-card">
                 <div class="picker-card__eyebrow">Session-Start</div>
-                <h2 class="picker-card__title">${title}</h2>
-                <p class="picker-card__text">${intro}</p>
-                ${statusNote ? `<p class="picker-card__text">${statusNote}</p>` : ''}
+                <h2 class="picker-card__title">${escapeHtml(title)}</h2>
+                <p class="picker-card__text">${escapeHtml(intro)}</p>
+                ${statusNote ? `<p class="picker-card__text">${escapeHtml(statusNote)}</p>` : ''}
                 <div class="picker-device">Geraet: ${getDeviceId()}</div>
                 <div class="picker-options">
-                    ${pickers.map(picker => `
-                        <button class="picker-option" data-picker-id="${picker.id}">
-                            ${picker.name}
-                        </button>
-                    `).join('')}
+                    ${pickers.map((picker) => renderPickerOption(picker)).join('')}
                 </div>
             </section>
         </div>
@@ -1175,7 +1229,7 @@ function renderCurrentLine() {
             <div class="detail-meta">
                 <button onclick="window._app.loadPickingList()" class="detail-back">Zur Liste</button>
                 <span class="detail-reference">${escapeHtml(getPickingReference(currentPicking))}</span>
-                <span class="detail-progress">${escapeHtml(progress)}</span>
+                <span class="detail-progress">Schritt ${escapeHtml(progress)}</span>
             </div>
             ${kitName ? `
                 <section class="detail-context" aria-label="Modellkontext">
@@ -1185,18 +1239,19 @@ function renderCurrentLine() {
                 </section>
             ` : ''}
             <section class="detail-summary" aria-label="Picking Uebersicht">
-                <div class="detail-summary__eyebrow">${escapeHtml(kitName ? 'Operativer Pick' : detailPartner)}</div>
+                <div class="detail-summary__eyebrow">${escapeHtml(kitName ? 'Aktueller Griff' : 'Aktueller Pick')}</div>
                 <div class="detail-summary__location">${escapeHtml(detailLocation)}</div>
                 <div class="detail-summary__title">${escapeHtml(detailProduct)}</div>
                 <div class="detail-summary__subline">
                     <span class="detail-summary__quantity">${escapeHtml(getLineQuantityLabel(line))}</span>
                     <span>${escapeHtml(detailZone)}</span>
-                    ${kitName ? `<span>${escapeHtml(detailPartner)}</span>` : ''}
+                    <span>${escapeHtml(detailPartner)}</span>
                     <span>${escapeHtml(detailSku)}</span>
                 </div>
                 <div class="detail-summary__progress-track" aria-hidden="true">
                     <span class="detail-summary__progress-bar" style="width:${progressPercent}%"></span>
                 </div>
+                <div class="detail-summary__helper">Scanne den Artikel oder bestaetige den Griff per Touch.</div>
             </section>
             ${renderRouteHint(currentPicking, currentLineIndex)}
             ${currentPicking.has_pending_quality_ai ? '<div class="ai-pending-banner">KI analysiert Qualitaetsfall</div>' : ''}
@@ -1507,7 +1562,7 @@ function openQualityAlertForm() {
             <section class="qa-card" aria-labelledby="qa-title">
                 <div class="qa-header">
                     <h2 id="qa-title" class="qa-title">Problem melden</h2>
-                    <p class="qa-context">${contextLabel}</p>
+                    <p class="qa-context">${escapeHtml(contextLabel)}</p>
                 </div>
 
                 <div class="qa-field-group">
@@ -1692,7 +1747,7 @@ function openQualityAlertForm() {
                 },
             ));
             speak('Problem gemeldet. Die KI-Bewertung laeuft.');
-            showToast(`Alert ${result.name} erstellt — KI-Bewertung laeuft...`, 'success');
+            showToast(`Alert ${result.name} erstellt - KI-Bewertung laeuft...`, 'success');
             if (currentPicking) {
                 await loadPickingDetail(currentPicking.id);
                 return;

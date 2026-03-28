@@ -30,7 +30,7 @@ services:
       - pg_data:/var/lib/postgresql/data
       - ./infrastructure/scripts/init-n8n-db.sql:/docker-entrypoint-initdb.d/init-n8n-db.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-odoo}"]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-odoo}" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -75,7 +75,11 @@ services:
       ODOO_USER: ${ODOO_USER:-admin}
       ODOO_API_KEY: ${ODOO_API_KEY:?ODOO_API_KEY muss gesetzt sein}
       WHISPER_URL: http://whisper:9000
-      N8N_WEBHOOK_BASE: http://n8n:5678/n8n/webhook
+      N8N_WEBHOOK_BASE: http://n8n:5678/webhook
+      N8N_WEBHOOK_PATH_QUALITY_ALERT_CREATED: ${N8N_WEBHOOK_PATH_QUALITY_ALERT_CREATED:-quality-alert-created}
+      N8N_WEBHOOK_PATH_VOICE_EXCEPTION_QUERY: ${N8N_WEBHOOK_PATH_VOICE_EXCEPTION_QUERY:-voice-exception-query}
+      N8N_WEBHOOK_PATH_SHORTAGE_REPORTED: ${N8N_WEBHOOK_PATH_SHORTAGE_REPORTED:-shortage-reported}
+      N8N_WEBHOOK_PATH_PICK_CONFIRMED: ${N8N_WEBHOOK_PATH_PICK_CONFIRMED:-pick-confirmed}
       N8N_WEBHOOK_SECRET: ${N8N_WEBHOOK_SECRET}
       N8N_SYNC_TIMEOUT_MS: ${N8N_SYNC_TIMEOUT_MS:-7000}
       N8N_CALLBACK_SECRET: ${N8N_CALLBACK_SECRET:?N8N_CALLBACK_SECRET muss gesetzt sein}
@@ -87,7 +91,7 @@ services:
     volumes:
       - ./backend/app:/app/app:ro
       - ../Notzien:/obsidian:ro
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info", "--reload"]
+    command: [ "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info", "--reload" ]
     networks:
       - picking-net
 
@@ -114,7 +118,7 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:5678/healthz || exit 1"]
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:5678/healthz || exit 1" ]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -128,10 +132,11 @@ services:
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY muss gesetzt sein}
       N8N_CALLBACK_SECRET: ${N8N_CALLBACK_SECRET:?N8N_CALLBACK_SECRET muss gesetzt sein}
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
       # ── Routing ──
-      WEBHOOK_URL: https://${LAN_HOST:-localhost}/n8n/
+      # TEMP for OAuth: set to localhost so Google accepts the redirect URI
+      WEBHOOK_URL: http://localhost:5678/
       N8N_PROXY_HOPS: 1
-      N8N_PATH: /n8n/
       N8N_HOST: 0.0.0.0
       N8N_PORT: 5678
       GENERIC_TIMEZONE: Europe/Berlin
@@ -167,10 +172,20 @@ services:
       - n8n_data:/home/node/.n8n
       - ./n8n/workflows:/imports:ro
       - ./n8n/tmp:/home/node/.n8n-files
+    ports:
+      - "5678:5678"
     networks:
       - picking-net
 
   # ── PWA Static Server ──────────────────────────────────────
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "8025:8025"
+    networks:
+      - picking-net
+
   pwa:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -186,6 +201,7 @@ volumes:
   caddy_data:
   caddy_config:
   n8n_data:
+
 
 networks:
   picking-net:

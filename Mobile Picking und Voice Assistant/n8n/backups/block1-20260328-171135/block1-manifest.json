@@ -1,0 +1,154 @@
+{
+  "created_at": "2026-03-28T17:11:35+01:00",
+  "block": "block1",
+  "branch": "wip/staff-hardening-2026-03-22",
+  "objective": "E2E Quality-Alert bis completed; Fehlerpfad spaeter bis failed",
+  "artifacts": {
+    "env_backup": "C:/Users/endri/Desktop/Bachelor/env-backup-20260328-171135.env",
+    "env_snapshot": "C:/Users/endri/Desktop/Bachelor/Mobile Picking und Voice Assistant/n8n/backups/block1-20260328-171135/.env.snapshot",
+    "all_workflows_export": "C:/Users/endri/Desktop/Bachelor/Mobile Picking und Voice Assistant/n8n/backups/block1-20260328-171135/all-workflows.json"
+  },
+  "workflow_state": [
+    {
+      "name": "Error Trigger",
+      "id": "99fa93a638824b84b8578e4c8942c419",
+      "active": true,
+      "error_workflow": null,
+      "export": "C:/Users/endri/Desktop/Bachelor/Mobile Picking und Voice Assistant/n8n/backups/block1-20260328-171135/original/error-trigger.json"
+    },
+    {
+      "name": "Quality Alert Created",
+      "id": "8eWVrUfTAUvOAbpdug8oP",
+      "active": true,
+      "error_workflow": "99fa93a638824b84b8578e4c8942c419",
+      "export": "C:/Users/endri/Desktop/Bachelor/Mobile Picking und Voice Assistant/n8n/backups/block1-20260328-171135/original/quality-alert-created.json"
+    },
+    {
+      "name": "Voice Exception Query",
+      "id": "B3vBzqOM2J7pkahwUGtsn",
+      "active": true,
+      "error_workflow": "99fa93a638824b84b8578e4c8942c419",
+      "export": "C:/Users/endri/Desktop/Bachelor/Mobile Picking und Voice Assistant/n8n/backups/block1-20260328-171135/original/voice-exception-query.json"
+    },
+    {
+      "name": "Shortage Reported",
+      "id": "3c5c3910481e4c27aabd5a3599849317",
+      "active": true,
+      "error_workflow": "99fa93a638824b84b8578e4c8942c419",
+      "export": "C:/Users/endri/Desktop/Bachelor/Mobile Picking und Voice Assistant/n8n/backups/block1-20260328-171135/original/shortage-reported.json"
+    }
+  ],
+  "secret_verification": {
+    "odoo_api_key": {
+      "status": "operational_match_env_backend",
+      "hash_sha256": "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",
+      "evidence": [
+        "backend container uses the same value as .env",
+        "backend can list pickers and pickings via Odoo-backed endpoints"
+      ],
+      "note": "Hash matches the known admin fallback; operational for testing, but not a dedicated technical API key."
+    },
+    "n8n_callback_secret": {
+      "status": "match_env_backend_n8n",
+      "hash_sha256": "c91daa3e20123338cbeb9fd8dd535e91c1daa3760abf251826650515a3d699f3"
+    },
+    "n8n_webhook_secret": {
+      "status": "match_env_backend",
+      "hash_sha256": "898ea77275c292a8f03376b06b2bbc1d324efdd73d4f16f68c96b7d58518e231"
+    },
+    "n8n_encryption_key": {
+      "status": "match_env_n8n_do_not_rotate",
+      "hash_sha256": "b82018e84e0cdd4dba575818411c2540bd1089d1d0fca1d4a367f5b123112187"
+    }
+  },
+  "external_dependencies": {
+    "openai_api_key": {
+      "env_status": "missing",
+      "n8n_runtime_length": 0,
+      "status": "scoped_out_for_current_quality_alert_e2e",
+      "note": "The current Quality Alert workflow is heuristic and does not call an OpenAI node."
+    },
+    "smtp_notification_path": {
+      "quality_alert_email_from_env": "missing",
+      "quality_alert_email_to_env": "missing",
+      "n8n_runtime_lengths": {
+        "QUALITY_ALERT_EMAIL_FROM": 0,
+        "QUALITY_ALERT_EMAIL_TO": 0,
+        "N8N_SMTP_HOST": 0,
+        "N8N_SMTP_USER": 0,
+        "N8N_SMTP_PASS": 0,
+        "N8N_SMTP_SENDER": 0
+      },
+      "n8n_credentials_entity_rows": 0,
+      "n8n_settings_email_rows": 0,
+      "status": "blocking",
+      "note": "Notification transport is not configured in runtime or n8n persistence."
+    }
+  },
+  "test_case": {
+    "base_object": {
+      "picker_user_id": 7,
+      "picker_name": "Max Picker",
+      "device_id": "block1-e2e-20260328",
+      "picking_id": 337,
+      "picking_name": "WH/INT/00337",
+      "kit_name": "LKW",
+      "product_id": 144,
+      "product_name": "Brick 2x2 blau",
+      "location_id": 301,
+      "location_label": "L-E5-P1"
+    },
+    "happy_path": {
+      "endpoint": "POST /api/quality-alerts",
+      "headers": {
+        "X-Picker-User-Id": "7",
+        "X-Device-Id": "block1-e2e-20260328",
+        "Idempotency-Key": "block4-quality-337-happy"
+      },
+      "form_fields": {
+        "description": "Auffaelligkeit am Artikel, Sichtpruefung erbeten.",
+        "picking_id": 337,
+        "product_id": 144,
+        "location_id": 301,
+        "priority": "1"
+      },
+      "expected_status_path": [
+        "FastAPI response includes ai_evaluation_status=pending",
+        "n8n workflow Quality Alert Created executes successfully",
+        "new Odoo quality_alert_custom row transitions pending -> completed",
+        "QA-ALARM log entry is visible in Obsidian"
+      ]
+    },
+    "error_path": {
+      "endpoint": "POST /api/quality-alerts",
+      "headers": {
+        "X-Picker-User-Id": "7",
+        "X-Device-Id": "block1-e2e-20260328",
+        "Idempotency-Key": "block5-quality-337-fail"
+      },
+      "form_fields": {
+        "description": "Intentional callback contract test",
+        "picking_id": 337,
+        "product_id": 144,
+        "location_id": 301,
+        "priority": "1"
+      },
+      "planned_failure_injection": "Temporarily break the callback contract for the assessment write-back before the run.",
+      "expected_status_path": [
+        "FastAPI response includes ai_evaluation_status=pending",
+        "Error Trigger workflow captures the failed execution",
+        "new Odoo quality_alert_custom row transitions pending -> failed",
+        "no incorrect assessment write-back occurs",
+        "incident log is visible in Obsidian"
+      ]
+    },
+    "note": "Historical alerts already exist with pending/completed/failed states, so later verification must target the newly created alert id only."
+  },
+  "block1_status": {
+    "ready_for_block2": false,
+    "blocking_items": [
+      "SMTP notification path is not configured",
+      "QUALITY_ALERT_EMAIL_FROM and QUALITY_ALERT_EMAIL_TO are still empty in .env"
+    ]
+  }
+}

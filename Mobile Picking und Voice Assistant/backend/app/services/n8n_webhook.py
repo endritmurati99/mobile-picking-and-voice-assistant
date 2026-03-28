@@ -61,6 +61,12 @@ class N8NWebhookClient:
     def __init__(self):
         self._base = settings.n8n_webhook_base.rstrip("/")
         self._secret = settings.n8n_webhook_secret
+        self._path_overrides = {
+            "quality-alert-created": settings.n8n_webhook_path_quality_alert_created,
+            "voice-exception-query": settings.n8n_webhook_path_voice_exception_query,
+            "shortage-reported": settings.n8n_webhook_path_shortage_reported,
+            "pick-confirmed": settings.n8n_webhook_path_pick_confirmed,
+        }
         self._default_sync_timeout_ms = settings.n8n_sync_timeout_ms
         self._breaker_threshold = max(1, settings.n8n_circuit_breaker_failures)
         self._breaker_open_seconds = max(1, settings.n8n_circuit_breaker_open_seconds)
@@ -94,9 +100,10 @@ class N8NWebhookClient:
             picking_context=picking_context,
             correlation_id=correlation_id,
         )
+        resolved_path = self._resolve_path(path)
         try:
             await self._client.post(
-                f"{self._base}/{path}",
+                f"{self._base}/{resolved_path}",
                 json=envelope,
                 headers=self._build_headers(),
             )
@@ -145,6 +152,7 @@ class N8NWebhookClient:
             picking_context=picking_context,
             correlation_id=correlation_id,
         )
+        resolved_path = self._resolve_path(path)
         started_at = time.monotonic()
 
         breaker_state = self._breaker_states.setdefault(path, BreakerState())
@@ -167,7 +175,7 @@ class N8NWebhookClient:
 
         try:
             response = await self._client.post(
-                f"{self._base}/{path}",
+                f"{self._base}/{resolved_path}",
                 json=envelope,
                 headers=self._build_headers(),
                 timeout=timeout,
@@ -206,6 +214,9 @@ class N8NWebhookClient:
         if self._secret:
             headers["X-Webhook-Secret"] = self._secret
         return headers
+
+    def _resolve_path(self, path: str) -> str:
+        return (self._path_overrides.get(path) or path).strip("/")
 
     def _build_envelope(
         self,

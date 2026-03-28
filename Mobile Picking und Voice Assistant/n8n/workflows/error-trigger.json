@@ -10,7 +10,7 @@
     },
     {
       "parameters": {
-        "functionCode": "const exec = $json.execution || {};\nconst wf = $json.workflow || {};\nconst err = exec.error || {};\nconst workflow_name = String(wf.name || 'unknown-workflow');\nconst workflow_key = workflow_name.toLowerCase();\nconst failing_node = String(err.node || 'unknown');\nconst error_message = String(err.message || 'Unknown error');\nconst execution_url = String(exec.url || '');\n\nconst normalizeNumericId = (value) => {\n  if (value === undefined || value === null || value === '') {\n    return null;\n  }\n  const numeric = Number(value);\n  return Number.isFinite(numeric) ? numeric : null;\n};\n\nconst collectItemJsons = () => {\n  const collected = [];\n  try {\n    const data = exec.data || {};\n    const resultData = data.resultData || {};\n    const runData = resultData.runData || {};\n    for (const nodeRuns of Object.values(runData)) {\n      if (!Array.isArray(nodeRuns)) {\n        continue;\n      }\n      for (const run of nodeRuns) {\n        const branches = run && run.data && run.data.main;\n        if (!Array.isArray(branches)) {\n          continue;\n        }\n        for (const branch of branches) {\n          if (!Array.isArray(branch)) {\n            continue;\n          }\n          for (const item of branch) {\n            if (item && item.json && typeof item.json === 'object') {\n              collected.push(item.json);\n            }\n          }\n        }\n      }\n    }\n  } catch (e) {\n    return collected;\n  }\n  return collected;\n};\n\nlet correlation_id = '';\nlet alert_id = null;\nlet picking_id = null;\n\nfor (const itemJson of collectItemJsons()) {\n  if (!correlation_id && itemJson.correlation_id) {\n    correlation_id = String(itemJson.correlation_id);\n  }\n  const payload = itemJson.payload || {};\n  const pickingContext = itemJson.picking_context || {};\n\n  if (alert_id === null) {\n    alert_id = normalizeNumericId(itemJson.alert_id ?? payload.alert_id);\n  }\n  if (picking_id === null) {\n    picking_id = normalizeNumericId(itemJson.picking_id ?? pickingContext.picking_id ?? payload.picking_id);\n  }\n\n  if (correlation_id && alert_id !== null && picking_id !== null) {\n    break;\n  }\n}\n\nlet route = 'log_only';\nif (workflow_key.includes('quality') && alert_id !== null) {\n  route = 'quality';\n} else if (workflow_key.includes('shortage') && picking_id !== null) {\n  route = 'shortage';\n}\n\nreturn [{ json: {\n  workflow_name,\n  failing_node,\n  error_message,\n  correlation_id,\n  execution_url,\n  alert_id,\n  picking_id,\n  route,\n} }];"
+        "functionCode": "const input = items[0]?.json || {};\nconst exec = input.execution || {};\nconst wf = input.workflow || {};\nconst err = exec.error || {};\nconst workflow_name = String(wf.name || 'unknown-workflow');\nconst workflow_key = workflow_name.toLowerCase();\nconst failing_node = String(err.node || 'unknown');\nconst error_message = String(err.message || 'Unknown error');\nconst execution_url = String(exec.url || '');\n\nconst normalizeNumericId = (value) => {\n  if (value === undefined || value === null || value === '') {\n    return null;\n  }\n  const numeric = Number(value);\n  return Number.isFinite(numeric) ? numeric : null;\n};\n\nconst collectItemJsons = () => {\n  const collected = [];\n  try {\n    const data = exec.data || {};\n    const resultData = data.resultData || {};\n    const runData = resultData.runData || {};\n    for (const nodeRuns of Object.values(runData)) {\n      if (!Array.isArray(nodeRuns)) {\n        continue;\n      }\n      for (const run of nodeRuns) {\n        const branches = run && run.data && run.data.main;\n        if (!Array.isArray(branches)) {\n          continue;\n        }\n        for (const branch of branches) {\n          if (!Array.isArray(branch)) {\n            continue;\n          }\n          for (const item of branch) {\n            if (item && item.json && typeof item.json === 'object') {\n              collected.push(item.json);\n            }\n          }\n        }\n      }\n    }\n  } catch (e) {\n    return collected;\n  }\n  return collected;\n};\n\nlet correlation_id = '';\nlet alert_id = null;\nlet picking_id = null;\n\nfor (const itemJson of collectItemJsons()) {\n  if (!correlation_id && itemJson.correlation_id) {\n    correlation_id = String(itemJson.correlation_id);\n  }\n  const payload = itemJson.payload || {};\n  const pickingContext = itemJson.picking_context || {};\n\n  if (alert_id === null) {\n    alert_id = normalizeNumericId(itemJson.alert_id ?? payload.alert_id);\n  }\n  if (picking_id === null) {\n    picking_id = normalizeNumericId(itemJson.picking_id ?? pickingContext.picking_id ?? payload.picking_id);\n  }\n\n  if (correlation_id && alert_id !== null && picking_id !== null) {\n    break;\n  }\n}\n\nlet route = 'log_only';\nif (workflow_key.includes('quality') && alert_id !== null) {\n  route = 'quality';\n} else if (workflow_key.includes('shortage') && picking_id !== null) {\n  route = 'shortage';\n}\n\nreturn [{ json: {\n  workflow_name,\n  failing_node,\n  error_message,\n  correlation_id,\n  execution_url,\n  alert_id,\n  picking_id,\n  route,\n} }];"
       },
       "name": "Extract Context",
       "type": "n8n-nodes-base.function",
@@ -48,14 +48,7 @@
         "url": "http://backend:8000/api/internal/n8n/manual-review-activity",
         "jsonParameters": true,
         "options": {},
-        "headerParametersUi": {
-          "parameter": [
-            {
-              "name": "X-N8N-Callback-Secret",
-              "value": "={{ $env.N8N_CALLBACK_SECRET }}"
-            }
-          ]
-        },
+        "headerParametersJson": "={{ JSON.stringify({ \"X-N8N-Callback-Secret\": $env.N8N_CALLBACK_SECRET }) }}",
         "bodyParametersJson": "={{ JSON.stringify({ picking_id: $json.picking_id, correlation_id: $json.correlation_id, reason: $json.error_message, execution_url: $json.execution_url }) }}"
       },
       "name": "Notify Shortage Failure",
@@ -70,14 +63,7 @@
         "url": "http://backend:8000/api/internal/n8n/quality-assessment-failed",
         "jsonParameters": true,
         "options": {},
-        "headerParametersUi": {
-          "parameter": [
-            {
-              "name": "X-N8N-Callback-Secret",
-              "value": "={{ $env.N8N_CALLBACK_SECRET }}"
-            }
-          ]
-        },
+        "headerParametersJson": "={{ JSON.stringify({ \"X-N8N-Callback-Secret\": $env.N8N_CALLBACK_SECRET }) }}",
         "bodyParametersJson": "={{ JSON.stringify({ alert_id: $json.alert_id, correlation_id: $json.correlation_id, failure_reason: $json.error_message }) }}"
       },
       "name": "Notify Quality Failure",
@@ -92,14 +78,7 @@
         "url": "http://backend:8000/api/obsidian/log",
         "jsonParameters": true,
         "options": {},
-        "headerParametersUi": {
-          "parameter": [
-            {
-              "name": "X-N8N-Callback-Secret",
-              "value": "={{ $env.N8N_CALLBACK_SECRET }}"
-            }
-          ]
-        },
+        "headerParametersJson": "={{ JSON.stringify({ \"X-N8N-Callback-Secret\": $env.N8N_CALLBACK_SECRET }) }}",
         "bodyParametersJson": "={{ JSON.stringify({ message: 'INCIDENT: ' + $json.workflow_name + ' ' + $json.error_message + ' (correlation: ' + $json.correlation_id + ')', category: 'INCIDENT' }) }}"
       },
       "name": "Log to Obsidian",
@@ -107,20 +86,6 @@
       "typeVersion": 2,
       "onError": "continueRegularOutput",
       "position": [1200, 280]
-    },
-    {
-      "parameters": {
-        "fromEmail": "={{ $env.QUALITY_ALERT_EMAIL_FROM || 'picking-assistant@example.invalid' }}",
-        "toEmail": "={{ $env.QUALITY_ALERT_EMAIL_TO || '' }}",
-        "subject": "=[INCIDENT] {{ $json.workflow_name }} failed",
-        "html": "=<p><strong>Workflow:</strong> {{ $json.workflow_name }}</p><p><strong>Failing Node:</strong> {{ $json.failing_node }}</p><p><strong>Error:</strong> {{ $json.error_message }}</p><p><strong>Correlation ID:</strong> {{ $json.correlation_id }}</p><p><strong>Execution URL:</strong> {{ $json.execution_url }}</p>",
-        "options": {}
-      },
-      "name": "Send Email",
-      "type": "n8n-nodes-base.emailSend",
-      "typeVersion": 1,
-      "onError": "continueRegularOutput",
-      "position": [1440, 280]
     }
   ],
   "connections": {
@@ -162,13 +127,6 @@
       "main": [
         [
           { "node": "Log to Obsidian", "type": "main", "index": 0 }
-        ]
-      ]
-    },
-    "Log to Obsidian": {
-      "main": [
-        [
-          { "node": "Send Email", "type": "main", "index": 0 }
         ]
       ]
     }

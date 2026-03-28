@@ -16,7 +16,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ status: 'accepted', tts_text: 'Nachschub wird vorbereitet.', source: 'n8n', correlation_id: $json.correlation_id }) }}"
+        "responseBody": "={{ JSON.stringify({ status: 'accepted', tts_text: 'Nachschub wird vorbereitet.', source: 'n8n', correlation_id: $json.body?.correlation_id || $json.correlation_id }) }}"
       },
       "name": "Respond",
       "type": "n8n-nodes-base.respondToWebhook",
@@ -25,7 +25,7 @@
     },
     {
       "parameters": {
-        "functionCode": "const payload = $json.payload || {};\nconst recommendation = payload.recommendation || null;\nif (!recommendation || !recommendation.recommended_location_id || !$json.picking_context || !$json.picking_context.location_id) {\n  return [];\n}\nconst ticketText = [\n  'Automatisch erzeugter Nachschubauftrag aus dem Voice-Exception-Pfad.',\n  payload.text ? `Meldung: ${payload.text}` : '',\n  recommendation.reason ? `Grund: ${recommendation.reason}` : '',\n].filter(Boolean).join(' ');\nreturn [{ json: {\n  correlation_id: $json.correlation_id,\n  picking_id: $json.picking_context.picking_id,\n  product_id: $json.picking_context.product_id,\n  location_id: $json.picking_context.location_id,\n  recommended_location_id: recommendation.recommended_location_id,\n  recommended_location: recommendation.recommended_location || '',\n  quantity: recommendation.quantity || 1,\n  reason: recommendation.reason || 'Automatische Nachschubanforderung nach Fehlmengen-Hinweis.',\n  ticket_text: ticketText,\n  requested_by_user_id: payload.requested_by_user_id || $json.picker.user_id || null,\n  requested_by_name: $json.picker.name || '',\n  log_message: `Nachschub fuer Picking ${$json.picking_context.picking_id} von ${recommendation.recommended_location || 'Alternativplatz'} nach Zielplatz ${$json.picking_context.location_id} angestossen.`,\n} }];"
+        "functionCode": "const request = items[0]?.json || {};\nconst input = request.body || request;\nconst payload = input.payload || {};\nconst recommendation = payload.recommendation || null;\nconst pickingContext = input.picking_context || {};\nconst picker = input.picker || {};\nif (!recommendation || !recommendation.recommended_location_id || !pickingContext.location_id) {\n  return [];\n}\nconst ticketText = [\n  'Automatisch erzeugter Nachschubauftrag aus dem Voice-Exception-Pfad.',\n  payload.text ? `Meldung: ${payload.text}` : '',\n  recommendation.reason ? `Grund: ${recommendation.reason}` : '',\n].filter(Boolean).join(' ');\nreturn [{ json: {\n  correlation_id: input.correlation_id,\n  picking_id: pickingContext.picking_id,\n  product_id: pickingContext.product_id,\n  location_id: pickingContext.location_id,\n  recommended_location_id: recommendation.recommended_location_id,\n  recommended_location: recommendation.recommended_location || '',\n  quantity: recommendation.quantity || 1,\n  reason: recommendation.reason || 'Automatische Nachschubanforderung nach Fehlmengen-Hinweis.',\n  ticket_text: ticketText,\n  requested_by_user_id: payload.requested_by_user_id || picker.user_id || null,\n  requested_by_name: picker.name || '',\n  log_message: `Nachschub fuer Picking ${pickingContext.picking_id} von ${recommendation.recommended_location || 'Alternativplatz'} nach Zielplatz ${pickingContext.location_id} angestossen.`,\n} }];"
       },
       "name": "Prepare Replenishment",
       "type": "n8n-nodes-base.function",
@@ -38,18 +38,7 @@
         "url": "http://backend:8000/api/internal/n8n/replenishment-action",
         "jsonParameters": true,
         "options": {},
-        "headerParametersUi": {
-          "parameter": [
-            {
-              "name": "X-N8N-Callback-Secret",
-              "value": "={{ $env.N8N_CALLBACK_SECRET }}"
-            },
-            {
-              "name": "Idempotency-Key",
-              "value": "={{ $json.correlation_id }}"
-            }
-          ]
-        },
+        "headerParametersJson": "={{ JSON.stringify({ \"X-N8N-Callback-Secret\": $env.N8N_CALLBACK_SECRET, \"Idempotency-Key\": $json.correlation_id }) }}",
         "bodyParametersJson": "={{ JSON.stringify({ correlation_id: $json.correlation_id, picking_id: $json.picking_id, product_id: $json.product_id, location_id: $json.location_id, recommended_location_id: $json.recommended_location_id, recommended_location: $json.recommended_location, quantity: $json.quantity, reason: $json.reason, ticket_text: $json.ticket_text, requested_by_user_id: $json.requested_by_user_id, requested_by_name: $json.requested_by_name }) }}"
       },
       "name": "Create Replenishment",
@@ -63,14 +52,7 @@
         "url": "http://backend:8000/api/obsidian/log",
         "jsonParameters": true,
         "options": {},
-        "headerParametersUi": {
-          "parameter": [
-            {
-              "name": "X-N8N-Callback-Secret",
-              "value": "={{ $env.N8N_CALLBACK_SECRET }}"
-            }
-          ]
-        },
+        "headerParametersJson": "={{ JSON.stringify({ \"X-N8N-Callback-Secret\": $env.N8N_CALLBACK_SECRET }) }}",
         "bodyParametersJson": "={{ JSON.stringify({ category: 'REPLENISHMENT', message: $json.log_message }) }}"
       },
       "name": "Log To Obsidian",

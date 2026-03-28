@@ -81,6 +81,7 @@ CALLBACK_REQUIREMENTS = {
 }
 CORRELATION_ID_AS_ALERT_ID_RE = re.compile(r"alert_id\s*:\s*\$json\.correlation_id\b")
 CORRELATION_ID_AS_PICKING_ID_RE = re.compile(r"picking_id\s*:\s*\$json\.correlation_id\b")
+FUNCTION_NODE_JSON_RE = re.compile(r"(?<!\{)\$json\b")
 
 
 @dataclass
@@ -102,6 +103,7 @@ class WorkflowContract:
     trigger_types: set[str]
     response_bodies: list[str]
     http_nodes: list["WorkflowHttpNode"]
+    function_nodes: list["WorkflowFunctionNode"]
 
 
 @dataclass
@@ -111,6 +113,12 @@ class WorkflowHttpNode:
     url: str
     headers: dict[str, str]
     body_json: str | None
+
+
+@dataclass
+class WorkflowFunctionNode:
+    name: str
+    function_code: str
 
 
 def literal_string(node: ast.AST) -> str | None:
@@ -206,16 +214,21 @@ def find_json_refs(value: Any) -> set[str]:
 def extract_http_headers(params: dict[str, Any]) -> dict[str, str]:
     headers: dict[str, str] = {}
     header_params = ((params.get("headerParametersUi") or {}).get("parameter") or [])
-    if not isinstance(header_params, list):
-        return headers
+    if isinstance(header_params, list):
+        for item in header_params:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name")
+            value = item.get("value")
+            if isinstance(name, str) and isinstance(value, str):
+                headers[name] = value
 
-    for item in header_params:
-        if not isinstance(item, dict):
-            continue
-        name = item.get("name")
-        value = item.get("value")
-        if isinstance(name, str) and isinstance(value, str):
-            headers[name] = value
+    header_json = params.get("headerParametersJson")
+    if isinstance(header_json, str):
+        if "\"X-N8N-Callback-Secret\"" in header_json and "$env.N8N_CALLBACK_SECRET" in header_json:
+            headers["X-N8N-Callback-Secret"] = EXPECTED_CALLBACK_SECRET
+        if "\"Idempotency-Key\"" in header_json and "$json.correlation_id" in header_json:
+            headers["Idempotency-Key"] = EXPECTED_IDEMPOTENCY_KEY
     return headers
 
 
@@ -242,6 +255,7 @@ def extract_workflow_contracts() -> list[WorkflowContract]:
         has_response_node = False
         response_bodies: list[str] = []
         http_nodes: list[WorkflowHttpNode] = []
+        function_nodes: list[WorkflowFunctionNode] = []
 
         for node in nodes:
             node_type = node.get("type", "")
@@ -281,6 +295,16 @@ def extract_workflow_contracts() -> list[WorkflowContract]:
                         )
                     )
 
+            if node_type == "n8n-nodes-base.function":
+                function_code = params.get("functionCode")
+                if isinstance(function_code, str):
+                    function_nodes.append(
+                        WorkflowFunctionNode(
+                            name=node.get("name", "Function"),
+                            function_code=function_code,
+                        )
+                    )
+
         workflows.append(
             WorkflowContract(
                 file=file_path.relative_to(ROOT).as_posix(),
@@ -292,6 +316,7 @@ def extract_workflow_contracts() -> list[WorkflowContract]:
                 trigger_types=trigger_types,
                 response_bodies=response_bodies,
                 http_nodes=http_nodes,
+                function_nodes=function_nodes,
             )
         )
 
@@ -361,6 +386,17 @@ def validate_error_trigger_business_ids(workflow: WorkflowContract) -> list[str]
     return errors
 
 
+def validate_function_nodes(workflow: WorkflowContract) -> list[str]:
+    errors: list[str] = []
+    for node in workflow.function_nodes:
+        if FUNCTION_NODE_JSON_RE.search(node.function_code):
+            errors.append(
+                f"{workflow.file}: Function-Node '{node.name}' referenziert '$json' direkt im functionCode; "
+                "verwende stattdessen 'items[0]?.json' oder item.json."
+            )
+    return errors
+
+
 def validate_contracts() -> tuple[list[str], list[str], dict[str, Any]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -374,6 +410,7 @@ def validate_contracts() -> tuple[list[str], list[str], dict[str, Any]]:
 
         errors.extend(validate_callback_http_nodes(workflow))
         errors.extend(validate_error_trigger_business_ids(workflow))
+        errors.extend(validate_function_nodes(workflow))
 
         # --- errorWorkflow reference check (change 3) ---
         if wf_basename in NEEDS_ERROR_WORKFLOW:

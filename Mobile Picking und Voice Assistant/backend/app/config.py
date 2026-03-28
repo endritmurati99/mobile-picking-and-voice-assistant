@@ -11,7 +11,11 @@ class Settings(BaseSettings):
 
     whisper_url: str = "http://whisper:9000"
 
-    n8n_webhook_base: str = "http://n8n:5678/n8n/webhook"
+    n8n_webhook_base: str = "http://n8n:5678/webhook"
+    n8n_webhook_path_quality_alert_created: str = "quality-alert-created"
+    n8n_webhook_path_voice_exception_query: str = "voice-exception-query"
+    n8n_webhook_path_shortage_reported: str = "shortage-reported"
+    n8n_webhook_path_pick_confirmed: str = "pick-confirmed"
     n8n_webhook_secret: str = ""
     n8n_sync_timeout_ms: int = 7000
     n8n_callback_secret: str = ""

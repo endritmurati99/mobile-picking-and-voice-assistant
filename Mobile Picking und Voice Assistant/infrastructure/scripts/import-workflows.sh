@@ -247,13 +247,8 @@ import_staged_workflow() {
 activate_from_state() {
   local state_file="$1"
   local active_value="$2"
-  while IFS=$'\t' read -r file_name workflow_id; do
-    if [[ -z "$workflow_id" ]]; then
-      continue
-    fi
-    echo "  Setting $(workflow_name "$file_name") active=$active_value ..."
-    compose_exec n8n update:workflow --id="$workflow_id" --active="$active_value" >/dev/null
-  done < <(
+  local workflow_rows=()
+  mapfile -t workflow_rows < <(
     python - "$state_file" <<'PY'
 import json
 import sys
@@ -267,22 +262,26 @@ for file_name, workflow in (state.get("workflows") or {}).items():
         print(f"{file_name}\t{workflow_id}")
 PY
   )
+
+  for row in "${workflow_rows[@]}"; do
+    IFS=$'\t' read -r file_name workflow_id <<<"$row"
+    if [[ -z "$workflow_id" ]]; then
+      continue
+    fi
+    echo "  Setting $(workflow_name "$file_name") active=$active_value ..."
+    if [[ "$active_value" == "true" ]]; then
+      compose_exec n8n publish:workflow --id="$workflow_id" >/dev/null </dev/null
+    else
+      compose_exec n8n unpublish:workflow --id="$workflow_id" >/dev/null </dev/null
+    fi
+  done
 }
 
 restore_activation_state() {
   local original_state_file="$1"
   local current_state_file="$2"
-
-  while IFS=$'\t' read -r file_name workflow_id desired_active existed_before; do
-    if [[ -z "$workflow_id" ]]; then
-      continue
-    fi
-    echo "  Restoring $(workflow_name "$file_name") active=$desired_active ..."
-    compose_exec n8n update:workflow --id="$workflow_id" --active="$desired_active" >/dev/null
-    if [[ "$existed_before" != "true" ]]; then
-      echo "  NOTE: $(workflow_name "$file_name") did not exist before. It was deactivated but not deleted." >&2
-    fi
-  done < <(
+  local workflow_rows=()
+  mapfile -t workflow_rows < <(
     python - "$original_state_file" "$current_state_file" <<'PY'
 import json
 import sys
@@ -306,6 +305,22 @@ for file_name, original in (original_state.get("workflows") or {}).items():
     )
 PY
   )
+
+  for row in "${workflow_rows[@]}"; do
+    IFS=$'\t' read -r file_name workflow_id desired_active existed_before <<<"$row"
+    if [[ -z "$workflow_id" ]]; then
+      continue
+    fi
+    echo "  Restoring $(workflow_name "$file_name") active=$desired_active ..."
+    if [[ "$desired_active" == "true" ]]; then
+      compose_exec n8n publish:workflow --id="$workflow_id" >/dev/null </dev/null
+    else
+      compose_exec n8n unpublish:workflow --id="$workflow_id" >/dev/null </dev/null
+    fi
+    if [[ "$existed_before" != "true" ]]; then
+      echo "  NOTE: $(workflow_name "$file_name") did not exist before. It was deactivated but not deleted." >&2
+    fi
+  done
 }
 
 restart_n8n() {

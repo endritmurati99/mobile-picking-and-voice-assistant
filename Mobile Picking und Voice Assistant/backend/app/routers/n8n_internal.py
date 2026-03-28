@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from html import escape
+import logging
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 
@@ -22,6 +24,7 @@ from app.services.mobile_workflow import IdempotencyReservation, MobileWorkflowS
 from app.services.odoo_client import OdooAPIError, OdooClient
 
 router = APIRouter(prefix="/internal/n8n", tags=["n8n-internal"])
+logger = logging.getLogger(__name__)
 
 
 def _cached_detail(payload: dict | None):
@@ -42,6 +45,76 @@ def _return_or_raise_replay(reservation: IdempotencyReservation):
 def _analysis_timestamp(value: datetime | None) -> str:
     resolved = value or datetime.now(timezone.utc)
     return resolved.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+async def _post_chatter_note_best_effort(
+    odoo: OdooClient,
+    *,
+    model: str,
+    record_id: int,
+    body_html: str,
+) -> None:
+    try:
+        await odoo.execute_kw(
+            model,
+            "message_post",
+            [[record_id]],
+            {"body": body_html, "message_type": "comment", "subtype_xmlid": "mail.mt_note"},
+        )
+    except Exception as exc:
+        detail = exc.message if isinstance(exc, OdooAPIError) else str(exc)
+        logger.warning("Could not post chatter note for %s(%s): %s", model, record_id, detail)
+
+
+async def _create_activity_best_effort(
+    odoo: OdooClient,
+    *,
+    model: str,
+    record_id: int,
+    summary: str,
+    note: str,
+) -> None:
+    try:
+        model_ids = await odoo.execute_kw("ir.model", "search", [[["model", "=", model]]])
+        if not model_ids:
+            return
+        await odoo.execute_kw(
+            "mail.activity",
+            "create",
+            [{
+                "res_model_id": model_ids[0],
+                "res_id": record_id,
+                "summary": summary,
+                "note": note,
+            }],
+        )
+    except Exception as exc:
+        detail = exc.message if isinstance(exc, OdooAPIError) else str(exc)
+        logger.warning("Could not create mail.activity for %s(%s): %s", model, record_id, detail)
+
+
+def _build_quality_success_note(body: QualityAssessmentCallbackRequest) -> str:
+    parts = [
+        "<strong>KI-Bewertung abgeschlossen</strong>",
+        f"Einstufung: {escape(body.ai_disposition)}",
+        f"Konfidenz: {body.ai_confidence:.0%}",
+        f"Zusammenfassung: {escape(body.ai_summary)}",
+    ]
+    if body.ai_recommended_action:
+        parts.append(f"Empfohlene Aktion: {escape(body.ai_recommended_action)}")
+    if body.ai_provider or body.ai_model:
+        provider = " / ".join(filter(None, [body.ai_provider, body.ai_model]))
+        parts.append(f"Quelle: {escape(provider)}")
+    return "<br/>".join(parts)
+
+
+def _build_quality_failure_note(reason: str) -> str:
+    return "<br/>".join(
+        [
+            "<strong>KI-Bewertung fehlgeschlagen</strong>",
+            f"Grund: {escape(reason or 'Unbekannter Fehler')}",
+        ]
+    )
 
 
 async def _finalize_error(
@@ -114,6 +187,12 @@ async def quality_assessment_callback(
         "correlation_id": body.correlation_id or idempotency_key or "",
         "detail": f"AI-Bewertung fuer Alert {body.alert_id} gespeichert.",
     }
+    await _post_chatter_note_best_effort(
+        odoo,
+        model="quality.alert.custom",
+        record_id=body.alert_id,
+        body_html=_build_quality_success_note(body),
+    )
     await workflow.finalize_idempotent_request(reservation, response, 200)
     return N8NCommandResponse(**response)
 
@@ -211,6 +290,21 @@ async def quality_assessment_failed_callback(
             raise HTTPException(status_code=404, detail=f"Quality Alert {body.alert_id} nicht gefunden.")
     except OdooAPIError as exc:
         raise HTTPException(status_code=502, detail=f"Odoo-Fehler: {exc.message}") from exc
+
+    failure_reason = body.failure_reason or "Unbekannter Fehler"
+    await _post_chatter_note_best_effort(
+        odoo,
+        model="quality.alert.custom",
+        record_id=body.alert_id,
+        body_html=_build_quality_failure_note(failure_reason),
+    )
+    await _create_activity_best_effort(
+        odoo,
+        model="quality.alert.custom",
+        record_id=body.alert_id,
+        summary="KI-Bewertung fehlgeschlagen",
+        note=failure_reason,
+    )
 
     return N8NCommandResponse(
         status="applied",

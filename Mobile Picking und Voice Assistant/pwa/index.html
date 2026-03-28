@@ -44,9 +44,18 @@
         <main id="main" tabindex="0"><p>Wird geladen...</p></main>
         <div id="app-overlay" class="app-overlay" hidden></div>
         <nav id="nav">
-            <button id="btn-voice" class="nav-btn" aria-label="Voice">🎤</button>
-            <button id="btn-scan" class="nav-btn" aria-label="Scan">📷</button>
-            <button id="btn-alert" class="nav-btn" aria-label="Problem">⚠️</button>
+            <button id="btn-voice" class="nav-btn" aria-label="Sprachmodus starten">
+                <span class="nav-btn__label">Voice</span>
+                <span class="nav-btn__meta">Kommando</span>
+            </button>
+            <button id="btn-scan" class="nav-btn" aria-label="Kamera-Scan starten">
+                <span class="nav-btn__label">Scan</span>
+                <span class="nav-btn__meta">Kamera</span>
+            </button>
+            <button id="btn-alert" class="nav-btn" aria-label="Problem melden">
+                <span class="nav-btn__label">Problem</span>
+                <span class="nav-btn__meta">Melden</span>
+            </button>
         </nav>
     </div>
     <script src="/js/app.js" type="module"></script>

@@ -24,6 +24,7 @@ def test_quality_assessment_callback_writes_ai_fields(monkeypatch):
     workflow = _workflow_mock()
     odoo = MagicMock()
     odoo.write = AsyncMock(return_value=True)
+    odoo.execute_kw = AsyncMock(return_value=True)
     app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
@@ -53,6 +54,9 @@ def test_quality_assessment_callback_writes_ai_fields(monkeypatch):
     assert response.json()["status"] == "applied"
     odoo.write.assert_awaited_once()
     assert odoo.write.call_args[0][0] == "quality.alert.custom"
+    odoo.execute_kw.assert_awaited_once()
+    assert odoo.execute_kw.call_args[0][0] == "quality.alert.custom"
+    assert odoo.execute_kw.call_args[0][1] == "message_post"
 
 
 def test_replenishment_callback_replays_without_duplicate_odoo_write(monkeypatch):
@@ -152,6 +156,7 @@ def test_quality_assessment_callback_sets_completed_status(monkeypatch):
     workflow = _workflow_mock()
     odoo = MagicMock()
     odoo.write = AsyncMock(return_value=True)
+    odoo.execute_kw = AsyncMock(return_value=True)
     app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
@@ -182,6 +187,10 @@ def test_quality_assessment_callback_sets_completed_status(monkeypatch):
     write_fields = odoo.write.call_args[0][2]
     assert write_fields["ai_evaluation_status"] == "completed"
     assert write_fields["ai_failure_reason"] is False
+    chatter_call = odoo.execute_kw.call_args
+    assert chatter_call[0][0] == "quality.alert.custom"
+    assert chatter_call[0][1] == "message_post"
+    assert "KI-Bewertung abgeschlossen" in chatter_call[0][3]["body"]
 
 
 def test_quality_assessment_failed_sets_failed_status(monkeypatch):
@@ -189,6 +198,7 @@ def test_quality_assessment_failed_sets_failed_status(monkeypatch):
     monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
     odoo = MagicMock()
     odoo.write = AsyncMock(return_value=True)
+    odoo.execute_kw = AsyncMock(side_effect=[True, [91], 1])
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -211,6 +221,17 @@ def test_quality_assessment_failed_sets_failed_status(monkeypatch):
     write_fields = odoo.write.call_args[0][2]
     assert write_fields["ai_evaluation_status"] == "failed"
     assert write_fields["ai_failure_reason"] == "Workflow timeout"
+    chatter_call = odoo.execute_kw.call_args_list[0]
+    assert chatter_call[0][0] == "quality.alert.custom"
+    assert chatter_call[0][1] == "message_post"
+    assert "KI-Bewertung fehlgeschlagen" in chatter_call[0][3]["body"]
+    model_search_call = odoo.execute_kw.call_args_list[1]
+    assert model_search_call[0][0] == "ir.model"
+    assert model_search_call[0][1] == "search"
+    activity_call = odoo.execute_kw.call_args_list[2]
+    assert activity_call[0][0] == "mail.activity"
+    assert activity_call[0][1] == "create"
+    assert activity_call[0][2][0]["summary"] == "KI-Bewertung fehlgeschlagen"
 
 
 def test_quality_assessment_failed_rejects_wrong_secret(monkeypatch):
