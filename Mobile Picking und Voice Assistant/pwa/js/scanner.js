@@ -72,24 +72,24 @@ export async function openCameraScanner(onScan) {
             <video id="scanner-video" autoplay playsinline muted
                    style="width:100%;height:100%;object-fit:cover;"></video>
             <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;">
-                <div style="width:260px;height:130px;border:3px solid #e94560;border-radius:10px;box-shadow:0 0 0 9999px rgba(0,0,0,0.45);"></div>
+                <div style="width:260px;height:130px;border:3px solid var(--primary);border-radius:10px;box-shadow:0 0 0 9999px rgba(0,0,0,0.45);"></div>
             </div>
             <div style="position:absolute;top:16px;left:0;right:0;text-align:center;">
-                <span style="background:rgba(0,0,0,0.6);color:#eee;padding:6px 14px;border-radius:20px;font-size:0.85rem;">
+                <span style="background:rgba(0,0,0,0.6);color:var(--text-primary);padding:6px 14px;border-radius:20px;font-size:0.85rem;">
                     ${hasDetector ? 'Barcode in den Rahmen halten' : 'Barcode scannen'}
                 </span>
             </div>
         </div>
-        <div style="padding:16px;background:#1a1a2e;display:flex;flex-direction:column;gap:10px;">
+        <div style="padding:16px;background:var(--bg);display:flex;flex-direction:column;gap:10px;">
             <div style="display:flex;gap:8px;align-items:center;">
                 <input type="text" id="scanner-manual-input" placeholder="Barcode manuell eingeben"
                        inputmode="numeric" autocomplete="off"
-                       style="flex:1;padding:12px;border-radius:8px;border:1px solid #444;background:#16213e;color:#eee;font-size:1rem;">
+                       style="flex:1;padding:12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text-primary);font-size:1rem;">
                 <button id="scanner-manual-submit"
-                        style="padding:12px 18px;background:#4caf50;color:#000;border:none;border-radius:8px;font-weight:600;">OK</button>
+                        style="padding:12px 18px;background:var(--success);color:#041514;border:none;border-radius:8px;font-weight:600;">OK</button>
             </div>
             <button id="scanner-close"
-                    style="padding:12px;background:#f44336;color:#fff;border:none;border-radius:8px;font-weight:600;font-size:1rem;">
+                    style="padding:12px;background:var(--danger);color:#fff;border:none;border-radius:8px;font-weight:600;font-size:1rem;">
                 Abbrechen
             </button>
         </div>`;
@@ -171,9 +171,9 @@ export function showManualInput(onSubmit) {
     container.innerHTML = `
         <input type="text" id="barcode-input" inputmode="numeric" 
                placeholder="Barcode eingeben" autocomplete="off"
-               style="width:100%; padding:12px; font-size:1.2rem; border-radius:8px; border:1px solid #444; background:#1a1a2e; color:#eee;">
+               style="width:100%; padding:12px; font-size:1.2rem; border-radius:8px; border:1px solid var(--border); background:var(--surface); color:var(--text-primary);">
         <button id="barcode-submit" 
-                style="width:100%; margin-top:8px; padding:12px; font-size:1rem; border-radius:8px; background:#4caf50; color:#000; border:none; font-weight:600;">
+                style="width:100%; margin-top:8px; padding:12px; font-size:1rem; border-radius:8px; background:var(--success); color:#041514; border:none; font-weight:600;">
             Bestätigen
         </button>
     `;

@@ -30,7 +30,7 @@ services:
       - pg_data:/var/lib/postgresql/data
       - ./infrastructure/scripts/init-n8n-db.sql:/docker-entrypoint-initdb.d/init-n8n-db.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-odoo}"]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-odoo}" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -76,12 +76,22 @@ services:
       ODOO_API_KEY: ${ODOO_API_KEY:?ODOO_API_KEY muss gesetzt sein}
       WHISPER_URL: http://whisper:9000
       N8N_WEBHOOK_BASE: http://n8n:5678/webhook
+      N8N_WEBHOOK_PATH_QUALITY_ALERT_CREATED: ${N8N_WEBHOOK_PATH_QUALITY_ALERT_CREATED:-quality-alert-created}
+      N8N_WEBHOOK_PATH_VOICE_EXCEPTION_QUERY: ${N8N_WEBHOOK_PATH_VOICE_EXCEPTION_QUERY:-voice-exception-query}
+      N8N_WEBHOOK_PATH_SHORTAGE_REPORTED: ${N8N_WEBHOOK_PATH_SHORTAGE_REPORTED:-shortage-reported}
+      N8N_WEBHOOK_PATH_PICK_CONFIRMED: ${N8N_WEBHOOK_PATH_PICK_CONFIRMED:-pick-confirmed}
       N8N_WEBHOOK_SECRET: ${N8N_WEBHOOK_SECRET}
+      N8N_SYNC_TIMEOUT_MS: ${N8N_SYNC_TIMEOUT_MS:-7000}
+      N8N_CALLBACK_SECRET: ${N8N_CALLBACK_SECRET:?N8N_CALLBACK_SECRET muss gesetzt sein}
+      N8N_CIRCUIT_BREAKER_FAILURES: ${N8N_CIRCUIT_BREAKER_FAILURES:-3}
+      N8N_CIRCUIT_BREAKER_OPEN_SECONDS: ${N8N_CIRCUIT_BREAKER_OPEN_SECONDS:-60}
+      OBSIDIAN_PATH: /obsidian
       CORS_ORIGINS: "https://${LAN_HOST:-localhost}"
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - ./backend/app:/app/app:ro
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info", "--reload"]
+      - ../Notzien:/obsidian:ro
+    command: [ "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info", "--reload" ]
     networks:
       - picking-net
 
@@ -97,12 +107,23 @@ services:
 
   # ── n8n ────────────────────────────────────────────────────
   n8n:
-    image: n8nio/n8n:latest
+    image: docker.n8n.io/n8nio/n8n:2.13.3
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
+    mem_limit: 2g
+    cpus: "1.5"
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:5678/healthz || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     environment:
+      # ── Database ──
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: db
       DB_POSTGRESDB_PORT: 5432
@@ -110,20 +131,61 @@ services:
       DB_POSTGRESDB_USER: ${POSTGRES_USER:-odoo}
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY muss gesetzt sein}
-      WEBHOOK_URL: https://${LAN_HOST:-localhost}/n8n/
-      N8N_PATH: /n8n/
+      N8N_CALLBACK_SECRET: ${N8N_CALLBACK_SECRET:?N8N_CALLBACK_SECRET muss gesetzt sein}
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      # ── Routing ──
+      # TEMP for OAuth: set to localhost so Google accepts the redirect URI
+      WEBHOOK_URL: http://localhost:5678/
+      N8N_PROXY_HOPS: 1
       N8N_HOST: 0.0.0.0
       N8N_PORT: 5678
+      GENERIC_TIMEZONE: Europe/Berlin
+      QUEUE_HEALTH_CHECK_ACTIVE: "true"
+      # ── Security ──
+      N8N_PUBLIC_API_DISABLED: "true"
+      N8N_PUBLIC_API_SWAGGERUI_DISABLED: "true"
+      N8N_SSRF_PROTECTION_ENABLED: "true"
+      N8N_SSRF_ALLOWED_HOSTNAMES: backend
+      NODES_EXCLUDE: '["n8n-nodes-base.executeCommand","n8n-nodes-base.localFileTrigger","n8n-nodes-base.readWriteFile"]'
+      N8N_BLOCK_FILE_ACCESS_TO_N8N_FILES: "true"
+      N8N_RESTRICT_FILE_ACCESS_TO: /home/node/.n8n-files
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      # ── Binary data ──
+      N8N_DEFAULT_BINARY_DATA_MODE: filesystem
+      N8N_BINARY_DATA_STORAGE_PATH: /home/node/.n8n-files/binaryData
+      # ── Execution retention ──
       EXECUTIONS_PROCESS: main
       EXECUTIONS_DATA_PRUNE: "true"
       EXECUTIONS_DATA_MAX_AGE: 168
-      GENERIC_TIMEZONE: Europe/Berlin
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: none
+      EXECUTIONS_DATA_SAVE_ON_ERROR: all
+      EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS: "false"
+      EXECUTIONS_DATA_SAVE_ON_PROGRESS: "false"
+      EXECUTIONS_DATA_PRUNE_MAX_COUNT: 10000
+      N8N_CONCURRENCY_PRODUCTION_LIMIT: 3
+      # ── Monitoring / Limits ──
+      N8N_PAYLOAD_SIZE_MAX: 16
+      # ── App-specific ──
+      QUALITY_ALERT_EMAIL_FROM: ${QUALITY_ALERT_EMAIL_FROM:-}
+      QUALITY_ALERT_EMAIL_TO: ${QUALITY_ALERT_EMAIL_TO:-}
     volumes:
       - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/imports:ro
+      - ./n8n/tmp:/home/node/.n8n-files
+    ports:
+      - "5678:5678"
     networks:
       - picking-net
 
   # ── PWA Static Server ──────────────────────────────────────
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "8025:8025"
+    networks:
+      - picking-net
+
   pwa:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -139,6 +201,7 @@ volumes:
   caddy_data:
   caddy_config:
   n8n_data:
+
 
 networks:
   picking-net:

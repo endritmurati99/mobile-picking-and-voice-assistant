@@ -36,6 +36,8 @@ const CHECK_MS = 30;
 
 let onIntentCallback = null;
 let onModeChangeCallback = null;
+let onStateChangeCallback = null;
+let requestContextProvider = null;
 
 let recognitionGeneration = 0;
 let lastPromptText = '';
@@ -45,10 +47,69 @@ let ignoreFirstTranscriptAfterTts = false;
 let pushToTalkSession = null;
 let pushToTalkActive = false;
 
+// Recovery-dialog state: set when backend returns requires_confirmation=true.
+// Cleared on explicit yes, no, or when a different intent overrides it.
+let _pendingConfirmAction = null;
+let _pendingConfirmValue = null;
+
 let cachedDeVoice = null;
+
+function _resetConfirmationState() {
+    _pendingConfirmAction = null;
+    _pendingConfirmValue = null;
+}
+
+/**
+ * Wraps onIntentCallback with a 3-way recovery-dialog state machine.
+ *
+ *  1. Pending confirmation active + user says "confirm" → execute stored action.
+ *  2. Pending confirmation active + user says pause/unknown → abort silently.
+ *  3. Pending confirmation active + user says something else → discard pending,
+ *     fall through and process the new intent normally.
+ *  4. Backend sets requires_confirmation → speak prompt, store action, wait.
+ *  5. Normal high-confidence result → forward to onIntentCallback directly.
+ */
+function _handleIntentWithRecovery(result) {
+    if (_pendingConfirmAction) {
+        if (result.intent === 'confirm') {
+            const action = _pendingConfirmAction;
+            const value = _pendingConfirmValue;
+            _resetConfirmationState();
+            if (onIntentCallback) onIntentCallback({ ...result, intent: action, value });
+            return;
+        }
+        if (result.intent === 'pause' || result.intent === 'unknown') {
+            speak('Abgebrochen.');
+            _resetConfirmationState();
+            return;
+        }
+        // User said something else entirely — discard pending, handle new intent.
+        _resetConfirmationState();
+    }
+
+    if (result.requires_confirmation && result.confirmation_prompt) {
+        speak(result.confirmation_prompt);
+        _pendingConfirmAction = result.intent;
+        _pendingConfirmValue = result.value ?? null;
+        return;
+    }
+
+    if (onIntentCallback) onIntentCallback(result);
+}
 
 function setVoiceState(event, options = {}) {
     voiceState = transitionVoiceState(voiceState, event, options);
+    if (onStateChangeCallback) onStateChangeCallback(voiceState);
+}
+
+function getRecognitionOptions() {
+    if (!requestContextProvider) return {};
+    try {
+        return requestContextProvider() || {};
+    } catch (error) {
+        console.warn('[Voice] Konnte Recognition-Kontext nicht ableiten:', error);
+        return {};
+    }
 }
 
 function loadBestDeVoice() {
@@ -230,6 +291,15 @@ export function isPushToTalkActive() {
     return pushToTalkActive;
 }
 
+export function setVoiceStatusListener(listener) {
+    onStateChangeCallback = listener;
+    if (onStateChangeCallback) onStateChangeCallback(voiceState);
+}
+
+export function setVoiceRequestContextProvider(provider) {
+    requestContextProvider = provider;
+}
+
 export function toggleVoiceMode(onIntent, onModeChange, onError) {
     onIntentCallback = onIntent;
     onModeChangeCallback = onModeChange;
@@ -405,7 +475,7 @@ async function startListeningCycle() {
 
     if (capture?.blob) {
         try {
-            const result = await recognizeVoice(capture.blob);
+            const result = await recognizeVoice(capture.blob, getRecognitionOptions());
             const transcript = result?.text || '';
             const staleResult =
                 capture.generation !== recognitionGeneration ||
@@ -419,7 +489,7 @@ async function startListeningCycle() {
                     ignoreFirstTranscriptAfterTts = false;
                 } else {
                     ignoreFirstTranscriptAfterTts = false;
-                    if (onIntentCallback) onIntentCallback(result);
+                    _handleIntentWithRecovery(result);
                 }
             }
         } catch (error) {
@@ -452,6 +522,7 @@ export async function startRecording() {
     };
     mediaRecorder.start();
     isRecording = true;
+    setVoiceState('capture-start', { voiceModeActive: true });
 }
 
 export function stopRecording() {
@@ -465,6 +536,7 @@ export function stopRecording() {
             const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
             mediaRecorder.stream.getTracks().forEach((track) => track.stop());
             isRecording = false;
+            setVoiceState('deactivate', { voiceModeActive: false });
             resolve(blob);
         };
 
@@ -479,7 +551,7 @@ export async function captureAndRecognize() {
             const blob = await stopRecording();
             if (!blob) return { intent: 'unknown', text: '', confidence: 0 };
             try {
-                return await recognizeVoice(blob);
+                return await recognizeVoice(blob, getRecognitionOptions());
             } catch {
                 return { intent: 'error', text: '', confidence: 0 };
             }
@@ -514,8 +586,8 @@ export async function stopPushToTalk() {
     pushToTalkActive = false;
 
     const result = await session.stop();
-    if (result?.text && onIntentCallback) {
-        onIntentCallback(result);
+    if (result?.text) {
+        _handleIntentWithRecovery(result);
     }
     return result;
 }

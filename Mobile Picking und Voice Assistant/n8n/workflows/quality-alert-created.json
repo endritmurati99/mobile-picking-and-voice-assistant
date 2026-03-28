@@ -11,26 +11,54 @@
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [250, 300]
+      "position": [240, 280]
     },
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ status: 'received', alert_id: $json.alert_id }) }}"
+        "responseBody": "={{ JSON.stringify({ status: 'accepted', tts_text: 'Quality Alert empfangen.', source: 'n8n', correlation_id: $json.body?.correlation_id || $json.correlation_id }) }}"
       },
       "name": "Respond",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [450, 300]
+      "position": [480, 120]
     },
     {
       "parameters": {
-        "content": "=Quality Alert **{{ $json.name }}** erstellt\n\nAlert-ID: {{ $json.alert_id }}\nPicking-ID: {{ $json.picking_id }}\nPrioritaet: {{ $json.priority }}\nFotos: {{ $json.photo_count }}\nGemeldet von: {{ $json.reported_by }}\nPicker-ID: {{ $json.reported_by_user_id }}\nGeraet: {{ $json.reported_by_device_id }}"
+        "functionCode": "const request = items[0]?.json || {};\nconst input = request.body || request;\nconst payload = input.payload || {};\nconst description = String(payload.description || '').trim();\nconst descriptionLower = description.toLowerCase();\nconst priority = String(payload.priority || '0');\nconst photoCount = Number(payload.photo_count || 0);\nlet aiDisposition = 'sellable';\nlet aiConfidence = 0.62;\nlet aiRecommendedAction = 'Sichtpruefung durch Qualitaetsteam.';\nif (priority === '3' || /(totalschaden|zerstoert|eingedrueckt|bruch|gebrochen)/.test(descriptionLower)) {\n  aiDisposition = 'scrap';\n  aiConfidence = 0.94;\n  aiRecommendedAction = 'Ware sperren, aussondern und Schichtleitung informieren.';\n} else if (priority === '2' || photoCount > 0 || /(defekt|gerissen|feucht|nass|offen|beschaedigt)/.test(descriptionLower)) {\n  aiDisposition = 'quarantine';\n  aiConfidence = 0.87;\n  aiRecommendedAction = 'Ware sperren und manuelle Pruefung anfordern.';\n} else if (/(kratzer|etikett|verpackung|kleber|nacharbeit)/.test(descriptionLower)) {\n  aiDisposition = 'rework';\n  aiConfidence = 0.79;\n  aiRecommendedAction = 'Nacharbeit pruefen und Verpackung korrigieren.';\n}\nconst severityLabel = priority === '3' ? 'kritisch' : priority === '2' ? 'hoch' : 'normal';\nconst aiSummary = description\n  ? `Automatische V1-Bewertung (${severityLabel}): ${description}`\n  : `Automatische V1-Bewertung fuer Alert ${payload.alert_id || ''}.`;\nreturn [{ json: {\n  correlation_id: input.correlation_id,\n  alert_id: payload.alert_id,\n  ai_disposition: aiDisposition,\n  ai_confidence: aiConfidence,\n  ai_summary: aiSummary,\n  ai_recommended_action: aiRecommendedAction,\n  ai_provider: 'n8n-heuristic-agent',\n  ai_model: 'quality-v1',\n  log_message: `Alert ${payload.name || payload.alert_id}: ${aiDisposition} | Prioritaet ${priority} | ${description || 'ohne Beschreibung'}`,\n} }];"
       },
-      "name": "Format Alert",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3,
-      "position": [450, 500]
+      "name": "Assess Alert",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [540, 280]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "http://backend:8000/api/internal/n8n/quality-assessment",
+        "jsonParameters": true,
+        "options": {},
+        "headerParametersJson": "={{ JSON.stringify({ \"X-N8N-Callback-Secret\": $env.N8N_CALLBACK_SECRET, \"Idempotency-Key\": $json.correlation_id }) }}",
+        "bodyParametersJson": "={{ JSON.stringify({ correlation_id: $json.correlation_id, alert_id: $json.alert_id, ai_disposition: $json.ai_disposition, ai_confidence: $json.ai_confidence, ai_summary: $json.ai_summary, ai_recommended_action: $json.ai_recommended_action, ai_provider: $json.ai_provider, ai_model: $json.ai_model }) }}"
+      },
+      "name": "Write Assessment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [850, 220]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "http://backend:8000/api/obsidian/log",
+        "jsonParameters": true,
+        "options": {},
+        "headerParametersJson": "={{ JSON.stringify({ \"X-N8N-Callback-Secret\": $env.N8N_CALLBACK_SECRET }) }}",
+        "bodyParametersJson": "={{ JSON.stringify({ category: 'QA-ALARM', message: $json.log_message }) }}"
+      },
+      "name": "Log To Obsidian",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1100, 340]
     }
   ],
   "connections": {
@@ -38,11 +66,31 @@
       "main": [
         [
           { "node": "Respond", "type": "main", "index": 0 },
-          { "node": "Format Alert", "type": "main", "index": 0 }
+          { "node": "Assess Alert", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Assess Alert": {
+      "main": [
+        [
+          { "node": "Write Assessment", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Write Assessment": {
+      "main": [
+        [
+          { "node": "Log To Obsidian", "type": "main", "index": 0 }
         ]
       ]
     }
   },
-  "settings": { "executionOrder": "v1" },
-  "tags": [{ "name": "quality" }]
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "error-trigger"
+  },
+  "tags": [
+    { "name": "quality" },
+    { "name": "cqrs" }
+  ]
 }

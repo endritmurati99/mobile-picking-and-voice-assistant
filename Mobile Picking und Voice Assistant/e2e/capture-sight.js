@@ -21,16 +21,28 @@ const startStaticServer =
   ['127.0.0.1', 'localhost'].includes(baseUrlObject.hostname) &&
   String(baseUrlObject.port || '80') === '4173';
 
+async function selectPickerIfNeeded(page) {
+  const pickerButton = page.locator('.picker-option').first();
+  const isPickerScreen = await pickerButton.isVisible().catch(() => false);
+  if (isPickerScreen) {
+    await pickerButton.click();
+    await page.locator('.pick-list-card[data-id]').first().waitFor({ state: 'visible', timeout: timeoutMs });
+  }
+}
+
 const VIEW_CONFIGS = {
   list: {
     readyDescription: 'Picking-Liste ist geladen',
     selectors: ['#main', '.pick-list-card[data-id], .pick-card[data-id]'],
-    action: async () => {},
+    action: async (page) => {
+      await selectPickerIfNeeded(page);
+    },
   },
   detail: {
     readyDescription: 'Picking-Detail mit bestaetigbarer Zeile ist sichtbar',
     selectors: ['#main .pick-card', '#main .btn-confirm'],
     action: async (page) => {
+      await selectPickerIfNeeded(page);
       const firstPicking = page.locator('.pick-list-card[data-id], .pick-card[data-id]').first();
       await firstPicking.waitFor({ state: 'visible', timeout: timeoutMs });
       await firstPicking.click();
@@ -40,6 +52,7 @@ const VIEW_CONFIGS = {
     readyDescription: 'Quality-Alert-Formular ist sichtbar',
     selectors: ['#qa-description', '#qa-priority', '#qa-submit'],
     action: async (page) => {
+      await selectPickerIfNeeded(page);
       const firstPicking = page.locator('.pick-list-card[data-id], .pick-card[data-id]').first();
       await firstPicking.waitFor({ state: 'visible', timeout: timeoutMs });
       await firstPicking.click();

@@ -1,0 +1,140 @@
+{
+  "name": "Error Trigger",
+  "nodes": [
+    {
+      "parameters": {},
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 280]
+    },
+    {
+      "parameters": {
+        "functionCode": "const input = items[0]?.json || {};\nconst exec = input.execution || {};\nconst wf = input.workflow || {};\nconst err = exec.error || {};\nconst workflow_name = String(wf.name || 'unknown-workflow');\nconst workflow_key = workflow_name.toLowerCase();\nconst failing_node = String(err.node || 'unknown');\nconst error_message = String(err.message || 'Unknown error');\nconst execution_url = String(exec.url || '');\n\nconst normalizeNumericId = (value) => {\n  if (value === undefined || value === null || value === '') {\n    return null;\n  }\n  const numeric = Number(value);\n  return Number.isFinite(numeric) ? numeric : null;\n};\n\nconst collectItemJsons = () => {\n  const collected = [];\n  try {\n    const data = exec.data || {};\n    const resultData = data.resultData || {};\n    const runData = resultData.runData || {};\n    for (const nodeRuns of Object.values(runData)) {\n      if (!Array.isArray(nodeRuns)) {\n        continue;\n      }\n      for (const run of nodeRuns) {\n        const branches = run && run.data && run.data.main;\n        if (!Array.isArray(branches)) {\n          continue;\n        }\n        for (const branch of branches) {\n          if (!Array.isArray(branch)) {\n            continue;\n          }\n          for (const item of branch) {\n            if (item && item.json && typeof item.json === 'object') {\n              collected.push(item.json);\n            }\n          }\n        }\n      }\n    }\n  } catch (e) {\n    return collected;\n  }\n  return collected;\n};\n\nlet correlation_id = '';\nlet alert_id = null;\nlet picking_id = null;\n\nfor (const itemJson of collectItemJsons()) {\n  if (!correlation_id && itemJson.correlation_id) {\n    correlation_id = String(itemJson.correlation_id);\n  }\n  const payload = itemJson.payload || {};\n  const pickingContext = itemJson.picking_context || {};\n\n  if (alert_id === null) {\n    alert_id = normalizeNumericId(itemJson.alert_id ?? payload.alert_id);\n  }\n  if (picking_id === null) {\n    picking_id = normalizeNumericId(itemJson.picking_id ?? pickingContext.picking_id ?? payload.picking_id);\n  }\n\n  if (correlation_id && alert_id !== null && picking_id !== null) {\n    break;\n  }\n}\n\nlet route = 'log_only';\nif (workflow_key.includes('quality') && alert_id !== null) {\n  route = 'quality';\n} else if (workflow_key.includes('shortage') && picking_id !== null) {\n  route = 'shortage';\n}\n\nreturn [{ json: {\n  workflow_name,\n  failing_node,\n  error_message,\n  correlation_id,\n  execution_url,\n  alert_id,\n  picking_id,\n  route,\n} }];"
+      },
+      "name": "Extract Context",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [480, 280]
+    },
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $json.route }}",
+        "rules": {
+          "rules": [
+            {
+              "operation": "equal",
+              "value2": "shortage",
+              "output": 0
+            },
+            {
+              "operation": "equal",
+              "value2": "quality",
+              "output": 1
+            }
+          ]
+        },
+        "fallbackOutput": 2
+      },
+      "name": "Branch by Workflow",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [720, 280]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "http://backend:8000/api/internal/n8n/manual-review-activity",
+        "jsonParameters": true,
+        "options": {},
+        "headerParametersJson": "={{ JSON.stringify({ \"X-N8N-Callback-Secret\": $env.N8N_CALLBACK_SECRET }) }}",
+        "bodyParametersJson": "={{ JSON.stringify({ picking_id: $json.picking_id, correlation_id: $json.correlation_id, reason: $json.error_message, execution_url: $json.execution_url }) }}"
+      },
+      "name": "Notify Shortage Failure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "onError": "continueRegularOutput",
+      "position": [960, 140]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "http://backend:8000/api/internal/n8n/quality-assessment-failed",
+        "jsonParameters": true,
+        "options": {},
+        "headerParametersJson": "={{ JSON.stringify({ \"X-N8N-Callback-Secret\": $env.N8N_CALLBACK_SECRET }) }}",
+        "bodyParametersJson": "={{ JSON.stringify({ alert_id: $json.alert_id, correlation_id: $json.correlation_id, failure_reason: $json.error_message }) }}"
+      },
+      "name": "Notify Quality Failure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "onError": "continueRegularOutput",
+      "position": [960, 280]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "http://backend:8000/api/obsidian/log",
+        "jsonParameters": true,
+        "options": {},
+        "headerParametersJson": "={{ JSON.stringify({ \"X-N8N-Callback-Secret\": $env.N8N_CALLBACK_SECRET }) }}",
+        "bodyParametersJson": "={{ JSON.stringify({ message: 'INCIDENT: ' + $json.workflow_name + ' ' + $json.error_message + ' (correlation: ' + $json.correlation_id + ')', category: 'INCIDENT' }) }}"
+      },
+      "name": "Log to Obsidian",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "onError": "continueRegularOutput",
+      "position": [1200, 280]
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          { "node": "Extract Context", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Extract Context": {
+      "main": [
+        [
+          { "node": "Branch by Workflow", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Branch by Workflow": {
+      "main": [
+        [
+          { "node": "Notify Shortage Failure", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Notify Quality Failure", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Log to Obsidian", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Notify Shortage Failure": {
+      "main": [
+        [
+          { "node": "Log to Obsidian", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Notify Quality Failure": {
+      "main": [
+        [
+          { "node": "Log to Obsidian", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    { "name": "error-handling" }
+  ]
+}

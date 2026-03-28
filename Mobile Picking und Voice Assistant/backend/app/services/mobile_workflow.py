@@ -46,6 +46,12 @@ class ClaimConflictError(Exception):
         super().__init__(message)
 
 
+class InvalidPickerIdentityError(Exception):
+    def __init__(self, user_id: int | None = None):
+        self.user_id = user_id
+        super().__init__("Unbekannter oder inaktiver Picker.")
+
+
 class MobileWorkflowService:
     def __init__(self, odoo: OdooClient):
         self._odoo = odoo
@@ -73,11 +79,13 @@ class MobileWorkflowService:
 
         users = await self._odoo.search_read(
             "res.users",
-            [("id", "=", identity.user_id)],
+            [("id", "=", identity.user_id), ("active", "=", True), ("share", "=", False)],
             ["name"],
             limit=1,
         )
-        picker_name = users[0].get("name", "") if users else ""
+        if not users:
+            raise InvalidPickerIdentityError(identity.user_id)
+        picker_name = users[0].get("name", "")
         return PickerIdentity(
             user_id=identity.user_id,
             device_id=identity.device_id,

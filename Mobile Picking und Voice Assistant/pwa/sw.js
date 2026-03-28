@@ -1,4 +1,4 @@
-const CACHE_NAME = 'picking-v4';
+const CACHE_NAME = 'picking-v10';
 const PRECACHE = [
     '/',
     '/index.html',
@@ -12,6 +12,7 @@ const PRECACHE = [
     '/js/ui.js',
     '/js/voice.js',
     '/js/voice-helpers.mjs',
+    '/js/voice-runtime.mjs',
 ];
 self.addEventListener('install', e => {
     e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(PRECACHE)).then(() => self.skipWaiting()));
@@ -26,5 +27,14 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
     // API-Calls nie intercepten — direkt ans Netzwerk
     if (e.request.url.includes('/api/')) return;
-    e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+    // Cache-first fuer Shell-Assets: schnellere Antwort, Netzwerk als Fallback
+    e.respondWith(
+        caches.match(e.request).then(cached => cached || fetch(e.request).then(response => {
+            // Nur erfolgreiche GET-Antworten nachtraeglich cachen
+            if (e.request.method === 'GET' && response.ok) {
+                caches.open(CACHE_NAME).then(c => c.put(e.request, response.clone()));
+            }
+            return response;
+        }))
+    );
 });

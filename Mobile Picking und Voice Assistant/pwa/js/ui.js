@@ -15,6 +15,15 @@ const state = {
 
 const listeners = new Set();
 
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 export function getState() {
     return { ...state };
 }
@@ -30,21 +39,38 @@ export function subscribe(fn) {
 }
 
 function renderOperationalPickCard({ move, productLabel, locationLabel, zoneLabel, quantityLabel }) {
+    const initials = productLabel
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part[0]?.toUpperCase() || '')
+        .join('') || 'PK';
+    const productSku = move.product_sku || move.product_barcode || 'Keine SKU';
+
+    const productImageHtml = move.product_id
+        ? `<img src="/api/products/${move.product_id}/image" alt="" loading="lazy" onerror="this.remove()">`
+        : '';
+
     return `
-        <div class="pick-card">
-            <div class="pick-card__eyebrow">${zoneLabel}</div>
-            <div class="pick-card__product">${productLabel}</div>
-            <div class="pick-card__location">${locationLabel}</div>
-            <div class="pick-card__meta">
-                <div class="pick-card__quantity">${quantityLabel} Stueck</div>
-                <div class="pick-card__barcode" aria-hidden="true">
-                    Barcode: ${move.product_barcode || '-'}
+        <section class="pick-card" aria-label="Aktueller Pick">
+            <div class="pick-card__media" aria-hidden="true">${productImageHtml}${initials}</div>
+            <div class="pick-card__content">
+                <div class="pick-card__eyebrow">${zoneLabel}</div>
+                <div class="pick-card__product">${productLabel}</div>
+                <div class="pick-card__meta">
+                    <span class="pick-card__sku">${productSku}</span>
+                    <span class="pick-card__barcode">Barcode: ${move.product_barcode || '-'}</span>
                 </div>
+                <div class="pick-card__quantity">${quantityLabel} Stueck</div>
+            </div>
+            <div class="pick-card__location-box">
+                <div class="pick-card__location-label">Platz</div>
+                <div class="pick-card__location">${locationLabel}</div>
             </div>
             <button class="btn-confirm" data-line-id="${move.id}">
                 Bestaetigen
             </button>
-        </div>
+        </section>
     `;
 }
 
@@ -67,28 +93,39 @@ export function renderPickCard(move) {
 }
 
 export function renderLoading() {
-    return '<div style="text-align:center; padding:40px; color:var(--text-muted);">Laden...</div>';
+    return `
+        <div class="state-panel state-panel--loading" role="status" aria-live="polite">
+            <div class="state-panel__eyebrow">Synchronisiert</div>
+            <div class="state-panel__title">Lagerdaten werden vorbereitet</div>
+            <div class="state-panel__meta">Session, Profilstatus und offene Auftraege werden geladen.</div>
+            <div class="state-panel__track" aria-hidden="true">
+                <span class="state-panel__bar"></span>
+            </div>
+        </div>
+    `;
 }
 
 export function renderError(message) {
-    return `<div style="text-align:center; padding:40px; color:var(--danger);">${message}</div>`;
+    return `
+        <div class="state-panel state-panel--error" role="alert">
+            <div class="state-panel__eyebrow">Stoerung</div>
+            <div class="state-panel__title">Fehler</div>
+            <div class="state-panel__meta">${escapeHtml(message)}</div>
+        </div>
+    `;
 }
 
 export function showToast(message, type = 'info') {
     const toast = document.createElement('div');
-    const colors = { info: '#0f3460', success: '#4caf50', error: '#f44336', warning: '#ff9800' };
-    toast.style.cssText = `
-        position:fixed; bottom:80px; left:50%; transform:translateX(-50%);
-        background:${colors[type]}; color:#fff; padding:12px 24px; border-radius:8px;
-        font-size:0.9rem; z-index:1000; opacity:0; transition:opacity 0.3s;
-    `;
+    toast.className = `toast toast--${type}`;
+    toast.setAttribute('role', 'status');
     toast.textContent = message;
     document.body.appendChild(toast);
     requestAnimationFrame(() => {
-        toast.style.opacity = '1';
+        toast.classList.add('toast--visible');
     });
     setTimeout(() => {
-        toast.style.opacity = '0';
+        toast.classList.remove('toast--visible');
         setTimeout(() => toast.remove(), 300);
     }, 3000);
 }

@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import pickings, quality, voice, scan, health, obsidian
+from app.routers import pickings, quality, voice, scan, health, obsidian, n8n_internal
 
 app = FastAPI(
     title="Picking Assistant API",
@@ -25,3 +25,4 @@ app.include_router(quality.router, prefix="/api", tags=["quality"])
 app.include_router(voice.router, prefix="/api", tags=["voice"])
 app.include_router(scan.router, prefix="/api", tags=["scan"])
 app.include_router(obsidian.router, prefix="/api", tags=["obsidian"])
+app.include_router(n8n_internal.router, prefix="/api")
