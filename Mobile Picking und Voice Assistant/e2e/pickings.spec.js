@@ -2,7 +2,7 @@ const { test, expect } = require('@playwright/test');
 const { mockPwaApi } = require('./helpers/pwa-api');
 
 async function choosePicker(page, name = 'Endrit Murati') {
-  await expect(page.getByRole('heading', { name: 'Profil auswaehlen' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Profil auswählen' })).toBeVisible();
   await page.getByRole('button', { name }).click();
 }
 
@@ -27,6 +27,7 @@ test('loads the picking list and opens the picking detail view', async ({ page }
   await expect(page.locator('#main')).toContainText('Brick 2x2 orange');
   await expect(page.locator('#main')).toContainText('1 / 2');
   await expect(page.locator('#main')).toContainText('L-E1-P1');
+  await expect(page.locator('.detail-product-hero__media')).toBeVisible();
   await expect(page.locator('#main .btn-confirm')).toBeVisible();
   await expect(page.locator('#nav')).toBeVisible();
 });
@@ -59,7 +60,7 @@ test('filters locally by search, urgency and preferred zone', async ({ page }) =
   await expect(page.getByText('2x Brick 1x4 blau')).toBeHidden();
 
   await page.getByRole('button', { name: 'Mein Bereich (0)' }).click();
-  await expect(page.getByRole('heading', { name: 'Bevorzugten Bereich waehlen' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Bevorzugten Bereich wählen' })).toBeVisible();
   await page.getByRole('button', { name: /Lager Links/ }).click();
 
   await expect(page.getByText('LEGO Ente')).toBeVisible();

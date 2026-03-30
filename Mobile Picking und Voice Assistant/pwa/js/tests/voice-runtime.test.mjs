@@ -106,7 +106,7 @@ test('classifyVoiceResult gates low confidence results', () => {
 
 test('getVoiceStatusPresentation exposes the intended labels', () => {
     assert.deepEqual(getVoiceStatusPresentation('idle'), { label: 'Bereit', tone: 'idle' });
-    assert.deepEqual(getVoiceStatusPresentation('recording'), { label: 'Hoert zu', tone: 'listening' });
+    assert.deepEqual(getVoiceStatusPresentation('recording'), { label: 'Hört zu', tone: 'listening' });
     assert.deepEqual(getVoiceStatusPresentation('recognized'), { label: 'Erkannt', tone: 'recognized' });
     assert.deepEqual(getVoiceStatusPresentation('unknown'), { label: 'Unsicher', tone: 'uncertain' });
 });

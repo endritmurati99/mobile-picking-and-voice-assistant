@@ -1,8 +1,13 @@
-const CACHE_NAME = 'picking-v10';
+const CACHE_NAME = 'picking-v11';
 const PRECACHE = [
     '/',
     '/index.html',
+    '/manifest.json',
     '/css/app.css',
+    '/fonts/outfit-latin-variable.woff2',
+    '/fonts/jetbrains-mono-latin-variable.woff2',
+    '/icons/icon-192.png',
+    '/icons/icon-512.png',
     '/js/api.js',
     '/js/app.js',
     '/js/camera.js',
@@ -14,27 +19,67 @@ const PRECACHE = [
     '/js/voice-helpers.mjs',
     '/js/voice-runtime.mjs',
 ];
-self.addEventListener('install', e => {
-    e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(PRECACHE)).then(() => self.skipWaiting()));
+
+function isSameOrigin(url) {
+    return url.origin === self.location.origin;
+}
+
+function shouldHandleRequest(request) {
+    if (request.method !== 'GET') return false;
+
+    const url = new URL(request.url);
+    if (!isSameOrigin(url)) return false;
+    if (url.pathname.startsWith('/api/')) return false;
+
+    return request.mode === 'navigate' || PRECACHE.includes(url.pathname);
+}
+
+async function precacheShell() {
+    const cache = await caches.open(CACHE_NAME);
+    await cache.addAll(PRECACHE.map((asset) => new Request(asset, { cache: 'reload' })));
+}
+
+async function networkFirst(request) {
+    const cache = await caches.open(CACHE_NAME);
+
+    try {
+        const response = await fetch(request, { cache: 'no-store' });
+        if (response.ok) {
+            cache.put(request, response.clone());
+        }
+        return response;
+    } catch (error) {
+        const cached = await cache.match(request, { ignoreSearch: request.mode === 'navigate' });
+        if (cached) return cached;
+
+        if (request.mode === 'navigate') {
+            const fallback = await cache.match('/index.html');
+            if (fallback) return fallback;
+        }
+
+        throw error;
+    }
+}
+
+self.addEventListener('install', (event) => {
+    event.waitUntil(precacheShell());
 });
-self.addEventListener('activate', e => {
-    e.waitUntil(
+
+self.addEventListener('activate', (event) => {
+    event.waitUntil(
         caches.keys()
-            .then(keys => Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))))
+            .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
             .then(() => self.clients.claim())
     );
 });
-self.addEventListener('fetch', e => {
-    // API-Calls nie intercepten — direkt ans Netzwerk
-    if (e.request.url.includes('/api/')) return;
-    // Cache-first fuer Shell-Assets: schnellere Antwort, Netzwerk als Fallback
-    e.respondWith(
-        caches.match(e.request).then(cached => cached || fetch(e.request).then(response => {
-            // Nur erfolgreiche GET-Antworten nachtraeglich cachen
-            if (e.request.method === 'GET' && response.ok) {
-                caches.open(CACHE_NAME).then(c => c.put(e.request, response.clone()));
-            }
-            return response;
-        }))
-    );
+
+self.addEventListener('message', (event) => {
+    if (event.data?.type === 'SKIP_WAITING') {
+        self.skipWaiting();
+    }
+});
+
+self.addEventListener('fetch', (event) => {
+    if (!shouldHandleRequest(event.request)) return;
+    event.respondWith(networkFirst(event.request));
 });

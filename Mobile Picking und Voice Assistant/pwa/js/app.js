@@ -36,7 +36,7 @@ import {
     heartbeatPicking,
 } from './api.js';
 import { feedbackSuccess, feedbackError } from './feedback.js';
-import { setState, getState, subscribe, renderPickCard, renderLoading, renderError, showToast } from './ui.js';
+import { setState, getState, subscribe, renderPickCard, renderLoading, renderError, renderProductVisual, showToast } from './ui.js';
 import { initHIDScanner, showManualInput, openCameraScanner } from './scanner.js';
 import {
     speak,
@@ -65,6 +65,9 @@ const VOICE_LONG_PRESS_MS = 350;
 const DEFAULT_FILTER = 'all';
 const ZONE_FILTER = 'zone';
 const VOICE_ASSIST_SHORTAGE_RE = /\b(fehlt|fehlmenge|mangel|nachschub|leer|restbestand)\b/i;
+const DARK_THEME_COLOR = '#091014';
+const LIGHT_THEME_COLOR = '#F5F5F5';
+const LIFECYCLE_REFRESH_DEBOUNCE_MS = 900;
 
 function formatLocationForSpeech(locationPath) {
     if (!locationPath) return '';
@@ -172,18 +175,9 @@ function getPrimaryItemSku(picking) {
 }
 
 function getListScopeLabel() {
-    if (activeFilter === 'high') return 'Nur dringende Auftraege';
+    if (activeFilter === 'high') return 'Nur dringende Aufträge';
     if (activeFilter === ZONE_FILTER && preferredZone?.label) return preferredZone.label;
     return 'Alle Bereiche';
-}
-
-function getThumbnailInitials(label) {
-    return String(label || 'PK')
-        .split(/\s+/)
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((part) => part[0]?.toUpperCase() || '')
-        .join('') || 'PK';
 }
 
 function escapeHtml(value) {
@@ -195,8 +189,20 @@ function escapeHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
+function normalizeSearchText(value) {
+    return String(value || '')
+        .toLowerCase()
+        .replace(/ä/g, 'ae')
+        .replace(/ö/g, 'oe')
+        .replace(/ü/g, 'ue')
+        .replace(/ß/g, 'ss')
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim();
+}
+
 function buildSearchHaystack(picking) {
-    return [
+    return normalizeSearchText([
         getPickingKitName(picking),
         getPickingReference(picking),
         getPickingPrimaryLabel(picking),
@@ -204,11 +210,11 @@ function buildSearchHaystack(picking) {
         picking?.next_location_short,
         picking?.partner_id?.[1] || '',
         getPrimaryZoneLabel(picking),
-    ].join(' ').toLowerCase();
+    ].join(' '));
 }
 
 function filterBySearch(pickings, query) {
-    const normalizedQuery = String(query || '').trim().toLowerCase();
+    const normalizedQuery = normalizeSearchText(query);
     if (!normalizedQuery) return pickings;
     return pickings.filter((picking) => buildSearchHaystack(picking).includes(normalizedQuery));
 }
@@ -244,7 +250,7 @@ function getLineDisplayName(line) {
 }
 
 function getLineQuantityLabel(line) {
-    return `${formatQuantity(line?.quantity_demand)} Stueck`;
+    return `${formatQuantity(line?.quantity_demand)} Stück`;
 }
 
 function getLineSpeechPrompt(line) {
@@ -254,7 +260,7 @@ function getLineSpeechPrompt(line) {
     const product = getLineDisplayName(line);
     return [
         locationShort ? `${locationShort}.` : '',
-        `${formatQuantity(line.quantity_demand)} Stueck.`,
+        `${formatQuantity(line.quantity_demand)} Stück.`,
         product ? `${product}.` : '',
     ].filter(Boolean).join(' ');
 }
@@ -284,7 +290,7 @@ function renderRouteHint(picking, currentLineIndex) {
     return `
         <section class="route-hint" aria-label="Optimierte Routenempfehlung">
             <div class="route-hint__eyebrow">Route Intelligence</div>
-            <div class="route-hint__title">Naechster Halt: ${nextLocation}</div>
+            <div class="route-hint__title">Nächster Halt: ${nextLocation}</div>
             <div class="route-hint__meta">
                 ${remainingLines.length} Stopps offen - Laufweg-Score ${remainingTravelScore}
             </div>
@@ -308,6 +314,8 @@ let preferredZone = getStoredPreferredZone();
 let highContrastEnabled = getStoredHighContrastEnabled();
 let sessionState = 'profile_required';
 let pickerCatalog = getCachedPickers();
+let lastLifecycleRefreshAt = 0;
+let lifecycleRefreshPromise = null;
 const pendingRequestControllers = new Set();
 
 const mainEl = () => document.getElementById('main');
@@ -327,6 +335,8 @@ const navEl = () => document.getElementById('nav');
 const btnVoice = () => document.getElementById('btn-voice');
 const btnScan = () => document.getElementById('btn-scan');
 const btnAlert = () => document.getElementById('btn-alert');
+const themeColorMetaEl = () => document.querySelector('meta[name="theme-color"]');
+const statusBarMetaEl = () => document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
 
 function getPickerShortLabel(picker) {
     const normalizedName = String(picker?.name || '')
@@ -368,6 +378,25 @@ function abortPendingRequests() {
 
 function isAbortError(error) {
     return error?.name === 'AbortError';
+}
+
+function resetMainScroll() {
+    const main = mainEl();
+    if (main) main.scrollTop = 0;
+}
+
+function setMainContent(markup, { resetScroll = true } = {}) {
+    const main = mainEl();
+    if (!main) return;
+    main.innerHTML = markup;
+    if (resetScroll) resetMainScroll();
+}
+
+function syncThemeChrome() {
+    const themeColor = highContrastEnabled ? LIGHT_THEME_COLOR : DARK_THEME_COLOR;
+    document.documentElement.style.colorScheme = highContrastEnabled ? 'light' : 'dark';
+    themeColorMetaEl()?.setAttribute('content', themeColor);
+    statusBarMetaEl()?.setAttribute('content', highContrastEnabled ? 'default' : 'black-translucent');
 }
 
 function resetSearchUi() {
@@ -451,8 +480,8 @@ function updatePickerIndicator() {
         indicator.classList.remove('picker-indicator--empty');
     } else {
         indicator.textContent = 'Profil';
-        indicator.title = 'Profil waehlen';
-        indicator.setAttribute('aria-label', 'Profil waehlen');
+        indicator.title = 'Profil wählen';
+        indicator.setAttribute('aria-label', 'Profil wählen');
         indicator.dataset.shortLabel = '+';
         indicator.classList.add('picker-indicator--empty');
     }
@@ -531,6 +560,7 @@ function updateTaskCounter(count) {
 
 function applyHighContrastTheme() {
     document.body.classList.toggle('high-contrast', highContrastEnabled);
+    syncThemeChrome();
     const toggle = highContrastToggleEl();
     if (!toggle) return;
     toggle.setAttribute('aria-pressed', highContrastEnabled ? 'true' : 'false');
@@ -545,7 +575,7 @@ function applyMobileSearchState() {
     if (!toggle) return;
     toggle.setAttribute('aria-pressed', mobileSearchOpen ? 'true' : 'false');
     toggle.classList.toggle('status-toggle--active', mobileSearchOpen);
-    toggle.title = mobileSearchOpen ? 'Suche geoeffnet' : 'Suche';
+    toggle.title = mobileSearchOpen ? 'Suche geöffnet' : 'Suche';
 }
 
 function openMobileSearch({ focus = false } = {}) {
@@ -567,6 +597,107 @@ async function closeMobileSearch() {
     if (!searchQuery && !getState().currentPicking) {
         await loadPickingList({ skipRelease: true });
     }
+}
+
+function shouldActivateServiceWorkerUpdate() {
+    return sessionState !== 'alert';
+}
+
+function handleServiceWorkerUpdateReady() {
+    if (sessionState === 'alert') {
+        showToast('App-Update bereit. Nach dem Absenden bitte neu öffnen.', 'info');
+    }
+}
+
+function handleServiceWorkerControllerRefresh() {
+    if (sessionState === 'alert') {
+        showToast('App aktualisiert. Nach dem Absenden neu laden.', 'info');
+        return;
+    }
+    window.location.reload();
+}
+
+function shouldRunLifecycleRefresh() {
+    const now = Date.now();
+    if (now - lastLifecycleRefreshAt < LIFECYCLE_REFRESH_DEBOUNCE_MS) return false;
+    lastLifecycleRefreshAt = now;
+    return true;
+}
+
+async function refreshActivePickingDetail() {
+    const { currentPicking, currentLineIndex, currentPicker } = getState();
+    if (!currentPicking?.id || !currentPicker?.id) return;
+
+    try {
+        if (claimedPickingId === currentPicking.id) {
+            await withManagedRequest((signal) => heartbeatPicking(currentPicking.id, {
+                idempotencyKey: buildOperationKey('heartbeat-refresh', [currentPicking.id, Date.now()], { unique: true }),
+                signal,
+            }));
+            startClaimHeartbeat(currentPicking.id);
+        }
+
+        const refreshedPicking = await withManagedRequest((signal) => getPickingDetail(currentPicking.id, { signal }));
+        const nextLineIndex = Math.min(
+            currentLineIndex,
+            Math.max((refreshedPicking.move_lines || []).length - 1, 0),
+        );
+
+        setState({
+            currentPicking: refreshedPicking,
+            currentLineIndex: nextLineIndex,
+        });
+        renderCurrentLine();
+    } catch (error) {
+        if (isAbortError(error)) return;
+        if (error instanceof ApiError && error.status === 409 && typeof error.detail === 'object') {
+            claimedPickingId = null;
+            stopClaimHeartbeat();
+            renderClaimConflict(error.detail, currentPicking.id);
+            return;
+        }
+        if (error instanceof ApiError && (error.status === 400 || error.status === 403)) {
+            showToast('Profil bitte neu wählen.', 'warning');
+            await switchProfile();
+            return;
+        }
+        showToast(`Ansicht konnte nicht aktualisiert werden: ${error.message}`, 'warning');
+        updateConnectivityStatus();
+    }
+}
+
+async function refreshCurrentView() {
+    if (!navigator.onLine || !shouldRunLifecycleRefresh()) return;
+    if (lifecycleRefreshPromise) return lifecycleRefreshPromise;
+
+    lifecycleRefreshPromise = (async () => {
+        if (sessionState === 'alert') return;
+
+        if (!getState().currentPicker) {
+            if (sessionState === 'profile_required') {
+                await showProfileSelection({ preferCache: true });
+            }
+            return;
+        }
+
+        if (sessionState === 'detail') {
+            await refreshActivePickingDetail();
+            return;
+        }
+
+        if (sessionState === 'complete' || sessionState === 'locked') {
+            await loadPickingList({ skipRelease: true });
+            return;
+        }
+
+        if (sessionState === 'list' || sessionState === 'search_expanded') {
+            await loadPickingList({ skipRelease: true });
+        }
+    })().finally(() => {
+        lifecycleRefreshPromise = null;
+    });
+
+    return lifecycleRefreshPromise;
 }
 
 function renderFilterChips(basePickings) {
@@ -612,7 +743,7 @@ function openZonePicker(pickings) {
 
     const zones = collectZoneOptions(pickings);
     if (!zones.length) {
-        showToast('Aktuell sind keine Bereiche verfuegbar.', 'warning');
+        showToast('Aktuell sind keine Bereiche verfügbar.', 'warning');
         activeFilter = DEFAULT_FILTER;
         renderPickingsView(pickings);
         return;
@@ -622,20 +753,20 @@ function openZonePicker(pickings) {
     overlay.innerHTML = `
         <div class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="zone-picker-title">
             <div class="modal-sheet__eyebrow">Mein Bereich</div>
-            <h2 id="zone-picker-title" class="modal-sheet__title">Bevorzugten Bereich waehlen</h2>
+            <h2 id="zone-picker-title" class="modal-sheet__title">Bevorzugten Bereich wählen</h2>
             <p class="modal-sheet__text">
-                Der Filter zeigt danach Auftraege, deren naechster Halt in diesem Bereich liegt.
+                Der Filter zeigt danach Aufträge, deren nächster Halt in diesem Bereich liegt.
             </p>
             <div class="modal-sheet__actions modal-sheet__actions--stack">
                 ${zones.map((zone) => `
                     <button type="button" class="picker-option" data-zone-key="${escapeHtml(zone.key)}" data-zone-label="${escapeHtml(zone.label)}">
-                        ${escapeHtml(zone.label)} <span class="picker-option__meta">${zone.count} Auftraege</span>
+                        ${escapeHtml(zone.label)} <span class="picker-option__meta">${zone.count} Aufträge</span>
                     </button>
                 `).join('')}
             </div>
             <div class="modal-sheet__footer">
                 <button type="button" id="zone-picker-cancel" class="picker-option">Abbrechen</button>
-                ${preferredZone?.key ? '<button type="button" id="zone-picker-clear" class="picker-option">Bereich loeschen</button>' : ''}
+                ${preferredZone?.key ? '<button type="button" id="zone-picker-clear" class="picker-option">Bereich löschen</button>' : ''}
             </div>
         </div>
     `;
@@ -670,7 +801,7 @@ function openZonePicker(pickings) {
     });
 }
 
-function renderListEmptyState(message, detail = 'Passe Suche oder Filter an, um weitere Auftraege einzublenden.') {
+function renderListEmptyState(message, detail = 'Passe Suche oder Filter an, um weitere Aufträge einzublenden.') {
     return `
         <div class="state-panel">
             <div class="state-panel__eyebrow">Listenstatus</div>
@@ -687,7 +818,7 @@ function renderQueueOverview(visiblePickings) {
     return `
         <section class="queue-overview" aria-label="Arbeitsbereich">
             <div class="queue-overview__eyebrow">Arbeitsbereich</div>
-            <div class="queue-overview__title">${visiblePickings.length} offene Auftraege</div>
+            <div class="queue-overview__title">${visiblePickings.length} offene Aufträge</div>
             <div class="queue-overview__meta">${escapeHtml(pickerName)}</div>
             <div class="queue-overview__stats">
                 <div class="queue-stat ${urgentCount > 0 ? 'queue-stat--warning' : ''}">
@@ -712,7 +843,6 @@ function renderPickingListCard(picking) {
     const typeName = getPickingTypeLabel(picking);
     const primaryLabel = getPickingHeadline(picking);
     const supportingLabel = getPickingSupportingLabel(picking);
-    const initials = getThumbnailInitials(primaryLabel);
     const partner = picking.partner_id ? picking.partner_id[1] : 'Ohne Partner';
     const scheduledDate = picking.scheduled_date
         ? new Date(picking.scheduled_date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
@@ -732,7 +862,12 @@ function renderPickingListCard(picking) {
                 </div>
             </div>
             <div class="pick-list-card__body">
-                <div class="pick-list-card__thumb" aria-hidden="true">${picking.primary_product_id ? `<img src="/api/products/${picking.primary_product_id}/image" alt="" loading="lazy" onerror="this.remove()">` : ''}${escapeHtml(initials)}</div>
+                ${renderProductVisual({
+                    productId: picking.primary_product_id,
+                    label: primaryLabel,
+                    className: 'pick-list-card__thumb product-visual product-visual--thumb',
+                    size: 256,
+                })}
                 <div class="pick-list-card__content">
                     <div class="pick-list-card__product">${escapeHtml(primaryLabel)}</div>
                     ${supportingLabel ? `<div class="pick-list-card__context">${escapeHtml(supportingLabel)}</div>` : ''}
@@ -744,7 +879,7 @@ function renderPickingListCard(picking) {
                     <div class="pick-list-card__quantity">${escapeHtml(getOpenLineLabel(picking.open_line_count))}</div>
                 </div>
                 <div class="pick-list-card__location-box">
-                    <div class="pick-list-card__location-label">Naechster Platz</div>
+                    <div class="pick-list-card__location-label">Nächster Platz</div>
                     <div class="pick-list-card__location">${escapeHtml(picking.next_location_short || 'Offen')}</div>
                     <div class="pick-list-card__date">${escapeHtml(scheduledDate)}</div>
                 </div>
@@ -776,39 +911,39 @@ function renderPickingsView(pickings) {
     updateTaskCounter(visiblePickings.length);
 
     if (!searchedPickings.length) {
-        mainEl().innerHTML = `
+        setMainContent(`
             <div class="queue-shell">
                 ${renderQueueOverview([])}
                 ${renderListEmptyState(
-                    'Keine Treffer fuer diese Suche.',
+                    'Keine Treffer für diese Suche.',
                     'Suche nach Auftrag, Produkt, SKU, Platz oder Partner.'
                 )}
             </div>
-        `;
+        `);
         return;
     }
 
     if (!visiblePickings.length) {
         const filterMessage = activeFilter === 'high'
-            ? 'Keine dringenden Auftraege fuer diese Suche.'
-            : 'In deinem Bereich gibt es aktuell keine passenden Auftraege.';
-        mainEl().innerHTML = `
+            ? 'Keine dringenden Aufträge für diese Suche.'
+            : 'In deinem Bereich gibt es aktuell keine passenden Aufträge.';
+        setMainContent(`
             <div class="queue-shell">
                 ${renderQueueOverview([])}
                 ${renderListEmptyState(filterMessage)}
             </div>
-        `;
+        `);
         return;
     }
 
-    mainEl().innerHTML = `
+    setMainContent(`
         <div class="queue-shell">
             ${renderQueueOverview(visiblePickings)}
-            <section class="pick-list-grid" aria-label="Offene Picking-Auftraege">
+            <section class="pick-list-grid" aria-label="Offene Picking-Aufträge">
                 ${visiblePickings.map((picking) => renderPickingListCard(picking)).join('')}
             </section>
         </div>
-    `;
+    `);
 
     mainEl().querySelectorAll('.pick-list-card[data-id]').forEach((card) => {
         card.addEventListener('click', () => loadPickingDetail(Number(card.dataset.id)));
@@ -842,7 +977,7 @@ function renderClaimConflict(conflict, pickingId) {
         ? new Date(conflict.claim_expires_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
         : 'bald';
 
-    mainEl().innerHTML = `
+    setMainContent(`
         <div class="picker-screen">
             <section class="picker-card">
                 <div class="picker-card__eyebrow">Claim-Konflikt</div>
@@ -852,12 +987,12 @@ function renderClaimConflict(conflict, pickingId) {
                     Ablauf des Claims: <strong>${escapeHtml(expiresAt)}</strong>.
                 </p>
                 <div class="picker-card__actions">
-                    <button id="claim-retry" class="picker-option picker-option--primary">Erneut pruefen</button>
-                    <button id="claim-back" class="picker-option">Zurueck zur Liste</button>
+                    <button id="claim-retry" class="picker-option picker-option--primary">Erneut prüfen</button>
+                    <button id="claim-back" class="picker-option">Zurück zur Liste</button>
                 </div>
             </section>
         </div>
-    `;
+    `);
 
     document.getElementById('claim-retry')?.addEventListener('click', () => loadPickingDetail(pickingId));
     document.getElementById('claim-back')?.addEventListener('click', () => loadPickingList({ skipRelease: true }));
@@ -916,24 +1051,24 @@ async function releaseCurrentClaim(options = {}) {
     }
 }
 
-function renderPickerUnavailable({ message, detail = 'Bitte pruefe die Verbindung und versuche es erneut.' } = {}) {
+function renderPickerUnavailable({ message, detail = 'Bitte prüfe die Verbindung und versuche es erneut.' } = {}) {
     updateToolbar('profile_required');
     renderFilterChips([]);
     updateTaskCounter(0);
-    mainEl().innerHTML = `
+    setMainContent(`
         <div class="picker-screen">
             <section class="picker-card">
                 <div class="picker-card__eyebrow">Session-Start</div>
                 <h2 class="picker-card__title">Profile konnten nicht geladen werden</h2>
                 <p class="picker-card__text">${escapeHtml(message)}</p>
                 <p class="picker-card__text">${escapeHtml(detail)}</p>
-                <div class="picker-device">Geraet: ${getDeviceId()}</div>
+                <div class="picker-device">Gerät: ${getDeviceId()}</div>
                 <div class="picker-card__actions">
                     <button id="picker-retry" class="picker-option picker-option--primary">Erneut versuchen</button>
                 </div>
             </section>
         </div>
-    `;
+    `);
 
     document.getElementById('picker-retry')?.addEventListener('click', () => {
         showProfileSelection({ preferCache: false });
@@ -955,28 +1090,28 @@ function renderPickerOption(picker) {
 function renderPickerSelection(
     pickers,
     {
-        title = 'Profil auswaehlen',
-        intro = 'Bitte waehle deinen Odoo-Benutzer fuer diese Session.',
+        title = 'Profil auswählen',
+        intro = 'Bitte wähle deinen Odoo-Benutzer für diese Session.',
         statusNote = '',
     } = {},
 ) {
     updateToolbar('profile_required');
     renderFilterChips([]);
     updateTaskCounter(0);
-    mainEl().innerHTML = `
+    setMainContent(`
         <div class="picker-screen">
             <section class="picker-card">
                 <div class="picker-card__eyebrow">Session-Start</div>
                 <h2 class="picker-card__title">${escapeHtml(title)}</h2>
                 <p class="picker-card__text">${escapeHtml(intro)}</p>
                 ${statusNote ? `<p class="picker-card__text">${escapeHtml(statusNote)}</p>` : ''}
-                <div class="picker-device">Geraet: ${getDeviceId()}</div>
+                <div class="picker-device">Gerät: ${getDeviceId()}</div>
                 <div class="picker-options">
                     ${pickers.map((picker) => renderPickerOption(picker)).join('')}
                 </div>
             </section>
         </div>
-    `;
+    `);
 
     mainEl().querySelectorAll('[data-picker-id]').forEach(button => {
         button.addEventListener('click', async () => {
@@ -1029,7 +1164,7 @@ async function showProfileSelection({ preferCache = true } = {}) {
         return false;
     }
 
-    mainEl().innerHTML = renderLoading();
+    setMainContent(renderLoading());
     try {
         const pickers = await withManagedRequest((signal) => getPickers({ signal }));
         if (!Array.isArray(pickers) || !pickers.length) {
@@ -1051,7 +1186,7 @@ async function showProfileSelection({ preferCache = true } = {}) {
                 : 'Es besteht aktuell keine Verbindung zum Server.',
             detail: navigator.onLine
                 ? 'Bitte erneut versuchen.'
-                : 'Ohne bereits gecachte Profile ist keine Profilauswahl moeglich.',
+                : 'Ohne bereits gecachte Profile ist keine Profilauswahl möglich.',
         });
         return false;
     }
@@ -1100,7 +1235,7 @@ async function loadPickingList({ skipRelease = false } = {}) {
     const pickerReady = await ensurePickerSelection();
     if (!pickerReady) return;
 
-    mainEl().innerHTML = renderLoading();
+    setMainContent(renderLoading());
     try {
         const pickings = await withManagedRequest((signal) => getPickings({ signal }));
         setState({ pickings, currentPicking: null, currentLineIndex: 0 });
@@ -1109,10 +1244,10 @@ async function loadPickingList({ skipRelease = false } = {}) {
         if (!pickings.length) {
             renderFilterChips([]);
             updateTaskCounter(0);
-            mainEl().innerHTML = renderListEmptyState(
-                'Keine offenen Auftraege.',
+            setMainContent(renderListEmptyState(
+                'Keine offenen Aufträge.',
                 'Sobald Odoo neue Aufgaben freigibt, erscheinen sie hier.'
-            );
+            ));
             return;
         }
 
@@ -1120,11 +1255,11 @@ async function loadPickingList({ skipRelease = false } = {}) {
     } catch (error) {
         if (isAbortError(error)) return;
         if (error instanceof ApiError && (error.status === 400 || error.status === 403)) {
-            showToast('Profil bitte neu waehlen.', 'warning');
+            showToast('Profil bitte neu wählen.', 'warning');
             await switchProfile();
             return;
         }
-        mainEl().innerHTML = renderError(`Verbindung fehlgeschlagen: ${error.message}`);
+        setMainContent(renderError(`Verbindung fehlgeschlagen: ${error.message}`));
         renderFilterChips([]);
         updateTaskCounter(0);
         updateConnectivityStatus();
@@ -1144,7 +1279,7 @@ async function setFilter(value) {
 async function loadPickingDetail(pickingId) {
     stopSpeaking();
     closeOverlay();
-    mainEl().innerHTML = renderLoading();
+    setMainContent(renderLoading());
 
     const pickerReady = await ensurePickerSelection();
     if (!pickerReady) return;
@@ -1164,7 +1299,7 @@ async function loadPickingDetail(pickingId) {
         const picking = await withManagedRequest((signal) => getPickingDetail(pickingId, { signal }));
         if (picking.error) {
             await releaseCurrentClaim();
-            mainEl().innerHTML = renderError(picking.error);
+            setMainContent(renderError(picking.error));
             return;
         }
 
@@ -1183,12 +1318,12 @@ async function loadPickingDetail(pickingId) {
             return;
         }
         if (error instanceof ApiError && (error.status === 400 || error.status === 403)) {
-            showToast('Profil bitte neu waehlen.', 'warning');
+            showToast('Profil bitte neu wählen.', 'warning');
             await switchProfile();
             return;
         }
         await releaseCurrentClaim();
-        mainEl().innerHTML = renderError(`Fehler beim Laden: ${error.message}`);
+        setMainContent(renderError(`Fehler beim Laden: ${error.message}`));
         updateConnectivityStatus();
     }
 }
@@ -1202,35 +1337,49 @@ function renderCurrentLine() {
     const lines = currentPicking.move_lines || [];
     if (currentLineIndex >= lines.length) {
         updateToolbar('complete');
-        mainEl().innerHTML = `
+        setMainContent(`
             <section class="detail-shell detail-shell--complete" aria-label="Picking abgeschlossen">
                 <div class="detail-complete-icon">OK</div>
                 <div class="detail-complete-title">${escapeHtml(getPickingReference(currentPicking))}</div>
                 <div class="detail-complete-copy">Alle Artikel erfasst und synchronisiert.</div>
                 <button onclick="window._app.loadPickingList()" class="detail-complete-button">
-                    Zurueck zur Liste
+                    Zurück zur Liste
                 </button>
-            </section>`;
+            </section>`);
         return;
     }
 
     const line = lines[currentLineIndex];
     const progress = `${currentLineIndex + 1} / ${lines.length}`;
-    const detailZone = line.location_src_zone || 'Naechster Bereich';
+    const detailZone = line.location_src_zone || 'Nächster Bereich';
     const detailLocation = line.location_src_short || formatLocationForDisplay(line.location_src);
     const detailProduct = getLineDisplayName(line);
     const detailSku = line.product_sku || line.product_barcode || 'Keine SKU';
     const detailPartner = currentPicking.partner_id ? currentPicking.partner_id[1] : 'Aktives Picking';
     const progressPercent = Math.round(((currentLineIndex + 1) / Math.max(lines.length, 1)) * 100);
     const kitName = getPickingKitName(currentPicking);
+    const detailHero = renderProductVisual({
+        productId: line.product_id,
+        label: detailProduct,
+        className: 'detail-product-hero__media product-visual product-visual--hero',
+        loading: 'eager',
+        size: 1024,
+    });
 
-    mainEl().innerHTML = `
+    setMainContent(`
         <div class="detail-shell">
             <div class="detail-meta">
                 <button onclick="window._app.loadPickingList()" class="detail-back">Zur Liste</button>
                 <span class="detail-reference">${escapeHtml(getPickingReference(currentPicking))}</span>
                 <span class="detail-progress">Schritt ${escapeHtml(progress)}</span>
             </div>
+            <section class="detail-product-hero" aria-label="Artikelbild">
+                <div class="detail-product-hero__head">
+                    <div class="detail-product-hero__eyebrow">Artikelbild</div>
+                    <div class="detail-product-hero__chip">${escapeHtml(detailSku)}</div>
+                </div>
+                ${detailHero}
+            </section>
             ${kitName ? `
                 <section class="detail-context" aria-label="Modellkontext">
                     <div class="detail-context__eyebrow">Modellkontext</div>
@@ -1238,7 +1387,7 @@ function renderCurrentLine() {
                     <div class="detail-context__meta">${escapeHtml(detailPartner)}</div>
                 </section>
             ` : ''}
-            <section class="detail-summary" aria-label="Picking Uebersicht">
+            <section class="detail-summary" aria-label="Picking Übersicht">
                 <div class="detail-summary__eyebrow">${escapeHtml(kitName ? 'Aktueller Griff' : 'Aktueller Pick')}</div>
                 <div class="detail-summary__location">${escapeHtml(detailLocation)}</div>
                 <div class="detail-summary__title">${escapeHtml(detailProduct)}</div>
@@ -1251,16 +1400,16 @@ function renderCurrentLine() {
                 <div class="detail-summary__progress-track" aria-hidden="true">
                     <span class="detail-summary__progress-bar" style="width:${progressPercent}%"></span>
                 </div>
-                <div class="detail-summary__helper">Scanne den Artikel oder bestaetige den Griff per Touch.</div>
+                <div class="detail-summary__helper">Scanne den Artikel oder bestätige den Griff per Touch.</div>
             </section>
             ${renderRouteHint(currentPicking, currentLineIndex)}
-            ${currentPicking.has_pending_quality_ai ? '<div class="ai-pending-banner">KI analysiert Qualitaetsfall</div>' : ''}
+            ${currentPicking.has_pending_quality_ai ? '<div class="ai-pending-banner">KI analysiert Qualitätsfall</div>' : ''}
             ${renderPickCard({
                 ...line,
                 quantity_demand: line.quantity_demand,
             })}
             <div id="scan-input-area" class="detail-scan-area"></div>
-        </div>`;
+        </div>`);
 
     const confirmButton = mainEl().querySelector('.btn-confirm');
     if (confirmButton) {
@@ -1314,7 +1463,7 @@ async function handleScan(barcode) {
 
         if (!result.success) {
             feedbackError();
-            speak(result.message || 'Fehler beim Bestaetigen.');
+            speak(result.message || 'Fehler beim Bestätigen.');
             showToast(result.message || 'Fehler', 'error');
             return;
         }
@@ -1342,7 +1491,7 @@ async function handleScan(barcode) {
             claimedPickingId = null;
             stopClaimHeartbeat();
             renderClaimConflict(error.detail, currentPicking.id);
-            speak('Dieses Picking wurde inzwischen von jemand anderem uebernommen.');
+            speak('Dieses Picking wurde inzwischen von jemand anderem übernommen.');
             return;
         }
         if (isAbortError(error)) return;
@@ -1354,7 +1503,7 @@ async function handleScan(barcode) {
 
 function onVoiceToggle() {
     if (!isVoiceSupported()) {
-        showToast('Mikrofon nicht verfuegbar', 'warning');
+        showToast('Mikrofon nicht verfügbar', 'warning');
         return;
     }
 
@@ -1473,19 +1622,19 @@ async function handleVoiceIntent(result) {
             break;
         }
         case 'help':
-            speak('Kommandos: bestaetigen, weiter, zurueck, wiederholen, Problem, fertig.');
+            speak('Kommandos: bestätigen, weiter, zurück, wiederholen, Problem, fertig.');
             break;
         case 'filter_high':
             if (currentPicking !== null) break;
             activeFilter = 'high';
             await loadPickingList({ skipRelease: true });
-            speak('Gefiltert. Zeige nur dringende Auftraege.');
+            speak('Gefiltert. Zeige nur dringende Aufträge.');
             break;
         case 'filter_normal':
             if (currentPicking !== null) break;
             activeFilter = DEFAULT_FILTER;
             await loadPickingList({ skipRelease: true });
-            speak('Filter zurueckgesetzt. Alle Auftraege.');
+            speak('Filter zurückgesetzt. Alle Aufträge.');
             break;
         case 'status': {
             if (currentPicking !== null) break;
@@ -1494,8 +1643,8 @@ async function handleVoiceIntent(result) {
             const visible = filterByActiveChip(searched);
             const all = visible.length;
             const high = visible.filter((picking) => picking.priority === '1').length;
-            if (high > 0) speak(`${all} offene Auftraege. ${high} davon dringend.`);
-            else speak(`${all} offene Auftraege.`);
+            if (high > 0) speak(`${all} offene Aufträge. ${high} davon dringend.`);
+            else speak(`${all} offene Aufträge.`);
             break;
         }
         case 'stock_query': {
@@ -1525,10 +1674,10 @@ async function maybeHandleVoiceAssist(result, currentPicking, currentLineIndex) 
     });
 
     updateVoiceStatusIndicator('speaking');
-    showToast('Ich pruefe die Datenbank...', 'info');
+    showToast('Ich prüfe die Datenbank...', 'info');
 
     const assistPromise = withManagedRequest((signal) => assistVoice(payload, { signal }));
-    await speak('Ich pruefe die Datenbank.');
+    await speak('Ich prüfe die Datenbank.');
 
     try {
         const response = await assistPromise;
@@ -1557,7 +1706,7 @@ function openQualityAlertForm() {
         ? `${getPickingReference(currentPicking)}${line ? ` | ${getLineDisplayName(line)}` : ''}`
         : 'Allgemeine Meldung';
 
-    mainEl().innerHTML = `
+    setMainContent(`
         <div class="qa-shell">
             <section class="qa-card" aria-labelledby="qa-title">
                 <div class="qa-header">
@@ -1574,13 +1723,13 @@ function openQualityAlertForm() {
                         aria-describedby="qa-description-help"
                     ></textarea>
                     <p id="qa-description-help" class="qa-help">
-                        Kurz und konkret beschreiben, was am Artikel, Lagerort oder Zustand auffaellt.
+                        Kurz und konkret beschreiben, was am Artikel, Lagerort oder Zustand auffällt.
                     </p>
                     <p id="qa-description-error" class="qa-field-error" role="alert" hidden></p>
                 </div>
 
                 <div class="qa-field-group">
-                    <label for="qa-priority" class="qa-label">Prioritaet</label>
+                    <label for="qa-priority" class="qa-label">Priorität</label>
                     <select id="qa-priority" class="qa-field qa-select">
                         <option value="0">Normal</option>
                         <option value="2">Hoch</option>
@@ -1598,7 +1747,7 @@ function openQualityAlertForm() {
                 <button id="qa-cancel" class="qa-cancel">Abbrechen</button>
             </div>
         </div>
-    `;
+    `);
 
     const photoArea = document.getElementById('photo-area');
     const descriptionEl = document.getElementById('qa-description');
@@ -1636,7 +1785,7 @@ function openQualityAlertForm() {
         photoFiles = photoFiles.concat(files);
         renderPhotoPreview();
         clearInlineError();
-        showToast(`${files.length} Foto${files.length > 1 ? 's' : ''} hinzugefuegt`, 'success');
+        showToast(`${files.length} Foto${files.length > 1 ? 's' : ''} hinzugefügt`, 'success');
     });
 
     const photoLabel = document.createElement('p');
@@ -1645,12 +1794,12 @@ function openQualityAlertForm() {
 
     const photoHelp = document.createElement('p');
     photoHelp.className = 'qa-help';
-    photoHelp.textContent = 'Optional: 1 oder mehrere Fotos hinzufuegen.';
+    photoHelp.textContent = 'Optional: 1 oder mehrere Fotos hinzufügen.';
 
     const photoBtn = document.createElement('button');
     photoBtn.type = 'button';
     photoBtn.className = 'qa-photo-button';
-    photoBtn.textContent = 'Fotos hinzufuegen';
+    photoBtn.textContent = 'Fotos hinzufügen';
     photoBtn.addEventListener('click', () => fileInput.click());
 
     const previewGrid = document.createElement('div');
@@ -1666,7 +1815,7 @@ function openQualityAlertForm() {
 
             const image = document.createElement('img');
             image.src = url;
-            image.alt = `Ausgewaehltes Foto ${index + 1}`;
+            image.alt = `Ausgewähltes Foto ${index + 1}`;
             image.className = 'qa-photo-image';
 
             const removeButton = document.createElement('button');
@@ -1746,8 +1895,8 @@ function openQualityAlertForm() {
                     signal,
                 },
             ));
-            speak('Problem gemeldet. Die KI-Bewertung laeuft.');
-            showToast(`Alert ${result.name} erstellt - KI-Bewertung laeuft...`, 'success');
+            speak('Problem gemeldet. Die KI-Bewertung läuft.');
+            showToast(`Alert ${result.name} erstellt - KI-Bewertung läuft...`, 'success');
             if (currentPicking) {
                 await loadPickingDetail(currentPicking.id);
                 return;
@@ -1766,11 +1915,19 @@ function openQualityAlertForm() {
 }
 
 async function init() {
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/sw.js').catch(console.error);
-    }
-
-    initPWA();
+    initPWA({
+        onConnectivityChange: () => updateConnectivityStatus(),
+        onOnline: async () => {
+            updateConnectivityStatus();
+            await refreshCurrentView();
+        },
+        onResume: async () => {
+            await refreshCurrentView();
+        },
+        shouldActivateUpdate: shouldActivateServiceWorkerUpdate,
+        onUpdateReady: handleServiceWorkerUpdateReady,
+        onControllerRefresh: handleServiceWorkerControllerRefresh,
+    });
     clearStoredPicker();
     clearActivePicker();
     resetOperatorUiState();
@@ -1913,7 +2070,7 @@ async function init() {
     });
 
     try {
-        const response = await fetch('/api/health');
+        const response = await fetch('/api/health', { cache: 'no-store' });
         if (response.ok) {
             updateConnectivityStatus();
         }
