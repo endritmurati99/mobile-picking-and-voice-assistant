@@ -1,3 +1,4 @@
+import base64
 from unittest.mock import AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
@@ -59,6 +60,36 @@ def test_list_pickers_returns_workflow_users():
 
     assert response.status_code == 200
     assert response.json() == [{"id": 7, "name": "Mina Muster"}]
+
+
+def test_product_image_uses_requested_variant_and_falls_back_to_original():
+    odoo = MagicMock()
+    original_png = base64.b64encode(b"\x89PNG\r\n\x1a\nfallback-image").decode()
+    odoo.search_read = AsyncMock(
+        return_value=[
+            {
+                "image_512": None,
+                "image_1920": original_png,
+            }
+        ]
+    )
+    _override_dependencies(odoo=odoo)
+
+    try:
+        with TestClient(app) as client:
+            response = client.get("/api/products/44/image?size=512")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.headers["x-image-variant"] == "512"
+    odoo.search_read.assert_awaited_once_with(
+        "product.product",
+        [("id", "=", 44)],
+        ["image_512", "image_1920"],
+        limit=1,
+    )
 
 
 def test_confirm_line_replays_cached_response_without_duplicate_write():

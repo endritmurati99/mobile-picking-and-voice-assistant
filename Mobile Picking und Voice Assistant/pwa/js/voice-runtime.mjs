@@ -84,7 +84,7 @@ export function getVoiceStatusPresentation(kind) {
     switch (kind) {
         case 'listening':
         case 'recording':
-            return { label: 'Hoert zu', tone: 'listening' };
+            return { label: 'Hört zu', tone: 'listening' };
         case 'speaking':
         case 'cooldown':
             return { label: 'Spricht', tone: 'speaking' };

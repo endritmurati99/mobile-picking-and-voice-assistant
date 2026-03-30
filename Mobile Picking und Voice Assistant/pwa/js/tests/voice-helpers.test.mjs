@@ -9,20 +9,20 @@ import {
     transitionVoiceState,
 } from '../voice-helpers.mjs';
 
-test('normalizePromptText strips punctuation and compacts whitespace', () => {
+test('normalizePromptText normalizes umlauts, punctuation, and whitespace', () => {
     assert.equal(
-        normalizePromptText('A-12. 5 Stueck. Bremsscheibe.'),
+        normalizePromptText('A-12. 5 Stück. Bremsscheibe.'),
         'a 12 5 stueck bremsscheibe',
     );
 });
 
 test('isLikelyPromptEcho detects transcripts that mirror the last prompt', () => {
     assert.equal(
-        isLikelyPromptEcho('a 12 5 stueck bremsscheibe', 'A-12. 5 Stueck. Bremsscheibe.'),
+        isLikelyPromptEcho('a 12 5 stück bremsscheibe', 'A-12. 5 Stueck. Bremsscheibe.'),
         true,
     );
     assert.equal(
-        isLikelyPromptEcho('bestaetigen', 'A-12. 5 Stueck. Bremsscheibe.'),
+        isLikelyPromptEcho('bestätigen', 'A-12. 5 Stück. Bremsscheibe.'),
         false,
     );
 });

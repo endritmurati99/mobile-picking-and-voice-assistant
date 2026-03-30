@@ -179,6 +179,7 @@ async function request(method, path, body = null, options = {}) {
     const opts = {
         method,
         headers,
+        cache: options.cache || 'no-store',
         keepalive: options.keepalive || false,
         signal: options.signal,
     };
