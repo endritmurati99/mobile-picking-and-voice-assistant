@@ -2,7 +2,7 @@
 import base64
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -26,6 +26,14 @@ from app.services.odoo_client import OdooClient
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+IMAGE_VARIANTS = (
+    (128, "image_128"),
+    (256, "image_256"),
+    (512, "image_512"),
+    (1024, "image_1024"),
+    (1920, "image_1920"),
+)
 
 
 class ConfirmLineRequest(BaseModel):
@@ -90,24 +98,36 @@ async def list_pickers(workflow=Depends(get_mobile_workflow_service)):
 @router.get("/products/{product_id}/image")
 async def get_product_image(
     product_id: int,
+    size: int = Query(default=256, ge=128, le=1920),
     odoo: OdooClient = Depends(get_odoo_client),
 ):
-    """Produktbild (128px Thumbnail) aus Odoo als Binary."""
+    """Produktbild in passender Groesse aus Odoo als Binary."""
+    resolved_size, requested_field = next(
+        ((candidate_size, field) for candidate_size, field in IMAGE_VARIANTS if size <= candidate_size),
+        IMAGE_VARIANTS[-1],
+    )
+    fields = [requested_field] if requested_field == "image_1920" else [requested_field, "image_1920"]
     products = await odoo.search_read(
         "product.product",
         [("id", "=", product_id)],
-        ["image_128"],
+        fields,
         limit=1,
     )
-    if not products or not products[0].get("image_128"):
+    image_value = products[0].get(requested_field) if products else None
+    if not image_value and products:
+        image_value = products[0].get("image_1920")
+    if not image_value:
         raise HTTPException(status_code=404, detail="Kein Bild vorhanden")
 
-    image_data = base64.b64decode(products[0]["image_128"])
+    image_data = base64.b64decode(image_value)
     media_type = "image/jpeg" if image_data[:3] == b"\xff\xd8\xff" else "image/png"
     return Response(
         content=image_data,
         media_type=media_type,
-        headers={"Cache-Control": "public, max-age=3600"},
+        headers={
+            "Cache-Control": "public, max-age=3600",
+            "X-Image-Variant": str(resolved_size),
+        },
     )
 
 

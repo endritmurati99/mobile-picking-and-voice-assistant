@@ -6,6 +6,42 @@ function jsonResponse(route, status, body) {
   });
 }
 
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function createProductImageSvg(productId) {
+  const palettes = [
+    ['#F59E0B', '#F97316'],
+    ['#22C55E', '#14B8A6'],
+    ['#38BDF8', '#2563EB'],
+    ['#F472B6', '#DB2777'],
+  ];
+  const [base, shade] = palettes[Math.abs(Number(productId) || 0) % palettes.length];
+  return `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="Produktbild">
+      <defs>
+        <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#ffffff"/>
+          <stop offset="100%" stop-color="#eef2f7"/>
+        </linearGradient>
+        <linearGradient id="brick" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="${base}"/>
+          <stop offset="100%" stop-color="${shade}"/>
+        </linearGradient>
+      </defs>
+      <rect width="160" height="160" rx="28" fill="url(#bg)"/>
+      <g transform="translate(28 36)">
+        <path d="M16 20C16 11.163 23.163 4 32 4H72C80.837 4 88 11.163 88 20V68C88 76.837 80.837 84 72 84H32C23.163 84 16 76.837 16 68Z" fill="url(#brick)"/>
+        <rect x="0" y="24" width="104" height="52" rx="20" fill="url(#brick)"/>
+        <circle cx="26" cy="24" r="12" fill="${shade}"/>
+        <circle cx="52" cy="18" r="12" fill="${shade}"/>
+        <circle cx="78" cy="24" r="12" fill="${shade}"/>
+      </g>
+    </svg>
+  `.trim();
+}
+
 function createPickingList() {
   return [
     {
@@ -14,6 +50,7 @@ function createPickingList() {
       reference_code: 'WH/INT/00007',
       kit_name: 'LEGO Ente',
       has_human_context: true,
+      primary_product_id: 11,
       primary_item_display: '4x Brick 2x2 orange',
       primary_item_sku: 'BR-22-OR',
       next_location_short: 'L-E1-P1',
@@ -35,6 +72,7 @@ function createPickingList() {
       reference_code: 'WH/INT/00008',
       kit_name: '',
       has_human_context: false,
+      primary_product_id: 12,
       primary_item_display: '2x Brick 1x4 blau',
       primary_item_sku: 'BR-14-BL',
       next_location_short: 'L-E2-P4',
@@ -56,6 +94,7 @@ function createPickingList() {
       reference_code: 'WH/INT/00009',
       kit_name: '',
       has_human_context: false,
+      primary_product_id: 13,
       primary_item_display: '1x Motorblock',
       primary_item_sku: 'MT-900',
       next_location_short: 'A-12',
@@ -170,9 +209,9 @@ function createPickers() {
 }
 
 async function mockPwaApi(page, options = {}) {
-  const pickers = options.pickers || createPickers();
-  const pickings = options.pickings || createPickingList();
-  const detail = options.detail || createPickingDetail();
+  const pickers = clone(options.pickers || createPickers());
+  let pickingsState = clone(options.pickings || createPickingList());
+  let detailState = clone(options.detail || createPickingDetail());
   const confirmResponses = options.confirmResponses || [
     {
       success: true,
@@ -189,6 +228,8 @@ async function mockPwaApi(page, options = {}) {
   let confirmCalls = 0;
   let lastConfirmRequest = null;
   let lastQualityRequest = null;
+  let pickingsRequests = 0;
+  let detailRequests = 0;
 
   await page.route('**/api/**', async (route) => {
     const request = route.request();
@@ -200,29 +241,40 @@ async function mockPwaApi(page, options = {}) {
       return jsonResponse(route, 200, { status: 'ok' });
     }
 
+    if (/^\/api\/products\/\d+\/image$/.test(path) && request.method() === 'GET') {
+      const productId = path.split('/')[3];
+      return route.fulfill({
+        status: 200,
+        contentType: 'image/svg+xml',
+        body: createProductImageSvg(productId),
+      });
+    }
+
     if (path === '/api/pickings' && request.method() === 'GET') {
       if (!pickerHeader) {
         return jsonResponse(route, 400, { detail: 'X-Picker-User-Id ist erforderlich.' });
       }
-      return jsonResponse(route, 200, pickings);
+      pickingsRequests += 1;
+      return jsonResponse(route, 200, pickingsState);
     }
 
     if (path === '/api/pickers' && request.method() === 'GET') {
       return jsonResponse(route, 200, pickers);
     }
 
-    if (path === `/api/pickings/${detail.id}` && request.method() === 'GET') {
+    if (path === `/api/pickings/${detailState.id}` && request.method() === 'GET') {
       if (!pickerHeader) {
         return jsonResponse(route, 400, { detail: 'X-Picker-User-Id ist erforderlich.' });
       }
-      return jsonResponse(route, 200, detail);
+      detailRequests += 1;
+      return jsonResponse(route, 200, detailState);
     }
 
-    if (path === `/api/pickings/${detail.id}/claim` && request.method() === 'POST') {
+    if (path === `/api/pickings/${detailState.id}/claim` && request.method() === 'POST') {
       return jsonResponse(route, 200, {
         success: true,
         status: 'claimed',
-        picking_id: detail.id,
+        picking_id: detailState.id,
         claimed_by_user_id: activePicker?.id || 17,
         claimed_by_name: activePicker?.name || 'Max Picker',
         device_id: 'test-device',
@@ -230,23 +282,23 @@ async function mockPwaApi(page, options = {}) {
       });
     }
 
-    if (path === `/api/pickings/${detail.id}/heartbeat` && request.method() === 'POST') {
+    if (path === `/api/pickings/${detailState.id}/heartbeat` && request.method() === 'POST') {
       return jsonResponse(route, 200, {
         success: true,
         status: 'claimed',
-        picking_id: detail.id,
+        picking_id: detailState.id,
       });
     }
 
-    if (path === `/api/pickings/${detail.id}/release` && request.method() === 'POST') {
+    if (path === `/api/pickings/${detailState.id}/release` && request.method() === 'POST') {
       return jsonResponse(route, 200, {
         success: true,
         status: 'released',
-        picking_id: detail.id,
+        picking_id: detailState.id,
       });
     }
 
-    if (path === `/api/pickings/${detail.id}/confirm-line` && request.method() === 'POST') {
+    if (path === `/api/pickings/${detailState.id}/confirm-line` && request.method() === 'POST') {
       confirmCalls += 1;
       lastConfirmRequest = JSON.parse(request.postData() || '{}');
       const response = confirmResponses[Math.min(confirmCalls - 1, confirmResponses.length - 1)];
@@ -276,11 +328,31 @@ async function mockPwaApi(page, options = {}) {
     getConfirmCalls() {
       return confirmCalls;
     },
+    getPickingsRequests() {
+      return pickingsRequests;
+    },
+    getDetailRequests() {
+      return detailRequests;
+    },
     getLastConfirmRequest() {
       return lastConfirmRequest;
     },
     getLastQualityRequest() {
       return lastQualityRequest;
+    },
+    getPickings() {
+      return clone(pickingsState);
+    },
+    setPickings(nextPickings) {
+      pickingsState = clone(typeof nextPickings === 'function' ? nextPickings(clone(pickingsState)) : nextPickings);
+      return clone(pickingsState);
+    },
+    getDetail() {
+      return clone(detailState);
+    },
+    setDetail(nextDetail) {
+      detailState = clone(typeof nextDetail === 'function' ? nextDetail(clone(detailState)) : nextDetail);
+      return clone(detailState);
     },
   };
 }
