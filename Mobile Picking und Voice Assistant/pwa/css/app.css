@@ -2233,3 +2233,119 @@ body[data-view="alert"] #header,
 body[data-view="locked"] #header {
     display: none;
 }
+
+/* ===== NAV BUTTON ICON ===== */
+.nav-btn__icon {
+    font-size: 1.3rem;
+    line-height: 1;
+}
+
+/* ===== DETAIL LIST VIEW ===== */
+.detail-view-toggle {
+    margin-left: auto;
+    padding: 5px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface-2);
+    color: var(--ink-soft);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.detail-view-toggle:hover {
+    background: var(--primary);
+    color: var(--primary-ink);
+    border-color: var(--primary);
+}
+
+.detail-list-view {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 4px 0;
+}
+
+.detail-list-item {
+    display: grid;
+    grid-template-columns: 28px 1fr auto auto;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    cursor: pointer;
+    text-align: left;
+    font-family: inherit;
+    color: var(--ink);
+    transition: all 0.15s;
+    width: 100%;
+}
+
+.detail-list-item:hover {
+    border-color: var(--primary);
+    background: var(--surface-2);
+}
+
+.detail-list-item--active {
+    border-color: var(--primary);
+    background: color-mix(in oklab, var(--primary) 8%, var(--surface));
+}
+
+.detail-list-item__idx {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--ink-muted);
+    text-align: center;
+}
+
+.detail-list-item__name {
+    font-weight: 600;
+    font-size: 0.9rem;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.detail-list-item__qty {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--accent);
+    white-space: nowrap;
+}
+
+.detail-list-item__loc {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--ink-muted);
+    white-space: nowrap;
+}
+
+/* ===== DESKTOP LAYOUT ===== */
+@media (min-width: 768px) {
+    html, body {
+        height: 100%;
+        background: var(--bg);
+        display: grid;
+        place-items: center;
+    }
+
+    #app {
+        max-width: 700px;
+        height: min(920px, 96vh);
+        border-radius: 28px;
+        box-shadow: 0 30px 80px rgba(26,21,48,.18), 0 0 0 1px var(--line);
+        overflow: hidden;
+    }
+}
+
+@media (min-width: 1200px) {
+    #app {
+        max-width: 860px;
+    }
+}

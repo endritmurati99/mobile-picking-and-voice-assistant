@@ -319,6 +319,7 @@ let sessionState = 'profile_required';
 let pickerCatalog = getCachedPickers();
 let lastLifecycleRefreshAt = 0;
 let lifecycleRefreshPromise = null;
+let listViewActive = false;
 const pendingRequestControllers = new Set();
 
 const mainEl = () => document.getElementById('main');
@@ -1588,7 +1589,23 @@ function renderCurrentLine() {
                 <button onclick="window._app.loadPickingList()" class="detail-back">Zur Liste</button>
                 <span class="detail-reference">${escapeHtml(getPickingReference(currentPicking))}</span>
                 <span class="detail-progress">Schritt ${escapeHtml(progress)}</span>
+                <button class="detail-view-toggle" onclick="window._app.toggleDetailView()">
+                    ${listViewActive ? 'Einzeln' : 'Liste'}
+                </button>
             </div>
+            ${listViewActive ? `
+            <div class="detail-list-view">
+                ${lines.map((l, idx) => `
+                    <button class="detail-list-item ${idx === currentLineIndex ? 'detail-list-item--active' : ''}"
+                            onclick="window._app.goToLine(${idx})">
+                        <span class="detail-list-item__idx">${idx + 1}</span>
+                        <span class="detail-list-item__name">${escapeHtml(getLineDisplayName(l))}</span>
+                        <span class="detail-list-item__qty">${escapeHtml(getLineQuantityLabel(l))}</span>
+                        <span class="detail-list-item__loc">${escapeHtml(l.location_src_short || l.location_src || '')}</span>
+                    </button>
+                `).join('')}
+            </div>
+            ` : `
             <section class="detail-product-hero" aria-label="Artikelbild">
                 <div class="detail-product-hero__head">
                     <div class="detail-product-hero__eyebrow">Artikelbild</div>
@@ -1626,6 +1643,7 @@ function renderCurrentLine() {
                 quantity_demand: line.quantity_demand,
             })}
             <div id="scan-input-area" class="detail-scan-area"></div>
+            `}
         </div>`);
 
     const confirmButton = mainEl().querySelector('.btn-confirm');
@@ -2381,10 +2399,27 @@ async function init() {
     await showProfileSelection();
 }
 
+function toggleDetailView() {
+    listViewActive = !listViewActive;
+    renderCurrentLine();
+}
+
+function goToLine(idx) {
+    const { currentPicking } = getState();
+    if (!currentPicking) return;
+    const lines = currentPicking.move_lines || [];
+    if (idx < 0 || idx >= lines.length) return;
+    setState({ currentLineIndex: idx });
+    listViewActive = false;
+    renderCurrentLine();
+}
+
 window._app = {
     loadPickingList,
     loadPickingDetail,
     setFilter,
+    toggleDetailView,
+    goToLine,
 };
 
 // Module scripts are always deferred — DOMContentLoaded is not needed.
