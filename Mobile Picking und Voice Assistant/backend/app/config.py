@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     odoo_db: str = "picking"
     odoo_user: str = "admin"
     odoo_api_key: str = ""
+    odoo_password: str = ""
 
     whisper_url: str = "http://whisper:9000"
 

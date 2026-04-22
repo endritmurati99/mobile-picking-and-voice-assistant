@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.services.mobile_workflow import PickerIdentity
+from app.services.n8n_webhook import N8NEventResult
 from app.services.picking_service import PickingService
 
 
@@ -89,7 +90,7 @@ class TestGetOpenPickings:
         assert result[0]["completed_line_count"] == 0
         assert result[0]["progress_ratio"] == 0.0
         assert result[0]["primary_zone_key"] == "halle-a"
-        assert result[0]["voice_instruction_short"] == "A-12. 5 Stueck. Bremsscheibe."
+        assert result[0]["voice_instruction_short"] == "A-12. 5 Stück. Bremsscheibe."
         assert result[0]["kit_name"] == "LEGO Ente"
         assert result[0]["has_human_context"] is True
 
@@ -231,10 +232,10 @@ class TestGetPickingDetail:
         assert result["move_lines"][0]["location_src_short"] == "A-01"
         assert result["move_lines"][0]["location_src_zone"] == "Aisle 1"
         assert result["move_lines"][0]["ui_display"] == "Schraube M8"
-        assert result["move_lines"][0]["voice_instruction_short"] == "A-01. 10 Stueck. Schraube M8."
+        assert result["move_lines"][0]["voice_instruction_short"] == "A-01. 10 Stück. Schraube M8."
         assert result["route_plan"]["next_move_line_id"] == 20
         assert result["kit_name"] == "LEGO Ente"
-        assert result["voice_intro"] == "LEGO Ente. A-01. 10 Stueck. Schraube M8."
+        assert result["voice_intro"] == "LEGO Ente. A-01. 10 Stück. Schraube M8."
         assert result["has_human_context"] is True
 
     @pytest.mark.anyio
@@ -463,3 +464,85 @@ class TestConfirmPickLine:
         result = await service.confirm_pick_line(1, 20, "irgendetwas", 1.0)
 
         assert result["success"] is True
+
+    @pytest.mark.anyio
+    async def test_completion_stays_successful_when_pick_confirmed_dispatch_fails(self, service, odoo, n8n):
+        odoo.execute_kw.side_effect = [
+            [{"id": 20, "product_id": [5, "Schraube M8"], "quantity": 3}],
+            [{"id": 20, "picked": True}],
+        ]
+        odoo.search_read.return_value = [{"id": 5, "barcode": "4006381333931"}]
+        odoo.write = AsyncMock(return_value=True)
+        odoo.call_method = AsyncMock(return_value=True)
+        n8n.fire_event = AsyncMock(
+            return_value=N8NEventResult(
+                delivered=False,
+                correlation_id="corr-pick-1",
+                error="n8n antwortete mit HTTP 503.",
+            )
+        )
+
+        result = await service.confirm_pick_line(1, 20, "4006381333931", 3.0)
+
+        assert result["success"] is True
+        assert result["picking_complete"] is True
+        assert result["integration_status"] == "degraded"
+        assert result["correlation_id"] == "corr-pick-1"
+        assert "n8n-Folgeprozess" in result["message"]
+
+
+class TestRequestReplenishment:
+    @pytest.mark.anyio
+    async def test_returns_failure_when_shortage_event_cannot_be_dispatched(self, service, odoo, n8n):
+        odoo.execute_kw.return_value = [
+            {
+                "id": 20,
+                "product_id": [5, "Schraube M8"],
+                "location_id": [9, "WH/Stock/A-01"],
+            }
+        ]
+        odoo.search_read.return_value = [
+            {"quantity": 0, "reserved_quantity": 0, "location_id": [9, "WH/Stock/A-01"]},
+            {"quantity": 4, "reserved_quantity": 0, "location_id": [12, "WH/Stock/B-01"]},
+        ]
+        n8n.fire_event = AsyncMock(
+            return_value=N8NEventResult(
+                delivered=False,
+                correlation_id="corr-shortage-1",
+                error="n8n Transportfehler.",
+            )
+        )
+
+        result = await service.request_replenishment(44, 20, reason="Fehlmenge")
+
+        assert result["success"] is False
+        assert result["correlation_id"] == "corr-shortage-1"
+        assert "Nachschub konnte nicht an n8n uebergeben werden." in result["message"]
+
+    @pytest.mark.anyio
+    async def test_returns_success_with_recommended_location_when_dispatch_works(self, service, odoo, n8n):
+        odoo.execute_kw.return_value = [
+            {
+                "id": 20,
+                "product_id": [5, "Schraube M8"],
+                "location_id": [9, "WH/Stock/A-01"],
+            }
+        ]
+        odoo.search_read.return_value = [
+            {"quantity": 0, "reserved_quantity": 0, "location_id": [9, "WH/Stock/A-01"]},
+            {"quantity": 4, "reserved_quantity": 0, "location_id": [12, "WH/Stock/B-01"]},
+        ]
+        n8n.fire_event = AsyncMock(
+            return_value=N8NEventResult(
+                delivered=True,
+                correlation_id="corr-shortage-2",
+                status_code=202,
+            )
+        )
+
+        result = await service.request_replenishment(44, 20, reason="Fehlmenge")
+
+        assert result["success"] is True
+        assert result["correlation_id"] == "corr-shortage-2"
+        assert result["recommended_location_id"] == 12
+        assert result["recommended_location"] == "WH/Stock/B-01"

@@ -1,0 +1,149 @@
+{
+  "updatedAt": "2026-03-31T08:29:36.842Z",
+  "createdAt": "2026-03-23T13:45:35.858Z",
+  "id": "8eWVrUfTAUvOAbpdug8oP",
+  "name": "Quality Alert Created",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "quality-alert-created",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        280
+      ],
+      "id": "beefe846-cadf-4e65-862a-6d4f43688972"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'accepted', tts_text: 'Quality Alert empfangen.', source: 'n8n', correlation_id: $json.body?.correlation_id || $json.correlation_id }) }}"
+      },
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        480,
+        120
+      ],
+      "id": "88f4d089-5f55-4bd1-9098-5bbd12ba33fe"
+    },
+    {
+      "parameters": {
+        "functionCode": "const request = items[0]?.json || {};\nconst input = request.body || request;\nconst payload = input.payload || {};\nconst description = String(payload.description || '').trim();\nconst descLower = description.toLowerCase();\nconst priority = String(payload.priority || '0');\nconst photoCount = Number(payload.photo_count || 0);\n\n/* ── V2 Keyword-Katalog mit Gewichten ── */\nconst CATALOG = {\n  scrap: [\n    ['totalschaden',10],['zerstoert',10],['zerbrochen',9],['bruch',8],['gebrochen',8],\n    ['eingedrueckt',7],['explodiert',10],['durchgebrochen',9],['gesplittert',8],['zerquetscht',9]\n  ],\n  quarantine: [\n    ['defekt',6],['gerissen',6],['feucht',5],['nass',5],['beschaedigt',5],\n    ['offen',4],['schimmel',7],['rost',6],['undicht',5],['verformt',5],\n    ['kontaminiert',7],['fremdkoerper',6],['locker',4],['abgeloest',5]\n  ],\n  rework: [\n    ['kratzer',3],['etikett',3],['verpackung',2],['kleber',2],['nacharbeit',3],\n    ['delle',3],['verfaerbt',3],['verschmutzt',2],['falsch etikettiert',4],\n    ['schief',2],['lose',2],['abgerieben',3]\n  ]\n};\nconst NEGATIONS = /\\b(nicht|kein|keine|ohne|kaum|weder)\\b/g;\nconst ACTIONS = {\n  scrap: 'Ware sperren, aussondern und Schichtleitung informieren.',\n  quarantine: 'Ware sperren und manuelle Pruefung anfordern.',\n  rework: 'Nacharbeit pruefen und Verpackung korrigieren.',\n  sellable: 'Sichtpruefung durch Qualitaetsteam.'\n};\n\n/* ── Negation: Negation + naechstes Wort entfernen ── */\nlet cleaned = descLower;\nconst negPat = /\\b(nicht|kein|keine|ohne|kaum|weder)\\s+\\S+/g;\ncleaned = cleaned.replace(negPat, '');\n\n/* ── Score pro Kategorie berechnen ── */\nconst scores = { scrap: 0, quarantine: 0, rework: 0 };\nlet totalMatches = 0;\nlet maxPossible = 0;\nfor (const [cat, keywords] of Object.entries(CATALOG)) {\n  for (const [word, weight] of keywords) {\n    maxPossible += weight;\n    if (cleaned.includes(word)) {\n      scores[cat] += weight;\n      totalMatches++;\n    }\n  }\n}\n\n/* ── Prioritaet als Multiplikator ── */\nif (priority === '1') {\n  scores.quarantine += 4;\n  scores.scrap += 2;\n}\n\n/* ── Fotos erhoehen Schwere ── */\nif (photoCount > 0) scores.quarantine += 3;\nif (photoCount > 2) scores.scrap += 2;\n\n/* ── Disposition bestimmen — Kategorie mit hoechstem Score gewinnt ── */\nconst topScore = Math.max(scores.scrap, scores.quarantine, scores.rework);\nlet aiDisposition = 'sellable';\nif (topScore >= 3) {\n  if (scores.scrap >= scores.quarantine && scores.scrap >= scores.rework) aiDisposition = 'scrap';\n  else if (scores.quarantine >= scores.rework) aiDisposition = 'quarantine';\n  else aiDisposition = 'rework';\n}\n\n/* ── Dynamische Confidence — skaliert am praktischen Ceiling ── */\nconst descLen = description.length;\nconst lenFactor = descLen < 10 ? 0.7 : descLen < 30 ? 0.85 : 1.0;\nconst matchFactor = totalMatches === 0 ? 0.5 : Math.min(1.0, 0.6 + totalMatches * 0.1);\nconst PRACTICAL_CEILING = 25;\nlet aiConfidence;\nif (aiDisposition === 'sellable') {\n  aiConfidence = Math.round(Math.min(0.65, 0.4 + matchFactor * 0.2) * lenFactor * 100) / 100;\n} else {\n  const scoreFactor = Math.min(1.0, topScore / PRACTICAL_CEILING);\n  aiConfidence = Math.round(Math.min(0.95, 0.5 + scoreFactor * 0.45) * lenFactor * matchFactor * 100) / 100;\n}\naiConfidence = Math.max(0.1, Math.min(0.95, aiConfidence));\n\nconst severityLabel = priority === '1' ? 'hoch' : 'normal';\nconst aiSummary = description\n  ? `Automatische V2-Bewertung (${severityLabel}, Score ${topScore}): ${description}`\n  : `Automatische V2-Bewertung fuer Alert ${payload.alert_id || ''}.`;\n\nreturn [{ json: {\n  correlation_id: input.correlation_id,\n  alert_id: payload.alert_id,\n  ai_disposition: aiDisposition,\n  ai_confidence: aiConfidence,\n  ai_summary: aiSummary,\n  ai_recommended_action: ACTIONS[aiDisposition],\n  ai_provider: 'n8n-heuristic-agent',\n  ai_model: 'quality-v2',\n  log_message: `Alert ${payload.name || payload.alert_id}: ${aiDisposition} (${aiConfidence}) | Score s=${scores.scrap} q=${scores.quarantine} r=${scores.rework} | Prio ${priority} | ${description || 'ohne Beschreibung'}`,\n} }];"
+      },
+      "name": "Assess Alert",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        540,
+        280
+      ],
+      "id": "f9eeca83-3d1c-4587-9d3d-3b9b79f808a1"
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "http://backend:8000/api/internal/n8n/quality-assessment",
+        "jsonParameters": true,
+        "options": {},
+        "headerParametersJson": "={{ JSON.stringify({ \"X-N8N-Callback-Secret\": $env.N8N_CALLBACK_SECRET, \"Idempotency-Key\": $json.correlation_id }) }}",
+        "bodyParametersJson": "={{ JSON.stringify({ correlation_id: $json.correlation_id, alert_id: $json.alert_id, ai_disposition: $json.ai_disposition, ai_confidence: $json.ai_confidence, ai_summary: $json.ai_summary, ai_recommended_action: $json.ai_recommended_action, ai_provider: $json.ai_provider, ai_model: $json.ai_model }) }}"
+      },
+      "name": "Write Assessment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [
+        850,
+        220
+      ],
+      "id": "cec90947-577e-4b7b-b63b-7e2b57df34d3"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Assess Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess Alert": {
+      "main": [
+        [
+          {
+            "node": "Write Assessment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "error-trigger"
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": {},
+  "versionId": "1e889ec5-4932-4459-8e67-87d8395304be",
+  "activeVersionId": "1e889ec5-4932-4459-8e67-87d8395304be",
+  "versionCounter": 50,
+  "triggerCount": 1,
+  "tags": [
+    {
+      "updatedAt": "2026-03-26T12:06:08.589Z",
+      "createdAt": "2026-03-26T12:06:08.589Z",
+      "id": "qQirm3srBa7xsoK2",
+      "name": "cqrs"
+    },
+    {
+      "updatedAt": "2026-03-23T13:45:34.296Z",
+      "createdAt": "2026-03-23T13:45:34.296Z",
+      "id": "vQ8WlKGk0WWSGlXo",
+      "name": "quality"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2026-03-23T13:45:35.858Z",
+      "createdAt": "2026-03-23T13:45:35.858Z",
+      "role": "workflow:owner",
+      "workflowId": "8eWVrUfTAUvOAbpdug8oP",
+      "projectId": "iBAWD267Vept8IBP",
+      "project": {
+        "updatedAt": "2026-03-23T10:47:09.598Z",
+        "createdAt": "2026-03-21T19:38:32.132Z",
+        "id": "iBAWD267Vept8IBP",
+        "name": "Endrit Murati <endrit.murati99@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "a3d35fcb-0e60-4b54-bc69-fded945cc6eb"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

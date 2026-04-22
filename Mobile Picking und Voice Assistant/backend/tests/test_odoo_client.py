@@ -12,7 +12,8 @@ class TestOdooClient:
             mock_settings.odoo_db = "test"
             mock_settings.odoo_user = "admin"
             mock_settings.odoo_api_key = "test-key"
-            return OdooClient()
+            mock_settings.odoo_password = "test-password"
+            yield OdooClient()
 
     @pytest.mark.anyio
     async def test_authenticate_success(self, client):
@@ -32,9 +33,22 @@ class TestOdooClient:
                 await client.authenticate()
 
     @pytest.mark.anyio
+    async def test_authenticate_falls_back_to_password(self, client):
+        """Wenn der API-Key ungültig ist, wird das Passwort verwendet."""
+        with patch.object(client, "_json_rpc", new_callable=AsyncMock) as mock_rpc:
+            mock_rpc.side_effect = [False, 7]
+            uid = await client.authenticate()
+
+        assert uid == 7
+        assert client._uid == 7
+        assert client._secret == "test-password"
+        assert mock_rpc.await_count == 2
+
+    @pytest.mark.anyio
     async def test_search_read(self, client):
         """search_read gibt Liste von Dicts zurück."""
         client._uid = 2
+        client._secret = "test-key"
         with patch.object(client, "_json_rpc", new_callable=AsyncMock) as mock_rpc:
             mock_rpc.return_value = [{"id": 1, "name": "Test"}]
             result = await client.search_read("res.partner", [], ["name"])

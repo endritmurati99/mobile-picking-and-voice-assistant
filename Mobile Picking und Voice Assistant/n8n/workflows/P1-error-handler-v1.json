@@ -1,0 +1,90 @@
+{
+  "name": "P1-error-handler-v1",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = items[0].json;\nconst exec = input.execution || {};\nconst wf = input.workflow || {};\nconst err = exec.error || {};\nconst workflow_name = wf.name || 'Unbekannt';\nconst node_name = typeof err.node === 'object' ? (err.node.name || 'Unbekannt') : String(err.node || 'Unbekannt');\nconst error_msg = String(err.message || 'Unbekannter Fehler').substring(0, 500);\nconst exec_url = exec.url || '';\nconst lines = [\n  '\\u{1F6A8} *Fehler in Workflow*',\n  '',\n  '*Workflow:* ' + workflow_name,\n  '*Node:* ' + node_name,\n  '*Fehler:* ' + error_msg\n];\nif (exec_url) lines.push('', exec_url);\nreturn [{ json: { message: lines.join('\\n'), chat_id: '6526468834' } }];"
+      },
+      "id": "build-error-msg",
+      "name": "Build Error Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.message }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "send-admin-alert",
+      "name": "Telegram: Admin Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        720,
+        300
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "Arepn5qW2Si65rVX",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build Error Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Error Message": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Admin Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "diti-ai"
+    },
+    {
+      "name": "phase-1"
+    },
+    {
+      "name": "error-handling"
+    }
+  ]
+}

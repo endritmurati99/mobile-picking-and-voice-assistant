@@ -42,11 +42,16 @@ class ConfirmLineRequest(BaseModel):
     quantity: float = 0
 
 
+class ReplenishmentRequest(BaseModel):
+    move_line_id: int
+    reason: str = ""
+
+
 def _require_identity(context: WriteRequestContext) -> None:
     if not context.identity.is_complete:
         raise HTTPException(
             status_code=400,
-            detail="X-Picker-User-Id und X-Device-Id sind fuer diese Aktion erforderlich.",
+            detail="X-Picker-User-Id und X-Device-Id sind für diese Aktion erforderlich.",
         )
 
 
@@ -91,7 +96,7 @@ async def _finalize_error(
 
 @router.get("/pickers")
 async def list_pickers(workflow=Depends(get_mobile_workflow_service)):
-    """Aktive Odoo-Benutzer fuer die Picker-Auswahl."""
+    """Aktive Odoo-Benutzer für die Picker-Auswahl."""
     return await workflow.list_pickers()
 
 
@@ -310,31 +315,69 @@ async def confirm_line(
     return result
 
 
+@router.post("/pickings/{picking_id}/replenishment-request")
+async def request_replenishment(
+    picking_id: int,
+    body: ReplenishmentRequest,
+    service=Depends(get_picking_service),
+    workflow=Depends(get_mobile_workflow_service),
+    context: WriteRequestContext = Depends(get_write_request_context),
+):
+    """Explizite Nachschubanforderung fuer out-of-stock Lines."""
+    resolved_identity = await _require_resolved_identity(workflow, context)
+    fingerprint = workflow.build_request_fingerprint(
+        {
+            "picking_id": picking_id,
+            "move_line_id": body.move_line_id,
+            "reason": body.reason,
+            "action": "replenishment-request",
+        }
+    )
+    reservation = await workflow.begin_idempotent_request(
+        "pickings.replenishment-request",
+        context,
+        fingerprint,
+        picking_id,
+    )
+    replay = _return_or_raise_replay(reservation)
+    if replay is not None:
+        return replay
+
+    try:
+        await workflow.heartbeat_picking(picking_id, resolved_identity)
+        result = await service.request_replenishment(
+            picking_id,
+            body.move_line_id,
+            reason=body.reason,
+            picker_identity=resolved_identity,
+        )
+    except ClaimConflictError as exc:
+        await _finalize_error(workflow, reservation, 409, exc.detail)
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    except HTTPException:
+        raise
+    except Exception:
+        await workflow.abort_idempotent_request(reservation)
+        raise
+
+    await workflow.finalize_idempotent_request(reservation, result, 200)
+    return result
+
+
 @router.get("/pickings/{picking_id}/stock")
 async def get_stock_for_line(
     picking_id: int,  # noqa: ARG001 - kept for URL consistency
     product_id: int,
     location_id: int,
     _picker_identity: PickerIdentity = Depends(get_required_picker_identity),
-    odoo: OdooClient = Depends(get_odoo_client),
+    service=Depends(get_picking_service),
 ):
     """
     Gibt den aktuellen Lagerbestand fuer ein Produkt an einem Standort zurueck.
     Wird von der PWA aufgerufen wenn der Picker fragt 'Wie viele noch da?'
     """
-    domain = [("product_id", "=", product_id)]
-    if location_id > 0:
-        domain.append(("location_id", "=", location_id))
-    quants = await odoo.search_read(
-        "stock.quant",
-        domain,
-        ["quantity", "reserved_quantity"],
+    stock_snapshot = await service.get_stock_snapshot(
+        product_id=product_id,
+        location_id=location_id,
     )
-    available = sum(q.get("quantity", 0) - q.get("reserved_quantity", 0) for q in quants)
-    total = sum(q.get("quantity", 0) for q in quants)
-    return {
-        "product_id": product_id,
-        "location_id": location_id,
-        "quantity_available": round(available, 2),
-        "quantity_total": round(total, 2),
-    }
+    return stock_snapshot

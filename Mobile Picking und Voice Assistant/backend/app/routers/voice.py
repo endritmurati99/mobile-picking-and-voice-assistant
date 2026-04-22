@@ -20,7 +20,7 @@ from app.services.intent_engine import (
     recognize_intent_from_segments,
 )
 from app.services.mobile_workflow import WriteRequestContext
-from app.services.n8n_webhook import N8NReply, N8NWebhookClient
+from app.services.n8n_webhook import N8NReply, N8NWebhookClient, coerce_event_result
 from app.services.odoo_client import OdooClient
 from app.services.picking_service import PickingService
 from app.utils.audio import convert_to_wav
@@ -445,7 +445,7 @@ async def assist_voice(
         and (body.intent == "problem" or _requires_problem_assist(body.text))
     )
     if should_trigger_shortage_flow:
-        await n8n.fire_event(
+        event_result = coerce_event_result(await n8n.fire_event(
             "shortage-reported",
             {
                 "text": body.text,
@@ -459,7 +459,20 @@ async def assist_voice(
             },
             device_id=context.identity.device_id,
             picking_context=picking_context,
-        )
+        ))
+        if not event_result.delivered:
+            reply = N8NReply(
+                status="fallback",
+                tts_text=(
+                    f"{reply.tts_text} "
+                    "Ich konnte den Nachschubprozess gerade nicht starten. Bitte manuell pruefen."
+                ).strip(),
+                source=reply.source,
+                correlation_id=event_result.correlation_id or reply.correlation_id,
+                latency_ms=reply.latency_ms,
+                fallback_reason=reply.fallback_reason or "shortage_dispatch_failed",
+                recommendation=recommendation,
+            )
 
     logger.info(
         "Voice assist: intent=%s picking=%s source=%s status=%s latency=%dms end_to_end=%dms",

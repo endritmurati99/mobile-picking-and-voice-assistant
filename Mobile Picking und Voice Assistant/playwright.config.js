@@ -25,6 +25,7 @@ module.exports = defineConfig({
       name: 'mobile-chromium',
       use: {
         ...devices['Pixel 7'],
+        reducedMotion: 'reduce',
       },
     },
   ],

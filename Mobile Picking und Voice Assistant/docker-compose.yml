@@ -73,7 +73,8 @@ services:
       ODOO_URL: http://odoo:8069
       ODOO_DB: ${ODOO_DB:-picking}
       ODOO_USER: ${ODOO_USER:-admin}
-      ODOO_API_KEY: ${ODOO_API_KEY:?ODOO_API_KEY muss gesetzt sein}
+      ODOO_API_KEY: ${ODOO_API_KEY:-}
+      ODOO_PASSWORD: ${ODOO_PASSWORD:-}
       WHISPER_URL: http://whisper:9000
       N8N_WEBHOOK_BASE: http://n8n:5678/webhook
       N8N_WEBHOOK_PATH_QUALITY_ALERT_CREATED: ${N8N_WEBHOOK_PATH_QUALITY_ALERT_CREATED:-quality-alert-created}
@@ -134,22 +135,23 @@ services:
       N8N_CALLBACK_SECRET: ${N8N_CALLBACK_SECRET:?N8N_CALLBACK_SECRET muss gesetzt sein}
       N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
       # ── Routing ──
-      # TEMP for OAuth: set to localhost so Google accepts the redirect URI
-      WEBHOOK_URL: http://localhost:5678/
+      # Öffentliche URL via Cloudflare Named Tunnel (HTTPS für Telegram Webhooks)
+      WEBHOOK_URL: http://n8n:5678
       N8N_PROXY_HOPS: 1
       N8N_HOST: 0.0.0.0
       N8N_PORT: 5678
       GENERIC_TIMEZONE: Europe/Berlin
       QUEUE_HEALTH_CHECK_ACTIVE: "true"
       # ── Security ──
-      N8N_PUBLIC_API_DISABLED: "true"
-      N8N_PUBLIC_API_SWAGGERUI_DISABLED: "true"
+      N8N_PUBLIC_API_DISABLED: "false"
+      N8N_PUBLIC_API_SWAGGERUI_DISABLED: "false"
       N8N_SSRF_PROTECTION_ENABLED: "true"
       N8N_SSRF_ALLOWED_HOSTNAMES: backend
-      NODES_EXCLUDE: '["n8n-nodes-base.executeCommand","n8n-nodes-base.localFileTrigger","n8n-nodes-base.readWriteFile"]'
+      NODES_EXCLUDE: '["n8n-nodes-base.executeCommand","n8n-nodes-base.localFileTrigger"]'
       N8N_BLOCK_FILE_ACCESS_TO_N8N_FILES: "true"
-      N8N_RESTRICT_FILE_ACCESS_TO: /home/node/.n8n-files
+      N8N_RESTRICT_FILE_ACCESS_TO: /home/node/.n8n-files;/data/obsidian-vault
       N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      NODE_FUNCTION_ALLOW_BUILTIN: fs,path
       # ── Binary data ──
       N8N_DEFAULT_BINARY_DATA_MODE: filesystem
       N8N_BINARY_DATA_STORAGE_PATH: /home/node/.n8n-files/binaryData
@@ -159,8 +161,8 @@ services:
       EXECUTIONS_DATA_MAX_AGE: 168
       EXECUTIONS_DATA_SAVE_ON_SUCCESS: none
       EXECUTIONS_DATA_SAVE_ON_ERROR: all
-      EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS: "false"
-      EXECUTIONS_DATA_SAVE_ON_PROGRESS: "false"
+      EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS: "true"
+      EXECUTIONS_DATA_SAVE_ON_PROGRESS: "true"
       EXECUTIONS_DATA_PRUNE_MAX_COUNT: 10000
       N8N_CONCURRENCY_PRODUCTION_LIMIT: 3
       # ── Monitoring / Limits ──
@@ -168,12 +170,28 @@ services:
       # ── App-specific ──
       QUALITY_ALERT_EMAIL_FROM: ${QUALITY_ALERT_EMAIL_FROM:-}
       QUALITY_ALERT_EMAIL_TO: ${QUALITY_ALERT_EMAIL_TO:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DITI_WEBHOOK_SECRET: ${DITI_WEBHOOK_SECRET:-}
+      QUALITY_ALERT_SHADOW_MODEL: ${QUALITY_ALERT_SHADOW_MODEL:-gpt-4o-mini}
     volumes:
       - n8n_data:/home/node/.n8n
       - ./n8n/workflows:/imports:ro
       - ./n8n/tmp:/home/node/.n8n-files
+      # Diti AI: Obsidian Vault fuer Knowledge/Journal Schreibzugriff
+      - "C:/Users/endri/Desktop/Claude-Projects/Diti AI/obsidian-vault:/data/obsidian-vault"
     ports:
       - "5678:5678"
+    networks:
+      - picking-net
+
+  # ── Cloudflare Named Tunnel (permanente HTTPS-URL für Telegram Webhooks) ──
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    # --protocol http2 umgeht UDP/QUIC-Blockaden in manchen Netzwerken
+    command: tunnel --no-autoupdate --protocol http2 run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    restart: unless-stopped
+    depends_on:
+      - n8n
     networks:
       - picking-net
 

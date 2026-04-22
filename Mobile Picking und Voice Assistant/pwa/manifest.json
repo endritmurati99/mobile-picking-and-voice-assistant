@@ -1,7 +1,7 @@
 {
     "name": "LogILab Picking Assistant",
     "short_name": "Picking",
-    "description": "Mobiler Picking-Assistent mit Voice und Qualitaetserfassung",
+    "description": "Mobiler Picking-Assistent mit Voice und Qualitätserfassung",
     "start_url": "/",
     "display": "standalone",
     "orientation": "portrait",

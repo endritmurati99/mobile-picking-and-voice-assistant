@@ -61,33 +61,35 @@ class QualityAlert(models.Model):
         "res.users", string="Erfasst von", default=lambda self: self.env.user,
     )
 
-    # KI-Auswertung
+    # Systembewertung (automatische Auswertung via n8n-Heuristik)
     ai_disposition = fields.Selection(
         [
             ("sellable", "Verkaufbar"),
             ("rework", "Nacharbeit"),
-            ("quarantine", "Quarantaene"),
+            ("quarantine", "Quarantäne"),
             ("scrap", "Totalschaden"),
         ],
-        string="KI-Einstufung",
+        string="Einstufung",
         tracking=True,
     )
-    ai_confidence = fields.Float(string="KI-Konfidenz", tracking=True)
-    ai_summary = fields.Text(string="KI-Zusammenfassung", tracking=True)
-    ai_recommended_action = fields.Text(string="KI-Empfohlene Aktion", tracking=True)
-    ai_last_analyzed_at = fields.Datetime(string="KI-Analysezeitpunkt", tracking=True)
-    ai_provider = fields.Char(string="KI-Provider")
-    ai_model = fields.Char(string="KI-Modell")
+    ai_confidence = fields.Float(string="Konfidenz", tracking=True)
+    ai_summary = fields.Text(string="System-Begründung", tracking=True)
+    ai_enhanced_description = fields.Text(string="Systembeschreibung")
+    ai_photo_analysis = fields.Text(string="Fotoanalyse")
+    ai_recommended_action = fields.Text(string="Empfohlene Aktion", tracking=True)
+    ai_last_analyzed_at = fields.Datetime(string="Analysiert am", tracking=True)
+    ai_provider = fields.Char(string="Provider")
+    ai_model = fields.Char(string="Modell")
     ai_evaluation_status = fields.Selection(
         [
             ("pending", "Ausstehend"),
             ("completed", "Abgeschlossen"),
             ("failed", "Fehlgeschlagen"),
         ],
-        string="KI-Status",
+        string="Analyse-Status",
         tracking=True,
     )
-    ai_failure_reason = fields.Char(string="KI-Fehlergrund")
+    ai_failure_reason = fields.Char(string="Fehlergrund")
 
     # Fotos
     photo = fields.Binary(string="Foto", attachment=True)
@@ -117,13 +119,17 @@ class QualityAlert(models.Model):
             for att in attachments:
                 url = f"/web/image/{att.id}"
                 parts.append(
-                    f'<a href="{url}" target="_blank" title="{att.name}">'
-                    f'<img src="{url}" style="max-width:320px;max-height:320px;'
-                    f'border-radius:8px;border:1px solid #ddd;object-fit:cover;"/>'
+                    f'<a href="{url}" target="_blank" title="{att.name}"'
+                    f' style="display:block;overflow:hidden;border-radius:8px;">'
+                    f'<img src="{url}" style="width:100%;height:120px;'
+                    f'border:1px solid #ddd;object-fit:cover;display:block;'
+                    f'border-radius:8px;"/>'
                     f'</a>'
                 )
             html = (
-                '<div style="display:flex;flex-wrap:wrap;gap:12px;padding:8px 0;">'
+                '<div style="display:grid;'
+                'grid-template-columns:repeat(auto-fill,minmax(120px,1fr));'
+                'gap:8px;padding:8px 0;max-height:300px;overflow-y:auto;">'
                 + "".join(parts)
                 + '</div>'
             )

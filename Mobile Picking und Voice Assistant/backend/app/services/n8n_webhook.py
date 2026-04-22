@@ -57,6 +57,43 @@ class N8NReply:
         return payload
 
 
+@dataclass(frozen=True)
+class N8NEventResult:
+    delivered: bool
+    correlation_id: str
+    status_code: int | None = None
+    error: str | None = None
+
+    def asdict(self) -> dict[str, Any]:
+        payload = {
+            "delivered": self.delivered,
+            "correlation_id": self.correlation_id,
+        }
+        if self.status_code is not None:
+            payload["status_code"] = self.status_code
+        if self.error:
+            payload["error"] = self.error
+        return payload
+
+
+def coerce_event_result(result: Any) -> N8NEventResult:
+    if isinstance(result, N8NEventResult):
+        return result
+    if isinstance(result, str):
+        return N8NEventResult(delivered=True, correlation_id=result)
+
+    correlation_id = getattr(result, "correlation_id", "") or ""
+    status_code = getattr(result, "status_code", None)
+    error = getattr(result, "error", None)
+    delivered = getattr(result, "delivered", True)
+    return N8NEventResult(
+        delivered=bool(delivered),
+        correlation_id=str(correlation_id),
+        status_code=status_code if isinstance(status_code, int) else None,
+        error=str(error) if error else None,
+    )
+
+
 class N8NWebhookClient:
     def __init__(self):
         self._base = settings.n8n_webhook_base.rstrip("/")
@@ -90,7 +127,7 @@ class N8NWebhookClient:
         device_id: str | None = None,
         picking_context: dict[str, Any] | None = None,
         correlation_id: str | None = None,
-    ) -> str:
+    ) -> N8NEventResult:
         envelope = self._build_envelope(
             path=path,
             event_name=event_name or path,
@@ -102,14 +139,26 @@ class N8NWebhookClient:
         )
         resolved_path = self._resolve_path(path)
         try:
-            await self._client.post(
+            response = await self._client.post(
                 f"{self._base}/{resolved_path}",
                 json=envelope,
                 headers=self._build_headers(),
             )
+            response.raise_for_status()
+            return N8NEventResult(
+                delivered=True,
+                correlation_id=envelope["correlation_id"],
+                status_code=response.status_code,
+                error=None,
+            )
         except Exception as exc:
             logger.warning("n8n Webhook fehlgeschlagen (%s): %s", path, exc)
-        return envelope["correlation_id"]
+            return N8NEventResult(
+                delivered=False,
+                correlation_id=envelope["correlation_id"],
+                status_code=self._extract_status_code(exc),
+                error=self._format_event_error(exc),
+            )
 
     async def fire(
         self,
@@ -120,7 +169,7 @@ class N8NWebhookClient:
         device_id: str | None = None,
         picking_context: dict[str, Any] | None = None,
         correlation_id: str | None = None,
-    ) -> str:
+    ) -> N8NEventResult:
         return await self.fire_event(
             path,
             data,
@@ -157,7 +206,7 @@ class N8NWebhookClient:
 
         breaker_state = self._breaker_states.setdefault(path, BreakerState())
         if self._is_breaker_open(path, breaker_state):
-            logger.warning("n8n Circuit Breaker offen fuer %s", path)
+            logger.warning("n8n Circuit Breaker offen für %s", path)
             return self._build_fallback_reply(
                 correlation_id=envelope["correlation_id"],
                 started_at=started_at,
@@ -198,7 +247,7 @@ class N8NWebhookClient:
             )
         except (httpx.HTTPStatusError, ValueError) as exc:
             self._record_failure(path, breaker_state)
-            logger.warning("n8n Sync-Call lieferte ungueltige Antwort (%s): %s", path, exc)
+            logger.warning("n8n Sync-Call lieferte ungültige Antwort (%s): %s", path, exc)
             return self._build_fallback_reply(
                 correlation_id=envelope["correlation_id"],
                 started_at=started_at,
@@ -292,6 +341,21 @@ class N8NWebhookClient:
             recommendation=None,
         )
 
+    def _extract_status_code(self, exc: Exception) -> int | None:
+        if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+            return exc.response.status_code
+        return None
+
+    def _format_event_error(self, exc: Exception) -> str:
+        if isinstance(exc, httpx.TimeoutException):
+            return "n8n Zeitlimit überschritten."
+        if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+            return f"n8n antwortete mit HTTP {exc.response.status_code}."
+        if isinstance(exc, httpx.TransportError):
+            return "n8n Transportfehler."
+        message = str(exc).strip()
+        return message or "Unbekannter n8n-Fehler."
+
     def _is_breaker_open(self, path: str, state: BreakerState) -> bool:
         now = time.monotonic()
         if state.opened_until is None:
@@ -300,7 +364,7 @@ class N8NWebhookClient:
             return True
         if state.probe_in_flight:
             return True
-        logger.info("n8n Circuit Breaker Halb-Offen fuer %s", path)
+        logger.info("n8n Circuit Breaker Halb-Offen für %s", path)
         state.probe_in_flight = True
         return False
 
@@ -310,7 +374,7 @@ class N8NWebhookClient:
         if state.consecutive_failures >= self._breaker_threshold:
             state.opened_until = time.monotonic() + self._breaker_open_seconds
             logger.warning(
-                "n8n Circuit Breaker geoeffnet fuer %s nach %d Fehlern",
+                "n8n Circuit Breaker geöffnet für %s nach %d Fehlern",
                 path,
                 state.consecutive_failures,
             )

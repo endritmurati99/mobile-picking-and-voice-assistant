@@ -1,0 +1,121 @@
+{
+  "id": "FLsNZCEhoqtwCbPG",
+  "name": "P1-telegram-calendar-query-v1",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "sub-wf-trigger",
+      "name": "Sub-Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = items[0].json;\nconst title = item.title || '';\nconst dateMatch = title.match(/(\\d{4}-\\d{2}-\\d{2})/);\nconst queryDate = dateMatch ? dateMatch[1] : new Date().toISOString().split('T')[0];\nconst windowParam = item.params.window || '09:00-17:00';\nconst parts = windowParam.split('-');\nconst slotStart = parts[0] || '09:00';\nconst slotEnd = parts[1] || '17:00';\nconst tz = item.params.tz || 'Europe/Berlin';\n\nreturn [{ json: {\n  timeMin: queryDate + 'T' + slotStart + ':00',\n  timeMax: queryDate + 'T' + slotEnd + ':00',\n  timeZone: tz,\n  queryDate: queryDate,\n  slotStart: slotStart,\n  slotEnd: slotEnd,\n  chat_id: item.chat_id,\n  event_id: item.event_id,\n  source: item.source || item.source_system || 'telegram',\n  source_system: item.source_system || item.source || 'telegram',\n  source_id: item.source_id || '',\n  is_test: Boolean(item.is_test),\n  run_id: item.run_id || null,\n  seq: item.seq || null,\n  expected_route: item.expected_route || '',\n  expected_chain: Array.isArray(item.expected_chain) ? item.expected_chain : [],\n  reply_transport: item.reply_transport || ((item.source || item.source_system) === 'telegram' ? 'telegram' : 'webhook'),\n  should_telegram_reply: item.should_telegram_reply === true || (item.source || item.source_system) === 'telegram'\n} }];"
+      },
+      "id": "parse-query",
+      "name": "Parse Query Params",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "endrit.murati99@gmail.com",
+          "mode": "id"
+        },
+        "returnAll": true,
+        "options": {
+          "timeMin": "={{ $json.timeMin }}",
+          "timeMax": "={{ $json.timeMax }}",
+          "singleEvents": true,
+          "orderBy": "startTime"
+        }
+      },
+      "id": "get-calendar-events",
+      "name": "Google Calendar: Events",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1,
+      "position": [
+        720,
+        300
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "kF0UOYtJLVTJ0Mgf",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const query = $('Parse Query Params').first().json;\nconst events = items.map(i => i.json);\nconst lines = ['Kalender ' + query.queryDate + ' (' + query.slotStart + '-' + query.slotEnd + ')'];\nlines.push('');\n\nif (events.length === 0 || (events.length === 1 && !events[0].summary)) {\n  lines.push('Keine Termine - der Zeitraum ist frei.');\n} else {\n  lines.push('Termine:');\n  for (const ev of events) {\n    if (!ev.summary) continue;\n    const start = ev.start ? (ev.start.dateTime || ev.start.date || '?') : '?';\n    const end = ev.end ? (ev.end.dateTime || ev.end.date || '?') : '?';\n    const startTime = start.includes('T') ? start.split('T')[1].substring(0, 5) : start;\n    const endTime = end.includes('T') ? end.split('T')[1].substring(0, 5) : end;\n    lines.push('  - ' + startTime + '-' + endTime + ' ' + ev.summary);\n  }\n}\n\nreturn [{ json: {\n  chat_id: query.chat_id,\n  reply_text: lines.join('\\n'),\n  reply_parse_mode: '',\n  source: query.source || query.source_system || 'telegram',\n  source_system: query.source_system || query.source || 'telegram',\n  source_id: query.source_id || '',\n  is_test: Boolean(query.is_test),\n  run_id: query.run_id || null,\n  seq: query.seq || null,\n  expected_route: query.expected_route || '',\n  expected_chain: Array.isArray(query.expected_chain) ? query.expected_chain : [],\n  reply_transport: query.reply_transport || ((query.source || query.source_system) === 'telegram' ? 'telegram' : 'webhook'),\n  should_telegram_reply: query.should_telegram_reply === true || (query.source || query.source_system) === 'telegram'\n} }];"
+      },
+      "id": "format-reply",
+      "name": "Format Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Sub-Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parse Query Params",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Query Params": {
+      "main": [
+        [
+          {
+            "node": "Google Calendar: Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Calendar: Events": {
+      "main": [
+        [
+          {
+            "node": "Format Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "diti-ai"
+    },
+    {
+      "name": "phase-1"
+    }
+  ]
+}

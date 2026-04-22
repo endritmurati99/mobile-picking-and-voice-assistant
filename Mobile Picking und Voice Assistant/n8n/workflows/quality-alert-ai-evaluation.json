@@ -1,0 +1,118 @@
+{
+  "name": "Quality Alert AI Evaluation",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const request = items[0]?.json || {};\nconst input = request.body || request;\nconst payload = input.payload || {};\nconst description = String(payload.description || '').trim();\nconst correlationId = String(input.correlation_id || '').trim();\nconst alertId = Number(payload.alert_id || 0);\nif (!correlationId || !Number.isFinite(alertId) || alertId <= 0) {\n  return [];\n}\nconst startedAt = String(input.occurred_at || new Date().toISOString());\nconst photoCount = Number(payload.photo_count || 0);\nconst contextLines = [\n  `Alert-ID: ${alertId}`,\n  `Beschreibung: ${description || '<leer>'}`,\n  `Prioritaet: ${String(payload.priority || input.picking_context?.priority || '0')}`,\n  `Fotos vorhanden: ${photoCount > 0 ? `ja (${photoCount})` : 'nein'}`,\n  payload.product_id ? `Produkt-ID: ${payload.product_id}` : '',\n  payload.location_id ? `Lagerort-ID: ${payload.location_id}` : '',\n  'Wichtig: Diese Welle ist text-first. Es stehen keine Bildinhalte zur Verfuegung.',\n].filter(Boolean).join('\\n');\nconst systemPrompt = [\n  'Du klassifizierst Quality Alerts fuer eine wissenschaftliche Shadow-Evaluation.',\n  'Nutze exakt eine Kategorie: damage, shortage, wrong_item, unclear.',\n  'damage = physischer Schaden, shortage = Fehlmenge, wrong_item = falsches Produkt, unclear = nicht eindeutig.',\n  'Nutze nur die gegebene Beschreibung und den mitgelieferten Kontext.',\n  'Erfinde keine Fakten und gib ausschliesslich JSON mit category, confidence und reason zurueck.'\n].join(' ');\nreturn [{ json: {\n  correlation_id: correlationId,\n  alert_id: alertId,\n  occurred_at: startedAt,\n  shadow_started_ms: Date.now(),\n  model: 'gpt-4o-mini',\n  system_prompt: systemPrompt,\n  user_prompt: contextLines,\n} }];"
+      },
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 3000
+        },
+        "headerParametersJson": "={{ JSON.stringify({ Authorization: `Bearer ${$env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' }) }}",
+        "bodyParametersJson": "={{ JSON.stringify({ model: $env.QUALITY_ALERT_SHADOW_MODEL || $json.model || 'gpt-4o-mini', temperature: 0, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: $json.system_prompt }, { role: 'user', content: $json.user_prompt } ] }) }}"
+      },
+      "name": "Call OpenAI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [760, 420]
+    },
+    {
+      "parameters": {
+        "mode": "mergeByPosition"
+      },
+      "name": "Merge Input And Response",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [980, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const item = items[0]?.json || {};\nconst content = item.choices?.[0]?.message?.content;\nif (!content || typeof content !== 'string') {\n  return [];\n}\nlet parsed;\ntry {\n  parsed = JSON.parse(content);\n} catch {\n  return [];\n}\nconst validCategories = ['damage', 'shortage', 'wrong_item', 'unclear'];\nconst category = String(parsed.category || '').trim();\nconst reason = String(parsed.reason || '').trim();\nconst confidence = Number(parsed.confidence);\nif (!validCategories.includes(category)) {\n  return [];\n}\nif (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {\n  return [];\n}\nif (!reason) {\n  return [];\n}\nconst callbackStartedMs = Date.now();\nconst shadowStartedMs = Number(item.shadow_started_ms || callbackStartedMs);\nconst occurredAtMs = Date.parse(String(item.occurred_at || ''));\nconst aiShadowMs = Math.max(0, callbackStartedMs - shadowStartedMs);\nconst totalDurationMs = Number.isFinite(occurredAtMs) ? Math.max(0, callbackStartedMs - occurredAtMs) : aiShadowMs;\nconst ingestMs = Number.isFinite(occurredAtMs) ? Math.max(0, shadowStartedMs - occurredAtMs) : null;\nconst latencyTracking = {\n  started_at: String(item.occurred_at || new Date(shadowStartedMs).toISOString()),\n  total_duration_ms: totalDurationMs,\n  stages: {\n    callback_ms: 0,\n  },\n  extra_stages: {\n    ai_shadow_ms: aiShadowMs,\n  },\n};\nif (ingestMs !== null) {\n  latencyTracking.stages.ingest_ms = ingestMs;\n}\nreturn [{ json: {\n  schema_version: 'v1',\n  execution_id: [$workflow.id, $execution.id].filter(Boolean).join('-') || null,\n  correlation_id: item.correlation_id,\n  alert_id: item.alert_id,\n  category,\n  confidence: Math.round(confidence * 100) / 100,\n  reason,\n  model: item.model || 'gpt-4o-mini',\n  latency_tracking: latencyTracking,\n} }];"
+      },
+      "name": "Validate Shadow Output",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1210, 300]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "http://backend:8000/api/internal/n8n/quality-assessment-ai",
+        "jsonParameters": true,
+        "options": {},
+        "headerParametersJson": "={{ JSON.stringify({ \"X-N8N-Callback-Secret\": $env.N8N_CALLBACK_SECRET, \"Idempotency-Key\": $json.correlation_id }) }}",
+        "bodyParametersJson": "={{ JSON.stringify({ schema_version: $json.schema_version, execution_id: $json.execution_id, latency_tracking: $json.latency_tracking, correlation_id: $json.correlation_id, alert_id: $json.alert_id, category: $json.category, confidence: $json.confidence, reason: $json.reason, model: $env.QUALITY_ALERT_SHADOW_MODEL || $json.model || 'gpt-4o-mini' }) }}"
+      },
+      "name": "Write Shadow Evaluation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1460, 300]
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          { "node": "Normalize Input", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          { "node": "Merge Input And Response", "type": "main", "index": 0 },
+          { "node": "Call OpenAI", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Call OpenAI": {
+      "main": [
+        [
+          { "node": "Merge Input And Response", "type": "main", "index": 1 }
+        ]
+      ]
+    },
+    "Merge Input And Response": {
+      "main": [
+        [
+          { "node": "Validate Shadow Output", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Validate Shadow Output": {
+      "main": [
+        [
+          { "node": "Write Shadow Evaluation", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "error-trigger"
+  },
+  "tags": [
+    { "name": "quality" },
+    { "name": "shadow" },
+    { "name": "research" }
+  ]
+}

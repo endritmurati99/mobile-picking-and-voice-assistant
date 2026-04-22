@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.services.mobile_workflow import PickerIdentity
-from app.services.n8n_webhook import N8NWebhookClient
+from app.services.n8n_webhook import N8NWebhookClient, coerce_event_result
 from app.services.odoo_client import OdooAPIError, OdooClient
 from app.services.route_optimizer import build_route_plan
 
@@ -64,7 +64,7 @@ def _build_voice_instruction_short(location_short: str, quantity: float | int | 
     segments = []
     if location_short:
         segments.append(f"{location_short}.")
-    segments.append(f"{_format_quantity(quantity)} Stueck.")
+    segments.append(f"{_format_quantity(quantity)} Stück.")
     if product_name:
         segments.append(f"{product_name}.")
     return " ".join(segment for segment in segments if segment)
@@ -188,6 +188,92 @@ class PickingService:
     def __init__(self, odoo: OdooClient, n8n: N8NWebhookClient):
         self._odoo = odoo
         self._n8n = n8n
+
+    async def get_stock_snapshot(
+        self,
+        *,
+        product_id: int | None,
+        location_id: int | None,
+    ) -> dict[str, Any]:
+        if product_id is None:
+            return {
+                "product_id": None,
+                "location_id": location_id,
+                "location_name": "",
+                "quantity_available": 0.0,
+                "quantity_total": 0.0,
+                "available": 0.0,
+                "total": 0.0,
+                "status": "unknown",
+                "alternative_locations": [],
+                "recommendation": None,
+            }
+
+        quants = await self._odoo.search_read(
+            "stock.quant",
+            [("product_id", "=", product_id)],
+            ["quantity", "reserved_quantity", "location_id"],
+            limit=50,
+        )
+
+        current_available = 0.0
+        current_total = 0.0
+        current_location_name = ""
+        alternative_locations: list[dict[str, Any]] = []
+
+        for quant in quants:
+            total_quantity = float(quant.get("quantity", 0) or 0)
+            available_quantity = total_quantity - float(quant.get("reserved_quantity", 0) or 0)
+            location_value = quant.get("location_id")
+            location_tuple = location_value if isinstance(location_value, list) else location_value or []
+            quant_location_id = location_tuple[0] if location_tuple else None
+            quant_location_name = location_tuple[1] if location_tuple else ""
+
+            if quant_location_id == location_id:
+                current_available += available_quantity
+                current_total += total_quantity
+                current_location_name = quant_location_name or current_location_name
+                continue
+
+            if available_quantity > 0 and quant_location_id:
+                alternative_locations.append(
+                    {
+                        "id": quant_location_id,
+                        "name": quant_location_name,
+                        "quantity_available": round(available_quantity, 2),
+                    }
+                )
+
+        alternative_locations.sort(key=lambda item: (-item["quantity_available"], item["name"]))
+        alternative_locations = alternative_locations[:3]
+
+        quantity_available = round(current_available, 2)
+        quantity_total = round(current_total, 2)
+        status = "available" if quantity_available > 0 else "out_of_stock"
+
+        recommendation = None
+        if location_id and quantity_available <= 0 and alternative_locations:
+            recommendation = {
+                "action": "trigger_replenishment",
+                "location_id": location_id,
+                "recommended_location_id": alternative_locations[0]["id"],
+                "recommended_location": alternative_locations[0]["name"],
+                "reason": "Am Zielplatz ist kein verfügbarer Bestand vorhanden, aber an einem Alternativplatz liegt Ware.",
+                "quantity": 1.0,
+            }
+
+        return {
+            "product_id": product_id,
+            "location_id": location_id,
+            "location_name": current_location_name,
+            "quantity_available": quantity_available,
+            "quantity_total": quantity_total,
+            "available": quantity_available,
+            "total": quantity_total,
+            "status": status,
+            "alternative_locations": alternative_locations,
+            "recommendation": recommendation,
+        }
 
     async def get_open_pickings(self) -> list[dict]:
         """Load open pickings enriched with operational preview data."""
@@ -498,7 +584,7 @@ class PickingService:
             "stock.move.line",
             "read",
             [[move_line_id]],
-            {"fields": ["id", "product_id", "quantity", "move_id"]},
+            {"fields": ["id", "product_id", "quantity", "move_id", "location_id"]},
         )
         if not lines:
             return {
@@ -510,6 +596,7 @@ class PickingService:
         line = lines[0]
         product_id = line["product_id"][0] if line.get("product_id") else None
         move_id = line["move_id"][0] if line.get("move_id") else None
+        location_id = line["location_id"][0] if line.get("location_id") else None
 
         if product_id and scanned_barcode:
             products = await self._odoo.search_read(
@@ -524,6 +611,21 @@ class PickingService:
                     "message": f"Falscher Artikel. Erwartet: {expected_barcode}",
                     "picking_complete": False,
                 }
+
+        stock_snapshot = None
+        if location_id is not None:
+            stock_snapshot = await self.get_stock_snapshot(
+                product_id=product_id,
+                location_id=location_id,
+            )
+        if stock_snapshot and stock_snapshot["status"] == "out_of_stock":
+            return {
+                "success": False,
+                "message": "Kein Bestand am aktuellen Lagerplatz. Bitte Problem melden, Nachschub anfordern oder überspringen.",
+                "picking_complete": False,
+                "blocked_reason": "out_of_stock",
+                "stock_context": stock_snapshot,
+            }
 
         qty = quantity if quantity > 0 else line.get("quantity", 1.0)
         await self._odoo.write("stock.move.line", [move_line_id], {"quantity": qty})
@@ -562,7 +664,7 @@ class PickingService:
                     completed_by_user_id = picker_identity.user_id
                     completed_by_device_id = picker_identity.device_id or ""
 
-                await self._n8n.fire_event(
+                event_result = coerce_event_result(await self._n8n.fire_event(
                     "pick-confirmed",
                     {
                         "picking_id": picking_id,
@@ -583,10 +685,122 @@ class PickingService:
                         "priority": None,
                         "origin": None,
                     },
-                )
+                ))
+                if not event_result.delivered:
+                    return {
+                        "success": True,
+                        "message": (
+                            "Auftrag abgeschlossen, aber der n8n-Folgeprozess konnte nicht gestartet werden. "
+                            "Bitte manuell prüfen."
+                        ),
+                        "picking_complete": True,
+                        "integration_status": "degraded",
+                        "integration_error": event_result.error,
+                        "correlation_id": event_result.correlation_id,
+                    }
 
         return {
             "success": True,
-            "message": "Auftrag abgeschlossen." if picking_complete else "Bestaetigt.",
+            "message": "Auftrag abgeschlossen." if picking_complete else "Bestätigt.",
             "picking_complete": picking_complete,
+        }
+
+    async def request_replenishment(
+        self,
+        picking_id: int,
+        move_line_id: int,
+        *,
+        reason: str = "",
+        picker_identity: PickerIdentity | None = None,
+    ) -> dict[str, Any]:
+        lines = await self._odoo.execute_kw(
+            "stock.move.line",
+            "search_read",
+            [[("id", "=", move_line_id), ("picking_id", "=", picking_id)]],
+            {"fields": ["id", "product_id", "location_id"]},
+        )
+        if not lines:
+            return {
+                "success": False,
+                "message": "Move-Line nicht gefunden.",
+            }
+
+        line = lines[0]
+        product_id = line["product_id"][0] if line.get("product_id") else None
+        location_tuple = line.get("location_id") if isinstance(line.get("location_id"), list) else []
+        location_id = location_tuple[0] if location_tuple else None
+
+        stock_snapshot = await self.get_stock_snapshot(
+            product_id=product_id,
+            location_id=location_id,
+        )
+        if stock_snapshot["status"] != "out_of_stock":
+            return {
+                "success": False,
+                "message": (
+                    "Am aktuellen Lagerplatz sind laut System noch "
+                    f"{_format_quantity(stock_snapshot['quantity_available'])} Stück verfügbar."
+                ),
+                "stock_context": stock_snapshot,
+            }
+
+        recommendation = stock_snapshot.get("recommendation")
+        if not recommendation:
+            return {
+                "success": False,
+                "message": "Kein Alternativbestand für Nachschub gefunden. Bitte Problem melden.",
+                "stock_context": stock_snapshot,
+            }
+
+        requested_by = "mobile-picking-assistant"
+        requested_by_user_id = None
+        requested_by_device_id = None
+        if picker_identity and picker_identity.user_id:
+            requested_by = picker_identity.picker_name or requested_by
+            requested_by_user_id = picker_identity.user_id
+            requested_by_device_id = picker_identity.device_id or None
+
+        event_result = coerce_event_result(await self._n8n.fire_event(
+            "shortage-reported",
+            {
+                "text": reason or "Kein Bestand am aktuellen Lagerplatz.",
+                "intent": "out_of_stock_decision",
+                "recommendation": recommendation,
+                "requested_by_user_id": requested_by_user_id,
+            },
+            picker={
+                "user_id": requested_by_user_id,
+                "name": requested_by,
+            },
+            device_id=requested_by_device_id,
+            picking_context={
+                "picking_id": picking_id,
+                "move_line_id": move_line_id,
+                "product_id": product_id,
+                "location_id": location_id,
+                "priority": None,
+                "origin": None,
+            },
+        ))
+        if not event_result.delivered:
+            return {
+                "success": False,
+                "message": (
+                    "Nachschub konnte nicht an n8n uebergeben werden. "
+                    f"{event_result.error or 'Bitte manuell pruefen.'}"
+                ),
+                "correlation_id": event_result.correlation_id,
+                "stock_context": stock_snapshot,
+            }
+
+        return {
+            "success": True,
+            "message": (
+                "Nachschub angefordert. "
+                f"Quelle: {recommendation.get('recommended_location', 'Alternativplatz')}."
+            ),
+            "correlation_id": event_result.correlation_id,
+            "recommended_location_id": recommendation.get("recommended_location_id"),
+            "recommended_location": recommendation.get("recommended_location"),
+            "stock_context": stock_snapshot,
         }

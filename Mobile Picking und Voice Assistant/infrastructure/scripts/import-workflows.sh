@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Import, activate, and roll back the critical n8n workflows without duplicates.
+# Controlled n8n workflow rollout with explicit backup/import/activate/rollback phases.
 set -euo pipefail
 
-MODE="${1:-apply}"
+MODE="${1:-}"
 ROLLBACK_DIR="${2:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,11 +19,34 @@ WORKFLOW_FILES=(
   "shortage-reported.json"
 )
 
+ACTIVATION_ORDER=(
+  "error-trigger.json"
+  "voice-exception-query.json"
+  "quality-alert-created.json"
+  "shortage-reported.json"
+)
+
 cleanup() {
   rm -rf "$TMP_ROOT"
 }
 
 trap cleanup EXIT
+
+usage() {
+  cat <<'EOF'
+Usage:
+  bash infrastructure/scripts/import-workflows.sh backup
+  bash infrastructure/scripts/import-workflows.sh import <backup-dir>
+  bash infrastructure/scripts/import-workflows.sh activate <backup-dir> [workflow-file ...]
+  bash infrastructure/scripts/import-workflows.sh rollback <backup-dir>
+
+Notes:
+  - backup   exports the current n8n state into a timestamped directory
+  - import   verifies contracts, imports the four production workflows inactive, and writes an ID manifest
+  - activate publishes workflows in fixed order unless explicit workflow files are provided
+  - rollback restores workflow files and activation state from the backup directory
+EOF
+}
 
 workflow_name() {
   case "$1" in
@@ -60,20 +83,34 @@ wait_for_n8n() {
   return 1
 }
 
+run_verify_workflows() {
+  echo "=== Verifying workflow contracts ==="
+  (
+    cd "$ROOT_DIR"
+    python infrastructure/scripts/verify-workflows.py
+  )
+}
+
 export_all_workflows() {
   local output_file="$1"
-  compose_shell "rm -f /tmp/codex-export-all.json && n8n export:workflow --all --output=/tmp/codex-export-all.json >/dev/null && cat /tmp/codex-export-all.json" >"$output_file"
+  compose_shell \
+    "rm -f /tmp/codex-export-all.json && n8n export:workflow --all --output=/tmp/codex-export-all.json >/dev/null && cat /tmp/codex-export-all.json" \
+    >"$output_file"
 }
 
 export_workflow_by_id() {
   local workflow_id="$1"
   local output_file="$2"
-  compose_shell "rm -f /tmp/codex-export-one.json && n8n export:workflow --id='$workflow_id' --output=/tmp/codex-export-one.json >/dev/null && cat /tmp/codex-export-one.json" >"$output_file"
+  compose_shell \
+    "rm -f /tmp/codex-export-one.json && n8n export:workflow --id='$workflow_id' --output=/tmp/codex-export-one.json >/dev/null && cat /tmp/codex-export-one.json" \
+    >"$output_file"
 }
 
 create_cli_backup_tar() {
   local output_file="$1"
-  if ! compose_shell "rm -rf /tmp/codex-workflow-backup && mkdir -p /tmp/codex-workflow-backup && n8n export:workflow --backup --output=/tmp/codex-workflow-backup >/dev/null && tar -C /tmp -cf - codex-workflow-backup" >"$output_file"; then
+  if ! compose_shell \
+    "rm -rf /tmp/codex-workflow-backup && mkdir -p /tmp/codex-workflow-backup && n8n export:workflow --backup --output=/tmp/codex-workflow-backup >/dev/null && tar -C /tmp -cf - codex-workflow-backup" \
+    >"$output_file"; then
     echo "WARNING: Could not create CLI backup tarball." >&2
     rm -f "$output_file"
   fi
@@ -241,30 +278,24 @@ import_staged_workflow() {
   local input_file="$1"
   local container_path="/tmp/$(basename "$input_file")"
   echo "  Importing $(basename "$input_file") ..."
-  docker compose -f "$COMPOSE_FILE" exec -T n8n sh -lc "cat > '$container_path' && n8n import:workflow --input='$container_path' >/dev/null" <"$input_file"
+  docker compose -f "$COMPOSE_FILE" exec -T n8n sh -lc \
+    "cat > '$container_path' && n8n import:workflow --input='$container_path' >/dev/null" \
+    <"$input_file"
 }
 
-activate_from_state() {
+set_activation_state() {
   local state_file="$1"
   local active_value="$2"
-  local workflow_rows=()
-  mapfile -t workflow_rows < <(
-    python - "$state_file" <<'PY'
-import json
-import sys
+  shift 2
 
-with open(sys.argv[1], encoding="utf-8") as handle:
-    state = json.load(handle)
+  local file_args=("$@")
+  if [[ ${#file_args[@]} -eq 0 ]]; then
+    file_args=("${WORKFLOW_FILES[@]}")
+  fi
 
-for file_name, workflow in (state.get("workflows") or {}).items():
-    workflow_id = workflow.get("id")
-    if workflow_id:
-        print(f"{file_name}\t{workflow_id}")
-PY
-  )
-
-  for row in "${workflow_rows[@]}"; do
-    IFS=$'\t' read -r file_name workflow_id <<<"$row"
+  for file_name in "${file_args[@]}"; do
+    local workflow_id
+    workflow_id="$(state_field "$state_file" "$file_name" "id")"
     if [[ -z "$workflow_id" ]]; then
       continue
     fi
@@ -328,14 +359,13 @@ restart_n8n() {
   docker compose -f "$COMPOSE_FILE" restart n8n >/dev/null
 }
 
-apply_workflows() {
-  local timestamp backup_dir error_state_file error_workflow_id
-
+backup_workflows() {
   wait_for_n8n
 
+  local timestamp backup_dir
   timestamp="$(date +%Y%m%d-%H%M%S)"
   backup_dir="$BACKUP_ROOT/$timestamp"
-  mkdir -p "$backup_dir/original" "$TMP_ROOT/staged"
+  mkdir -p "$backup_dir/original"
 
   echo ""
   echo "=== Exporting current workflow state ==="
@@ -346,48 +376,91 @@ apply_workflows() {
   backup_existing_workflows "$backup_dir/original-state.json" "$backup_dir/original"
 
   echo ""
+  echo "Backup created: $backup_dir"
+}
+
+import_workflows() {
+  local backup_dir="$1"
+  if [[ -z "$backup_dir" || ! -f "$backup_dir/original-state.json" ]]; then
+    echo "ERROR: import requires an existing backup directory with original-state.json" >&2
+    exit 1
+  fi
+
+  run_verify_workflows
+  wait_for_n8n
+  mkdir -p "$TMP_ROOT/staged"
+
+  echo ""
   echo "=== Importing error workflow ==="
   stage_workflow "error-trigger.json" "$backup_dir/original-state.json" "" "$TMP_ROOT/staged/error-trigger.json"
   import_staged_workflow "$TMP_ROOT/staged/error-trigger.json"
 
   export_all_workflows "$TMP_ROOT/after-error-import.json"
-  error_state_file="$TMP_ROOT/after-error-state.json"
-  write_state "$TMP_ROOT/after-error-import.json" "$error_state_file"
-  ensure_no_duplicates "$error_state_file"
-  error_workflow_id="$(state_field "$error_state_file" "error-trigger.json" "id")"
+  write_state "$TMP_ROOT/after-error-import.json" "$TMP_ROOT/after-error-state.json"
+  ensure_no_duplicates "$TMP_ROOT/after-error-state.json"
+
+  local error_workflow_id
+  error_workflow_id="$(state_field "$TMP_ROOT/after-error-state.json" "error-trigger.json" "id")"
   if [[ -z "$error_workflow_id" ]]; then
     echo "ERROR: Error Trigger workflow ID could not be resolved after import." >&2
     exit 1
   fi
 
   echo ""
-  echo "=== Importing primary workflows ==="
+  echo "=== Importing primary workflows inactive ==="
   for file_name in "quality-alert-created.json" "voice-exception-query.json" "shortage-reported.json"; do
     stage_workflow "$file_name" "$backup_dir/original-state.json" "$error_workflow_id" "$TMP_ROOT/staged/$file_name"
     import_staged_workflow "$TMP_ROOT/staged/$file_name"
   done
 
+  export_all_workflows "$backup_dir/imported-workflows.json"
+  write_state "$backup_dir/imported-workflows.json" "$backup_dir/imported-state.json"
+  ensure_no_duplicates "$backup_dir/imported-state.json"
+
   echo ""
-  echo "=== Resolving workflow IDs and activating ==="
-  export_all_workflows "$backup_dir/deployed-workflows.json"
-  write_state "$backup_dir/deployed-workflows.json" "$backup_dir/deployed-state.json"
-  ensure_no_duplicates "$backup_dir/deployed-state.json"
-  activate_from_state "$backup_dir/deployed-state.json" "true"
+  echo "=== Ensuring imported workflows stay inactive ==="
+  set_activation_state "$backup_dir/imported-state.json" "false"
+
+  echo ""
+  echo "Import completed. Imported workflow manifest: $backup_dir/imported-state.json"
+  echo "Next step: bash infrastructure/scripts/import-workflows.sh activate \"$backup_dir\""
+}
+
+activate_workflows() {
+  local backup_dir="$1"
+  shift
+
+  if [[ -z "$backup_dir" || ! -f "$backup_dir/imported-state.json" ]]; then
+    echo "ERROR: activate requires an import backup directory with imported-state.json" >&2
+    exit 1
+  fi
+
+  wait_for_n8n
+
+  local files_to_activate=()
+  if [[ $# -gt 0 ]]; then
+    files_to_activate=("$@")
+  else
+    files_to_activate=("${ACTIVATION_ORDER[@]}")
+  fi
+
+  echo ""
+  echo "=== Activating workflows ==="
+  set_activation_state "$backup_dir/imported-state.json" "true" "${files_to_activate[@]}"
+
+  export_all_workflows "$backup_dir/activated-workflows.json"
+  write_state "$backup_dir/activated-workflows.json" "$backup_dir/activated-state.json"
+  ensure_no_duplicates "$backup_dir/activated-state.json"
 
   echo ""
   restart_n8n
   echo ""
-  echo "Done. Backups saved in: $backup_dir"
-  echo "Rollback command: bash infrastructure/scripts/import-workflows.sh rollback \"$backup_dir\""
+  echo "Activation completed. Remember to run the documented smoke tests before activating the next workflow."
 }
 
 rollback_workflows() {
   local backup_dir="$1"
-  if [[ -z "$backup_dir" ]]; then
-    echo "Usage: bash infrastructure/scripts/import-workflows.sh rollback <backup-dir>" >&2
-    exit 1
-  fi
-  if [[ ! -f "$backup_dir/original-state.json" ]]; then
+  if [[ -z "$backup_dir" || ! -f "$backup_dir/original-state.json" ]]; then
     echo "ERROR: Missing rollback manifest: $backup_dir/original-state.json" >&2
     exit 1
   fi
@@ -417,14 +490,25 @@ rollback_workflows() {
 }
 
 case "$MODE" in
-  apply)
-    apply_workflows
+  backup)
+    backup_workflows
+    ;;
+  import)
+    import_workflows "$ROLLBACK_DIR"
+    ;;
+  activate)
+    if [[ -z "$ROLLBACK_DIR" ]]; then
+      usage >&2
+      exit 1
+    fi
+    shift 2
+    activate_workflows "$ROLLBACK_DIR" "$@"
     ;;
   rollback)
     rollback_workflows "$ROLLBACK_DIR"
     ;;
   *)
-    echo "Usage: bash infrastructure/scripts/import-workflows.sh [apply|rollback <backup-dir>]" >&2
+    usage >&2
     exit 1
     ;;
 esac

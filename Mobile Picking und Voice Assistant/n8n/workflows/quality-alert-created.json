@@ -1,4 +1,5 @@
 {
+  "id": "8eWVrUfTAUvOAbpdug8oP",
   "name": "Quality Alert Created",
   "nodes": [
     {
@@ -11,7 +12,10 @@
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [240, 280]
+      "position": [
+        240,
+        280
+      ]
     },
     {
       "parameters": {
@@ -21,16 +25,22 @@
       "name": "Respond",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [480, 120]
+      "position": [
+        500,
+        120
+      ]
     },
     {
       "parameters": {
-        "functionCode": "const request = items[0]?.json || {};\nconst input = request.body || request;\nconst payload = input.payload || {};\nconst description = String(payload.description || '').trim();\nconst descriptionLower = description.toLowerCase();\nconst priority = String(payload.priority || '0');\nconst photoCount = Number(payload.photo_count || 0);\nlet aiDisposition = 'sellable';\nlet aiConfidence = 0.62;\nlet aiRecommendedAction = 'Sichtpruefung durch Qualitaetsteam.';\nif (priority === '3' || /(totalschaden|zerstoert|eingedrueckt|bruch|gebrochen)/.test(descriptionLower)) {\n  aiDisposition = 'scrap';\n  aiConfidence = 0.94;\n  aiRecommendedAction = 'Ware sperren, aussondern und Schichtleitung informieren.';\n} else if (priority === '2' || photoCount > 0 || /(defekt|gerissen|feucht|nass|offen|beschaedigt)/.test(descriptionLower)) {\n  aiDisposition = 'quarantine';\n  aiConfidence = 0.87;\n  aiRecommendedAction = 'Ware sperren und manuelle Pruefung anfordern.';\n} else if (/(kratzer|etikett|verpackung|kleber|nacharbeit)/.test(descriptionLower)) {\n  aiDisposition = 'rework';\n  aiConfidence = 0.79;\n  aiRecommendedAction = 'Nacharbeit pruefen und Verpackung korrigieren.';\n}\nconst severityLabel = priority === '3' ? 'kritisch' : priority === '2' ? 'hoch' : 'normal';\nconst aiSummary = description\n  ? `Automatische V1-Bewertung (${severityLabel}): ${description}`\n  : `Automatische V1-Bewertung fuer Alert ${payload.alert_id || ''}.`;\nreturn [{ json: {\n  correlation_id: input.correlation_id,\n  alert_id: payload.alert_id,\n  ai_disposition: aiDisposition,\n  ai_confidence: aiConfidence,\n  ai_summary: aiSummary,\n  ai_recommended_action: aiRecommendedAction,\n  ai_provider: 'n8n-heuristic-agent',\n  ai_model: 'quality-v1',\n  log_message: `Alert ${payload.name || payload.alert_id}: ${aiDisposition} | Prioritaet ${priority} | ${description || 'ohne Beschreibung'}`,\n} }];"
+        "functionCode": "const request = items[0]?.json || {};\nconst input = request.body || request;\nconst payload = input.payload || {};\nconst description = String(payload.description || '').trim();\nconst descLower = description.toLowerCase();\nconst priority = String(payload.priority || input.picking_context?.priority || '0');\nconst photoCount = Number(payload.photo_count || 0);\nconst startedAt = String(input.occurred_at || new Date().toISOString());\nconst parsedStartedAt = Date.parse(startedAt);\nconst heuristicStartedMs = Date.now();\nconst CATALOG = {\n  scrap: [\n    ['totalschaden', 10], ['zerstoert', 10], ['zerbrochen', 9], ['bruch', 8], ['gebrochen', 8],\n    ['eingedrueckt', 7], ['explodiert', 10], ['durchgebrochen', 9], ['gesplittert', 8], ['zerquetscht', 9]\n  ],\n  quarantine: [\n    ['defekt', 6], ['gerissen', 6], ['feucht', 5], ['nass', 5], ['beschaedigt', 5],\n    ['offen', 4], ['schimmel', 7], ['rost', 6], ['undicht', 5], ['verformt', 5],\n    ['kontaminiert', 7], ['fremdkoerper', 6], ['locker', 4], ['abgeloest', 5]\n  ],\n  rework: [\n    ['kratzer', 3], ['etikett', 3], ['verpackung', 2], ['kleber', 2], ['nacharbeit', 3],\n    ['delle', 3], ['verfaerbt', 3], ['verschmutzt', 2], ['falsch etikettiert', 4],\n    ['schief', 2], ['lose', 2], ['abgerieben', 3]\n  ]\n};\nconst ACTIONS = {\n  scrap: 'Ware sperren, aussondern und Schichtleitung informieren.',\n  quarantine: 'Ware sperren und manuelle Prüfung anfordern.',\n  rework: 'Nacharbeit prüfen und Verpackung korrigieren.',\n  sellable: 'Sichtprüfung durch Qualitätsteam.'\n};\nlet cleaned = descLower\n  .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss');\nconst negPat = /\\b(nicht|kein|keine|ohne|kaum|weder)\\s+\\S+/g;\ncleaned = cleaned.replace(negPat, '');\nconst scores = { scrap: 0, quarantine: 0, rework: 0 };\nlet totalMatches = 0;\nfor (const [cat, keywords] of Object.entries(CATALOG)) {\n  for (const [word, weight] of keywords) {\n    if (cleaned.includes(word)) {\n      scores[cat] += weight;\n      totalMatches++;\n    }\n  }\n}\nif (priority === '1') {\n  scores.quarantine += 4;\n  scores.scrap += 2;\n}\nif (photoCount > 0) scores.quarantine += 3;\nif (photoCount > 2) scores.scrap += 2;\nconst topScore = Math.max(scores.scrap, scores.quarantine, scores.rework);\nlet aiDisposition = 'sellable';\nif (topScore >= 3) {\n  if (scores.scrap >= scores.quarantine && scores.scrap >= scores.rework) aiDisposition = 'scrap';\n  else if (scores.quarantine >= scores.rework) aiDisposition = 'quarantine';\n  else aiDisposition = 'rework';\n}\nconst descLen = description.length;\nconst lenFactor = descLen < 10 ? 0.7 : descLen < 30 ? 0.85 : 1.0;\nconst matchFactor = totalMatches === 0 ? 0.5 : Math.min(1.0, 0.6 + totalMatches * 0.1);\nconst PRACTICAL_CEILING = 25;\nlet aiConfidence;\nif (aiDisposition === 'sellable') {\n  aiConfidence = Math.round(Math.min(0.65, 0.4 + matchFactor * 0.2) * lenFactor * 100) / 100;\n} else {\n  const scoreFactor = Math.min(1.0, topScore / PRACTICAL_CEILING);\n  aiConfidence = Math.round(Math.min(0.95, 0.5 + scoreFactor * 0.45) * lenFactor * matchFactor * 100) / 100;\n}\naiConfidence = Math.max(0.1, Math.min(0.95, aiConfidence));\nconst matchedWords = [];\nfor (const [, keywords] of Object.entries(CATALOG)) {\n  for (const [word] of keywords) {\n    if (cleaned.includes(word)) matchedWords.push(word);\n  }\n}\nconst prioLabel = priority === '1' ? 'Dringend' : 'Standard';\nconst aiSummary = matchedWords.length > 0\n  ? `Erkannte Merkmale: ${matchedWords.join(', ')}. Score: ${topScore}, Priorität: ${prioLabel}.`\n  : description\n    ? `Keine eindeutigen Schadensmerkmale erkannt (Priorität: ${prioLabel}).`\n    : 'Kein Befund — keine Beschreibung übermittelt.';\nconst aiEnhancedDescription = description\n  ? description.charAt(0).toUpperCase() + description.slice(1)\n  : '';\nconst nowMs = Date.now();\nconst heuristicMs = Math.max(0, nowMs - heuristicStartedMs);\nconst ingestMs = Number.isFinite(parsedStartedAt) ? Math.max(0, heuristicStartedMs - parsedStartedAt) : null;\nconst totalDurationMs = Number.isFinite(parsedStartedAt) ? Math.max(0, nowMs - parsedStartedAt) : heuristicMs;\nconst latencyTracking = {\n  started_at: startedAt,\n  total_duration_ms: totalDurationMs,\n  stages: {\n    heuristic_ms: heuristicMs,\n    callback_ms: 0,\n  },\n};\nif (ingestMs !== null) {\n  latencyTracking.stages.ingest_ms = ingestMs;\n}\nreturn [{ json: {\n  correlation_id: input.correlation_id,\n  schema_version: String(input.schema_version || 'v1'),\n  alert_id: payload.alert_id,\n  ai_disposition: aiDisposition,\n  ai_confidence: aiConfidence,\n  ai_summary: aiSummary,\n  ai_enhanced_description: aiEnhancedDescription || null,\n  ai_photo_analysis: null,\n  ai_recommended_action: ACTIONS[aiDisposition],\n  ai_provider: 'n8n-heuristic-agent',\n  ai_model: 'quality-v2',\n  latency_tracking: latencyTracking,\n  log_message: `Alert ${payload.name || payload.alert_id}: ${aiDisposition} (${aiConfidence}) | Score s=${scores.scrap} q=${scores.quarantine} r=${scores.rework} | Prio ${priority} | ${description || 'ohne Beschreibung'}`,\n} }];"
       },
       "name": "Assess Alert",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
-      "position": [540, 280]
+      "position": [
+        560,
+        280
+      ]
     },
     {
       "parameters": {
@@ -39,58 +49,56 @@
         "jsonParameters": true,
         "options": {},
         "headerParametersJson": "={{ JSON.stringify({ \"X-N8N-Callback-Secret\": $env.N8N_CALLBACK_SECRET, \"Idempotency-Key\": $json.correlation_id }) }}",
-        "bodyParametersJson": "={{ JSON.stringify({ correlation_id: $json.correlation_id, alert_id: $json.alert_id, ai_disposition: $json.ai_disposition, ai_confidence: $json.ai_confidence, ai_summary: $json.ai_summary, ai_recommended_action: $json.ai_recommended_action, ai_provider: $json.ai_provider, ai_model: $json.ai_model }) }}"
+        "bodyParametersJson": "={{ JSON.stringify({ correlation_id: $json.correlation_id, alert_id: $json.alert_id, schema_version: $json.schema_version, execution_id: [$workflow.id, $execution.id].filter(Boolean).join('-') || null, latency_tracking: $json.latency_tracking, ai_disposition: $json.ai_disposition, ai_confidence: $json.ai_confidence, ai_summary: $json.ai_summary, ai_enhanced_description: $json.ai_enhanced_description, ai_photo_analysis: $json.ai_photo_analysis, ai_recommended_action: $json.ai_recommended_action, ai_provider: $json.ai_provider, ai_model: $json.ai_model }) }}"
       },
       "name": "Write Assessment",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 2,
-      "position": [850, 220]
-    },
-    {
-      "parameters": {
-        "requestMethod": "POST",
-        "url": "http://backend:8000/api/obsidian/log",
-        "jsonParameters": true,
-        "options": {},
-        "headerParametersJson": "={{ JSON.stringify({ \"X-N8N-Callback-Secret\": $env.N8N_CALLBACK_SECRET }) }}",
-        "bodyParametersJson": "={{ JSON.stringify({ category: 'QA-ALARM', message: $json.log_message }) }}"
-      },
-      "name": "Log To Obsidian",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 2,
-      "position": [1100, 340]
+      "position": [
+        900,
+        280
+      ]
     }
   ],
   "connections": {
     "Webhook": {
       "main": [
         [
-          { "node": "Respond", "type": "main", "index": 0 },
-          { "node": "Assess Alert", "type": "main", "index": 0 }
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Assess Alert",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
     "Assess Alert": {
       "main": [
         [
-          { "node": "Write Assessment", "type": "main", "index": 0 }
-        ]
-      ]
-    },
-    "Write Assessment": {
-      "main": [
-        [
-          { "node": "Log To Obsidian", "type": "main", "index": 0 }
+          {
+            "node": "Write Assessment",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     }
   },
   "settings": {
     "executionOrder": "v1",
-    "errorWorkflow": "error-trigger"
+    "errorWorkflow": "99fa93a638824b84b8578e4c8942c419"
   },
   "tags": [
-    { "name": "quality" },
-    { "name": "cqrs" }
+    {
+      "name": "quality"
+    },
+    {
+      "name": "cqrs"
+    }
   ]
 }

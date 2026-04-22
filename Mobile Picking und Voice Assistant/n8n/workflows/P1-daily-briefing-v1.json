@@ -1,0 +1,120 @@
+{
+  "name": "P1-daily-briefing-v1",
+  "id": "EqbptnAergDmhJK2",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "triggerAtHour": 7, "triggerAtMinute": 0 }]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Daily 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "resource": "task",
+        "operation": "getAll",
+        "taskList": "NEXT",
+        "returnAll": false,
+        "limit": 20,
+        "filters": {
+          "showCompleted": false
+        }
+      },
+      "id": "get-tasks",
+      "name": "Get Tasks",
+      "type": "n8n-nodes-base.googleTasks",
+      "typeVersion": 1,
+      "position": [480, 200],
+      "credentials": {
+        "googleTasksOAuth2Api": {
+          "id": "s305fscwssjI56L7",
+          "name": "Google OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "getAll",
+        "calendarId": "primary",
+        "returnAll": false,
+        "limit": 20,
+        "options": {
+          "timeMin": "={{ new Date().toISOString() }}",
+          "timeMax": "={{ new Date(new Date().setHours(23,59,59)).toISOString() }}",
+          "singleEvents": true,
+          "orderBy": "startTime"
+        }
+      },
+      "id": "get-events",
+      "name": "Get Calendar Events",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 3,
+      "position": [480, 420],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "G8VazmuTBZl1HQGQ",
+          "name": "Google OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Daily Briefing formatieren\nconst tasks = $('Get Tasks').all();\nconst events = $('Get Calendar Events').all();\nconst today = new Date().toISOString().split('T')[0];\n\n// Tasks filtern: heute faellig oder ueberfaellig\nconst todayTasks = [];\nconst overdueTasks = [];\nconst upcomingTasks = [];\n\nfor (const t of tasks) {\n  const task = t.json;\n  const title = task.title || 'Ohne Titel';\n  const due = task.due ? task.due.split('T')[0] : null;\n  const notes = task.notes || '';\n  \n  // Prio aus Notes extrahieren\n  const prioMatch = notes.match(/Prio:\\s*(\\w+)/);\n  const prio = prioMatch ? prioMatch[1] : '-';\n  \n  if (due === today) {\n    todayTasks.push(`• ${title} [${prio}]`);\n  } else if (due && due < today) {\n    overdueTasks.push(`• ${title} (faellig: ${due}) [${prio}]`);\n  } else {\n    upcomingTasks.push({ title, due, prio });\n  }\n}\n\n// Events formatieren\nconst eventLines = events.map(e => {\n  const ev = e.json;\n  const start = ev.start?.dateTime ? new Date(ev.start.dateTime).toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}) : 'ganztaegig';\n  const end = ev.end?.dateTime ? new Date(ev.end.dateTime).toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}) : '';\n  return `• ${start}${end ? '-'+end : ''} ${ev.summary || 'Termin'}`;\n});\n\n// Briefing zusammenbauen\nlet msg = `Guten Morgen! Dein Tag (${today}):\\n\\n`;\n\nif (todayTasks.length > 0) {\n  msg += `📋 Tasks heute (${todayTasks.length}):\\n${todayTasks.join('\\n')}\\n\\n`;\n} else {\n  msg += `📋 Keine Tasks heute faellig.\\n\\n`;\n}\n\nif (overdueTasks.length > 0) {\n  msg += `⚠️ Ueberfaellig (${overdueTasks.length}):\\n${overdueTasks.join('\\n')}\\n\\n`;\n}\n\nif (eventLines.length > 0) {\n  msg += `📅 Termine:\\n${eventLines.join('\\n')}\\n\\n`;\n} else {\n  msg += `📅 Keine Termine heute.\\n\\n`;\n}\n\n// Naechste 3 Tasks\nconst next3 = upcomingTasks.slice(0, 3);\nif (next3.length > 0) {\n  msg += `🔜 Naechste Tasks:\\n${next3.map(t => `• ${t.title} (${t.due || 'kein Datum'}) [${t.prio}]`).join('\\n')}\\n`;\n}\n\nmsg += `\\n---\\nTotal offene Tasks: ${tasks.length}`;\n\nreturn [{ json: { briefing: msg } }];"
+      },
+      "id": "format-briefing",
+      "name": "Format Briefing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [750, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "6526468834",
+        "text": "={{ $json.briefing }}",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "send-briefing",
+      "name": "Send Briefing",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [980, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "ArH28ZVfcRNFvTiN",
+          "name": "Telegram Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily 07:00": {
+      "main": [
+        [
+          { "node": "Get Tasks", "type": "main", "index": 0 },
+          { "node": "Get Calendar Events", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Get Tasks": {
+      "main": [[{ "node": "Format Briefing", "type": "main", "index": 0 }]]
+    },
+    "Get Calendar Events": {
+      "main": [[{ "node": "Format Briefing", "type": "main", "index": 0 }]]
+    },
+    "Format Briefing": {
+      "main": [[{ "node": "Send Briefing", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [{ "name": "diti-ai" }, { "name": "phase-1" }]
+}

@@ -1,0 +1,113 @@
+{
+  "name": "P1-gmail-label-task-v1",
+  "id": "qyLExLjeBXZ4nd2Y",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [{ "mode": "everyMinute", "minute": 5 }]
+        },
+        "filters": {
+          "labelIds": ["AI/TODO"]
+        }
+      },
+      "id": "gmail-trigger",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "RyGiW81kWqp5gk2m",
+          "name": "Google OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// E-Mail Metadaten extrahieren\nconst email = items[0].json;\n\nfunction generateULID() {\n  const ENCODING = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';\n  let now = Date.now();\n  let timeStr = '';\n  for (let i = 9; i >= 0; i--) {\n    timeStr = ENCODING[now % 32] + timeStr;\n    now = Math.floor(now / 32);\n  }\n  let randomStr = '';\n  for (let i = 0; i < 16; i++) {\n    randomStr += ENCODING[Math.floor(Math.random() * 32)];\n  }\n  return timeStr + randomStr;\n}\n\nconst subject = email.subject || email.headers?.subject || 'Kein Betreff';\nconst from = email.from || email.headers?.from || 'unbekannt';\nconst threadId = email.threadId || email.id || '';\nconst messageId = email.id || email.messageId || '';\n\nreturn [{\n  json: {\n    subject,\n    from,\n    threadId,\n    messageId,\n    event_id: generateULID(),\n    taskTitle: `[Email] ${subject}`,\n    taskNotes: `Von: ${from}\\nThread: ${threadId}\\nMessage: ${messageId}\\nEvent: ${generateULID()}`\n  }\n}];"
+      },
+      "id": "extract-email",
+      "name": "Extract Email Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "resource": "task",
+        "operation": "create",
+        "taskList": "NEXT",
+        "title": "={{ $json.taskTitle }}",
+        "notes": "={{ $json.taskNotes }}"
+      },
+      "id": "create-task",
+      "name": "Google Tasks: Create",
+      "type": "n8n-nodes-base.googleTasks",
+      "typeVersion": 1,
+      "position": [710, 300],
+      "credentials": {
+        "googleTasksOAuth2Api": {
+          "id": "s305fscwssjI56L7",
+          "name": "Google OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "addLabels",
+        "messageId": "={{ $('Extract Email Data').item.json.messageId }}",
+        "labelIds": ["AI/PROCESSED"],
+        "removeLabelIds": ["AI/TODO"]
+      },
+      "id": "update-labels",
+      "name": "Gmail: Update Labels",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [940, 300],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "RyGiW81kWqp5gk2m",
+          "name": "Google OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "6526468834",
+        "text": "={{ '📧 Task aus E-Mail erstellt:\\n' + $('Extract Email Data').item.json.taskTitle + '\\nVon: ' + $('Extract Email Data').item.json.from }}",
+        "additionalFields": {}
+      },
+      "id": "telegram-notify",
+      "name": "Telegram Notify",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1170, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "ArH28ZVfcRNFvTiN",
+          "name": "Telegram Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [[{ "node": "Extract Email Data", "type": "main", "index": 0 }]]
+    },
+    "Extract Email Data": {
+      "main": [[{ "node": "Google Tasks: Create", "type": "main", "index": 0 }]]
+    },
+    "Google Tasks: Create": {
+      "main": [[{ "node": "Gmail: Update Labels", "type": "main", "index": 0 }]]
+    },
+    "Gmail: Update Labels": {
+      "main": [[{ "node": "Telegram Notify", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [{ "name": "diti-ai" }, { "name": "phase-1" }]
+}

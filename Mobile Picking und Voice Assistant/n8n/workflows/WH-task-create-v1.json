@@ -1,0 +1,344 @@
+{
+  "id": "WH-task-create-v1",
+  "name": "WH-task-create-v1",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "task-create",
+        "responseMode": "responseNode",
+        "authentication": "headerAuth",
+        "headerAuth": {
+          "name": "Authorization",
+          "value": "={{ 'Bearer ' + ($env.DITI_WEBHOOK_SECRET || $env.WEBHOOK_SECRET || '') }}"
+        },
+        "options": {}
+      },
+      "id": "webhook-task-create",
+      "name": "Webhook: task-create",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = items[0].json || {};\nconst headers = (body.headers && typeof body.headers === 'object') ? body.headers : (body.raw_headers && typeof body.raw_headers === 'object' ? body.raw_headers : {});\nconst authHeader = headers.authorization || headers.Authorization || '';\nconst expected = 'Bearer ' + String($env.DITI_WEBHOOK_SECRET || $env.WEBHOOK_SECRET || '');\n\n// Minimal auth guard (in addition to Webhook header auth)\nif (!expected.trim() || String(authHeader || '').trim() !== expected.trim()) {\n  return [{ json: { __is_error: true, ok: false, error: 'unauthorized', message: 'Unauthorized.' } }];\n}\n\nconst title = typeof body.title === 'string' ? body.title.trim() : '';\nif (!title) {\n  return [{ json: { __is_error: true, ok: false, error: 'missing_title', message: 'Kein Titel angegeben.' } }];\n}\n\nconst params = (body.params && typeof body.params === 'object') ? body.params : {};\nconst source = (body.source && typeof body.source === 'object') ? body.source : {};\nreturn [{ json: {\n  __is_error: false,\n  intent: body.intent || 'task.create',\n  title,\n  params: {\n    due: typeof params.due === 'string' ? params.due : '',\n    prio: typeof params.prio === 'string' && params.prio ? params.prio : 'M',\n    project: typeof params.project === 'string' ? params.project : '',\n    context: typeof params.context === 'string' ? params.context : ''\n  },\n  source: {\n    channel: String(source.channel || 'telegram'),\n    chat_id: String(source.chat_id || ''),\n    message_id: String(source.message_id || ''),\n    timestamp: String(source.timestamp || new Date().toISOString())\n  }\n} }];"
+      },
+      "id": "validate-input",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "is-error-1",
+              "leftValue": "={{ $json.__is_error }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-error-validate",
+      "name": "If: Error (Validate)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        720,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst path = require('path');\n\nfunction generateULID() {\n  const encoding = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';\n  let now = Date.now();\n  let timePart = '';\n  for (let index = 9; index >= 0; index -= 1) {\n    timePart = encoding[now % 32] + timePart;\n    now = Math.floor(now / 32);\n  }\n  let randomPart = '';\n  for (let index = 0; index < 16; index += 1) {\n    randomPart += encoding[Math.floor(Math.random() * 32)];\n  }\n  return timePart + randomPart;\n}\n\nconst input = items[0].json || {};\nconst source = input.source || {};\nconst dedupKey = String(source.channel || '') + ':' + String(source.message_id || '');\n\nconst DEDUP_FILE = '/home/node/.n8n/data/dedup-store.json'; // Path inside Docker container\nconst MAX_ENTRIES = 1000;\nconst TTL_DAYS = 7;\n\nlet dedupStore = { seen: {} };\ntry {\n  if (fs.existsSync(DEDUP_FILE)) {\n    dedupStore = JSON.parse(fs.readFileSync(DEDUP_FILE, 'utf8'));\n  }\n} catch (e) {\n  // If file exists but is corrupted, start fresh\n}\n\nif (!dedupStore.seen) dedupStore.seen = {};\n\n// Check if already seen\nif (dedupKey && dedupStore.seen[dedupKey]) {\n  return [{ json: { __is_error: true, ok: false, error: 'duplicate', message: 'Duplicate request.' } }];\n}\n\n// Add to store with current timestamp\nif (dedupKey) {\n  dedupStore.seen[dedupKey] = Date.now();\n\n  // Cleanup old entries (TTL)\n  const now = Date.now();\n  const ttlMs = TTL_DAYS * 24 * 60 * 60 * 1000;\n  for (const key in dedupStore.seen) {\n    if (now - dedupStore.seen[key] > ttlMs) {\n      delete dedupStore.seen[key];\n    }\n  }\n\n  // Cleanup if too many entries (Max Limit)\n  const keys = Object.keys(dedupStore.seen);\n  if (keys.length > MAX_ENTRIES) {\n    // Sort keys by timestamp and keep newest 1000\n    keys.sort((a, b) => dedupStore.seen[b] - dedupStore.seen[a]);\n    const toKeep = keys.slice(0, MAX_ENTRIES);\n    const newStore = {};\n    toKeep.forEach(k => { newStore[k] = dedupStore.seen[k]; });\n    dedupStore.seen = newStore;\n  }\n\n  // Write back to file\n  try {\n    // Ensure directory exists\n    const dir = path.dirname(DEDUP_FILE);\n    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });\n    fs.writeFileSync(DEDUP_FILE, JSON.stringify(dedupStore, null, 2));\n  } catch (e) {\n    // log error internally if possible or proceed if non-critical\n  }\n}\n\nconst event_id = generateULID();\nconst event_envelope = {\n  event_id,\n  event_type: 'task.create',\n  source_system: String(source.channel || 'telegram'),\n  source_id: String(source.message_id || ''),\n  timestamp: String(source.timestamp || new Date().toISOString()),\n  actor: 'user',\n  payload: {\n    intent: 'task.create',\n    title: String(input.title || ''),\n    params: input.params || {}\n  }\n};\n\nreturn [{ json: { ...input, __is_error: false, event_id, event_envelope } }];"
+      },
+      "id": "dedup-envelope",
+      "name": "Dedup & Envelope",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "is-error-2",
+              "leftValue": "={{ $json.__is_error }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-error-dedup",
+      "name": "If: Error (Dedup)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "task",
+        "operation": "create",
+        "task": "NEXT",
+        "title": "={{ $json.title }}",
+        "dueDate": "={{ $json.params.due || \"\" }}",
+        "notes": "={{ \"Event: \" + $json.event_id + \"\\nPrio: \" + ($json.params.prio || \"M\") }}"
+      },
+      "id": "google-tasks-create",
+      "name": "Google Tasks: NEXT",
+      "type": "n8n-nodes-base.googleTasks",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        180
+      ],
+      "continueOnFail": true,
+      "credentials": {
+        "googleTasksOAuth2Api": {
+          "id": "s305fscwssjI56L7",
+          "name": "Google Tasks account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const taskResult = items[0].json || {};\nconst upstream = $('Dedup & Envelope').first().json || {};\n\n// When continueOnFail=true, n8n includes an error object on item.json in many nodes.\nif (!taskResult || !taskResult.id) {\n  const message = (taskResult && taskResult.error && taskResult.error.message) ? String(taskResult.error.message) : 'Google Tasks error';\n  return [{ json: { __is_error: true, ok: false, error: 'google_api_error', message } }];\n}\n\nreturn [{ json: {\n  __is_error: false,\n  ok: true,\n  action: 'task.created',\n  task: {\n    id: String(taskResult.id),\n    title: String(upstream.title || ''),\n    due: String((upstream.params && upstream.params.due) || ''),\n    list: 'NEXT'\n  },\n  event_id: String(upstream.event_id || '')\n} }];"
+      },
+      "id": "build-success",
+      "name": "Build Success Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "is-error-3",
+              "leftValue": "={{ $json.__is_error }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-error-after-google",
+      "name": "If: Error (Google)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ JSON.stringify({ ok: true, action: $json.action, task: $json.task, event_id: $json.event_id }) }}"
+      },
+      "id": "respond-success",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2160,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ JSON.stringify({ ok: false, error: $json.error || 'error', message: $json.message || 'Error' }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "respond-error",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2160,
+        320
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook: task-create": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "If: Error (Validate)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If: Error (Validate)": {
+      "main": [
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Dedup & Envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedup & Envelope": {
+      "main": [
+        [
+          {
+            "node": "If: Error (Dedup)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If: Error (Dedup)": {
+      "main": [
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Tasks: NEXT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Tasks: NEXT": {
+      "main": [
+        [
+          {
+            "node": "Build Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Success Response": {
+      "main": [
+        [
+          {
+            "node": "If: Error (Google)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If: Error (Google)": {
+      "main": [
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "ezKkyglJhrTwPi8n"
+  },
+  "tags": [
+    {
+      "name": "diti-ai"
+    },
+    {
+      "name": "phase-1"
+    },
+    {
+      "name": "webhook"
+    },
+    {
+      "name": "vs1"
+    }
+  ]
+}

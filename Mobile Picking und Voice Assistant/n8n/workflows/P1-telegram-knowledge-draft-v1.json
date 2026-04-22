@@ -1,0 +1,166 @@
+{
+  "id": "Jm3AB26MzUlxauV6",
+  "name": "P1-telegram-knowledge-draft-v1",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "sub-wf-trigger",
+      "name": "Sub-Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "validate-parse-ok",
+              "leftValue": "={{ $json.parse_ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "validate-title",
+      "name": "Validate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = items[0].json;\nconst date = new Date().toISOString().split('T')[0];\nconst title = item.title || 'Unbenannt';\nconst testRun = item.params && item.params.test_run ? item.params.test_run : '';\nconst basePath = item.resolved_vault_path || (testRun ? '/data/obsidian-vault/00_INBOX_TEST/' : '/data/obsidian-vault/00_INBOX/');\nconst safeName = title.replace(/[^a-zA-Z0-9\\u00E4\\u00F6\\u00FC\\u00C4\\u00D6\\u00DC\\u00DF\\s\\-_]/g, '');\nconst filename = date + ' - ' + safeName.substring(0, 80) + '.md';\n\nconst lines = [\n  '---',\n  'id: ' + item.event_id,\n  'date: ' + date,\n  'source: telegram',\n  'source_id: msg_' + item.message_id,\n  'test_run: ' + testRun,\n  'topic: ' + (item.params.topic || ''),\n  'project_id: ' + (item.params.project || item.params.p || ''),\n  'status: draft',\n  'review_state: pending',\n  'tags:',\n  '  - knowledge',\n  '  - inbox',\n  '---',\n  '',\n  '# ' + title,\n  '',\n  '> [!info] Quelle',\n  '> ' + (item.params.src || 'telegram'),\n  '',\n  '## Notizen',\n  '',\n  '- ',\n  '',\n  '## Naechste Schritte',\n  '',\n  '- [ ] Review und finalisieren',\n  ''\n];\nconst content = lines.join('\\n');\n\nreturn [{ json: {\n  filename: filename,\n  content: content,\n  filepath: basePath + filename,\n  chat_id: item.chat_id,\n  title: item.title,\n  test_run: testRun,\n  source: item.source || item.source_system || 'telegram',\n  source_system: item.source_system || item.source || 'telegram',\n  source_id: item.source_id || '',\n  is_test: Boolean(item.is_test),\n  run_id: item.run_id || null,\n  seq: item.seq || null,\n  expected_route: item.expected_route || '',\n  expected_chain: Array.isArray(item.expected_chain) ? item.expected_chain : [],\n  reply_transport: item.reply_transport || ((item.source || item.source_system) === 'telegram' ? 'telegram' : 'webhook'),\n  should_telegram_reply: item.should_telegram_reply === true || (item.source || item.source_system) === 'telegram'\n},\nbinary: {\n  data: {\n    data: Buffer.from(content, 'utf8').toString('base64'),\n    mimeType: 'text/markdown',\n    fileName: filename,\n  }\n}\n}];"
+      },
+      "id": "build-markdown",
+      "name": "Build Markdown",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $json.filepath }}",
+        "dataPropertyName": "data"
+      },
+      "id": "write-obsidian",
+      "name": "Write to Obsidian",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        960,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const current = items[0].json || {};\nconst upstream = $('Sub-Workflow Trigger').first().json || {};\nconst event = { ...upstream, ...current };\nconst source = event.source || event.source_system || 'telegram';\nreturn [{ json: {\n  chat_id: Number.isFinite(Number(event.chat_id)) ? Number(event.chat_id) : 0,\n  reply_text: 'Knowledge Draft erstellt: ' + (($('Build Markdown').first().json.title) || ''),\n  reply_parse_mode: '',\n  source: source,\n  source_system: event.source_system || source,\n  source_id: event.source_id || '',\n  is_test: Boolean(event.is_test),\n  run_id: event.run_id || null,\n  seq: event.seq || null,\n  expected_route: event.expected_route || '',\n  expected_chain: Array.isArray(event.expected_chain) ? event.expected_chain : [],\n  parse_error: event.parse_error || '',\n  write_safety_error: event.write_safety_error || '',\n  reply_transport: event.reply_transport || (source === 'telegram' ? 'telegram' : 'webhook'),\n  should_telegram_reply: event.should_telegram_reply === true || source === 'telegram',\n  test_run: event.test_run_id || (event.params && event.params.test_run) || '',\n  note_path: $('Build Markdown').first().json.filepath || '',\n  note_filename: $('Build Markdown').first().json.filename || '',\n} }];"
+      },
+      "id": "build-success-reply",
+      "name": "Build Success Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const current = items[0].json || {};\nconst upstream = $('Sub-Workflow Trigger').first().json || {};\nconst event = { ...upstream, ...current };\nconst source = event.source || event.source_system || 'telegram';\nreturn [{ json: {\n  chat_id: Number.isFinite(Number(event.chat_id)) ? Number(event.chat_id) : 0,\n  reply_text: 'Kein Titel. Beispiel: k: Idee fuer Telegram',\n  reply_parse_mode: '',\n  source: source,\n  source_system: event.source_system || source,\n  source_id: event.source_id || '',\n  is_test: Boolean(event.is_test),\n  run_id: event.run_id || null,\n  seq: event.seq || null,\n  expected_route: event.expected_route || '',\n  expected_chain: Array.isArray(event.expected_chain) ? event.expected_chain : [],\n  parse_error: event.parse_error || '',\n  write_safety_error: event.write_safety_error || '',\n  reply_transport: event.reply_transport || (source === 'telegram' ? 'telegram' : 'webhook'),\n  should_telegram_reply: event.should_telegram_reply === true || source === 'telegram',\n  test_run: event.test_run_id || (event.params && event.params.test_run) || '',\n} }];"
+      },
+      "id": "build-error-reply",
+      "name": "Build Error Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        440
+      ]
+    }
+  ],
+  "connections": {
+    "Sub-Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate": {
+      "main": [
+        [
+          {
+            "node": "Build Markdown",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Error Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Markdown": {
+      "main": [
+        [
+          {
+            "node": "Write to Obsidian",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write to Obsidian": {
+      "main": [
+        [
+          {
+            "node": "Build Success Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "diti-ai"
+    },
+    {
+      "name": "phase-1"
+    }
+  ]
+}

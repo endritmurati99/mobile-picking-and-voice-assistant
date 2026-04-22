@@ -16,6 +16,7 @@ from app.services.mobile_workflow import (
     InvalidPickerIdentityError,
     PickerIdentity,
 )
+from app.services.n8n_webhook import N8NEventResult
 
 
 def _override_dependencies(*, workflow=None, picking_service=None, odoo=None, n8n=None):
@@ -287,7 +288,7 @@ def test_confirm_line_requires_full_identity_headers():
         app.dependency_overrides.clear()
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "X-Picker-User-Id und X-Device-Id sind fuer diese Aktion erforderlich."
+    assert response.json()["detail"] == "X-Picker-User-Id und X-Device-Id sind für diese Aktion erforderlich."
     picking_service.confirm_pick_line.assert_not_awaited()
 
 
@@ -313,3 +314,47 @@ def test_quality_alert_requires_full_identity_headers():
     assert response.json()["detail"] == "X-Picker-User-Id und X-Device-Id sind fuer diese Aktion erforderlich."
     odoo.execute_kw.assert_not_awaited()
     n8n.fire_event.assert_not_awaited()
+
+
+def test_quality_alert_uses_local_fallback_when_n8n_dispatch_fails_after_odoo_create():
+    workflow = _create_workflow_mock()
+    odoo = MagicMock()
+    odoo.execute_kw = AsyncMock(return_value={"alert_id": 42, "name": "QA/0042"})
+    odoo.write = AsyncMock(return_value=True)
+    n8n = MagicMock()
+    n8n.fire_event = AsyncMock(
+        return_value=N8NEventResult(
+            delivered=False,
+            correlation_id="corr-qa-1",
+            error="n8n antwortete mit HTTP 503.",
+        )
+    )
+    _override_dependencies(workflow=workflow, odoo=odoo, n8n=n8n)
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/quality-alerts",
+                data={"description": "Palette beschaedigt", "priority": "2"},
+                headers={
+                    "Idempotency-Key": "qa-dispatch-fail-1",
+                    "X-Picker-User-Id": "7",
+                    "X-Device-Id": "device-1",
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["alert_id"] == 42
+    assert payload["ai_evaluation_status"] == "completed"
+    assert payload["ai_fallback"] is True
+
+    odoo.write.assert_awaited_once()
+    write_args = odoo.write.await_args.args
+    assert write_args[0] == "quality.alert.custom"
+    assert write_args[1] == [42]
+    write_fields = write_args[2]
+    assert write_fields["ai_evaluation_status"] == "completed"
+    assert write_fields["ai_provider"] == "backend-local-fallback"

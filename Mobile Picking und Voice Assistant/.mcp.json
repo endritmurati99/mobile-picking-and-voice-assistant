@@ -1,0 +1,27 @@
+{
+  "mcpServers": {
+    "context7": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@context7/mcp-server-context7"],
+      "disabled": false
+    },
+    "memory": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@getmcp/memory-mcp"],
+      "disabled": false
+    },
+    "fetch": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@getmcp/fetch-mcp"],
+      "disabled": false
+    },
+    "postgres-local": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "postgres-mcp"],
+      "env": {
+        "DATABASE_URL": "postgresql://admin:password@localhost:5432/masterfischer"
+      },
+      "disabled": false
+    }
+  }
+}

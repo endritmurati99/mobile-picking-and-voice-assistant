@@ -10,8 +10,20 @@
         redir http://{$LAN_HOST}:8069/ 308
     }
 
-    handle /n8n/* {
+    @n8n_path path /n8n /n8n/*
+    handle @n8n_path {
         uri strip_prefix /n8n
+        reverse_proxy n8n:5678
+    }
+
+    @nn_path path /nn /nn/*
+    handle @nn_path {
+        uri strip_prefix /nn
+        reverse_proxy n8n:5678
+    }
+
+    @n8n_host host nn n8n nn.localhost n8n.localhost
+    handle @n8n_host {
         reverse_proxy n8n:5678
     }
 
@@ -26,5 +38,8 @@
 }
 
 :80 {
+    @n8n_host host nn n8n nn.localhost n8n.localhost
+    redir @n8n_host https://{host}{uri} permanent
+
     redir https://{$LAN_HOST}{uri} permanent
 }

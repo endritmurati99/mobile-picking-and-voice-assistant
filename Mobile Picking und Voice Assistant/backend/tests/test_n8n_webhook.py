@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from app.services.n8n_webhook import N8NReply, N8NWebhookClient
+from app.services.n8n_webhook import N8NEventResult, N8NReply, N8NWebhookClient
 
 
 @pytest.mark.anyio
@@ -15,11 +15,12 @@ async def test_fire_event_wraps_payload_in_standard_envelope():
         captured["url"] = url
         captured["json"] = json
         captured["headers"] = headers
-        return object()
+        request = httpx.Request("POST", url)
+        return httpx.Response(202, json={"status": "accepted"}, request=request)
 
     client._client.post = AsyncMock(side_effect=fake_post)
 
-    correlation_id = await client.fire_event(
+    result = await client.fire_event(
         "quality-alert-created",
         {"alert_id": 42},
         picker={"user_id": 7, "name": "Mina Muster"},
@@ -34,6 +35,8 @@ async def test_fire_event_wraps_payload_in_standard_envelope():
         },
     )
 
+    assert isinstance(result, N8NEventResult)
+    assert result.delivered is True
     assert captured["url"].endswith("/quality-alert-created")
     assert captured["headers"]["Content-Type"] == "application/json"
     assert captured["json"]["event_name"] == "quality-alert-created"
@@ -42,7 +45,20 @@ async def test_fire_event_wraps_payload_in_standard_envelope():
     assert captured["json"]["device_id"] == "device-1"
     assert captured["json"]["picking_context"]["origin"] == "LEGO Ente"
     assert captured["json"]["payload"] == {"alert_id": 42}
-    assert captured["json"]["correlation_id"] == correlation_id
+    assert captured["json"]["correlation_id"] == result.correlation_id
+
+
+@pytest.mark.anyio
+async def test_fire_event_returns_failed_result_when_transport_breaks():
+    client = N8NWebhookClient()
+    client._client.post = AsyncMock(side_effect=httpx.TimeoutException("boom"))
+
+    result = await client.fire_event("quality-alert-created", {"alert_id": 42})
+
+    assert isinstance(result, N8NEventResult)
+    assert result.delivered is False
+    assert result.correlation_id
+    assert result.error == "n8n Zeitlimit ueberschritten."
 
 
 @pytest.mark.anyio

@@ -43,6 +43,7 @@ ERROR_TRIGGER_WORKFLOWS = {"error-trigger.json"}
 # Workflows that MUST define settings.errorWorkflow.
 NEEDS_ERROR_WORKFLOW = {
     "quality-alert-created.json",
+    "quality-alert-ai-evaluation.json",
     "shortage-reported.json",
     "voice-exception-query.json",
 }
@@ -52,12 +53,15 @@ CALLBACK_AUDIT_WORKFLOWS = {
     "shortage-reported.json",
     "voice-exception-query.json",
 }
+ROLLOUT_WORKFLOWS = CALLBACK_AUDIT_WORKFLOWS
 # Endpoints called BY n8n into the backend (not fired via n8n.fire).
 N8N_CALLBACK_ENDPOINTS = {
     "POST /api/internal/n8n/quality-assessment",
+    "POST /api/internal/n8n/quality-assessment-ai",
     "POST /api/internal/n8n/replenishment-action",
     "POST /api/internal/n8n/quality-assessment-failed",
     "POST /api/internal/n8n/manual-review-activity",
+    "POST /api/integration/log",
     "POST /api/obsidian/log",
 }
 ENVELOPE_ROOT_KEYS = {
@@ -74,14 +78,71 @@ EXPECTED_CALLBACK_SECRET = "={{ $env.N8N_CALLBACK_SECRET }}"
 EXPECTED_IDEMPOTENCY_KEY = "={{ $json.correlation_id }}"
 CALLBACK_REQUIREMENTS = {
     "/api/internal/n8n/quality-assessment": {"idempotent": True},
+    "/api/internal/n8n/quality-assessment-ai": {"idempotent": True},
     "/api/internal/n8n/replenishment-action": {"idempotent": True},
-    "/api/internal/n8n/quality-assessment-failed": {"idempotent": False},
-    "/api/internal/n8n/manual-review-activity": {"idempotent": False},
+    "/api/internal/n8n/quality-assessment-failed": {"idempotent": True},
+    "/api/internal/n8n/manual-review-activity": {"idempotent": True},
+    "/api/integration/log": {"idempotent": False},
     "/api/obsidian/log": {"idempotent": False},
+}
+REQUIRED_CALLBACK_BODY_FIELDS = {
+    "/api/internal/n8n/quality-assessment": {
+        "correlation_id",
+        "alert_id",
+        "schema_version",
+        "execution_id",
+        "latency_tracking",
+        "ai_disposition",
+        "ai_confidence",
+        "ai_summary",
+    },
+    "/api/internal/n8n/quality-assessment-ai": {
+        "schema_version",
+        "execution_id",
+        "latency_tracking",
+        "correlation_id",
+        "alert_id",
+        "category",
+        "confidence",
+        "reason",
+        "model",
+    },
+    "/api/internal/n8n/replenishment-action": {
+        "correlation_id",
+        "picking_id",
+        "product_id",
+        "location_id",
+        "recommended_location_id",
+        "reason",
+        "schema_version",
+        "execution_id",
+        "latency_tracking",
+    },
+    "/api/internal/n8n/quality-assessment-failed": {
+        "correlation_id",
+        "alert_id",
+        "failure_reason",
+        "schema_version",
+        "execution_id",
+        "latency_tracking",
+    },
+    "/api/internal/n8n/manual-review-activity": {
+        "correlation_id",
+        "picking_id",
+        "reason",
+        "schema_version",
+        "execution_id",
+        "latency_tracking",
+    },
 }
 CORRELATION_ID_AS_ALERT_ID_RE = re.compile(r"alert_id\s*:\s*\$json\.correlation_id\b")
 CORRELATION_ID_AS_PICKING_ID_RE = re.compile(r"picking_id\s*:\s*\$json\.correlation_id\b")
 FUNCTION_NODE_JSON_RE = re.compile(r"(?<!\{)\$json\b")
+BODY_FIELD_RE_TEMPLATE = r'(?<![A-Za-z0-9_])(?:{field}\s*:|"{field}"\s*:)'
+DIRECT_ODOO_URL_RE = re.compile(r"https?://(?:[^/]*odoo[^/]*|localhost:8069|127\.0\.0\.1:8069)", re.IGNORECASE)
+LEGACY_LOG_PATH = "/api/obsidian/log"
+PRIMARY_LOG_PATH = "/api/integration/log"
+LOG_ALIAS_PATHS = {PRIMARY_LOG_PATH, LEGACY_LOG_PATH}
 
 
 @dataclass
@@ -242,11 +303,19 @@ def extract_backend_callback_path(url: str) -> str | None:
     return parsed.path or None
 
 
-def extract_workflow_contracts() -> list[WorkflowContract]:
+def extract_workflow_contracts() -> tuple[list[WorkflowContract], list[str]]:
     workflows: list[WorkflowContract] = []
+    errors: list[str] = []
 
     for file_path in sorted(WORKFLOW_ROOT.glob("*.json")):
-        data = json.loads(file_path.read_text(encoding="utf-8"))
+        rel_path = file_path.relative_to(ROOT).as_posix()
+        try:
+            data = json.loads(file_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            errors.append(
+                f"{rel_path}: JSON-Syntaxfehler: {exc.msg} (line {exc.lineno}, column {exc.colno})"
+            )
+            continue
         nodes = data.get("nodes") or []
         webhook_paths: list[str] = []
         response_modes: list[str] = []
@@ -307,7 +376,7 @@ def extract_workflow_contracts() -> list[WorkflowContract]:
 
         workflows.append(
             WorkflowContract(
-                file=file_path.relative_to(ROOT).as_posix(),
+                file=rel_path,
                 name=data.get("name", file_path.stem),
                 webhook_paths=webhook_paths,
                 referenced_keys=referenced_keys,
@@ -320,19 +389,51 @@ def extract_workflow_contracts() -> list[WorkflowContract]:
             )
         )
 
-    return workflows
+    return workflows, errors
 
 
-def validate_callback_http_nodes(workflow: WorkflowContract) -> list[str]:
+def _body_contains_field(body_json: str | None, field_name: str) -> bool:
+    if not body_json:
+        return False
+    pattern = re.compile(BODY_FIELD_RE_TEMPLATE.format(field=re.escape(field_name)))
+    return bool(pattern.search(body_json))
+
+
+def _is_direct_odoo_writeback(url: str) -> bool:
+    if not isinstance(url, str):
+        return False
+    return bool(DIRECT_ODOO_URL_RE.search(url))
+
+
+def validate_callback_http_nodes(workflow: WorkflowContract) -> tuple[list[str], list[str]]:
     errors: list[str] = []
+    warnings: list[str] = []
     wf_basename = Path(workflow.file).name
-    if wf_basename not in CALLBACK_AUDIT_WORKFLOWS:
-        return errors
+    if wf_basename not in ROLLOUT_WORKFLOWS:
+        return errors, warnings
 
     for node in workflow.http_nodes:
+        if _is_direct_odoo_writeback(node.url):
+            errors.append(
+                f"{workflow.file}: Node '{node.name}' verwendet einen direkten Odoo-Writeback-URL "
+                f"('{node.url}') statt der FastAPI-Grenze"
+            )
+
         callback_path = extract_backend_callback_path(node.url)
-        if callback_path not in CALLBACK_REQUIREMENTS:
+        if callback_path is None:
             continue
+        if callback_path not in CALLBACK_REQUIREMENTS:
+            errors.append(
+                f"{workflow.file}: Node '{node.name}' ruft nicht freigegebenen Backend-Endpunkt "
+                f"'{callback_path}' auf"
+            )
+            continue
+
+        if callback_path == LEGACY_LOG_PATH:
+            errors.append(
+                f"{workflow.file}: Node '{node.name}' verwendet den veralteten Produktpfad "
+                f"'{LEGACY_LOG_PATH}' statt '{PRIMARY_LOG_PATH}'"
+            )
 
         secret_value = node.headers.get("X-N8N-Callback-Secret")
         if secret_value != EXPECTED_CALLBACK_SECRET:
@@ -349,7 +450,25 @@ def validate_callback_http_nodes(workflow: WorkflowContract) -> list[str]:
                     f"korrekten Idempotency-Key Header auf"
                 )
 
-    return errors
+        required_fields = REQUIRED_CALLBACK_BODY_FIELDS.get(callback_path, set())
+        missing_fields = sorted(
+            field_name
+            for field_name in required_fields
+            if not _body_contains_field(node.body_json, field_name)
+        )
+        if missing_fields:
+            errors.append(
+                f"{workflow.file}: Node '{node.name}' sendet an '{callback_path}' ohne Pflichtfelder: "
+                f"{', '.join(missing_fields)}"
+            )
+
+        if callback_path not in LOG_ALIAS_PATHS and not _body_contains_field(node.body_json, "schema_version"):
+            warnings.append(
+                f"{workflow.file}: Node '{node.name}' sendet an '{callback_path}' ohne schema_version "
+                "und wuerde als Legacy-Producer gelten"
+            )
+
+    return errors, warnings
 
 
 def validate_error_trigger_business_ids(workflow: WorkflowContract) -> list[str]:
@@ -397,25 +516,45 @@ def validate_function_nodes(workflow: WorkflowContract) -> list[str]:
     return errors
 
 
+def validate_quality_alert_live_path(workflow: WorkflowContract, workflow_data: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if Path(workflow.file).name != "quality-alert-created.json":
+        return errors
+
+    for node in workflow_data.get("nodes") or []:
+        if node.get("name") == "Execute Shadow AI Evaluation":
+            errors.append(
+                f"{workflow.file}: produktiver Quality-Flow enthaelt noch den Shadow-AI-Node "
+                "'Execute Shadow AI Evaluation'"
+            )
+            break
+
+    return errors
+
+
 def validate_contracts() -> tuple[list[str], list[str], dict[str, Any]]:
     errors: list[str] = []
     warnings: list[str] = []
     backend_contracts = extract_backend_contracts()
-    workflows = extract_workflow_contracts()
+    workflows, workflow_parse_errors = extract_workflow_contracts()
+    errors.extend(workflow_parse_errors)
 
     workflow_by_path: dict[str, WorkflowContract] = {}
 
     for workflow in workflows:
         wf_basename = Path(workflow.file).name
+        wf_path = ROOT / workflow.file
+        wf_data = json.loads(wf_path.read_text(encoding="utf-8"))
 
-        errors.extend(validate_callback_http_nodes(workflow))
+        http_errors, http_warnings = validate_callback_http_nodes(workflow)
+        errors.extend(http_errors)
+        warnings.extend(http_warnings)
         errors.extend(validate_error_trigger_business_ids(workflow))
         errors.extend(validate_function_nodes(workflow))
+        errors.extend(validate_quality_alert_live_path(workflow, wf_data))
 
         # --- errorWorkflow reference check (change 3) ---
         if wf_basename in NEEDS_ERROR_WORKFLOW:
-            wf_path = ROOT / workflow.file
-            wf_data = json.loads(wf_path.read_text(encoding="utf-8"))
             wf_settings = wf_data.get("settings") or {}
             if not wf_settings.get("errorWorkflow"):
                 warnings.append(
@@ -428,7 +567,10 @@ def validate_contracts() -> tuple[list[str], list[str], dict[str, Any]]:
             continue
 
         if not workflow.webhook_paths:
-            if "n8n-nodes-base.scheduleTrigger" not in workflow.trigger_types:
+            if (
+                "n8n-nodes-base.scheduleTrigger" not in workflow.trigger_types
+                and "n8n-nodes-base.executeWorkflowTrigger" not in workflow.trigger_types
+            ):
                 warnings.append(
                     f"{workflow.file}: kein Webhook- oder Schedule-Trigger erkannt"
                 )

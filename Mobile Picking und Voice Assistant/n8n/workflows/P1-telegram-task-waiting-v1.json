@@ -1,0 +1,174 @@
+{
+  "name": "P1-telegram-task-waiting-v1",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "sub-wf-trigger",
+      "name": "Sub-Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "validate-parse-ok",
+              "leftValue": "={{ $json.parse_ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "validate-title",
+      "name": "Validate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "task",
+        "operation": "create",
+        "taskList": "WAITING",
+        "title": "={{ \"WAITING: \" + $json.title }}",
+        "dueDate": "={{ $json.params.due || \"\" }}",
+        "notes": "={{ \"Follow-up fuer: \" + ($json.params.to || \"-\") + \"\\nEvent: \" + $json.event_id }}"
+      },
+      "id": "create-task-waiting",
+      "name": "Google Tasks: WAITING",
+      "type": "n8n-nodes-base.googleTasks",
+      "typeVersion": 1,
+      "position": [
+        720,
+        200
+      ],
+      "credentials": {
+        "googleTasksOAuth2Api": {
+          "id": "s305fscwssjI56L7",
+          "name": "Google Tasks account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ev = items[0].json;\nconst title = ev.title || $('Sub-Workflow Trigger').first().json.title || '';\nconst chat_id = $('Sub-Workflow Trigger').first().json.chat_id;\nreturn [{ json: {\n  chat_id: chat_id,\n  reply_text: '\\u23F3 Follow-up erstellt: ' + title,\n  reply_parse_mode: ''\n} }];"
+      },
+      "id": "build-success-reply",
+      "name": "Build Success Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "chat_id",
+              "value": "={{ $json.chat_id }}",
+              "type": "number"
+            },
+            {
+              "id": "a2",
+              "name": "reply_text",
+              "value": "⚠️ Kein Titel angegeben. Beispiel: f: Antwort von Max",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "reply_parse_mode",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "build-error-reply",
+      "name": "Build Error Reply",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        720,
+        440
+      ]
+    }
+  ],
+  "connections": {
+    "Sub-Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate": {
+      "main": [
+        [
+          {
+            "node": "Google Tasks: WAITING",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Error Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Tasks: WAITING": {
+      "main": [
+        [
+          {
+            "node": "Build Success Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "diti-ai"
+    },
+    {
+      "name": "phase-1"
+    }
+  ]
+}

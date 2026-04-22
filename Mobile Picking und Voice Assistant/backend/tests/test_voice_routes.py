@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from app.dependencies import get_n8n_client, get_odoo_client, get_picking_service
 from app.main import app
 from app.routers import voice as voice_router
-from app.services.n8n_webhook import N8NReply
+from app.services.n8n_webhook import N8NEventResult, N8NReply
 
 
 def test_voice_recognize_returns_additive_fields_and_detail_context(monkeypatch):
@@ -255,3 +255,83 @@ def test_voice_assist_triggers_shortage_event_from_local_fallback():
     n8n.fire_event.assert_awaited_once()
     fired_payload = n8n.fire_event.call_args[0][1]
     assert fired_payload["recommendation"]["recommended_location_id"] == 12
+
+
+def test_voice_assist_mentions_shortage_dispatch_failure():
+    picking_service = MagicMock()
+    picking_service.get_picking_detail = AsyncMock(
+        return_value={
+            "id": 44,
+            "priority": "2",
+            "origin": "[324876] LEGO Ente (BOM 324876)",
+            "kit_name": "LEGO Ente",
+            "voice_intro": "LEGO Ente. A-01. 10 Stueck. Schraube M8.",
+            "move_lines": [
+                {
+                    "id": 20,
+                    "product_id": 5,
+                    "location_src_id": 9,
+                    "location_src": "WH/Stock/A-01",
+                    "ui_display": "Schraube M8",
+                }
+            ],
+        }
+    )
+    n8n = MagicMock()
+    n8n.request_reply = AsyncMock(
+        return_value=N8NReply(
+            status="fallback",
+            tts_text="Am aktuellen Platz ist kein verfuegbarer Bestand vorhanden. Ich leite einen Nachschub ein.",
+            source="fastapi-local-context",
+            correlation_id="corr-10",
+            latency_ms=80,
+            fallback_reason="timeout",
+            recommendation={
+                "action": "trigger_replenishment",
+                "recommended_location_id": 12,
+                "recommended_location": "WH/Stock/B-01",
+            },
+        )
+    )
+    n8n.fire_event = AsyncMock(
+        return_value=N8NEventResult(
+            delivered=False,
+            correlation_id="corr-shortage-10",
+            error="n8n Transportfehler.",
+        )
+    )
+    odoo = MagicMock()
+    odoo.search_read = AsyncMock(
+        return_value=[
+            {"quantity": 0, "reserved_quantity": 0, "location_id": [9, "WH/Stock/A-01"]},
+            {"quantity": 4, "reserved_quantity": 0, "location_id": [12, "WH/Stock/B-01"]},
+        ]
+    )
+    app.dependency_overrides[get_picking_service] = lambda: picking_service
+    app.dependency_overrides[get_n8n_client] = lambda: n8n
+    app.dependency_overrides[get_odoo_client] = lambda: odoo
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/voice/assist",
+                json={
+                    "text": "Fehlmenge bei Schraube M8",
+                    "intent": "problem",
+                    "surface": "detail",
+                    "picking_id": 44,
+                    "move_line_id": 20,
+                    "remaining_line_count": 0,
+                },
+                headers={
+                    "X-Picker-User-Id": "7",
+                    "X-Device-Id": "device-1",
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "Ich konnte den Nachschubprozess gerade nicht starten." in payload["tts_text"]
+    assert payload["correlation_id"] == "corr-shortage-10"

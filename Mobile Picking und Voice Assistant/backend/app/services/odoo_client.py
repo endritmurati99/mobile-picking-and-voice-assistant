@@ -21,6 +21,7 @@ class OdooClient:
         self._url = settings.odoo_url
         self._db = settings.odoo_db
         self._uid = None
+        self._secret = None
         self._client = httpx.AsyncClient(
             timeout=_ODOO_TIMEOUT,
             limits=httpx.Limits(
@@ -29,6 +30,15 @@ class OdooClient:
                 keepalive_expiry=30.0,
             ),
         )
+
+    @staticmethod
+    def _auth_secrets() -> list[str]:
+        candidates: list[str] = []
+        for secret in (settings.odoo_api_key, settings.odoo_password):
+            normalized = str(secret or "").strip()
+            if normalized and normalized not in candidates:
+                candidates.append(normalized)
+        return candidates
 
     async def _json_rpc(self, service: str, method: str, args: list) -> Any:
         payload = {
@@ -45,20 +55,24 @@ class OdooClient:
         return result.get("result")
 
     async def authenticate(self) -> int:
-        self._uid = await self._json_rpc(
-            "common", "authenticate",
-            [self._db, settings.odoo_user, settings.odoo_api_key, {}]
-        )
-        if not self._uid:
-            raise OdooAPIError("Authentifizierung fehlgeschlagen")
-        return self._uid
+        for secret in self._auth_secrets():
+            uid = await self._json_rpc(
+                "common", "authenticate",
+                [self._db, settings.odoo_user, secret, {}]
+            )
+            if uid:
+                self._uid = uid
+                self._secret = secret
+                return self._uid
+
+        raise OdooAPIError("Authentifizierung fehlgeschlagen")
 
     async def execute_kw(self, model: str, method: str, args: list, kwargs: dict | None = None) -> Any:
         if not self._uid:
             await self.authenticate()
         return await self._json_rpc(
             "object", "execute_kw",
-            [self._db, self._uid, settings.odoo_api_key, model, method, args, kwargs or {}]
+            [self._db, self._uid, self._secret or "", model, method, args, kwargs or {}]
         )
 
     async def search_read(self, model: str, domain: list, fields: list, limit: int = 100) -> list[dict]:

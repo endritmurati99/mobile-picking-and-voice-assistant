@@ -1,0 +1,1238 @@
+{
+  "id": "kqCxomzy3TWYSllH",
+  "name": "P1-telegram-intake-v2",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ]
+      },
+      "id": "telegram-trigger",
+      "name": "telegram-trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        200,
+        500
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "Arepn5qW2Si65rVX",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "test-intake",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "test-webhook",
+      "name": "test-webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const options = {\n  \"workflowId\": \"P1-telegram-intake-v2\",\n  \"defaultChatId\": 0\n};\nfunction toSafeNumber(value, fallback) {\n  const numeric = Number(value);\n  return Number.isFinite(numeric) ? numeric : fallback;\n}\nfunction toSafeString(value, fallback = '') {\n  if (value === null || value === undefined) {\n    return fallback;\n  }\n  return String(value);\n}\nfunction padSequence(seq) {\n  return String(seq).padStart(5, '0');\n}\nfunction ensureTestRunId(candidate, runId, seq, isTest) {\n  if (candidate) {\n    return toSafeString(candidate).trim();\n  }\n  if (!isTest || !runId) {\n    return '';\n  }\n  return `${runId}-${padSequence(seq)}`;\n}\nfunction generateULID() {\n  const encoding = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';\n  let now = Date.now();\n  let timePart = '';\n  for (let index = 9; index >= 0; index -= 1) {\n    timePart = encoding[now % 32] + timePart;\n    now = Math.floor(now / 32);\n  }\n  let randomPart = '';\n  for (let index = 0; index < 16; index += 1) {\n    randomPart += encoding[Math.floor(Math.random() * 32)];\n  }\n  return timePart + randomPart;\n}\nfunction normalizeIngress(input, options = {}) {\n  const rawInput = input || {};\n  const webhookBody = rawInput.body && typeof rawInput.body === 'object' ? rawInput.body : null;\n  const sourceInput = webhookBody || rawInput;\n  const inferredWebhook =\n    sourceInput.source === 'test_webhook'\n    || sourceInput.source_system === 'test_webhook'\n    || sourceInput.is_test === true\n    || sourceInput.run_id !== undefined\n    || sourceInput.seq !== undefined\n    || webhookBody !== null;\n\n  const source = inferredWebhook ? 'test_webhook' : 'telegram';\n  const rawMessage = source === 'telegram'\n    ? (rawInput.message || rawInput.raw_message || rawInput || {})\n    : (sourceInput.raw_message || sourceInput || {});\n\n  const text = typeof sourceInput.text === 'string'\n    ? sourceInput.text\n    : typeof sourceInput.raw_text === 'string'\n      ? sourceInput.raw_text\n      : typeof rawMessage.text === 'string'\n        ? rawMessage.text\n        : '';\n\n  const seq = toSafeNumber(sourceInput.seq, 0);\n  const runId = toSafeString(sourceInput.run_id, '').trim();\n  const messageId = toSafeNumber(\n    sourceInput.message_id !== undefined ? sourceInput.message_id : (rawMessage.message_id !== undefined ? rawMessage.message_id : seq),\n    0,\n  );\n  const defaultChatId = options.defaultChatId !== undefined ? options.defaultChatId : 0;\n  const chatId = toSafeNumber(\n    sourceInput.chat_id !== undefined\n      ? sourceInput.chat_id\n      : rawMessage.chat && rawMessage.chat.id !== undefined\n        ? rawMessage.chat.id\n        : rawMessage.from && rawMessage.from.id !== undefined\n          ? rawMessage.from.id\n          : defaultChatId,\n    0,\n  );\n  const isTest = Boolean(sourceInput.is_test || source === 'test_webhook' || runId);\n  const expectedChain = Array.isArray(sourceInput.expected_chain)\n    ? sourceInput.expected_chain.map((item) => String(item)).filter(Boolean)\n    : [];\n  const testRunId = ensureTestRunId(sourceInput.test_run, runId, seq || messageId || 0, isTest);\n  const sourceId = sourceInput.source_id\n    ? toSafeString(sourceInput.source_id).trim()\n    : source === 'telegram'\n      ? `tg_${chatId}_${messageId}`\n      : `test_${runId || 'adhoc'}_${padSequence(seq || messageId || 0)}`;\n  const timestamp = new Date().toISOString();\n\n  return {\n    event_id: toSafeString(rawInput.event_id || generateULID()),\n    event_type: source === 'telegram' ? 'telegram.message.received' : 'test.webhook.received',\n    source,\n    source_system: source,\n    source_id: sourceId,\n    timestamp,\n    received_at: timestamp,\n    actor: 'user',\n    chat_id: chatId,\n    message_id: messageId,\n    raw_text: text,\n    raw_message: rawMessage,\n    raw_headers: rawInput.headers || rawInput.raw_headers || {},\n    is_test: isTest,\n    run_id: runId || null,\n    seq: seq || null,\n    expected_route: toSafeString(sourceInput.expected_route, '').trim(),\n    expected_chain: expectedChain,\n    test_run_id: testRunId,\n    reply_transport: source === 'telegram' ? 'telegram' : 'webhook',\n    should_telegram_reply: source === 'telegram',\n    routing_decision: 'pending',\n    audit: {\n      workflow_id: options.workflowId || 'P1-telegram-intake-v2',\n      parser: 'normalize',\n      confidence: 0,\n    },\n    ok: false,\n    intent: 'unknown',\n    target_list: '',\n    resolved_task_list: '',\n    resolved_vault_path: '',\n    write_safety_error: '',\n    title: '',\n    items: [],\n    params: testRunId ? { test_run: testRunId } : {},\n    confidence: 0,\n    needs_confirmation: true,\n    command: 'unknown',\n    entity_type: 'unknown',\n    target_system: '',\n    parse_ok: false,\n    parse_error: text ? '' : 'non_text_message',\n    payload: {\n      ok: false,\n      intent: 'unknown',\n      target_list: '',\n      title: '',\n      items: [],\n      params: testRunId ? { test_run: testRunId } : {},\n      confidence: 0,\n      needs_confirmation: true,\n    },\n  };\n}\nconst input = items[0].json || {};\nreturn [{ json: normalizeIngress(input, options) }];"
+      },
+      "id": "normalize-event",
+      "name": "Normalize Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "chat-id-check",
+              "leftValue": "={{ $json.source === \"test_webhook\" ? ((String($env.DITI_TEST_WEBHOOK_SECRET || $env.N8N_TEST_WEBHOOK_SECRET || \"\") === \"\") || (String($json.raw_headers[\"x-diti-test-key\"] || $json.raw_headers[\"X-Diti-Test-Key\"] || \"\") === String($env.DITI_TEST_WEBHOOK_SECRET || $env.N8N_TEST_WEBHOOK_SECRET || \"\"))) : (String($json.chat_id) === \"6526468834\") }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "allowlist-check",
+      "name": "Allowlist Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        640,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "r1",
+              "name": "chat_id",
+              "value": "={{ $json.chat_id }}",
+              "type": "number"
+            },
+            {
+              "id": "r2",
+              "name": "reply_text",
+              "value": "Nicht autorisierter Chat oder ungueltiger Test-Webhook.",
+              "type": "string"
+            },
+            {
+              "id": "r3",
+              "name": "reply_parse_mode",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "reply-nicht-autorisiert",
+      "name": "Reply: Nicht autorisiert",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        860,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "text-check",
+              "leftValue": "={{ $json.parse_error }}",
+              "rightValue": "non_text_message",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "text-guard",
+      "name": "Text Guard",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        860,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "r1",
+              "name": "chat_id",
+              "value": "={{ $json.chat_id }}",
+              "type": "number"
+            },
+            {
+              "id": "r2",
+              "name": "reply_text",
+              "value": "Bitte sende Text. Natuerliche Sprache ist erlaubt, zum Beispiel: Milch, Eier und Brot kaufen. Fuer DSL-Hilfe: /help.",
+              "type": "string"
+            },
+            {
+              "id": "r3",
+              "name": "reply_parse_mode",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "reply-nur-text",
+      "name": "Reply: Nur Text-Commands",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1080,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "removeItemsSeenInPreviousExecutions",
+        "value": "={{ $json.source_id }}",
+        "options": {
+          "maxEntries": 1000
+        }
+      },
+      "id": "remove-duplicates",
+      "name": "Remove Duplicates",
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 1,
+      "position": [
+        1080,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ ($json.raw_text || \"\").trim() }}",
+        "rules": {
+          "rules": [
+            {
+              "operation": "regex",
+              "value2": "^(?:[a-z]:|\\/(?:help|ping|start)$)",
+              "output": 0
+            }
+          ]
+        },
+        "fallbackOutput": 1
+      },
+      "id": "fast-lane-check",
+      "name": "Fast Lane Check",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [
+        1300,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const options = {\n  allowedParams: [\n  \"due\",\n  \"project\",\n  \"p\",\n  \"prio\",\n  \"ctx\",\n  \"to\",\n  \"topic\",\n  \"src\",\n  \"window\",\n  \"tz\",\n  \"store\",\n  \"test_run\"\n],\n  prefixConfig: {\n  \"t\": {\n    \"intent\": \"task.create\",\n    \"command\": \"task\",\n    \"event_type\": \"task.create\",\n    \"target_system\": \"google_tasks\",\n    \"target_list\": \"NEXT\",\n    \"needs_confirmation\": false,\n    \"requires_title\": true\n  },\n  \"f\": {\n    \"intent\": \"followup.create\",\n    \"command\": \"followup\",\n    \"event_type\": \"followup.create\",\n    \"target_system\": \"google_tasks\",\n    \"target_list\": \"WAITING\",\n    \"needs_confirmation\": false,\n    \"requires_title\": true\n  },\n  \"k\": {\n    \"intent\": \"knowledge.draft\",\n    \"command\": \"knowledge\",\n    \"event_type\": \"knowledge.draft\",\n    \"target_system\": \"obsidian\",\n    \"target_list\": \"\",\n    \"needs_confirmation\": false,\n    \"requires_title\": true\n  },\n  \"q\": {\n    \"intent\": \"calendar.query\",\n    \"command\": \"calendar_query\",\n    \"event_type\": \"calendar.query\",\n    \"target_system\": \"google_calendar\",\n    \"target_list\": \"\",\n    \"needs_confirmation\": false,\n    \"requires_title\": false\n  },\n  \"w\": {\n    \"intent\": \"workout.log\",\n    \"command\": \"workout\",\n    \"event_type\": \"workout.log\",\n    \"target_system\": \"notion\",\n    \"target_list\": \"\",\n    \"needs_confirmation\": true,\n    \"requires_title\": true\n  },\n  \"m\": {\n    \"intent\": \"meeting.create\",\n    \"command\": \"meeting\",\n    \"event_type\": \"meeting.create\",\n    \"target_system\": \"obsidian\",\n    \"target_list\": \"\",\n    \"needs_confirmation\": true,\n    \"requires_title\": true\n  },\n  \"h\": {\n    \"intent\": \"health.log\",\n    \"command\": \"health\",\n    \"event_type\": \"health.log\",\n    \"target_system\": \"notion\",\n    \"target_list\": \"\",\n    \"needs_confirmation\": true,\n    \"requires_title\": true\n  },\n  \"j\": {\n    \"intent\": \"journal.create\",\n    \"command\": \"journal\",\n    \"event_type\": \"journal.create\",\n    \"target_system\": \"obsidian\",\n    \"target_list\": \"\",\n    \"needs_confirmation\": true,\n    \"requires_title\": true\n  }\n}\n};\nfunction toSafeString(value, fallback = '') {\n  if (value === null || value === undefined) {\n    return fallback;\n  }\n  return String(value);\n}\nfunction parseFastLaneEvent(inputData, options = {}) {\n  const allowedParams = new Set(options.allowedParams || ALLOWED_PARAMS);\n  const prefixConfig = options.prefixConfig || FAST_LANE_PREFIX_CONFIG;\n  const text = toSafeString(inputData.raw_text).trim();\n  const slashMatch = text.match(/^\\/(help|ping|start)$/i);\n  const prefixMatch = text.match(/^([a-z]):\\s*(.*)$/is);\n  const existingParams = inputData.params && typeof inputData.params === 'object'\n    ? { ...inputData.params }\n    : {};\n\n  let result = {\n    ...inputData,\n    parser: 'fast_lane',\n    ok: false,\n    intent: 'unknown',\n    target_list: '',\n    title: '',\n    items: [],\n    params: existingParams,\n    confidence: 0,\n    needs_confirmation: true,\n    command: 'unknown',\n    entity_type: 'unknown',\n    target_system: '',\n    parse_ok: false,\n    parse_error: 'unknown_prefix',\n  };\n\n  if (slashMatch) {\n    const slash = slashMatch[1].toLowerCase();\n    const intent = slash === 'ping' ? 'ping' : 'help';\n    const eventType = intent === 'ping' ? 'system.ping' : 'system.help';\n    result = {\n      ...result,\n      ok: true,\n      intent,\n      target_list: '',\n      title: '',\n      items: [],\n      params: existingParams,\n      confidence: 1,\n      needs_confirmation: false,\n      command: intent,\n      entity_type: eventType,\n      target_system: 'telegram',\n      event_type: eventType,\n      parse_ok: true,\n      parse_error: '',\n    };\n  } else if (prefixMatch) {\n    const prefix = prefixMatch[1].toLowerCase();\n    const config = prefixConfig[prefix];\n    if (config) {\n      const rest = prefixMatch[2] || '';\n      const extracted = { ...existingParams };\n      const invalidParams = [];\n      const paramRegex = /\\/(\\w+)=([^\\s/]+)/g;\n      let match = paramRegex.exec(rest);\n      while (match !== null) {\n        const key = match[1];\n        const value = match[2];\n        if (!allowedParams.has(key)) {\n          invalidParams.push(key);\n        } else {\n          extracted[key] = value;\n        }\n        match = paramRegex.exec(rest);\n      }\n      if (inputData.is_test && inputData.test_run_id && !extracted.test_run) {\n        extracted.test_run = inputData.test_run_id;\n      }\n      const title = rest.replace(/\\/\\w+=[^\\s/]+/g, '').trim();\n      const missingTitle = config.requires_title && !title;\n      const parseError = invalidParams.length > 0\n        ? 'unsupported_param'\n        : (missingTitle ? 'empty_title' : '');\n      const ok = parseError === '';\n      result = {\n        ...result,\n        ok,\n        intent: config.intent,\n        target_list: config.target_list,\n        title,\n        items: [],\n        params: extracted,\n        confidence: ok ? 1 : 0.2,\n        needs_confirmation: ok ? config.needs_confirmation : true,\n        command: config.command,\n        entity_type: config.event_type,\n        target_system: config.target_system,\n        event_type: config.event_type,\n        parse_ok: ok,\n        parse_error: parseError,\n      };\n    }\n  }\n\n  return result;\n}\nconst inputData = items[0].json || {};\nreturn [{ json: parseFastLaneEvent(inputData, options) }];"
+      },
+      "id": "fast-lane-parser",
+      "name": "Fast Lane Parser",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ ({\n  model: 'gpt-4o-mini',\n  temperature: 0,\n  messages: [\n    {\n      role: 'system',\n      content: \"Wandle den User-Text in ein strukturiertes JSON um. Nutze nur diese Intents: task.create, followup.create, knowledge.draft, calendar.query, shopping.add, workout.log, meeting.create, health.log, journal.create, unknown. Wenn der Text einen Einkauf oder mehrere Artikel beschreibt, nutze shopping.add und liefere einzelne Artikel in items[]. Verwende nur diese Parameternamen: due, project, p, prio, ctx, to, topic, src, window, tz, store, test_run. Wenn du dir unsicher bist, setze intent auf unknown und needs_confirmation auf true. Antwort nur passend zum JSON-Schema.\"\n    },\n    {\n      role: 'user',\n      content: $json.raw_text || ''\n    }\n  ],\n  response_format: {\n  \"type\": \"json_schema\",\n  \"json_schema\": {\n    \"name\": \"canonical_intent\",\n    \"strict\": true,\n    \"schema\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"ok\": {\n          \"type\": \"boolean\"\n        },\n        \"intent\": {\n          \"type\": \"string\",\n          \"enum\": [\n            \"task.create\",\n            \"followup.create\",\n            \"knowledge.draft\",\n            \"calendar.query\",\n            \"shopping.add\",\n            \"workout.log\",\n            \"meeting.create\",\n            \"health.log\",\n            \"journal.create\",\n            \"unknown\"\n          ]\n        },\n        \"target_list\": {\n          \"type\": \"string\"\n        },\n        \"title\": {\n          \"type\": \"string\"\n        },\n        \"items\": {\n          \"type\": \"array\",\n          \"items\": {\n            \"type\": \"string\"\n          }\n        },\n        \"params\": {\n          \"type\": \"object\",\n          \"properties\": {\n            \"due\": {\n              \"type\": \"string\"\n            },\n            \"project\": {\n              \"type\": \"string\"\n            },\n            \"p\": {\n              \"type\": \"string\"\n            },\n            \"prio\": {\n              \"type\": \"string\"\n            },\n            \"ctx\": {\n              \"type\": \"string\"\n            },\n            \"to\": {\n              \"type\": \"string\"\n            },\n            \"topic\": {\n              \"type\": \"string\"\n            },\n            \"src\": {\n              \"type\": \"string\"\n            },\n            \"window\": {\n              \"type\": \"string\"\n            },\n            \"tz\": {\n              \"type\": \"string\"\n            },\n            \"store\": {\n              \"type\": \"string\"\n            },\n            \"test_run\": {\n              \"type\": \"string\"\n            }\n          },\n          \"additionalProperties\": false\n        },\n        \"confidence\": {\n          \"type\": \"number\"\n        },\n        \"needs_confirmation\": {\n          \"type\": \"boolean\"\n        }\n      },\n      \"required\": [\n        \"ok\",\n        \"intent\",\n        \"target_list\",\n        \"title\",\n        \"items\",\n        \"params\",\n        \"confidence\",\n        \"needs_confirmation\"\n      ],\n      \"additionalProperties\": false\n    }\n  }\n}\n}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "llm-parser",
+      "name": "LLM Parser",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1520,
+        660
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "jMxe7lxLFE2XMIFZ",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = items[0].json || {};\nconst original = $('Remove Duplicates').first().json || {};\nconst content = item.choices && item.choices[0] && item.choices[0].message ? item.choices[0].message.content : '';\n\nif (!content || typeof content !== 'string') {\n  return [{ json: {\n    ...original,\n    parser: 'llm',\n    ok: false,\n    intent: 'unknown',\n    target_list: '',\n    title: '',\n    items: [],\n    params: {},\n    confidence: 0,\n    needs_confirmation: true,\n    parse_ok: false,\n    parse_error: 'llm_missing_content'\n  } }];\n}\n\nlet parsed;\ntry {\n  parsed = JSON.parse(content);\n} catch (error) {\n  return [{ json: {\n    ...original,\n    parser: 'llm',\n    ok: false,\n    intent: 'unknown',\n    target_list: '',\n    title: '',\n    items: [],\n    params: {},\n    confidence: 0,\n    needs_confirmation: true,\n    parse_ok: false,\n    parse_error: 'llm_invalid_json'\n  } }];\n}\n\nreturn [{ json: {\n  ...original,\n  ...parsed,\n  parser: 'llm',\n  parse_ok: Boolean(parsed.ok),\n  parse_error: ''\n} }];"
+      },
+      "id": "extract-llm-output",
+      "name": "Extract LLM Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1740,
+        660
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const options = {\n  \"workflowId\": \"P1-telegram-intake-v2\",\n  \"testTaskLists\": {\n    \"next\": \"N3V3OGpNaGY4MC0xYWN4Wg\",\n    \"waiting\": \"Uk1USUZvSldsYWJTamRtTA\"\n  },\n  \"testVaultPath\": \"/data/obsidian-vault/00_INBOX_TEST/\",\n  \"prodVaultPath\": \"/data/obsidian-vault/00_INBOX/\",\n  \"allowProdTargets\": false,\n  \"allowedParams\": [\n    \"due\",\n    \"project\",\n    \"p\",\n    \"prio\",\n    \"ctx\",\n    \"to\",\n    \"topic\",\n    \"src\",\n    \"window\",\n    \"tz\",\n    \"store\",\n    \"test_run\"\n  ],\n  \"metaByIntent\": {\n    \"task.create\": {\n      \"command\": \"task\",\n      \"entity_type\": \"task.create\",\n      \"target_system\": \"google_tasks\",\n      \"target_list\": \"NEXT\",\n      \"routing\": \"google_tasks\"\n    },\n    \"followup.create\": {\n      \"command\": \"followup\",\n      \"entity_type\": \"followup.create\",\n      \"target_system\": \"google_tasks\",\n      \"target_list\": \"WAITING\",\n      \"routing\": \"google_tasks\"\n    },\n    \"knowledge.draft\": {\n      \"command\": \"knowledge\",\n      \"entity_type\": \"knowledge.draft\",\n      \"target_system\": \"obsidian\",\n      \"target_list\": \"\",\n      \"routing\": \"obsidian\"\n    },\n    \"calendar.query\": {\n      \"command\": \"calendar_query\",\n      \"entity_type\": \"calendar.query\",\n      \"target_system\": \"google_calendar\",\n      \"target_list\": \"\",\n      \"routing\": \"google_calendar\"\n    },\n    \"shopping.add\": {\n      \"command\": \"shopping\",\n      \"entity_type\": \"shopping.add\",\n      \"target_system\": \"google_tasks\",\n      \"target_list\": \"NEXT\",\n      \"routing\": \"google_tasks\"\n    },\n    \"help\": {\n      \"command\": \"help\",\n      \"entity_type\": \"system.help\",\n      \"target_system\": \"telegram\",\n      \"target_list\": \"\",\n      \"routing\": \"telegram\"\n    },\n    \"ping\": {\n      \"command\": \"ping\",\n      \"entity_type\": \"system.ping\",\n      \"target_system\": \"telegram\",\n      \"target_list\": \"\",\n      \"routing\": \"telegram\"\n    },\n    \"workout.log\": {\n      \"command\": \"workout\",\n      \"entity_type\": \"workout.log\",\n      \"target_system\": \"notion\",\n      \"target_list\": \"\",\n      \"routing\": \"manual_confirmation\"\n    },\n    \"meeting.create\": {\n      \"command\": \"meeting\",\n      \"entity_type\": \"meeting.create\",\n      \"target_system\": \"obsidian\",\n      \"target_list\": \"\",\n      \"routing\": \"manual_confirmation\"\n    },\n    \"health.log\": {\n      \"command\": \"health\",\n      \"entity_type\": \"health.log\",\n      \"target_system\": \"notion\",\n      \"target_list\": \"\",\n      \"routing\": \"manual_confirmation\"\n    },\n    \"journal.create\": {\n      \"command\": \"journal\",\n      \"entity_type\": \"journal.create\",\n      \"target_system\": \"obsidian\",\n      \"target_list\": \"\",\n      \"routing\": \"manual_confirmation\"\n    },\n    \"unknown\": {\n      \"command\": \"unknown\",\n      \"entity_type\": \"unknown\",\n      \"target_system\": \"\",\n      \"target_list\": \"\",\n      \"routing\": \"manual_confirmation\"\n    }\n  },\n  \"autoExecutable\": [\n    \"task.create\",\n    \"followup.create\",\n    \"knowledge.draft\",\n    \"calendar.query\",\n    \"shopping.add\",\n    \"help\",\n    \"ping\"\n  ]\n};\nfunction toSafeNumber(value, fallback) {\n  const numeric = Number(value);\n  return Number.isFinite(numeric) ? numeric : fallback;\n}\nfunction toSafeString(value, fallback = '') {\n  if (value === null || value === undefined) {\n    return fallback;\n  }\n  return String(value);\n}\nfunction normalizeCanonicalEvent(inputData, options = {}) {\n  const allowedParams = new Set(options.allowedParams || ALLOWED_PARAMS);\n  const metaByIntent = options.metaByIntent || META_BY_INTENT;\n  const autoExecutable = new Set(options.autoExecutable || AUTO_EXECUTABLE);\n  const rawParams = inputData.params && typeof inputData.params === 'object' ? inputData.params : {};\n  const params = {};\n  const invalidParams = [];\n  for (const [key, value] of Object.entries(rawParams)) {\n    if (!allowedParams.has(key)) {\n      invalidParams.push(key);\n      continue;\n    }\n    params[key] = String(value);\n  }\n\n  if (inputData.is_test && inputData.test_run_id && !params.test_run) {\n    params.test_run = inputData.test_run_id;\n  }\n\n  const intent = typeof inputData.intent === 'string' && inputData.intent ? inputData.intent : 'unknown';\n  const meta = metaByIntent[intent] || metaByIntent.unknown;\n  const rawItems = Array.isArray(inputData.items) ? inputData.items : [];\n  const cleanItems = rawItems.map((item) => String(item || '').trim()).filter(Boolean);\n  const title = typeof inputData.title === 'string' ? inputData.title.trim() : '';\n  let ok = Boolean(inputData.ok);\n  let confidence = Number(inputData.confidence);\n  if (!Number.isFinite(confidence)) {\n    confidence = 0;\n  }\n  let needsConfirmation = Boolean(inputData.needs_confirmation);\n  let parseError = toSafeString(inputData.parse_error, '');\n\n  if (intent === 'unknown') {\n    ok = false;\n    needsConfirmation = true;\n    parseError = parseError || 'unknown_intent';\n  }\n  if (invalidParams.length > 0) {\n    ok = false;\n    needsConfirmation = true;\n    parseError = parseError || 'unsupported_param';\n  }\n  if (['task.create', 'followup.create', 'knowledge.draft'].includes(intent) && !title) {\n    ok = false;\n    needsConfirmation = true;\n    parseError = parseError || 'empty_title';\n  }\n  if (intent === 'shopping.add' && cleanItems.length === 0) {\n    ok = false;\n    needsConfirmation = true;\n    parseError = parseError || 'shopping_items_required';\n  }\n  if (!autoExecutable.has(intent)) {\n    needsConfirmation = true;\n  }\n\n  const defaultTargetList =\n    typeof inputData.target_list === 'string' && inputData.target_list !== ''\n      ? inputData.target_list\n      : meta.target_list;\n  const targetSystem = inputData.target_system || meta.target_system;\n  const eventType = inputData.event_type || meta.entity_type;\n  const testTaskLists = options.testTaskLists || DEFAULT_TEST_TASK_LISTS;\n  const testVaultPath = toSafeString(options.testVaultPath, '/data/obsidian-vault/00_INBOX_TEST/').replace(/\\/?$/, '/');\n  const prodVaultPath = toSafeString(options.prodVaultPath, '/data/obsidian-vault/00_INBOX/').replace(/\\/?$/, '/');\n  let resolvedTaskList = defaultTargetList;\n  let resolvedVaultPath = targetSystem === 'obsidian' ? prodVaultPath : '';\n  let writeSafetyError = '';\n\n  if (inputData.is_test) {\n    if (intent === 'task.create' || intent === 'shopping.add') {\n      resolvedTaskList = testTaskLists.next;\n    } else if (intent === 'followup.create') {\n      resolvedTaskList = testTaskLists.waiting;\n    } else if (intent === 'knowledge.draft') {\n      resolvedVaultPath = testVaultPath;\n    }\n  }\n\n  if (inputData.is_test && options.allowProdTargets === false) {\n    if ((intent === 'task.create' || intent === 'shopping.add') && resolvedTaskList !== testTaskLists.next) {\n      writeSafetyError = 'task_test_target_must_use_next_test';\n    }\n    if (intent === 'followup.create' && resolvedTaskList !== testTaskLists.waiting) {\n      writeSafetyError = 'followup_test_target_must_use_waiting_test';\n    }\n    if (intent === 'knowledge.draft' && resolvedVaultPath !== testVaultPath) {\n      writeSafetyError = 'knowledge_test_target_must_use_test_vault';\n    }\n  }\n\n  if (writeSafetyError) {\n    ok = false;\n    needsConfirmation = true;\n    parseError = parseError || 'write_safety_violation';\n  }\n\n  const payload = {\n    ok,\n    intent,\n    target_list: defaultTargetList,\n    title,\n    items: intent === 'shopping.add' ? cleanItems : [],\n    params,\n    confidence,\n    needs_confirmation: needsConfirmation,\n  };\n  const routingDecision = writeSafetyError\n    ? 'blocked_test_write'\n    : (!ok || needsConfirmation ? 'manual_confirmation' : meta.routing);\n  const audit = {\n    workflow_id: options.workflowId || 'P1-telegram-intake-v2',\n    parser: inputData.parser || 'unknown',\n    confidence,\n    invalid_params: invalidParams,\n  };\n\n  return {\n    event_id: inputData.event_id || '',\n    event_type: eventType,\n    source: inputData.source || inputData.source_system || 'telegram',\n    source_system: inputData.source_system || inputData.source || 'telegram',\n    source_id: inputData.source_id || '',\n    timestamp: inputData.timestamp || inputData.received_at || new Date().toISOString(),\n    actor: inputData.actor || 'user',\n    payload,\n    routing_decision: routingDecision,\n    audit,\n    ok,\n    intent,\n    title,\n    items: payload.items,\n    params,\n    confidence,\n    needs_confirmation: needsConfirmation,\n    target_list: defaultTargetList,\n    resolved_task_list: resolvedTaskList,\n    resolved_vault_path: resolvedVaultPath,\n    write_safety_error: writeSafetyError,\n    command: meta.command,\n    entity_type: eventType,\n    target_system: targetSystem,\n    parse_ok: ok,\n    parse_error: parseError,\n    chat_id: toSafeNumber(inputData.chat_id, 0),\n    message_id: toSafeNumber(inputData.message_id, 0),\n    raw_text: toSafeString(inputData.raw_text),\n    raw_message: inputData.raw_message || {},\n    raw_headers: inputData.raw_headers || {},\n    received_at: inputData.received_at || inputData.timestamp || new Date().toISOString(),\n    is_test: Boolean(inputData.is_test),\n    run_id: inputData.run_id || null,\n    seq: inputData.seq || null,\n    expected_route: inputData.expected_route || '',\n    expected_chain: Array.isArray(inputData.expected_chain) ? inputData.expected_chain : [],\n    test_run_id: inputData.test_run_id || params.test_run || '',\n    reply_transport: inputData.reply_transport || (inputData.source === 'telegram' ? 'telegram' : 'webhook'),\n    should_telegram_reply: Boolean(inputData.should_telegram_reply),\n  };\n}\nconst inputData = items[0].json || {};\nreturn [{ json: normalizeCanonicalEvent(inputData, options) }];"
+      },
+      "id": "normalize-canonical-event",
+      "name": "Normalize Canonical Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1960,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "dataType": "boolean",
+        "value1": "={{ $json.ok === true && $json.confidence >= 0.85 && $json.needs_confirmation === false }}",
+        "rules": {
+          "rules": [
+            {
+              "operation": "equal",
+              "value2": true,
+              "output": 0
+            }
+          ]
+        },
+        "fallbackOutput": 1
+      },
+      "id": "confidence-gate",
+      "name": "Confidence Gate",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [
+        2180,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const event = items[0].json || {};\nconst unsupported = new Set(['workout.log', 'meeting.create', 'health.log', 'journal.create']);\nlet replyText = '';\n\nif (event.write_safety_error) {\n  replyText = 'Test-Schreibschutz aktiv: ' + event.write_safety_error + '. Dieser Lauf wurde bewusst blockiert, damit nichts in produktive Ziele geschrieben wird.';\n} else if (unsupported.has(event.intent)) {\n  replyText = 'Intent erkannt: ' + event.intent + '. Dieser Typ ist in Phase 1 noch nicht automatisch verdrahtet. Bitte sende vorerst t:, f:, k: oder q:, oder nutze /help.';\n} else if (event.intent === 'shopping.add' && event.parse_error === 'shopping_items_required') {\n  replyText = 'Ich habe einen Einkauf erkannt, aber keine einzelnen Artikel sicher extrahieren koennen. Sende zum Beispiel: Milch, Eier und Brot kaufen.';\n} else if (event.parse_error === 'unsupported_param') {\n  replyText = 'Ich habe nicht erlaubte Parameter gefunden. Erlaubt sind /due, /project, /p, /prio, /ctx, /to, /topic, /src, /window, /tz und /store. Fuer Hilfe: /help.';\n} else {\n  replyText = 'Ich bin mir noch nicht sicher, was du meinst. Sende es bitte klarer oder nutze DSL, zum Beispiel:\\n- t: Rechnung senden /due=2026-04-12\\n- f: Antwort von Max /due=2026-04-14\\n- k: Idee fuer Telegram Intake\\n- q: free 2026-04-18 /window=09:00-17:00 /tz=Europe/Berlin\\n\\nNatuerliche Sprache fuer Einkauf geht auch, zum Beispiel: Milch, Eier und Brot kaufen.';\n}\n\nreturn [{ json: {\n  chat_id: event.chat_id,\n  reply_text: replyText,\n  reply_parse_mode: '',\n  source: event.source || event.source_system || 'telegram',\n  source_system: event.source_system || event.source || 'telegram',\n  source_id: event.source_id || '',\n  is_test: Boolean(event.is_test),\n  run_id: event.run_id || null,\n  seq: event.seq || null,\n  expected_route: event.expected_route || '',\n  expected_chain: Array.isArray(event.expected_chain) ? event.expected_chain : [],\n  parse_error: event.parse_error || '',\n  write_safety_error: event.write_safety_error || '',\n  reply_transport: event.reply_transport || ((event.source || event.source_system) === 'telegram' ? 'telegram' : 'webhook'),\n  should_telegram_reply: event.should_telegram_reply === true || (event.source || event.source_system) === 'telegram'\n} }];"
+      },
+      "id": "confirm-reply",
+      "name": "Confirm Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "route-task-create",
+              "leftValue": "={{ $json.intent }}",
+              "rightValue": "task.create",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "route-task-create",
+      "name": "If: task.create",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "route-followup-create",
+              "leftValue": "={{ $json.intent }}",
+              "rightValue": "followup.create",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "route-followup-create",
+      "name": "If: followup.create",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "route-knowledge-draft",
+              "leftValue": "={{ $json.intent }}",
+              "rightValue": "knowledge.draft",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "route-knowledge-draft",
+      "name": "If: knowledge.draft",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "route-calendar-query",
+              "leftValue": "={{ $json.intent }}",
+              "rightValue": "calendar.query",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "route-calendar-query",
+      "name": "If: calendar.query",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        540
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "route-shopping-add",
+              "leftValue": "={{ $json.intent }}",
+              "rightValue": "shopping.add",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "route-shopping-add",
+      "name": "If: shopping.add",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        680
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "route-help",
+              "leftValue": "={{ $json.intent }}",
+              "rightValue": "help",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "route-help",
+      "name": "If: help",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        820
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "route-ping",
+              "leftValue": "={{ $json.intent }}",
+              "rightValue": "ping",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "route-ping",
+      "name": "If: ping",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": "pzYSe2gnvbXLedvG"
+      },
+      "id": "exec-task-next",
+      "name": "Execute: task-next",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        2660,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": "6d1fV8surkco100H"
+      },
+      "id": "exec-task-waiting",
+      "name": "Execute: task-waiting",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        2660,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": "Jm3AB26MzUlxauV6"
+      },
+      "id": "exec-knowledge",
+      "name": "Execute: knowledge-draft",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        2660,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": "FLsNZCEhoqtwCbPG"
+      },
+      "id": "exec-calendar",
+      "name": "Execute: calendar-query",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        2660,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const allowedParams = new Set([\"due\",\"project\",\"p\",\"prio\",\"ctx\",\"to\",\"topic\",\"src\",\"window\",\"tz\",\"store\",\"test_run\"]);\nconst event = items[0].json || {};\nconst shoppingItems = Array.isArray(event.items) ? event.items.map((value) => String(value || '').trim()).filter(Boolean) : [];\nconst params = {};\nfor (const [key, value] of Object.entries(event.params || {})) {\n  if (allowedParams.has(key)) params[key] = String(value);\n}\nreturn shoppingItems.map((title) => ({\n  json: {\n    ...event,\n    event_type: 'task.create',\n    routing_decision: 'google_tasks',\n    payload: {\n      ...(event.payload || {}),\n      ok: true,\n      intent: 'task.create',\n      target_list: 'NEXT',\n      title,\n      items: [],\n      params,\n      confidence: event.confidence,\n      needs_confirmation: false\n    },\n    ok: true,\n    intent: 'task.create',\n    title,\n    items: [],\n    params,\n    needs_confirmation: false,\n    target_list: 'NEXT',\n    command: 'task',\n    entity_type: 'task.create',\n    target_system: 'google_tasks',\n    parse_ok: true,\n    parse_error: ''\n  }\n}));"
+      },
+      "id": "expand-shopping-items",
+      "name": "Expand Shopping Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2660,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "h1",
+              "name": "chat_id",
+              "value": "={{ $json.chat_id }}",
+              "type": "number"
+            },
+            {
+              "id": "h2",
+              "name": "reply_text",
+              "value": "Command-Uebersicht\\n\\n/ping - Bot-Test\\n/help - Diese Hilfe\\n/start - Alias fuer /help\\n\\nDSL Fast Lane:\\nt: Titel /due=YYYY-MM-DD\\nf: Titel /due=YYYY-MM-DD\\nk: Titel\\nq: free YYYY-MM-DD /window=09:00-17:00 /tz=Europe/Berlin\\n\\nNatuerliche Sprache:\\nMilch, Eier und Brot kaufen\\n\\nBeispiele:\\nt: Rechnung senden /due=2026-04-12\\nf: Antwort von Max /due=2026-04-14\\nk: Idee fuer Telegram Intake\\nq: free 2026-04-18 /window=09:00-17:00 /tz=Europe/Berlin",
+              "type": "string"
+            },
+            {
+              "id": "h3",
+              "name": "reply_parse_mode",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "help-reply",
+      "name": "Help Reply",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2660,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "p1",
+              "name": "chat_id",
+              "value": "={{ $json.chat_id }}",
+              "type": "number"
+            },
+            {
+              "id": "p2",
+              "name": "reply_text",
+              "value": "ok - telegram intake aktiv",
+              "type": "string"
+            },
+            {
+              "id": "p3",
+              "name": "reply_parse_mode",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ping-reply",
+      "name": "Ping Reply",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2660,
+        920
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f1",
+              "name": "chat_id",
+              "value": "={{ $json.chat_id }}",
+              "type": "number"
+            },
+            {
+              "id": "f2",
+              "name": "reply_text",
+              "value": "Kein Ausfuehrungspfad fuer diesen Intent gefunden. Nutze /help oder sende t:, f:, k: oder q:.",
+              "type": "string"
+            },
+            {
+              "id": "f3",
+              "name": "reply_parse_mode",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fallback-reply",
+      "name": "Fallback Reply",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2660,
+        1060
+      ]
+    },
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $json.reply_transport || (Number($json.chat_id || 0) > 0 ? \"telegram\" : \"webhook\") }}",
+        "rules": {
+          "rules": [
+            {
+              "value2": "telegram",
+              "output": 0
+            },
+            {
+              "value2": "webhook",
+              "output": 1
+            }
+          ]
+        },
+        "fallbackOutput": 1
+      },
+      "id": "response-transport",
+      "name": "Response Transport",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [
+        2920,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.reply_text }}",
+        "additionalFields": {}
+      },
+      "id": "telegram-reply",
+      "name": "Telegram Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3180,
+        380
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "Arepn5qW2Si65rVX",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ JSON.stringify({ status: $json.write_safety_error ? \"blocked\" : \"ok\", source_id: $json.source_id || \"\", run_id: $json.run_id || null, seq: $json.seq || null, reply_text: $json.reply_text || \"\", parse_error: $json.parse_error || \"\", write_safety_error: $json.write_safety_error || \"\", task_list: $json.task_list || \"\", note_path: $json.note_path || \"\", transport: $json.reply_transport || \"webhook\" }) }}"
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        3180,
+        620
+      ]
+    }
+  ],
+  "connections": {
+    "telegram-trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "test-webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Event": {
+      "main": [
+        [
+          {
+            "node": "Allowlist Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Allowlist Check": {
+      "main": [
+        [
+          {
+            "node": "Text Guard",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply: Nicht autorisiert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply: Nicht autorisiert": {
+      "main": [
+        [
+          {
+            "node": "Response Transport",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text Guard": {
+      "main": [
+        [
+          {
+            "node": "Remove Duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply: Nur Text-Commands",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply: Nur Text-Commands": {
+      "main": [
+        [
+          {
+            "node": "Response Transport",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Duplicates": {
+      "main": [
+        [
+          {
+            "node": "Fast Lane Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fast Lane Check": {
+      "main": [
+        [
+          {
+            "node": "Fast Lane Parser",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "LLM Parser",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fast Lane Parser": {
+      "main": [
+        [
+          {
+            "node": "Normalize Canonical Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Parser": {
+      "main": [
+        [
+          {
+            "node": "Extract LLM Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract LLM Output": {
+      "main": [
+        [
+          {
+            "node": "Normalize Canonical Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Canonical Event": {
+      "main": [
+        [
+          {
+            "node": "Confidence Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confidence Gate": {
+      "main": [
+        [
+          {
+            "node": "If: task.create",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Confirm Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirm Reply": {
+      "main": [
+        [
+          {
+            "node": "Response Transport",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If: task.create": {
+      "main": [
+        [
+          {
+            "node": "Execute: task-next",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If: followup.create",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If: followup.create": {
+      "main": [
+        [
+          {
+            "node": "Execute: task-waiting",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If: knowledge.draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If: knowledge.draft": {
+      "main": [
+        [
+          {
+            "node": "Execute: knowledge-draft",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If: calendar.query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If: calendar.query": {
+      "main": [
+        [
+          {
+            "node": "Execute: calendar-query",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If: shopping.add",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If: shopping.add": {
+      "main": [
+        [
+          {
+            "node": "Expand Shopping Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If: help",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If: help": {
+      "main": [
+        [
+          {
+            "node": "Help Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If: ping",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If: ping": {
+      "main": [
+        [
+          {
+            "node": "Ping Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fallback Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expand Shopping Items": {
+      "main": [
+        [
+          {
+            "node": "Execute: task-next",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: task-next": {
+      "main": [
+        [
+          {
+            "node": "Response Transport",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: task-waiting": {
+      "main": [
+        [
+          {
+            "node": "Response Transport",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: knowledge-draft": {
+      "main": [
+        [
+          {
+            "node": "Response Transport",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: calendar-query": {
+      "main": [
+        [
+          {
+            "node": "Response Transport",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Help Reply": {
+      "main": [
+        [
+          {
+            "node": "Response Transport",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ping Reply": {
+      "main": [
+        [
+          {
+            "node": "Response Transport",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fallback Reply": {
+      "main": [
+        [
+          {
+            "node": "Response Transport",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response Transport": {
+      "main": [
+        [
+          {
+            "node": "Telegram Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "diti-ai"
+    },
+    {
+      "name": "phase-1"
+    },
+    {
+      "name": "intake-v2"
+    }
+  ]
+}

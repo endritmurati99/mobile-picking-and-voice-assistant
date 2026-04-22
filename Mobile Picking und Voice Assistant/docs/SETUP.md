@@ -42,8 +42,10 @@ docker compose up -d
 - Demo-Daten NICHT laden (wir nutzen eigene Seed-Daten)
 
 ### 6. Odoo API-Key generieren
+- fuer den Live-Betrieb einen dedizierten technischen Service-User verwenden
 - Odoo einloggen → Benutzermenü → Einstellungen → API-Schlüssel
 - API-Key in `.env` als `ODOO_API_KEY` eintragen
+- keinen Passwort- oder `admin`-Fallback fuer den produktiven Backend-Betrieb verwenden
 - `docker compose restart backend`
 
 ### 7. Custom Module installieren
@@ -85,6 +87,29 @@ powershell -ExecutionPolicy Bypass -File infrastructure/scripts/workflow.ps1 tes
 ```
 
 > Fuer lokale `https://localhost`-Tests akzeptiert das Script standardmaessig das lokale Zertifikat ohne strikte TLS-Pruefung.
+
+### 10b. n8n Workflows kontrolliert ausrollen
+- vor dem Live-Rollout erst die Repo-Gates ausfuehren:
+  - `python infrastructure/scripts/verify-workflows.py`
+  - relevante `pytest`-Tests
+  - `node --test n8n/tests/assess-alert-v2.test.mjs`
+- Backup erzeugen:
+
+```bash
+bash infrastructure/scripts/import-workflows.sh backup
+```
+
+- Danach mit dem ausgegebenen Backup-Verzeichnis:
+
+```bash
+bash infrastructure/scripts/import-workflows.sh import <backup-dir>
+bash infrastructure/scripts/import-workflows.sh activate <backup-dir> error-trigger.json
+bash infrastructure/scripts/import-workflows.sh activate <backup-dir> voice-exception-query.json
+bash infrastructure/scripts/import-workflows.sh activate <backup-dir> quality-alert-created.json
+bash infrastructure/scripts/import-workflows.sh activate <backup-dir> shortage-reported.json
+```
+
+- Nach jeder Aktivierung den zugehoerigen Smoke-Test ausfuehren.
 
 ### 11. n8n MCP einrichten
 - In n8n: `Settings > Instance-level MCP`

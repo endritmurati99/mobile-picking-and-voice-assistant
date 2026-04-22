@@ -1,4 +1,4 @@
-.PHONY: help setup install-backend-deps install-ui-deps build-all build-backend build-odoo up down logs seed test test-ui test-visual test-visual-diff test-visual-diff-update test-a11y test-api test-n8n-api verify-code verify-ui verify-visual verify-visual-diff verify-a11y verify-workflows verify-odoo-schema verify-stack verify clean
+.PHONY: help setup install-backend-deps install-ui-deps build-all build-backend build-odoo up down logs seed test test-ui test-visual test-visual-diff test-visual-diff-update test-a11y test-api test-n8n-api load-test verify-code verify-ui verify-visual verify-visual-diff verify-a11y verify-workflows verify-odoo-schema verify-stack verify clean
 
 SHELL := /bin/bash
 -include .env
@@ -73,6 +73,9 @@ test-api: ## API-Rauchtest
 
 test-n8n-api: ## n8n Public API mit API-Key pruefen
 	python infrastructure/scripts/test-n8n-api.py
+
+load-test: ## 100 Quality-Alert-Requests gegen laufenden Stack (Lasttest)
+	python infrastructure/scripts/load-test-quality-alerts.py --count $${LOAD_TEST_COUNT:-100} --concurrency $${LOAD_TEST_CONCURRENCY:-10}
 
 verify-workflows: ## n8n-Workflow-Vertraege gegen Backend-Webhooks pruefen
 	python infrastructure/scripts/verify-workflows.py

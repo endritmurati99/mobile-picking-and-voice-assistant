@@ -2,6 +2,8 @@
 
 Operative Arbeitsanweisung fuer Claude Code im Teilprojekt `Mobile Picking und Voice Assistant/`.
 
+Lies zusaetzlich `AGENTS.md` im Projektroot. Dort stehen die gemeinsamen CLI-first Regeln fuer Odoo und n8n, die auch fuer Codex und andere Agenten gelten.
+
 ## Ziel
 
 Arbeite token-effizient, code-first und innerhalb der vorhandenen Architektur. Nutze Obsidian nur gezielt fuer Architektur, Entscheidungen und Aenderungsdokumentation.

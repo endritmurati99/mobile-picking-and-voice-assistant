@@ -244,6 +244,24 @@ export async function confirmLine(pickingId, data, options = {}) {
     });
 }
 
+export async function getLineStock(pickingId, productId, locationId, options = {}) {
+    const params = new URLSearchParams({
+        product_id: String(productId),
+        location_id: String(locationId),
+    });
+    return request('GET', `/pickings/${pickingId}/stock?${params.toString()}`, null, {
+        headers: getReadHeaders(),
+        signal: options.signal,
+    });
+}
+
+export async function requestReplenishment(pickingId, data, options = {}) {
+    return request('POST', `/pickings/${pickingId}/replenishment-request`, data, {
+        headers: getWriteHeaders(options.idempotencyKey),
+        signal: options.signal,
+    });
+}
+
 export async function createQualityAlert(formData, options = {}) {
     return request('POST', '/quality-alerts', formData, {
         headers: getWriteHeaders(options.idempotencyKey),

@@ -1,70 +1,89 @@
 # Architektur
 
-## Komponentendiagramm
+## Systemrollen
 
-```text
-Mobile Browser (PWA)
-  <-> HTTPS (:443)
-Caddy (Reverse Proxy)
-  |- /api/*   -> App-Backend (FastAPI :8000)
-  |- /odoo/*  -> Odoo 18 (:8069) [nur Admin]
-  |- /n8n/*   -> n8n (:5678) [nur Admin]
-  `- /*       -> PWA Static (:80)
+- `PWA`
+  - mobile Bedienoberflaeche fuer Picking, Voice, Scan und Quality Alerts
+- `FastAPI`
+  - App-API, Odoo-Adapter, Idempotency- und Claim-Schicht
+- `Odoo`
+  - fachliche Datenquelle fuer Pickings, Quality Alerts, Nutzer und Lagerplaetze
+- `n8n`
+  - Orchestrator fuer async Events und synchrone Ausnahmeassistenz
+- `Whisper`
+  - lokaler ASR-Service fuer `POST /api/voice/recognize`
 
-App-Backend
-  |- -> Odoo (JSON-RPC, intern)
-  |- -> Whisper (HTTP, intern)
-  `- -> n8n (Async Events + Sync Exception Assist)
+## Architekturregeln
 
-Alle Services: Docker-Netzwerk `picking-net`
-Datenbank: PostgreSQL 16 (shared, separate DBs)
-```
+1. Odoo bleibt System of Record.
+2. FastAPI ist die einzige API-Schicht fuer die PWA.
+3. n8n liegt nicht im normalen Voice-Hot-Path.
+4. Fachliche Writes aus n8n laufen nur ueber interne FastAPI-Callbacks.
+5. Touch bleibt Fallback, Voice ist Enhancement.
 
-## Datenfluesse
+## Hauptfluesse
 
-### Pick-Bestaetigung (Hot Path)
-1. PWA: Barcode gescannt oder Touch-Bestaetigung.
-2. PWA -> Backend: `POST /api/pickings/:id/confirm-line`
-3. Backend -> Odoo: Move-Line schreiben und Picking validieren.
-4. Backend -> n8n: `pick-confirmed` als async Event mit Standard-Envelope.
-5. Backend -> PWA: 200 OK plus naechste Zeile.
+### Pick-Bestaetigung
+1. PWA -> `POST /api/pickings/{id}/confirm-line`
+2. FastAPI validiert Identitaet, Claim und Idempotency
+3. FastAPI schreibt nach Odoo
+4. FastAPI feuert `pick-confirmed` asynchron an n8n
+5. Wenn die n8n-Uebergabe fehlschlaegt, bleibt das Picking fachlich abgeschlossen, aber die Antwort wird als degradierter Folgeprozess markiert
 
-### Voice-Picking (Normaler Voice-Pfad)
-1. PWA nimmt Audio auf und sendet es an `POST /api/voice/recognize`.
-2. Backend transkribiert mit Whisper und matched deterministische Intents.
-3. Kommandos wie `confirm`, `next`, `previous`, `done`, `pause`, `photo` bleiben komplett in FastAPI/PWA.
-4. Die PWA spricht die direkte Antwort sofort aus.
+### Voice-Hot-Path
+1. PWA -> `POST /api/voice/recognize`
+2. FastAPI -> Whisper
+3. lokale Intent-Logik entscheidet ueber den naechsten Schritt
+4. PWA reagiert sofort
 
-### Sync Assist fuer Ausnahmefragen
-1. Die PWA erkennt `unknown`, `stock_query` oder shortage-nahe Problemfragen.
-2. Die PWA spricht sofort lokal: `Ich pruefe die Datenbank.`
-3. PWA -> Backend: `POST /api/voice/assist`
-4. Backend -> n8n: `voice-exception-query` mit Envelope, Timeout und Circuit Breaker.
-5. Backend reichert den Request vorab mit Odoo-Bestandsdaten und Obsidian-Kontext an.
-6. n8n fusioniert diesen Kontext, antwortet ueber `Respond to Webhook` und kann eine read-only Empfehlung zurueckgeben.
-7. Backend -> PWA: `tts_text` oder FastAPI-Fallback.
+### Sync Ausnahmeassistenz
+1. PWA -> `POST /api/voice/assist`
+2. FastAPI reichert Odoo- und Obsidian-Kontext an
+3. FastAPI -> n8n `voice-exception-query`
+4. n8n antwortet synchron oder FastAPI faellt lokal zurueck
 
-### Async Replenishment bei Fehlmenge
-1. FastAPI feuert `shortage-reported` nur ausserhalb des Hot Path.
-2. n8n validiert die Empfehlung und ruft `POST /api/internal/n8n/replenishment-action` auf.
-3. FastAPI schreibt den Nachschubauftrag kontrolliert als internen Odoo-Transfer.
-4. n8n loggt den Vorfall zusaetzlich nach Obsidian.
+### Quality Alert mit Welle A
+1. PWA -> `POST /api/quality-alerts`
+2. FastAPI erstellt `quality.alert.custom` in Odoo
+3. FastAPI -> n8n `quality-alert-created`
+4. Nur bei erfolgreicher Uebergabe setzt FastAPI `ai_evaluation_status = pending`
+5. Wenn die Uebergabe scheitert, markiert FastAPI den Alert als `failed` und schreibt den Grund in den Chatter
+6. n8n bewertet heuristisch und ruft `POST /api/internal/n8n/quality-assessment` auf
+7. FastAPI schreibt strukturierte KI-Felder kontrolliert nach Odoo zurueck
 
-### Quality Alert mit Foto
-1. PWA erstellt einen Alert mit Foto ueber `POST /api/quality-alerts`.
-2. Backend schreibt Alert und Attachments in Odoo.
-3. Backend -> n8n: `quality-alert-created` als async Event.
-4. n8n bewertet den Fall ueber einen produktiven V1-Agenten, fuehrt Obsidian- und E-Mail-Benachrichtigungen aus und ruft
-   `POST /api/internal/n8n/quality-assessment` auf.
-5. Backend schreibt die KI-Bewertung kontrolliert nach Odoo zurueck.
+## Quality-Alert-Felder nach Welle A
 
-## Entscheidungsbegruendungen
+- `description`
+  - Originalbeschreibung des Pickers
+- `ai_enhanced_description`
+  - sprachlich bereinigte KI-Fassung ohne neue Fakten
+- `ai_photo_analysis`
+  - separater visueller Bildbefund
+- `ai_summary`
+  - Management-Zusammenfassung
+- `ai_recommended_action`
+  - operative Empfehlung
+- `ai_evaluation_status`
+  - technischer Verarbeitungsstatus
 
-| Entscheidung | Begruendung |
-|-------------|-------------|
-| FastAPI statt Express | Native Python JSON-RPC/XML-RPC Integration fuer Odoo plus gute Async-Unterstuetzung |
-| Whisper statt Browser-STT | Safari/PWA-Unterstuetzung ist zu unzuverlaessig fuer den Lagereinsatz |
-| HID-Scanner statt Kamera | Deutlich hoeherer Erstscan-Erfolg im operativen Betrieb |
-| n8n nicht im normalen Voice-Pfad | Hot-Path-Kommandos duerfen nicht auf LLM- oder Workflow-Latenz warten |
-| Sync Assist nur fuer Exceptions | Ausnahmefragen duerfen langsamer sein, brauchen aber Timeout, lokalen Zwischensatz und Fail-Fast |
-| Writes nur ueber FastAPI | n8n liest aus Odoo, aber mutiert fachlichen Zustand nur ueber explizite FastAPI-Commands |
+## Odoo-Sichtbarkeit
+
+Der sichtbare Hauptblock fuer Quality Alerts heisst `Systembewertung` und zeigt nur:
+
+- Analyse-Status
+- Einstufung
+- Empfohlene Aktion
+- Analysiert am
+
+Zusatzregel:
+
+- KI-Chatter fuer Quality Alerts wird als Klartext geschrieben, nicht mehr als HTML-Fragment.
+- Ausfuehrliche Begruendung und technische Fehler gehoeren in den Chatter, nicht in den Hauptblock.
+
+## Runtime-Hinweis
+
+Der Repo-Stand bildet Welle A bereits ab.
+Fuer den sichtbaren Live-Effekt fehlen aber weiterhin:
+
+- Odoo-Addon-Upgrade in der aktiven Datenbank
+- kontrollierter Import bzw. Aktivierungsabgleich des aktualisierten `quality-alert-created`-Workflows

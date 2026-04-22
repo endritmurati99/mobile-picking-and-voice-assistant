@@ -86,9 +86,14 @@ function renderOperationalPickCard({ move, productLabel, locationLabel, zoneLabe
                 <div class="pick-card__location-label">Platz</div>
                 <div class="pick-card__location">${locationLabel}</div>
             </div>
-            <button class="btn-confirm" data-line-id="${move.id}">
-                Bestätigen
-            </button>
+            <div class="pick-card__actions">
+                <button class="btn-confirm" data-line-id="${move.id}">
+                    Bestätigen
+                </button>
+                <button class="btn-short-pick" data-line-id="${move.id}">
+                    Fehlbestand
+                </button>
+            </div>
         </section>
     `;
 }
@@ -116,7 +121,7 @@ export function renderLoading() {
         <div class="state-panel state-panel--loading" role="status" aria-live="polite">
             <div class="state-panel__eyebrow">Synchronisiert</div>
             <div class="state-panel__title">Lagerdaten werden vorbereitet</div>
-            <div class="state-panel__meta">Session, Profilstatus und offene Aufträge werden geladen.</div>
+            <div class="state-panel__meta">Session, Profilstatus und offene Auftraege werden geladen.</div>
             <div class="state-panel__track" aria-hidden="true">
                 <span class="state-panel__bar"></span>
             </div>

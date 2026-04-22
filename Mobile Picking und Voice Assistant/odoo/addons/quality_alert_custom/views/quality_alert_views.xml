@@ -56,36 +56,53 @@
                             <field name="lot_id"/>
                         </group>
                     </group>
-                    <notebook>
-                        <page string="Beschreibung">
-                            <field name="description"/>
-                        </page>
-                        <page string="Fotos">
-                            <field name="photo_gallery" nolabel="1"/>
-                        </page>
-                        <page string="KI-Bewertung">
-                            <group>
-                                <group>
-                                    <field name="ai_evaluation_status" widget="badge"
-                                           decoration-info="ai_evaluation_status == 'pending'"
-                                           decoration-success="ai_evaluation_status == 'completed'"
-                                           decoration-danger="ai_evaluation_status == 'failed'"/>
-                                    <field name="ai_failure_reason" invisible="ai_evaluation_status != 'failed'"/>
-                                    <field name="ai_disposition"/>
-                                    <field name="ai_confidence"/>
-                                    <field name="ai_last_analyzed_at"/>
-                                </group>
-                                <group>
-                                    <field name="ai_provider"/>
-                                    <field name="ai_model"/>
-                                </group>
+
+                    <div class="row mt16">
+                        <div class="col-md-6">
+                            <group string="Picker-Meldung" name="description_box">
+                                <field name="description" nolabel="1"
+                                       placeholder="Problembeschreibung..." readonly="1"/>
                             </group>
-                            <group>
-                                <field name="ai_summary"/>
-                                <field name="ai_recommended_action"/>
+                            <group string="Fotos" name="photos_box">
+                                <field name="photo_gallery" nolabel="1"/>
                             </group>
-                        </page>
-                    </notebook>
+                        </div>
+
+                        <div class="col-md-6">
+                        <group string="Systembewertung" name="auto_assessment">
+                            <field name="ai_evaluation_status"
+                                   string="Analyse-Status"
+                                   widget="badge"
+                                   readonly="1"
+                                   decoration-info="ai_evaluation_status == 'pending'"
+                                   decoration-success="ai_evaluation_status == 'completed'"
+                                   decoration-danger="ai_evaluation_status == 'failed'"/>
+                            <field name="ai_disposition"
+                                   string="Einstufung"
+                                   widget="badge"
+                                   readonly="1"
+                                   decoration-danger="ai_disposition == 'scrap'"
+                                   decoration-warning="ai_disposition == 'rework' or ai_disposition == 'quarantine'"
+                                   decoration-success="ai_disposition == 'sellable'"/>
+                            <field name="ai_recommended_action" string="Empfohlene Aktion" readonly="1"
+                                   invisible="not ai_recommended_action"/>
+                            <field name="ai_last_analyzed_at" string="Analysiert am" readonly="1"
+                                   invisible="not ai_last_analyzed_at"/>
+                            <field name="ai_failure_reason" readonly="1"
+                                   invisible="ai_evaluation_status != 'failed'"/>
+                        </group>
+                        </div>
+                    </div>
+
+                    <!-- Telemetrie: im Backend gespeichert, nicht im Sichtfeld des Operators -->
+                    <group invisible="True">
+                        <field name="ai_confidence"/>
+                        <field name="ai_enhanced_description"/>
+                        <field name="ai_photo_analysis"/>
+                        <field name="ai_summary"/>
+                        <field name="ai_provider"/>
+                        <field name="ai_model"/>
+                    </group>
                 </sheet>
                 <chatter/>
             </form>
@@ -102,14 +119,14 @@
                 <field name="picking_id"/>
                 <field name="priority"/>
                 <field name="stage_id"/>
-                <field name="ai_disposition"/>
+                <field name="ai_disposition" string="Einstufung"/>
                 <field name="ai_evaluation_status" widget="badge"
                        decoration-info="ai_evaluation_status == 'pending'"
                        decoration-success="ai_evaluation_status == 'completed'"
                        decoration-danger="ai_evaluation_status == 'failed'"
+                       string="Analyse-Status"
                        optional="show"/>
-                <field name="user_id"/>
-                <field name="create_date"/>
+                <field name="ai_last_analyzed_at" string="Analysiert am" optional="show"/>
             </list>
         </field>
     </record>

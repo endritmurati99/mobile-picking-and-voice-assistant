@@ -33,17 +33,26 @@ function vibrate(pattern) {
     if ('vibrate' in navigator) navigator.vibrate(pattern);
 }
 
-/** Erfolg: heller Doppel-Piep + kurze Vibration */
+function _flashScreen(cls) {
+    const div = document.createElement('div');
+    div.className = 'scan-flash ' + cls;
+    document.body.appendChild(div);
+    setTimeout(() => div.remove(), 420);
+}
+
+/** Erfolg: heller Doppel-Piep + kurze Vibration + grüner Vollbild-Flash */
 export function feedbackSuccess() {
     beep(880, 100);
     setTimeout(() => beep(1100, 150), 120);
     vibrate([50, 30, 50]);
+    _flashScreen('scan-flash--success');
 }
 
-/** Fehler: tiefer Brummton + lange Vibration */
+/** Fehler: tiefer Brummton + lange Vibration + roter Vollbild-Flash */
 export function feedbackError() {
     beep(180, 400, 'square', 0.4);
     vibrate([200, 100, 200]);
+    _flashScreen('scan-flash--error');
 }
 
 /** Warnung / Prioritäts-Alarm: markante Tonfolge */
