@@ -35,3 +35,10 @@ Thumbs.db
 *.MP4
 *.mov
 *.MOV
+
+# ── Project Specific Ignores ─────────────────────────────────────────────────
+.mcp.json
+*.env
+env-backup-*.env
+.gemini-skills/
+.gemini/
