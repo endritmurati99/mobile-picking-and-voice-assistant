@@ -168,13 +168,13 @@ export function showManualInput(onSubmit) {
 
     const container = document.createElement('div');
     container.id = 'manual-barcode-input';
+    container.className = 'manual-barcode-entry';
     container.innerHTML = `
-        <input type="text" id="barcode-input" inputmode="numeric" 
-               placeholder="Barcode eingeben" autocomplete="off"
-               style="width:100%; padding:12px; font-size:1.2rem; border-radius:8px; border:1px solid var(--border); background:var(--surface); color:var(--text-primary);">
-        <button id="barcode-submit" 
-                style="width:100%; margin-top:8px; padding:12px; font-size:1rem; border-radius:8px; background:var(--success); color:#041514; border:none; font-weight:600;">
-            Bestätigen
+        <input type="text" id="barcode-input" class="manual-barcode-entry__input" inputmode="numeric"
+               placeholder="Barcode eingeben" autocomplete="off">
+        <button id="barcode-submit"
+                class="manual-barcode-entry__submit">
+            Barcode absenden
         </button>
     `;
 

@@ -40,7 +40,7 @@ const VIEW_CONFIGS = {
   },
   detail: {
     readyDescription: 'Picking-Detail mit bestaetigbarer Zeile ist sichtbar',
-    selectors: ['#main .pick-card', '#main .btn-confirm'],
+    selectors: ['#main .detail-compact', '#main .btn-confirm'],
     action: async (page) => {
       await selectPickerIfNeeded(page);
       const firstPicking = page.locator('.pick-list-card[data-id], .pick-card[data-id]').first();

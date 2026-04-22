@@ -17,8 +17,11 @@ test('confirms both move lines and reaches the completion view', async ({ page }
 
   await page.locator('.btn-confirm').click();
 
-  await expect(page.locator('#main')).toContainText('Alle Artikel erfasst und synchronisiert.');
-  await expect(page.locator('#main button')).toContainText('Liste');
+  await expect(page.locator('.completion-card')).toBeVisible();
+  await expect(page.locator('#main')).toContainText('Auftrag abgeschlossen');
+  await expect(page.locator('#main')).toContainText('Alle Artikel wurden erfasst und synchronisiert.');
+  await expect(page.locator('#completion-list-btn')).toBeVisible();
+  await expect(page.locator('#completion-next-btn')).toBeVisible();
   await expect.poll(() => api.getConfirmCalls()).toBe(2);
   await expect.poll(() => api.getLastConfirmRequest()).toMatchObject({
     move_line_id: 502,

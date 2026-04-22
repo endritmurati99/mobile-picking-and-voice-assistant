@@ -3,44 +3,53 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <meta name="theme-color" content="#151324">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#f6f8fc">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="manifest" href="/manifest.json">
     <link rel="stylesheet" href="/css/app.css">
     <title>Picking Assistant</title>
 </head>
-<body data-theme="dark">
+<body>
     <div id="app">
         <header id="header">
             <div class="header-row header-row--top">
                 <button class="picker-chip" id="picker-indicator">
                     <span class="picker-chip__avatar" id="picker-avatar">PW</span>
-                    <span id="picker-name">Profil wählen</span>
+                    <span id="picker-name">Profil w&auml;hlen</span>
                 </button>
                 <div class="header-actions">
                     <button class="icon-btn" id="status-btn" title="Online">
                         <span class="status-dot offline" id="status-dot"></span>
                     </button>
                     <button class="icon-btn" id="high-contrast-toggle" title="Kontrast" aria-pressed="false">
-                        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m6.364 1.636l-.707-.707M21 12h-1m-1.636 6.364l-.707.707M12 21v1m-6.364-1.636l-.707.707M3 12h1m1.636-6.364l-.707-.707M10 12a2 2 0 11 4 0 2 2 0 01-4 0z"/></svg>
+                        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m6.364 1.636l-.707-.707M21 12h-1m-1.636 6.364l-.707.707M12 21v1m-6.364-1.636l-.707.707M3 12h1m1.636-6.364l-.707-.707M10 12a2 2 0 11 4 0 2 2 0 01-4 0z"/>
+                        </svg>
                     </button>
                     <button class="icon-btn" id="search-toggle" title="Suche" aria-pressed="false">
-                        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <circle cx="11" cy="11" r="8"/>
+                            <path d="m21 21-4.35-4.35"/>
+                        </svg>
                     </button>
                 </div>
             </div>
             <div class="greeting">
-                Guten Morgen, <span class="greeting__name" id="greeting-name">Picker</span> 👋
+                Guten Morgen, <span class="greeting__name" id="greeting-name">Picker</span>
             </div>
-            <h1 class="page-title">Deine Aufträge</h1>
-            <div class="search-row">
-                <div class="search-input">
-                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35m0 0A7.5 7.5 0 1010.5 3a7.5 7.5 0 006.15 13.65z"/></svg>
-                    <input id="search-input" type="search" placeholder="Suche nach SKU, Platz oder Auftrag" autocomplete="off">
+            <h1 class="page-title">Deine Auftr&auml;ge</h1>
+            <div class="header-controls">
+                <div class="search-row">
+                    <div class="search-input">
+                        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35m0 0A7.5 7.5 0 1010.5 3a7.5 7.5 0 006.15 13.65z"/>
+                        </svg>
+                        <input id="search-input" type="search" placeholder="Suche nach SKU, Platz oder Auftrag" autocomplete="off">
+                    </div>
                 </div>
-            </div>
-            <div class="header-row header-row--filters" role="toolbar" aria-label="Aufträge filtern">
-                <div id="filter-chips" class="filter-chips"></div>
+                <div class="header-row header-row--filters" role="toolbar" aria-label="Auftr&auml;ge filtern">
+                    <div id="filter-chips" class="filter-chips"></div>
+                </div>
             </div>
             <span id="status-indicator" class="status offline" style="display:none;">Offline</span>
             <span id="voice-status-indicator" class="status voice-status voice-status--idle" style="display:none;">Bereit</span>
@@ -50,17 +59,34 @@
         <div id="app-overlay" class="app-overlay" hidden></div>
         <nav id="nav">
             <button id="btn-voice" class="nav-btn" aria-label="Sprachmodus starten">
-                <span class="nav-btn__icon">🎤</span>
+                <span class="nav-btn__icon" aria-hidden="true">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4a3 3 0 013 3v4a3 3 0 11-6 0V7a3 3 0 013-3z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 10v1a7 7 0 11-14 0v-1"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 18v3"/>
+                    </svg>
+                </span>
                 <span class="nav-btn__label">Voice</span>
                 <span class="nav-btn__meta">Kommando</span>
             </button>
             <button id="btn-scan" class="nav-btn" aria-label="Kamera-Scan starten">
-                <span class="nav-btn__icon">📷</span>
+                <span class="nav-btn__icon" aria-hidden="true">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 8a2 2 0 012-2h2l1.2-1.6A2 2 0 0110.8 4h2.4a2 2 0 011.6.8L16 6h2a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2V8z"/>
+                        <circle cx="12" cy="12" r="3.5"/>
+                    </svg>
+                </span>
                 <span class="nav-btn__label">Scan</span>
                 <span class="nav-btn__meta">Kamera</span>
             </button>
             <button id="btn-alert" class="nav-btn" aria-label="Problem melden">
-                <span class="nav-btn__icon">⚠️</span>
+                <span class="nav-btn__icon" aria-hidden="true">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4l8 14H4L12 4z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 10v4"/>
+                        <circle cx="12" cy="17" r="0.8" fill="currentColor" stroke="none"/>
+                    </svg>
+                </span>
                 <span class="nav-btn__label">Problem</span>
                 <span class="nav-btn__meta">Melden</span>
             </button>

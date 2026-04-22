@@ -38,7 +38,7 @@ import {
     heartbeatPicking,
 } from './api.js';
 import { feedbackSuccess, feedbackError } from './feedback.js';
-import { setState, getState, subscribe, renderPickCard, renderLoading, renderError, renderProductVisual, showToast } from './ui.js';
+import { setState, getState, subscribe, renderLoading, renderError, renderProductVisual, showToast } from './ui.js';
 import { initHIDScanner, showManualInput, openCameraScanner } from './scanner.js';
 import {
     speak,
@@ -67,8 +67,8 @@ const VOICE_LONG_PRESS_MS = 350;
 const DEFAULT_FILTER = 'all';
 const ZONE_FILTER = 'zone';
 const VOICE_ASSIST_SHORTAGE_RE = /\b(fehlt|fehlmenge|mangel|nachschub|leer|restbestand)\b/i;
-const DARK_THEME_COLOR = '#091014';
-const LIGHT_THEME_COLOR = '#F5F5F5';
+const DEFAULT_THEME_COLOR = '#F6F8FC';
+const HIGH_CONTRAST_THEME_COLOR = '#FFFFFF';
 const LIFECYCLE_REFRESH_DEBOUNCE_MS = 900;
 const lineStockCache = new Map();
 
@@ -173,8 +173,19 @@ function getPrimaryZoneLabel(picking) {
     return formatZoneLabel(picking?.primary_zone_key || '');
 }
 
+function getPickingPrimaryProductId(picking) {
+    if (picking?.primary_product_id) return picking.primary_product_id;
+    const firstLineWithProduct = (picking?.move_lines || []).find((line) => line?.product_id);
+    return firstLineWithProduct?.product_id || null;
+}
+
 function getPrimaryItemSku(picking) {
     return picking?.primary_item_sku || '';
+}
+
+function getNextPickingCandidate(pickings = [], { excludeId = null } = {}) {
+    const candidates = (pickings || []).filter((picking) => picking?.id && picking.id !== excludeId);
+    return candidates.find((picking) => picking.priority === '1') || candidates[0] || null;
 }
 
 function getListScopeLabel() {
@@ -273,9 +284,10 @@ function renderRouteHint(picking, currentLineIndex) {
     const lines = picking?.move_lines || [];
     if (!routePlan || currentLineIndex >= lines.length) return '';
 
-    const remainingLines = lines.slice(currentLineIndex);
+    const remainingLines = lines.slice(currentLineIndex + 1);
+    if (!remainingLines.length) return '';
     const remainingTravelScore = (routePlan.stops || [])
-        .slice(currentLineIndex)
+        .slice(currentLineIndex + 1)
         .reduce((sum, stop) => sum + (stop.estimated_steps_from_previous || 0), 0);
     const zonePreview = [...new Set(
         remainingLines
@@ -291,14 +303,59 @@ function renderRouteHint(picking, currentLineIndex) {
     );
 
     return `
-        <section class="route-hint" aria-label="Optimierte Routenempfehlung">
-            <div class="route-hint__eyebrow">Route Intelligence</div>
+        <section class="route-hint" aria-label="Naechster Halt auf der Route">
+            <div class="route-hint__eyebrow">Danach auf der Route</div>
             <div class="route-hint__title">Nächster Halt: ${nextLocation}</div>
             <div class="route-hint__meta">
                 ${remainingLines.length} Stopps offen - Laufweg-Score ${remainingTravelScore}
             </div>
             <div class="route-hint__chips">
                 ${zonePreview.map((zone) => `<span class="route-hint__chip">${zone}</span>`).join('')}
+            </div>
+        </section>
+    `;
+}
+
+function renderDetailLineList(lines, currentLineIndex) {
+    if (!Array.isArray(lines) || lines.length <= 1) return '';
+
+    return `
+        <section class="detail-line-list" aria-label="Positionen im Auftrag">
+            <div class="detail-line-list__header">
+                <div>
+                    <div class="detail-line-list__eyebrow">Auftragspositionen</div>
+                    <div class="detail-line-list__title">${lines.length} Positionen im Ablauf</div>
+                </div>
+                <div class="detail-line-list__count">${currentLineIndex + 1} / ${lines.length}</div>
+            </div>
+            <div class="detail-line-list__items">
+                ${lines.map((entry, idx) => {
+                    const entryName = getLineDisplayName(entry);
+                    const entryMeta = [
+                        getLineQuantityLabel(entry),
+                        entry.product_sku || entry.location_src_zone || '',
+                    ].filter(Boolean).join(' · ');
+                    const entryLocation = entry.location_src_short || formatLocationForDisplay(entry.location_src);
+
+                    return `
+                        <button class="detail-line-item ${idx === currentLineIndex ? 'detail-line-item--active' : ''}"
+                                onclick="window._app.goToLine(${idx})">
+                            ${renderProductVisual({
+                                productId: entry.product_id || null,
+                                label: entryName,
+                                className: 'detail-line-item__thumb product-visual product-visual--thumb',
+                                loading: 'eager',
+                                size: 256,
+                            })}
+                            <span class="detail-line-item__copy">
+                                <span class="detail-line-item__idx">${idx + 1}</span>
+                                <span class="detail-line-item__name">${escapeHtml(entryName)}</span>
+                                <span class="detail-line-item__meta">${escapeHtml(entryMeta)}</span>
+                            </span>
+                            <span class="detail-line-item__loc">${escapeHtml(entryLocation)}</span>
+                        </button>
+                    `;
+                }).join('')}
             </div>
         </section>
     `;
@@ -319,7 +376,6 @@ let sessionState = 'profile_required';
 let pickerCatalog = getCachedPickers();
 let lastLifecycleRefreshAt = 0;
 let lifecycleRefreshPromise = null;
-let listViewActive = false;
 const pendingRequestControllers = new Set();
 
 const mainEl = () => document.getElementById('main');
@@ -402,10 +458,10 @@ function setMainContent(markup, { resetScroll = true } = {}) {
 }
 
 function syncThemeChrome() {
-    const themeColor = highContrastEnabled ? LIGHT_THEME_COLOR : DARK_THEME_COLOR;
-    document.documentElement.style.colorScheme = highContrastEnabled ? 'light' : 'dark';
+    const themeColor = highContrastEnabled ? HIGH_CONTRAST_THEME_COLOR : DEFAULT_THEME_COLOR;
+    document.documentElement.style.colorScheme = 'light';
     themeColorMetaEl()?.setAttribute('content', themeColor);
-    statusBarMetaEl()?.setAttribute('content', highContrastEnabled ? 'default' : 'black-translucent');
+    statusBarMetaEl()?.setAttribute('content', 'default');
 }
 
 function resetSearchUi() {
@@ -470,11 +526,13 @@ function updateToolbar(view) {
     document.body.dataset.sessionState = view;
     const searchInput = searchInputEl();
     const searchEnabled = view === 'list' || view === 'search_expanded';
+    const compactHeader = !searchEnabled && view !== 'profile_required';
     if (searchInput) searchInput.disabled = !searchEnabled;
     searchRowEl()?.toggleAttribute('hidden', !searchEnabled);
     filterRowEl()?.toggleAttribute('hidden', !searchEnabled);
     searchToggleEl()?.toggleAttribute('hidden', !searchEnabled);
     headerEl()?.classList.toggle('header--picker-only', view === 'profile_required');
+    headerEl()?.classList.toggle('header--compact', compactHeader);
 }
 
 function updatePickerIndicator() {
@@ -668,7 +726,7 @@ async function refreshActivePickingDetail() {
             currentPicking: refreshedPicking,
             currentLineIndex: nextLineIndex,
         });
-        renderCurrentLine();
+        renderResponsiveCurrentLine();
     } catch (error) {
         if (isAbortError(error)) return;
         if (error instanceof ApiError && error.status === 409 && typeof error.detail === 'object') {
@@ -766,7 +824,7 @@ function openZonePicker(pickings) {
     if (!zones.length) {
         showToast('Aktuell sind keine Bereiche verfügbar.', 'warning');
         activeFilter = DEFAULT_FILTER;
-        renderPickingsView(pickings);
+        renderResponsivePickingsView(pickings);
         return;
     }
 
@@ -878,6 +936,56 @@ function renderQueueOverview(visiblePickings) {
     `;
 }
 
+function renderWorkspaceQueueOverview(visiblePickings, { variant = 'main' } = {}) {
+    const urgentCount = visiblePickings.filter((picking) => picking.priority === '1').length;
+    const pickerName = getState().currentPicker?.name || 'Kein Profil aktiv';
+    const activePicking = getState().currentPicking;
+    const nextPicking = activePicking || getNextPickingCandidate(visiblePickings);
+    const ctaLabel = activePicking
+        ? `Fortsetzen: ${escapeHtml(getPickingReference(activePicking))}`
+        : urgentCount > 0
+            ? `N\u00e4chsten Prio-Pick starten (${urgentCount} dringend)`
+            : 'Picking starten';
+    const helperCopy = activePicking
+        ? 'Aktives Picking ist bereits vorbereitet.'
+        : urgentCount > 0
+            ? 'Dringende Auftr\u00e4ge werden zuerst vorgeschlagen.'
+            : 'Starte direkt mit dem n\u00e4chsten offenen Auftrag.';
+    const ctaHtml = nextPicking
+        ? `<button class="btn-big btn-big--primary queue-cta" data-queue-cta="true" data-id="${nextPicking.id}">${ctaLabel}</button>`
+        : '';
+
+    return `
+        <section class="queue-overview queue-overview--${variant}" aria-label="Arbeitsbereich">
+            <div class="queue-overview__eyebrow">Arbeitsbereich</div>
+            <div class="queue-overview__title">${visiblePickings.length} offene Auftr\u00e4ge</div>
+            <div class="queue-overview__meta">${escapeHtml(pickerName)}</div>
+            <div class="queue-overview__stats">
+                <div class="queue-stat ${urgentCount > 0 ? 'queue-stat--warning' : ''}">
+                    <span class="queue-stat__label">Dringend</span>
+                    <span class="queue-stat__value">${urgentCount}</span>
+                </div>
+                <div class="queue-stat">
+                    <span class="queue-stat__label">Bereich</span>
+                    <span class="queue-stat__value">${escapeHtml(getListScopeLabel())}</span>
+                </div>
+                <div class="queue-stat">
+                    <span class="queue-stat__label">Suche</span>
+                    <span class="queue-stat__value">${searchQuery ? 'Aktiv' : 'Aus'}</span>
+                </div>
+            </div>
+            <div class="queue-overview__helper">${helperCopy}</div>
+            ${ctaHtml}
+        </section>
+    `;
+}
+
+function bindQueueCtaButtons() {
+    mainEl().querySelectorAll('[data-queue-cta="true"]').forEach((button) => {
+        button.addEventListener('click', () => loadPickingDetail(Number(button.dataset.id)));
+    });
+}
+
 function renderPickingListCard(picking) {
     const reference = getPickingReference(picking);
     const typeName = getPickingTypeLabel(picking);
@@ -903,9 +1011,10 @@ function renderPickingListCard(picking) {
             </div>
             <div class="pick-list-card__body">
                 ${renderProductVisual({
-                    productId: picking.primary_product_id,
+                    productId: getPickingPrimaryProductId(picking),
                     label: primaryLabel,
                     className: 'pick-list-card__thumb product-visual product-visual--thumb',
+                    loading: 'eager',
                     size: 256,
                 })}
                 <div class="pick-list-card__content">
@@ -935,6 +1044,8 @@ function renderPickingListCard(picking) {
 }
 
 function renderPickingsView(pickings) {
+    return renderResponsivePickingsView(pickings);
+
     const searchedPickings = filterBySearch(pickings, searchQuery);
 
     if (activeFilter === ZONE_FILTER && preferredZone?.key) {
@@ -977,8 +1088,9 @@ function renderPickingsView(pickings) {
     }
 
     setMainContent(`
-        <div class="queue-shell">
-            ${renderQueueOverview(visiblePickings)}
+        <div class="list-workspace">
+            <div class="list-main">
+                ${renderWorkspaceQueueOverview(visiblePickings, { variant: 'main' })}
             <section class="pick-list-grid" aria-label="Offene Picking-Aufträge">
                 ${visiblePickings.map((picking) => renderPickingListCard(picking)).join('')}
             </section>
@@ -993,6 +1105,318 @@ function renderPickingsView(pickings) {
     if (ctaBtn) {
         ctaBtn.addEventListener('click', () => loadPickingDetail(Number(ctaBtn.dataset.id)));
     }
+}
+
+function renderResponsivePickingsView(pickings) {
+    const searchedPickings = filterBySearch(pickings, searchQuery);
+
+    if (activeFilter === ZONE_FILTER && preferredZone?.key) {
+        const availableZones = collectZoneOptions(searchedPickings);
+        if (!availableZones.some((zone) => zone.key === preferredZone.key)) {
+            preferredZone = null;
+            setStoredPreferredZone(null);
+            activeFilter = DEFAULT_FILTER;
+        }
+    }
+
+    renderFilterChips(searchedPickings);
+    const visiblePickings = filterByActiveChip(searchedPickings);
+    updateTaskCounter(visiblePickings.length);
+
+    if (!searchedPickings.length) {
+        setMainContent(`
+            <div class="queue-shell">
+                ${renderWorkspaceQueueOverview([], { variant: 'main' })}
+                ${renderListEmptyState(
+                    'Keine Treffer f\u00fcr diese Suche.',
+                    'Suche nach Auftrag, Produkt, SKU, Platz oder Partner.'
+                )}
+            </div>
+        `);
+        return;
+    }
+
+    if (!visiblePickings.length) {
+        const filterMessage = activeFilter === 'high'
+            ? 'Keine dringenden Auftr\u00e4ge f\u00fcr diese Suche.'
+            : 'In deinem Bereich gibt es aktuell keine passenden Auftr\u00e4ge.';
+        setMainContent(`
+            <div class="queue-shell">
+                ${renderWorkspaceQueueOverview([], { variant: 'main' })}
+                ${renderListEmptyState(filterMessage)}
+            </div>
+        `);
+        return;
+    }
+
+    setMainContent(`
+        <div class="list-workspace">
+            <div class="list-main">
+                ${renderWorkspaceQueueOverview(visiblePickings, { variant: 'main' })}
+                <section class="pick-list pick-list-grid" aria-label="Offene Picking-Auftr\u00e4ge">
+                    ${visiblePickings.map((picking) => renderPickingListCard(picking)).join('')}
+                </section>
+            </div>
+            <aside class="list-summary" aria-label="Desktop-Zusammenfassung">
+                ${renderWorkspaceQueueOverview(visiblePickings, { variant: 'rail' })}
+            </aside>
+        </div>
+    `);
+
+    mainEl().querySelectorAll('.pick-list-card[data-id]').forEach((card) => {
+        card.addEventListener('click', () => loadPickingDetail(Number(card.dataset.id)));
+    });
+    bindQueueCtaButtons();
+}
+
+function renderDetailSideRail({ picking, lines, currentLineIndex, line, detailSku, detailPartner, stockState }) {
+    const pickerName = getState().currentPicker?.name || 'Kein Profil aktiv';
+    const totalCount = getTotalLineCount(picking) || lines.length;
+    const completedCount = Math.min(currentLineIndex, totalCount);
+    const remainingCount = Math.max(totalCount - currentLineIndex - 1, 0);
+    const routeHint = renderRouteHint(picking, currentLineIndex);
+    const stockBanner = stockState?.status === 'out_of_stock' ? getOutOfStockBanner(stockState) : '';
+    const aiBanner = picking.has_pending_quality_ai
+        ? '<div class="ai-pending-banner">KI analysiert Qualit\u00e4tsfall</div>'
+        : '';
+
+    return `
+        <aside class="detail-side">
+            <section class="detail-side-card detail-side-card--progress">
+                <div class="detail-side-card__eyebrow">Fortschritt</div>
+                <div class="detail-side-card__title">Schritt ${currentLineIndex + 1} von ${lines.length}</div>
+                <div class="detail-summary__progress-track" aria-hidden="true">
+                    <span class="detail-summary__progress-bar" style="width:${Math.round(((currentLineIndex + 1) / Math.max(lines.length, 1)) * 100)}%"></span>
+                </div>
+                <div class="detail-side-card__facts">
+                    <div>
+                        <span>Erfasst</span>
+                        <strong>${completedCount}</strong>
+                    </div>
+                    <div>
+                        <span>Offen</span>
+                        <strong>${remainingCount}</strong>
+                    </div>
+                    <div>
+                        <span>Picker</span>
+                        <strong>${escapeHtml(pickerName)}</strong>
+                    </div>
+                    <div>
+                        <span>Referenz</span>
+                        <strong>${escapeHtml(getPickingReference(picking))}</strong>
+                    </div>
+                </div>
+            </section>
+            <section class="detail-side-card detail-side-card--facts">
+                <div class="detail-side-card__eyebrow">Schnellinfos</div>
+                <div class="detail-side-card__facts">
+                    <div>
+                        <span>Partner</span>
+                        <strong>${escapeHtml(detailPartner)}</strong>
+                    </div>
+                    <div>
+                        <span>SKU</span>
+                        <strong>${escapeHtml(detailSku)}</strong>
+                    </div>
+                    <div>
+                        <span>Bereich</span>
+                        <strong>${escapeHtml(line.location_src_zone || 'Ohne Bereich')}</strong>
+                    </div>
+                    <div>
+                        <span>Menge</span>
+                        <strong>${escapeHtml(formatQuantity(line.quantity_demand))} St\u00fcck</strong>
+                    </div>
+                </div>
+            </section>
+            ${routeHint}
+            ${stockBanner}
+            ${aiBanner}
+        </aside>
+    `;
+}
+
+function renderCompletionView(picking, lines) {
+    const pickerName = getState().currentPicker?.name || 'Kein Profil aktiv';
+    const totalCount = getTotalLineCount(picking) || lines.length;
+    const nextPicking = getNextPickingCandidate(getState().pickings || [], { excludeId: picking.id });
+    const partner = picking.partner_id?.[1] || 'Aktives Picking';
+    const kitName = getPickingKitName(picking);
+
+    setMainContent(`
+        <section class="detail-shell detail-shell--complete" aria-label="Picking abgeschlossen">
+            <div class="completion-card">
+                <div class="detail-complete-icon">OK</div>
+                <div class="completion-card__eyebrow">Auftrag abgeschlossen</div>
+                <div class="detail-complete-title">${escapeHtml(getPickingReference(picking))}</div>
+                ${kitName ? `<div class="completion-card__kit">${escapeHtml(kitName)}</div>` : ''}
+                <div class="detail-complete-copy">Alle Artikel wurden erfasst und synchronisiert.</div>
+                <div class="completion-summary">
+                    <div class="completion-summary__item">
+                        <span>Positionen</span>
+                        <strong>${totalCount}</strong>
+                    </div>
+                    <div class="completion-summary__item">
+                        <span>Picker</span>
+                        <strong>${escapeHtml(pickerName)}</strong>
+                    </div>
+                    <div class="completion-summary__item">
+                        <span>Partner</span>
+                        <strong>${escapeHtml(partner)}</strong>
+                    </div>
+                </div>
+                <div class="completion-actions">
+                    <button id="completion-list-btn" class="detail-complete-button">
+                        Zur\u00fcck zur Liste
+                    </button>
+                    ${nextPicking ? `
+                        <button id="completion-next-btn" class="detail-complete-button detail-complete-button--secondary" data-id="${nextPicking.id}">
+                            N\u00e4chsten Auftrag starten
+                        </button>
+                    ` : ''}
+                </div>
+            </div>
+        </section>
+    `);
+
+    document.getElementById('completion-list-btn')?.addEventListener('click', () => loadPickingList());
+    document.getElementById('completion-next-btn')?.addEventListener('click', (event) => {
+        loadPickingDetail(Number(event.currentTarget.dataset.id));
+    });
+}
+
+function renderResponsiveCurrentLine() {
+    const { currentPicking, currentLineIndex } = getState();
+    if (!currentPicking) return;
+    updateToolbar('detail');
+    closeOverlay();
+
+    const lines = currentPicking.move_lines || [];
+    if (currentLineIndex >= lines.length) {
+        updateToolbar('complete');
+        renderCompletionView(currentPicking, lines);
+        return;
+    }
+
+    const line = lines[currentLineIndex];
+    const progress = `${currentLineIndex + 1} / ${lines.length}`;
+    const detailZone = line.location_src_zone || 'N\u00e4chster Bereich';
+    const detailLocation = line.location_src_short || formatLocationForDisplay(line.location_src);
+    const detailProduct = getLineDisplayName(line);
+    const detailSku = line.product_sku || line.product_barcode || 'Keine SKU';
+    const detailPartner = currentPicking.partner_id ? currentPicking.partner_id[1] : 'Aktives Picking';
+    const progressPercent = Math.round(((currentLineIndex + 1) / Math.max(lines.length, 1)) * 100);
+    const kitName = getPickingKitName(currentPicking);
+    const stockState = ensureCurrentLineStockState(currentPicking.id, line);
+    const detailHero = renderProductVisual({
+        productId: line.product_id,
+        label: detailProduct,
+        className: 'detail-product-hero__media product-visual product-visual--hero',
+        loading: 'eager',
+        size: 1024,
+    });
+
+    setMainContent(`
+        <div class="detail-shell">
+            <div class="detail-meta">
+                <button onclick="window._app.loadPickingList()" class="detail-back">Zur Liste</button>
+                <span class="detail-reference">${escapeHtml(getPickingReference(currentPicking))}</span>
+                <span class="detail-progress">Schritt ${escapeHtml(progress)}</span>
+            </div>
+            <div class="detail-workspace">
+                <div class="detail-main">
+                    <section class="detail-compact" aria-label="Picking \u00dcbersicht">
+                        <div class="detail-compact__top">
+                            <div class="detail-compact__image">
+                                ${detailHero}
+                            </div>
+                            <div class="detail-compact__info">
+                                <div class="detail-compact__eyebrow">${escapeHtml(detailZone)}</div>
+                                <div class="detail-compact__location">${escapeHtml(detailLocation)}</div>
+                                <div class="detail-compact__product">${escapeHtml(detailProduct)}</div>
+                                <div class="detail-compact__chips">
+                                    <span class="detail-compact__qty">${escapeHtml(formatQuantity(line.quantity_demand))} St\u00fcck</span>
+                                    ${kitName ? `<span>${escapeHtml(kitName)}</span>` : ''}
+                                    <span>${escapeHtml(detailPartner)}</span>
+                                    <span>${escapeHtml(detailSku)}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="detail-compact__progress">
+                            <div class="detail-compact__hint">Scannen, touch-best\u00e4tigen oder Fehlbestand melden.</div>
+                            <div class="detail-summary__progress-track" aria-hidden="true">
+                                <span class="detail-summary__progress-bar" style="width:${progressPercent}%"></span>
+                            </div>
+                        </div>
+                        <div class="detail-compact__actions">
+                            <button class="btn-confirm" data-line-id="${line.id}">
+                                Best\u00e4tigen
+                            </button>
+                            <button class="btn-short-pick" data-line-id="${line.id}">
+                                Fehlbestand
+                            </button>
+                        </div>
+                        <div class="detail-compact__barcode">
+                            <div class="detail-compact__barcode-label">Barcode</div>
+                            <div class="detail-compact__barcode-copy">${line.product_barcode ? `Soll-Barcode: ${escapeHtml(line.product_barcode)}` : 'Barcode manuell eingeben oder Kamera verwenden'}</div>
+                            <div id="scan-input-area" class="detail-scan-area"></div>
+                        </div>
+                    </section>
+                    ${renderDetailLineList(lines, currentLineIndex)}
+                </div>
+                ${renderDetailSideRail({
+                    picking: currentPicking,
+                    lines,
+                    currentLineIndex,
+                    line,
+                    detailSku,
+                    detailPartner,
+                    stockState,
+                })}
+            </div>
+        </div>
+    `);
+
+    const confirmButton = mainEl().querySelector('.btn-confirm');
+    if (confirmButton) {
+        const stockUnknown = !stockState || stockState.status === 'checking';
+        const lineBlocked = stockState?.status === 'out_of_stock';
+        confirmButton.disabled = stockUnknown || lineBlocked;
+        confirmButton.textContent = stockUnknown
+            ? 'Bestand wird gepr\u00fcft...'
+            : lineBlocked
+                ? 'Nicht erf\u00fcllbar'
+                : 'Best\u00e4tigen';
+        if (!stockUnknown && !lineBlocked) {
+            confirmButton.addEventListener('click', () => handleScan(line.product_barcode || ''));
+        }
+    }
+
+    const shortageButton = mainEl().querySelector('.btn-short-pick');
+    if (shortageButton) {
+        shortageButton.addEventListener('click', () => {
+            if (stockState?.status === 'out_of_stock') {
+                showOutOfStockModal({ picking: currentPicking, line, stockState });
+                return;
+            }
+            openQualityAlertForm({
+                initialDescription: `Physisch kein Bestand gefunden. ${getLineDisplayName(line)} pruefen.`,
+                returnToListOnSuccess: true,
+            });
+        });
+    }
+
+    const scanArea = document.getElementById('scan-input-area');
+    if (scanArea) {
+        const manualInput = showManualInput((barcode) => handleScan(barcode));
+        scanArea.appendChild(manualInput);
+    }
+
+    applyRenderedDetailCopyFixes({
+        picking: currentPicking,
+        lines,
+        currentLineIndex,
+        stockState,
+    });
 }
 
 function updateVoiceButtonState(active) {
@@ -1298,7 +1722,7 @@ async function loadPickingList({ skipRelease = false } = {}) {
             return;
         }
 
-        renderPickingsView(pickings);
+        renderResponsivePickingsView(pickings);
     } catch (error) {
         if (isAbortError(error)) return;
         if (error instanceof ApiError && (error.status === 400 || error.status === 403)) {
@@ -1353,7 +1777,7 @@ async function loadPickingDetail(pickingId) {
 
         setState({ currentPicking: picking, currentLineIndex: 0 });
         updateConnectivityStatus();
-        renderCurrentLine();
+        renderResponsiveCurrentLine();
 
         const openingPrompt = getPickingOpeningPrompt(picking);
         if (openingPrompt) {
@@ -1418,7 +1842,7 @@ async function loadCurrentLineStockState(pickingId, line) {
     const currentLine = currentPicking?.move_lines?.[currentLineIndex];
     if (!currentPicking || currentPicking.id !== pickingId || currentLine?.id !== line.id) return;
 
-    renderCurrentLine();
+    renderResponsiveCurrentLine();
     const stockState = lineStockCache.get(line.id);
     if (stockState?.status === 'out_of_stock') {
         showOutOfStockModal({ picking: currentPicking, line, stockState });
@@ -1545,6 +1969,8 @@ function showOutOfStockModal({ picking, line, stockState }) {
 }
 
 function renderCurrentLine() {
+    return renderResponsiveCurrentLine();
+
     const { currentPicking, currentLineIndex } = getState();
     if (!currentPicking) return;
     updateToolbar('detail');
@@ -1589,61 +2015,48 @@ function renderCurrentLine() {
                 <button onclick="window._app.loadPickingList()" class="detail-back">Zur Liste</button>
                 <span class="detail-reference">${escapeHtml(getPickingReference(currentPicking))}</span>
                 <span class="detail-progress">Schritt ${escapeHtml(progress)}</span>
-                <button class="detail-view-toggle" onclick="window._app.toggleDetailView()">
-                    ${listViewActive ? 'Einzeln' : 'Liste'}
-                </button>
             </div>
-            ${listViewActive ? `
-            <div class="detail-list-view">
-                ${lines.map((l, idx) => `
-                    <button class="detail-list-item ${idx === currentLineIndex ? 'detail-list-item--active' : ''}"
-                            onclick="window._app.goToLine(${idx})">
-                        <span class="detail-list-item__idx">${idx + 1}</span>
-                        <span class="detail-list-item__name">${escapeHtml(getLineDisplayName(l))}</span>
-                        <span class="detail-list-item__qty">${escapeHtml(getLineQuantityLabel(l))}</span>
-                        <span class="detail-list-item__loc">${escapeHtml(l.location_src_short || l.location_src || '')}</span>
+            <section class="detail-compact" aria-label="Picking Übersicht">
+                <div class="detail-compact__top">
+                    <div class="detail-compact__image">
+                        ${detailHero}
+                    </div>
+                    <div class="detail-compact__info">
+                        <div class="detail-compact__eyebrow">${escapeHtml(detailZone)}</div>
+                        <div class="detail-compact__location">${escapeHtml(detailLocation)}</div>
+                        <div class="detail-compact__product">${escapeHtml(detailProduct)}</div>
+                        <div class="detail-compact__chips">
+                            <span class="detail-compact__qty">${escapeHtml(getLineQuantityLabel(line))}</span>
+                            ${kitName ? `<span>${escapeHtml(kitName)}</span>` : ''}
+                            <span>${escapeHtml(detailPartner)}</span>
+                            <span>${escapeHtml(detailSku)}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="detail-compact__progress">
+                    <div class="detail-compact__hint">Scannen, touch-bestÃ¤tigen oder Fehlbestand melden.</div>
+                    <div class="detail-summary__progress-track" aria-hidden="true">
+                        <span class="detail-summary__progress-bar" style="width:${progressPercent}%"></span>
+                    </div>
+                </div>
+                <div class="detail-compact__actions">
+                    <button class="btn-confirm" data-line-id="${line.id}">
+                        BestÃ¤tigen
                     </button>
-                `).join('')}
-            </div>
-            ` : `
-            <section class="detail-product-hero" aria-label="Artikelbild">
-                <div class="detail-product-hero__head">
-                    <div class="detail-product-hero__eyebrow">Artikelbild</div>
-                    <div class="detail-product-hero__chip">${escapeHtml(detailSku)}</div>
+                    <button class="btn-short-pick" data-line-id="${line.id}">
+                        Fehlbestand
+                    </button>
                 </div>
-                ${detailHero}
+                <div class="detail-compact__barcode">
+                    <div class="detail-compact__barcode-label">Barcode</div>
+                    <div class="detail-compact__barcode-copy">${line.product_barcode ? `Soll-Barcode: ${escapeHtml(line.product_barcode)}` : 'Barcode manuell eingeben oder Kamera verwenden'}</div>
+                    <div id="scan-input-area" class="detail-scan-area"></div>
+                </div>
             </section>
-            ${kitName ? `
-                <section class="detail-context" aria-label="Modellkontext">
-                    <div class="detail-context__eyebrow">Modellkontext</div>
-                    <div class="detail-context__title">${escapeHtml(kitName)}</div>
-                    <div class="detail-context__meta">${escapeHtml(detailPartner)}</div>
-                </section>
-            ` : ''}
-            <section class="detail-summary" aria-label="Picking Übersicht">
-                <div class="detail-summary__eyebrow">${escapeHtml(kitName ? 'Aktueller Griff' : 'Aktueller Pick')}</div>
-                <div class="detail-summary__location">${escapeHtml(detailLocation)}</div>
-                <div class="detail-summary__title">${escapeHtml(detailProduct)}</div>
-                <div class="detail-summary__subline">
-                    <span class="detail-summary__quantity">${escapeHtml(getLineQuantityLabel(line))}</span>
-                    <span>${escapeHtml(detailZone)}</span>
-                    <span>${escapeHtml(detailPartner)}</span>
-                    <span>${escapeHtml(detailSku)}</span>
-                </div>
-                <div class="detail-summary__progress-track" aria-hidden="true">
-                    <span class="detail-summary__progress-bar" style="width:${progressPercent}%"></span>
-                </div>
-                <div class="detail-summary__helper">Scanne den Artikel oder bestätige den Griff per Touch.</div>
-            </section>
-            ${renderRouteHint(currentPicking, currentLineIndex)}
             ${getOutOfStockBanner(stockState)}
             ${currentPicking.has_pending_quality_ai ? '<div class="ai-pending-banner">KI analysiert Qualitätsfall</div>' : ''}
-            ${renderPickCard({
-                ...line,
-                quantity_demand: line.quantity_demand,
-            })}
-            <div id="scan-input-area" class="detail-scan-area"></div>
-            `}
+            ${renderDetailLineList(lines, currentLineIndex)}
+            ${renderRouteHint(currentPicking, currentLineIndex)}
         </div>`);
 
     const confirmButton = mainEl().querySelector('.btn-confirm');
@@ -1679,6 +2092,68 @@ function renderCurrentLine() {
     if (scanArea) {
         const manualInput = showManualInput((barcode) => handleScan(barcode));
         scanArea.appendChild(manualInput);
+    }
+
+    applyRenderedDetailCopyFixes({
+        picking: currentPicking,
+        lines,
+        currentLineIndex,
+        stockState,
+    });
+}
+
+function applyRenderedDetailCopyFixes({ picking, lines, currentLineIndex, stockState }) {
+    const detailPanel = mainEl()?.querySelector('.detail-compact');
+    if (detailPanel) {
+        detailPanel.setAttribute('aria-label', 'Picking \u00dcbersicht');
+    }
+
+    const detailHint = mainEl()?.querySelector('.detail-compact__hint');
+    if (detailHint) {
+        detailHint.textContent = 'Scannen, touch-best\u00e4tigen oder Fehlbestand melden.';
+    }
+
+    const confirmButton = mainEl()?.querySelector('.btn-confirm');
+    if (confirmButton) {
+        const stockUnknown = !stockState || stockState.status === 'checking';
+        const lineBlocked = stockState?.status === 'out_of_stock';
+        confirmButton.textContent = stockUnknown
+            ? 'Bestand wird gepr\u00fcft...'
+            : lineBlocked
+                ? 'Nicht erf\u00fcllbar'
+                : 'Best\u00e4tigen';
+    }
+
+    const routeHintEyebrow = mainEl()?.querySelector('.route-hint__eyebrow');
+    if (routeHintEyebrow) {
+        routeHintEyebrow.textContent = 'Danach auf der Route';
+    }
+
+    const nextLine = lines?.[currentLineIndex + 1];
+    const routeHintTitle = mainEl()?.querySelector('.route-hint__title');
+    if (routeHintTitle && nextLine) {
+        const nextLocation = formatLocationForDisplay(
+            nextLine.location_src,
+            nextLine.location_src_short,
+            nextLine.location_src_zone,
+        );
+        routeHintTitle.textContent = `N\u00e4chster Halt: ${nextLocation}`;
+    }
+
+    const lineMetaNodes = mainEl()?.querySelectorAll('.detail-line-item__meta') || [];
+    lineMetaNodes.forEach((node, idx) => {
+        const line = lines?.[idx];
+        if (!line) return;
+        const meta = [
+            `${formatQuantity(line.quantity_demand)} St\u00fcck`,
+            line.product_sku || line.location_src_zone || '',
+        ].filter(Boolean).join(' \u00b7 ');
+        node.textContent = meta;
+    });
+
+    const aiBanner = mainEl()?.querySelector('.ai-pending-banner');
+    if (aiBanner && picking?.has_pending_quality_ai) {
+        aiBanner.textContent = 'KI analysiert Qualit\u00e4tsfall';
     }
 }
 
@@ -1736,7 +2211,7 @@ async function handleScan(barcode) {
             if (result.blocked_reason === 'out_of_stock') {
                 const blockingState = result.stock_context || stockState || { status: 'out_of_stock', quantity_available: 0 };
                 lineStockCache.set(line.id, blockingState);
-                renderCurrentLine();
+                renderResponsiveCurrentLine();
                 showOutOfStockModal({ picking: currentPicking, line, stockState: blockingState });
                 return;
             }
@@ -1752,11 +2227,11 @@ async function handleScan(barcode) {
             await releaseCurrentClaim();
             speak('Auftrag abgeschlossen.');
             setState({ currentLineIndex: lines.length });
-            renderCurrentLine();
+            renderResponsiveCurrentLine();
         } else {
             const nextIdx = currentLineIndex + 1;
             setState({ currentLineIndex: nextIdx });
-            renderCurrentLine();
+            renderResponsiveCurrentLine();
 
             if (nextIdx < lines.length) {
                 const nextLine = lines[nextIdx];
@@ -1861,7 +2336,7 @@ async function handleVoiceIntent(result) {
             if (line && currentLineIndex < lines.length - 1) {
                 const nextIndex = currentLineIndex + 1;
                 setState({ currentLineIndex: nextIndex });
-                renderCurrentLine();
+                renderResponsiveCurrentLine();
                 speak(getLineSpeechPrompt(lines[nextIndex]));
             }
             break;
@@ -1869,7 +2344,7 @@ async function handleVoiceIntent(result) {
             if (currentLineIndex > 0) {
                 const previousIndex = currentLineIndex - 1;
                 setState({ currentLineIndex: previousIndex });
-                renderCurrentLine();
+                renderResponsiveCurrentLine();
                 speak(getLineSpeechPrompt(lines[previousIndex]));
             }
             break;
@@ -2399,26 +2874,19 @@ async function init() {
     await showProfileSelection();
 }
 
-function toggleDetailView() {
-    listViewActive = !listViewActive;
-    renderCurrentLine();
-}
-
 function goToLine(idx) {
     const { currentPicking } = getState();
     if (!currentPicking) return;
     const lines = currentPicking.move_lines || [];
     if (idx < 0 || idx >= lines.length) return;
     setState({ currentLineIndex: idx });
-    listViewActive = false;
-    renderCurrentLine();
+    renderResponsiveCurrentLine();
 }
 
 window._app = {
     loadPickingList,
     loadPickingDetail,
     setFilter,
-    toggleDetailView,
     goToLine,
 };
 
