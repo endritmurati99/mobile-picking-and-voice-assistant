@@ -2,8 +2,13 @@ const { test, expect } = require('@playwright/test');
 const { mockPwaApi } = require('./helpers/pwa-api');
 
 async function choosePicker(page, name = 'Endrit Murati') {
-  await expect(page.getByRole('heading', { name: 'Profil auswählen' })).toBeVisible();
-  await page.getByRole('button', { name }).click();
+  const pickerOption = page.locator('.picker-option').filter({ hasText: name }).first();
+  if (await pickerOption.isVisible().catch(() => false)) {
+    await pickerOption.click();
+    return;
+  }
+
+  await expect(page.locator('#picker-indicator')).toBeVisible();
 }
 
 test('loads the picking list and opens the picking detail view', async ({ page }) => {
@@ -22,12 +27,15 @@ test('loads the picking list and opens the picking detail view', async ({ page }
 
   await page.getByText('LEGO Ente').click();
 
-  await expect(page.locator('#header')).toBeHidden();
+  await expect(page.locator('#header')).toBeVisible();
+  await expect(page.locator('#header')).toHaveClass(/header--compact/);
   await expect(page.locator('#main')).toContainText('LEGO Ente');
   await expect(page.locator('#main')).toContainText('Brick 2x2 orange');
   await expect(page.locator('#main')).toContainText('1 / 2');
   await expect(page.locator('#main')).toContainText('L-E1-P1');
   await expect(page.locator('.detail-product-hero__media')).toBeVisible();
+  await expect(page.locator('.detail-line-list')).toBeVisible();
+  await expect(page.locator('#main')).toContainText('Barcode absenden');
   await expect(page.locator('#main .btn-confirm')).toBeVisible();
   await expect(page.locator('#nav')).toBeVisible();
 });
