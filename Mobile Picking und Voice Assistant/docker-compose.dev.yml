@@ -1,0 +1,28 @@
+# Development-only overrides. Do not use on VPS/production.
+services:
+  backend:
+    volumes:
+      - ./backend/app:/app/app:ro
+      - ${OBSIDIAN_HOST_PATH:-../Notzien}:/obsidian:ro
+    command: [ "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info", "--reload" ]
+
+  odoo:
+    ports:
+      - "8069:8069"
+
+  n8n:
+    environment:
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      N8N_PUBLIC_API_DISABLED: "false"
+      N8N_PUBLIC_API_SWAGGERUI_DISABLED: "false"
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/imports:ro
+      - ./n8n/tmp:/home/node/.n8n-files
+      - ${OBSIDIAN_VAULT_HOST_PATH:-../Notzien}:/data/obsidian-vault
+
+  mailpit:
+    ports:
+      - "8025:8025"

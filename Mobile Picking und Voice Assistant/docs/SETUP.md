@@ -33,7 +33,7 @@ CA-Datei: `mkcert -CAROOT` zeigt den Pfad. Die Datei `rootCA.pem` auf die Gerät
 ### 4. Stack starten
 ```bash
 docker compose build
-docker compose up -d
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 ```
 
 ### 5. Odoo initialisieren
@@ -154,3 +154,22 @@ claude mcp remove n8n-local -s local
 | `test-n8n-api` liefert 401/403 | API-Key neu erzeugen und pruefen, dass wirklich `N8N_API_KEY` gesetzt ist |
 | `n8n-local` MCP verbindet nicht | MCP in n8n aktivieren, Workflow-Freigaben pruefen und den lokalen Claude-Code-Eintrag mit `claude mcp add -s local --transport http ...` neu anlegen |
 | `n8n-local` bleibt trotz korrektem Token `Failed to connect` | Fuer lokales HTTPS mit `mkcert` `SSL_CERT_FILE` und `NODE_EXTRA_CA_CERTS` auf `rootCA.pem` setzen und `claude mcp list` erneut ausfuehren |
+
+
+## VPS / Produktion
+
+Für VPS/Produktion nicht die Development-Overrides verwenden. Empfohlener Start:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+Produktionsannahmen:
+
+- keine direkten Odoo-/n8n-/Mailpit-Ports nach außen
+- Backend ohne `--reload`
+- n8n Public API/Swagger deaktiviert
+- n8n Env-Zugriff in Nodes deaktiviert
+- Zugriff auf Odoo/n8n nur über den produktiven Caddy-Reverse-Proxy mit Auth oder VPN
+
+Vor produktiver Nutzung müssen echte Domains und Basic-Auth-Hash in `.env` gesetzt werden.

@@ -58,7 +58,7 @@ async def test_fire_event_returns_failed_result_when_transport_breaks():
     assert isinstance(result, N8NEventResult)
     assert result.delivered is False
     assert result.correlation_id
-    assert result.error == "n8n Zeitlimit ueberschritten."
+    assert result.error == "n8n Zeitlimit überschritten."
 
 
 @pytest.mark.anyio

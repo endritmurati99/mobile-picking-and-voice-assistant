@@ -1,0 +1,20 @@
+# VPS/production overlay. Use with: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+services:
+  caddy:
+    volumes:
+      - ./infrastructure/caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  odoo:
+    ports: []
+
+  n8n:
+    ports: []
+    environment:
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "true"
+      N8N_PUBLIC_API_DISABLED: "true"
+      N8N_PUBLIC_API_SWAGGERUI_DISABLED: "true"
+
+  mailpit:
+    profiles: ["dev"]

@@ -51,8 +51,6 @@ services:
       PORT: 5432
       USER: ${POSTGRES_USER:-odoo}
       PASSWORD: ${POSTGRES_PASSWORD}
-    ports:
-      - "8069:8069"
     volumes:
       - odoo_data:/var/lib/odoo
       - ./odoo/odoo.conf:/etc/odoo/odoo.conf:ro
@@ -89,10 +87,6 @@ services:
       OBSIDIAN_PATH: /obsidian
       CORS_ORIGINS: "https://${LAN_HOST:-localhost}"
       LOG_LEVEL: ${LOG_LEVEL:-info}
-    volumes:
-      - ./backend/app:/app/app:ro
-      - ../Notzien:/obsidian:ro
-    command: [ "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info", "--reload" ]
     networks:
       - picking-net
 
@@ -133,7 +127,7 @@ services:
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY muss gesetzt sein}
       N8N_CALLBACK_SECRET: ${N8N_CALLBACK_SECRET:?N8N_CALLBACK_SECRET muss gesetzt sein}
-      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "true"
       # ── Routing ──
       # Öffentliche URL via Cloudflare Named Tunnel (HTTPS für Telegram Webhooks)
       WEBHOOK_URL: http://n8n:5678
@@ -143,8 +137,8 @@ services:
       GENERIC_TIMEZONE: Europe/Berlin
       QUEUE_HEALTH_CHECK_ACTIVE: "true"
       # ── Security ──
-      N8N_PUBLIC_API_DISABLED: "false"
-      N8N_PUBLIC_API_SWAGGERUI_DISABLED: "false"
+      N8N_PUBLIC_API_DISABLED: "true"
+      N8N_PUBLIC_API_SWAGGERUI_DISABLED: "true"
       N8N_SSRF_PROTECTION_ENABLED: "true"
       N8N_SSRF_ALLOWED_HOSTNAMES: backend
       NODES_EXCLUDE: '["n8n-nodes-base.executeCommand","n8n-nodes-base.localFileTrigger"]'
@@ -177,10 +171,6 @@ services:
       - n8n_data:/home/node/.n8n
       - ./n8n/workflows:/imports:ro
       - ./n8n/tmp:/home/node/.n8n-files
-      # Diti AI: Obsidian Vault fuer Knowledge/Journal Schreibzugriff
-      - "C:/Users/endri/Desktop/Claude-Projects/Diti AI/obsidian-vault:/data/obsidian-vault"
-    ports:
-      - "5678:5678"
     networks:
       - picking-net
 
@@ -199,8 +189,6 @@ services:
   mailpit:
     image: axllent/mailpit:latest
     restart: unless-stopped
-    ports:
-      - "8025:8025"
     networks:
       - picking-net
 

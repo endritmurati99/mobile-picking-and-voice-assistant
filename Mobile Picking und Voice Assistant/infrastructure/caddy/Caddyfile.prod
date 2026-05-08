@@ -1,0 +1,36 @@
+{
+    email {$ACME_EMAIL}
+}
+
+{$APP_DOMAIN} {
+    encode zstd gzip
+
+    handle /api/* {
+        reverse_proxy backend:8000
+    }
+
+    handle {
+        reverse_proxy pwa:80
+    }
+
+    log {
+        output stdout
+        format console
+    }
+}
+
+{$ODOO_DOMAIN} {
+    encode zstd gzip
+    basicauth {
+        {$ADMIN_BASIC_AUTH_USER} {$ADMIN_BASIC_AUTH_HASH}
+    }
+    reverse_proxy odoo:8069
+}
+
+{$N8N_DOMAIN} {
+    encode zstd gzip
+    basicauth {
+        {$ADMIN_BASIC_AUTH_USER} {$ADMIN_BASIC_AUTH_HASH}
+    }
+    reverse_proxy n8n:5678
+}
