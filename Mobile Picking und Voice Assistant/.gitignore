@@ -13,9 +13,26 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+backend/.deps/
+.pytest_cache/
 
 # Node
 node_modules/
+
+# Playwright / browser artifacts
+.playwright-cli/
+.playwright-mcp/
+playwright-report/
+test-results/
+
+# Generated local outputs
+output/
+evaluation/
+/*.png
+/*.zip
+/Detail
+/Picker
+/img
 
 # Docker
 docker-compose.override.yml

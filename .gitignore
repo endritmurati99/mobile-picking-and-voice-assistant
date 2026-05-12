@@ -5,6 +5,8 @@
 CLAUDE.md
 # Obsidian vault — private notes, not for the repo
 Notzien/
+# Private/generated image collections, archived outside the workspace
+Bilder/
 # Root-level workflow wrappers — local convenience scripts
 workflow.cmd
 workflow.ps1
@@ -13,6 +15,7 @@ workflow.ps1
 .claude-flow/
 .swarm/
 .ruflo/
+.playwright-mcp/
 .vscode/
 
 # ── OS files ─────────────────────────────────────────────────────────────────
@@ -26,6 +29,8 @@ Thumbs.db
 **/node_modules/
 
 # ── Playwright artifacts ──────────────────────────────────────────────────────
+**/.playwright-cli/
+**/.playwright-mcp/
 **/playwright-report/
 **/test-results/
 
@@ -35,6 +40,19 @@ Thumbs.db
 *.MP4
 *.mov
 *.MOV
+
+# ── Generated cleanup targets ─────────────────────────────────────────────────
+output/
+**/output/
+tmp_chrome_*
+n8n-workflow-debug.png
+pdf-rebuild-tool-staging/
+mobile-picking-assistant-v2/
+n8n-workflows-v2/
+Mobile Picking und Voice Assistant/*.png
+Mobile Picking und Voice Assistant/Detail
+Mobile Picking und Voice Assistant/Picker
+Mobile Picking und Voice Assistant/img
 
 # ── Project Specific Ignores ─────────────────────────────────────────────────
 .mcp.json

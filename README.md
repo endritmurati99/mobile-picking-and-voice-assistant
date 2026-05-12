@@ -87,7 +87,9 @@ n8n -> interne FastAPI-Callbacks -> Odoo
 - `docs/ARCHITECTURE.md`
 - `docs/QUALITY_ALERT_AI_FIELDS.md`
 - `docs/N8N_CONTRACT_FREEZE_V1.md`
-- `../Notzien/03 - Features/Welle A - Quality Alert KI Bewertung.md`
+
+Private Obsidian-Notizen liegen nicht mehr im Workspace. Falls sie gebraucht werden,
+liegen sie im OneDrive-Archiv unter `Bachelor-Auslagerung/2026-05-12/Notzien`.
 
 ## Setup in Kurzform
 
