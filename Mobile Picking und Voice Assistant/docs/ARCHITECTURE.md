@@ -1,5 +1,12 @@
 # Architektur
 
+## Diagramm
+
+- Editierbare Excalidraw-Datei: [`diagrams/mobile-picking-system-architecture.excalidraw`](diagrams/mobile-picking-system-architecture.excalidraw)
+- GitHub-/Browser-Preview: [`diagrams/mobile-picking-system-architecture.svg`](diagrams/mobile-picking-system-architecture.svg)
+
+![Mobile Picking & Voice Assistant Systemarchitektur](diagrams/mobile-picking-system-architecture.svg)
+
 ## Systemrollen
 
 - `PWA`
