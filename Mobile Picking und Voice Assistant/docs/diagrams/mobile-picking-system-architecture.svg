@@ -1,98 +1,125 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="1020" viewBox="0 0 1180 1020">
-<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#343a40"/></marker></defs>
-<rect width="1180" height="1020" fill="#ffffff"/>
-<rect x="40" y="30" width="1080" height="70" rx="16" fill="#ffffff" stroke="#111827" stroke-width="2"/>
-<text x="58" y="60" font-size="18" font-weight="700" fill="#1f2937">Mobile Picking &amp; Voice Assistant – Systemarchitektur</text>
-<text x="58" y="85" font-size="13" fill="#4b5563">Bachelorarbeit-PoC: PWA, FastAPI, Odoo, Whisper, n8n.</text>
-<rect x="40" y="130" width="280" height="640" rx="16" fill="#fff4cc" stroke="#ffe8a3" stroke-width="2"/>
-<text x="58" y="160" font-size="18" font-weight="700" fill="#1f2937">Mobile / Lagerfläche</text>
-<text x="58" y="185" font-size="13" fill="#4b5563">Picker arbeitet primär in der PWA;</text>
-<text x="58" y="203" font-size="13" fill="#4b5563">Touch/Scan bleibt Fallback, Voice</text>
-<text x="58" y="221" font-size="13" fill="#4b5563">ist Enhancement.</text>
-<rect x="360" y="130" width="360" height="640" rx="16" fill="#e7f5ff" stroke="#a5d8ff" stroke-width="2"/>
-<text x="378" y="160" font-size="18" font-weight="700" fill="#1f2937">App-Schicht / Hot Path</text>
-<text x="378" y="185" font-size="13" fill="#4b5563">Caddy + FastAPI isolieren PWA von Odoo, n8n</text>
-<text x="378" y="203" font-size="13" fill="#4b5563">und ASR-Details.</text>
-<rect x="760" y="130" width="370" height="640" rx="16" fill="#fff0f6" stroke="#fcc2d7" stroke-width="2"/>
-<text x="778" y="160" font-size="18" font-weight="700" fill="#1f2937">Backend-Systeme</text>
-<text x="778" y="185" font-size="13" fill="#4b5563">Odoo hält fachliche Wahrheit; n8n verarbeitet</text>
-<text x="778" y="203" font-size="13" fill="#4b5563">Folgeprozesse und Ausnahmeassistenz.</text>
-<rect x="75" y="215" width="210" height="105" rx="16" fill="#fff9db" stroke="#fab005" stroke-width="2"/>
-<text x="93" y="245" font-size="18" font-weight="700" fill="#1f2937">Picker PWA</text>
-<text x="93" y="270" font-size="13" fill="#4b5563">Pickliste · Route ·</text>
-<text x="93" y="288" font-size="13" fill="#4b5563">Barcode/Touch · Voice ·</text>
-<text x="93" y="306" font-size="13" fill="#4b5563">Quality Alert · Claim</text>
-<text x="93" y="324" font-size="13" fill="#4b5563">Heartbeat</text>
-<rect x="75" y="365" width="210" height="86" rx="16" fill="#fff9db" stroke="#fab005" stroke-width="2"/>
-<text x="93" y="395" font-size="18" font-weight="700" fill="#1f2937">Geräte-APIs</text>
-<text x="93" y="420" font-size="13" fill="#4b5563">Kamera/Scanner · Mikrofon</text>
-<text x="93" y="438" font-size="13" fill="#4b5563">· Browser-Storage /</text>
-<text x="93" y="456" font-size="13" fill="#4b5563">PWA-Cache</text>
-<rect x="75" y="520" width="210" height="86" rx="16" fill="#fff9db" stroke="#fab005" stroke-width="2"/>
-<text x="93" y="550" font-size="18" font-weight="700" fill="#1f2937">Operative Fallbacks</text>
-<text x="93" y="575" font-size="13" fill="#4b5563">Touch-Bestätigung ·</text>
-<text x="93" y="593" font-size="13" fill="#4b5563">manuelle Kurzmenge ·</text>
-<text x="93" y="611" font-size="13" fill="#4b5563">Alert ohne Voice</text>
-<rect x="400" y="200" width="280" height="84" rx="16" fill="#e7f5ff" stroke="#339af0" stroke-width="2"/>
-<text x="418" y="230" font-size="18" font-weight="700" fill="#1f2937">Caddy Reverse Proxy</text>
-<text x="418" y="255" font-size="13" fill="#4b5563">HTTPS / LAN-Domain · statische PWA</text>
-<text x="418" y="273" font-size="13" fill="#4b5563">· API-Routing</text>
-<rect x="400" y="330" width="280" height="170" rx="16" fill="#d3f9d8" stroke="#12b886" stroke-width="2"/>
-<text x="418" y="360" font-size="18" font-weight="700" fill="#1f2937">FastAPI Backend</text>
-<text x="418" y="385" font-size="13" fill="#4b5563">einzige App-API ·</text>
-<text x="418" y="403" font-size="13" fill="#4b5563">Auth/Picker-Kontext · Claims +</text>
-<text x="418" y="421" font-size="13" fill="#4b5563">Idempotency · Odoo-Adapter ·</text>
-<text x="418" y="439" font-size="13" fill="#4b5563">n8n-Client · Integrationslog</text>
-<rect x="400" y="555" width="280" height="95" rx="16" fill="#e7f5ff" stroke="#339af0" stroke-width="2"/>
-<text x="418" y="585" font-size="18" font-weight="700" fill="#1f2937">Lokaler Whisper ASR</text>
-<text x="418" y="610" font-size="13" fill="#4b5563">/api/voice/recognize · deutsches</text>
-<text x="418" y="628" font-size="13" fill="#4b5563">faster-whisper Modell · bleibt</text>
-<text x="418" y="646" font-size="13" fill="#4b5563">lokal</text>
-<rect x="400" y="680" width="280" height="55" rx="16" fill="#f3f0ff" stroke="#7950f2" stroke-width="2"/>
-<text x="418" y="710" font-size="18" font-weight="700" fill="#1f2937">Obsidian Kontext</text>
-<text x="418" y="735" font-size="13" fill="#4b5563">optionale Wissensanreicherung für</text>
-<text x="418" y="753" font-size="13" fill="#4b5563">Ausnahmeassistenz</text>
-<rect x="805" y="190" width="270" height="150" rx="16" fill="#f3f0ff" stroke="#7950f2" stroke-width="2"/>
-<text x="823" y="220" font-size="18" font-weight="700" fill="#1f2937">Odoo 18 Community</text>
-<text x="823" y="245" font-size="13" fill="#4b5563">System of Record: Stock Pickings</text>
-<text x="823" y="263" font-size="13" fill="#4b5563">· Quality Alerts · Nutzer ·</text>
-<text x="823" y="281" font-size="13" fill="#4b5563">Lagerplätze · Chatter · KI-Felder</text>
-<rect x="805" y="390" width="270" height="150" rx="16" fill="#fff0f6" stroke="#d6336c" stroke-width="2"/>
-<text x="823" y="420" font-size="18" font-weight="700" fill="#1f2937">n8n Orchestrator</text>
-<text x="823" y="445" font-size="13" fill="#4b5563">Workflows: pick-confirmed ·</text>
-<text x="823" y="463" font-size="13" fill="#4b5563">shortage-reported ·</text>
-<text x="823" y="481" font-size="13" fill="#4b5563">quality-alert-created ·</text>
-<text x="823" y="499" font-size="13" fill="#4b5563">voice-exception-query ·</text>
-<text x="823" y="517" font-size="13" fill="#4b5563">quality-assessment</text>
-<rect x="805" y="590" width="270" height="80" rx="16" fill="#f3f0ff" stroke="#7950f2" stroke-width="2"/>
-<text x="823" y="620" font-size="18" font-weight="700" fill="#1f2937">PostgreSQL</text>
-<text x="823" y="645" font-size="13" fill="#4b5563">Odoo DB + n8n DB im Compose-Netz</text>
-<rect x="805" y="705" width="270" height="65" rx="16" fill="#f8f9fa" stroke="#868e96" stroke-width="2"/>
-<text x="823" y="735" font-size="18" font-weight="700" fill="#1f2937">Externe/Infra-Ränder</text>
-<text x="823" y="760" font-size="13" fill="#4b5563">Cloudflare Tunnel ·</text>
-<text x="823" y="778" font-size="13" fill="#4b5563">Mailpit/E-Mail · optional OpenAI</text>
-<rect x="40" y="810" width="1090" height="120" rx="16" fill="#ffffff" stroke="#111827" stroke-width="2"/>
-<text x="58" y="840" font-size="18" font-weight="700" fill="#1f2937">Architekturregeln / Risiko-Grenzen</text>
-<text x="58" y="865" font-size="13" fill="#4b5563">1. Odoo bleibt System of Record. 2. FastAPI ist die einzige App-API für die PWA. 3. n8n liegt nicht im normalen Voice-Hot-Path. 4. n8n schreibt</text>
-<text x="58" y="883" font-size="13" fill="#4b5563">fachlich nur über interne FastAPI-Callbacks zurück. 5. Touch bleibt Fallback; Voice darf Picking nicht blockieren.</text>
-<line x1="285" y1="252" x2="400" y2="242" stroke="#1971c2" stroke-width="3" marker-end="url(#arrow)"/>
-<text x="262.5" y="235.0" font-size="12" font-weight="700" fill="#1971c2">HTTPS / PWA + API</text>
-<line x1="680" y1="371" x2="805" y2="255" stroke="#099268" stroke-width="3" marker-end="url(#arrow)"/>
-<text x="662.5" y="301.0" font-size="12" font-weight="700" fill="#099268">XML-RPC/JSON fachliche Reads/Writes</text>
-<line x1="680" y1="435" x2="805" y2="455" stroke="#c2255c" stroke-width="3" marker-end="url(#arrow)" stroke-dasharray="8 6"/>
-<text x="662.5" y="433.0" font-size="12" font-weight="700" fill="#c2255c">async/sync Webhooks</text>
-<line x1="805" y1="485" x2="680" y2="470" stroke="#099268" stroke-width="3" marker-end="url(#arrow)"/>
-<text x="662.5" y="465.5" font-size="12" font-weight="700" fill="#099268">interne Callbacks nur über FastAPI</text>
-<line x1="545" y1="500" x2="545" y2="555" stroke="#1971c2" stroke-width="3" marker-end="url(#arrow)"/>
-<text x="465.0" y="515.5" font-size="12" font-weight="700" fill="#1971c2">Voice Hot Path</text>
-<line x1="545" y1="650" x2="545" y2="680" stroke="#f08c00" stroke-width="3" marker-end="url(#arrow)" stroke-dasharray="8 6"/>
-<text x="465.0" y="653.0" font-size="12" font-weight="700" fill="#f08c00">Kontext bei Assistenz</text>
-<line x1="940" y1="340" x2="940" y2="390" stroke="#c2255c" stroke-width="3" marker-end="url(#arrow)" stroke-dasharray="8 6"/>
-<text x="860.0" y="353.0" font-size="12" font-weight="700" fill="#c2255c">Events / Kontext</text>
-<line x1="940" y1="540" x2="940" y2="590" stroke="#343a40" stroke-width="3" marker-end="url(#arrow)"/>
-<text x="860.0" y="553.0" font-size="12" font-weight="700" fill="#343a40">persistiert Ausführungen</text>
-<line x1="180" y1="451" x2="180" y2="520" stroke="#f08c00" stroke-width="3" marker-end="url(#arrow)" stroke-dasharray="8 6"/>
-<text x="100.0" y="473.5" font-size="12" font-weight="700" fill="#f08c00">Fallback ohne ASR/n8n</text>
-<line x1="285" y1="555" x2="400" y2="420" stroke="#1971c2" stroke-width="3" marker-end="url(#arrow)"/>
-<text x="262.5" y="475.5" font-size="12" font-weight="700" fill="#1971c2">Confirm / Alert / Assist</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="1280" viewBox="0 0 1680 1280">
+<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#303846"/></marker></defs>
+<rect width="1680" height="1280" fill="#ffffff"/>
+<rect x="40" y="30" width="1600" height="102" rx="18" fill="#fff" stroke="#111827" stroke-width="2"/>
+<text x="58" y="71.0" font-family="Arial, sans-serif" font-size="25" font-weight="700" fill="#172033" text-anchor="start">Mobile Picking &amp; Voice Assistant – Systemarchitektur</text>
+<text x="58" y="92.0" font-family="Arial, sans-serif" font-size="14" font-weight="400" fill="#52606d" text-anchor="start">PoC für mobile Lagerarbeit: PWA als Bedienoberfläche, FastAPI als kontrollierte App-Schicht, Odoo als fachliche Wahrheit, lokale Spracherkennung und</text>
+<text x="58" y="108.8" font-family="Arial, sans-serif" font-size="14" font-weight="400" fill="#52606d" text-anchor="start">n8n für Folgeprozesse.</text>
+<rect x="40" y="145" width="330" height="760" rx="18" fill="#fff7d6" stroke="#f08c00" stroke-width="2"/>
+<text x="58" y="179.0" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#172033" text-anchor="start">1 · Mobile / Lagerfläche</text>
+<text x="58" y="206.0" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Picker arbeitet in der PWA. Scan und</text>
+<text x="58" y="221.6" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Touch bleiben robuste Rückfallebene;</text>
+<text x="58" y="237.2" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Voice beschleunigt, blockiert aber</text>
+<text x="58" y="252.8" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">keinen Prozess.</text>
+<rect x="410" y="145" width="390" height="760" rx="18" fill="#e7f5ff" stroke="#1971c2" stroke-width="2"/>
+<text x="428" y="179.0" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#172033" text-anchor="start">2 · App-Schicht / Hot Path</text>
+<text x="428" y="206.0" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Caddy und FastAPI trennen die mobile App von</text>
+<text x="428" y="221.6" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Odoo, n8n, Whisper und Infrastrukturdetails.</text>
+<rect x="840" y="145" width="390" height="760" rx="18" fill="#f3f0ff" stroke="#6741d9" stroke-width="2"/>
+<text x="858" y="179.0" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#172033" text-anchor="start">3 · Fachlicher Kern</text>
+<text x="858" y="206.0" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Odoo hält Stammdaten, Pickings, Quality</text>
+<text x="858" y="221.6" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Alerts, Nutzer, Lagerplätze, Chatter und KI-</text>
+<text x="858" y="237.2" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Felder.</text>
+<rect x="1270" y="145" width="370" height="760" rx="18" fill="#fff0f6" stroke="#c2255c" stroke-width="2"/>
+<text x="1288" y="179.0" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#172033" text-anchor="start">4 · Orchestrierung / Ränder</text>
+<text x="1288" y="206.0" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">n8n verarbeitet Folgeprozesse,</text>
+<text x="1288" y="221.6" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Ausnahmeassistenz und externe</text>
+<text x="1288" y="237.2" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Integrationen.</text>
+<rect x="80" y="245" width="250" height="120" rx="18" fill="#fff9db" stroke="#f08c00" stroke-width="2"/>
+<text x="98" y="279.0" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#172033" text-anchor="start">Picker PWA</text>
+<text x="98" y="306.0" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Pickliste · Route ·</text>
+<text x="98" y="321.6" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Barcode/Touch · Voice ·</text>
+<text x="98" y="337.2" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Quality Alert · Claim</text>
+<text x="98" y="352.8" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Heartbeat · Offline-nahe UX</text>
+<rect x="80" y="420" width="250" height="105" rx="18" fill="#fff9db" stroke="#f08c00" stroke-width="2"/>
+<text x="98" y="453.0" font-family="Arial, sans-serif" font-size="17" font-weight="700" fill="#172033" text-anchor="start">Geräte-APIs</text>
+<text x="98" y="481.0" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Kamera/Scanner · Mikrofon ·</text>
+<text x="98" y="496.6" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Browser Storage · PWA Cache</text>
+<rect x="80" y="610" width="250" height="105" rx="18" fill="#fff9db" stroke="#f08c00" stroke-width="2"/>
+<text x="98" y="643.0" font-family="Arial, sans-serif" font-size="17" font-weight="700" fill="#172033" text-anchor="start">Operative Fallbacks</text>
+<text x="98" y="671.0" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Touch-Bestätigung · manuelle</text>
+<text x="98" y="686.6" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Kurzmenge · Alert ohne Voice ·</text>
+<text x="98" y="702.2" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Degradation sichtbar</text>
+<rect x="455" y="230" width="300" height="95" rx="18" fill="#e7f5ff" stroke="#1971c2" stroke-width="2"/>
+<text x="473" y="264.0" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#172033" text-anchor="start">Caddy Reverse Proxy</text>
+<text x="473" y="291.0" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">HTTPS/LAN-Domain · statische PWA ·</text>
+<text x="473" y="306.6" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">API-Routing</text>
+<rect x="455" y="380" width="300" height="190" rx="18" fill="#d3f9d8" stroke="#099268" stroke-width="2"/>
+<text x="473" y="414.0" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#172033" text-anchor="start">FastAPI Backend</text>
+<text x="473" y="441.0" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">einzige App-API · Picker/Auth-</text>
+<text x="473" y="456.6" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Kontext · Claiming · Idempotency ·</text>
+<text x="473" y="472.2" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Odoo-Adapter · n8n-Client ·</text>
+<text x="473" y="487.8" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Integrationslog · Circuit Breaker</text>
+<rect x="455" y="635" width="300" height="115" rx="18" fill="#e7f5ff" stroke="#1971c2" stroke-width="2"/>
+<text x="473" y="669.0" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#172033" text-anchor="start">Lokaler Whisper ASR</text>
+<text x="473" y="696.0" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">/api/voice/recognize · deutsches</text>
+<text x="473" y="711.6" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">faster-whisper Modell · bleibt im</text>
+<text x="473" y="727.2" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">normalen Voice-Hot-Path lokal</text>
+<rect x="885" y="230" width="300" height="150" rx="18" fill="#f3f0ff" stroke="#6741d9" stroke-width="2"/>
+<text x="903" y="264.0" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#172033" text-anchor="start">Odoo 18 Community</text>
+<text x="903" y="291.0" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">System of Record: Stock Pickings ·</text>
+<text x="903" y="306.6" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Quality Alerts · Nutzer ·</text>
+<text x="903" y="322.2" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Lagerplätze · Chatter ·</text>
+<text x="903" y="337.8" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">strukturierte KI-Felder</text>
+<rect x="885" y="455" width="300" height="115" rx="18" fill="#f3f0ff" stroke="#6741d9" stroke-width="2"/>
+<text x="903" y="488.0" font-family="Arial, sans-serif" font-size="17" font-weight="700" fill="#172033" text-anchor="start">PostgreSQL</text>
+<text x="903" y="516.0" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Odoo-Datenbank und n8n-Datenbank im</text>
+<text x="903" y="531.6" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Compose-Netz. Persistenz liegt nicht</text>
+<text x="903" y="547.2" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">in der PWA.</text>
+<rect x="885" y="650" width="300" height="100" rx="18" fill="#f3f0ff" stroke="#6741d9" stroke-width="2"/>
+<text x="903" y="683.0" font-family="Arial, sans-serif" font-size="17" font-weight="700" fill="#172033" text-anchor="start">Obsidian Kontext</text>
+<text x="903" y="711.0" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Optionale Wissensanreicherung für</text>
+<text x="903" y="726.6" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Ausnahmeassistenz, nicht Teil des</text>
+<text x="903" y="742.2" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Picking-Hot-Path.</text>
+<rect x="1315" y="245" width="285" height="170" rx="18" fill="#fff0f6" stroke="#c2255c" stroke-width="2"/>
+<text x="1333" y="279.0" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#172033" text-anchor="start">n8n Orchestrator</text>
+<text x="1333" y="306.0" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Workflows: pick-confirmed</text>
+<text x="1333" y="321.6" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">· shortage-reported ·</text>
+<text x="1333" y="337.2" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">quality-alert-created ·</text>
+<text x="1333" y="352.8" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">voice-exception-query ·</text>
+<text x="1333" y="368.4" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">quality-assessment</text>
+<rect x="1315" y="485" width="285" height="125" rx="18" fill="#f8f9fa" stroke="#868e96" stroke-width="2"/>
+<text x="1333" y="518.0" font-family="Arial, sans-serif" font-size="17" font-weight="700" fill="#172033" text-anchor="start">Externe Kanäle</text>
+<text x="1333" y="546.0" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Cloudflare Tunnel ·</text>
+<text x="1333" y="561.6" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Mailpit/E-Mail · optional</text>
+<text x="1333" y="577.2" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">OpenAI nur für definierte</text>
+<text x="1333" y="592.8" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">KI-Schritte</text>
+<rect x="1315" y="690" width="285" height="120" rx="18" fill="#fff5f5" stroke="#e03131" stroke-width="2"/>
+<text x="1333" y="723.0" font-family="Arial, sans-serif" font-size="17" font-weight="700" fill="#172033" text-anchor="start">Sicherheitsgrenzen</text>
+<text x="1333" y="751.0" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Secrets in Env · interne</text>
+<text x="1333" y="766.6" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Callback-Secrets · n8n</text>
+<text x="1333" y="782.2" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">ohne direkte Odoo-Writes</text>
+<line x1="330" y1="285" x2="455" y2="275" stroke="#1971c2" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="755" y1="460" x2="885" y2="300" stroke="#099268" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="755" y1="485" x2="1315" y2="315" stroke="#c2255c" stroke-width="3" marker-end="url(#arrow)" stroke-dasharray="8 7"/>
+<line x1="605" y1="570" x2="605" y2="635" stroke="#1971c2" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="1035" y1="380" x2="1035" y2="455" stroke="#303846" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="1455" y1="415" x2="1455" y2="485" stroke="#c2255c" stroke-width="2" marker-end="url(#arrow)" stroke-dasharray="8 7"/>
+<line x1="1315" y1="415" x2="1315" y2="830" stroke="#099268" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="1315" y1="830" x2="755" y2="830" stroke="#099268" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="755" y1="830" x2="755" y2="535" stroke="#099268" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="205" y1="525" x2="205" y2="610" stroke="#f08c00" stroke-width="2" marker-end="url(#arrow)" stroke-dasharray="8 7"/>
+<rect x="40" y="860" width="1600" height="82" rx="18" fill="#ffffff" stroke="#111827" stroke-width="2"/>
+<text x="58" y="892.0" font-family="Arial, sans-serif" font-size="16" font-weight="700" fill="#172033" text-anchor="start">Pfeile</text>
+<text x="58" y="921.0" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Blau = Hot Path / Benutzeraktion · Grün = kontrollierter fachlicher Write/Callback · Magenta gestrichelt = n8n-Orchestrierung · Dunkelgrau = Datenbankpersistenz · Orange</text>
+<text x="58" y="936.6" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">gestrichelt = Fallback/Degradation</text>
+<rect x="40" y="970" width="485" height="135" rx="18" fill="#fff" stroke="#111827" stroke-width="2"/>
+<text x="58" y="1004.0" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#172033" text-anchor="start">Picking-Bestätigung</text>
+<text x="58" y="1031.0" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">PWA → FastAPI `/confirm-line` → Claim/Idempotency-Prüfung</text>
+<text x="58" y="1046.6" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">→ Odoo-Write → asynchrones `pick-confirmed` an n8n.</text>
+<text x="58" y="1062.2" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Picking bleibt fachlich gültig, auch wenn n8n degradiert.</text>
+<rect x="598" y="970" width="485" height="135" rx="18" fill="#fff" stroke="#111827" stroke-width="2"/>
+<text x="616" y="1004.0" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#172033" text-anchor="start">Voice &amp; Ausnahmeassistenz</text>
+<text x="616" y="1031.0" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Normal: PWA → FastAPI → Whisper → lokale Intent-Logik →</text>
+<text x="616" y="1046.6" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">PWA. Ausnahme: `/voice/assist` reichert Kontext an und</text>
+<text x="616" y="1062.2" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">fragt n8n synchron mit lokalem Fallback.</text>
+<rect x="1155" y="970" width="485" height="135" rx="18" fill="#fff" stroke="#111827" stroke-width="2"/>
+<text x="1173" y="1004.0" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#172033" text-anchor="start">Quality Alert / Welle A</text>
+<text x="1173" y="1031.0" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">FastAPI erstellt Alert zuerst in Odoo. Bei n8n-Erfolg wird</text>
+<text x="1173" y="1046.6" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">`pending` gesetzt; bei Dispatch-Fehler greift lokaler</text>
+<text x="1173" y="1062.2" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Fallback. n8n schreibt kontrolliert über FastAPI zurück.</text>
+<rect x="40" y="1135" width="1600" height="105" rx="18" fill="#fff" stroke="#111827" stroke-width="2"/>
+<text x="58" y="1169.0" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#172033" text-anchor="start">Architekturregeln</text>
+<text x="58" y="1196.0" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Odoo bleibt System of Record · FastAPI ist die einzige App-API · n8n liegt nicht im normalen Voice-Hot-Path · n8n schreibt fachlich nur über FastAPI zurück.</text>
+<text x="58" y="1211.6" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#52606d" text-anchor="start">Touch bleibt Fallback; Voice ist Enhancement.</text>
 </svg>

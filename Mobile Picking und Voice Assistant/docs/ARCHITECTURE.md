@@ -54,7 +54,7 @@
 2. FastAPI erstellt `quality.alert.custom` in Odoo
 3. FastAPI -> n8n `quality-alert-created`
 4. Nur bei erfolgreicher Uebergabe setzt FastAPI `ai_evaluation_status = pending`
-5. Wenn die Uebergabe scheitert, markiert FastAPI den Alert als `failed` und schreibt den Grund in den Chatter
+5. Wenn die Uebergabe scheitert, nutzt FastAPI zuerst die lokale Backend-Fallback-Bewertung und markiert den Alert bei Erfolg als `completed`; nur wenn auch dieser Fallback scheitert, wird der Alert als `failed` markiert und der Grund persistiert.
 6. n8n bewertet heuristisch und ruft `POST /api/internal/n8n/quality-assessment` auf
 7. FastAPI schreibt strukturierte KI-Felder kontrolliert nach Odoo zurueck
 
