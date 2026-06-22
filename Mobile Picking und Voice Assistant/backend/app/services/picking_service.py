@@ -7,8 +7,10 @@ Odoo 18 notes:
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
+import time
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
@@ -17,6 +19,8 @@ from app.services.mobile_workflow import PickerIdentity
 from app.services.n8n_webhook import N8NWebhookClient, coerce_event_result
 from app.services.odoo_client import OdooAPIError, OdooClient
 from app.services.route_optimizer import build_route_plan
+
+logger = logging.getLogger(__name__)
 
 
 def _clean_product_name(display_name: str) -> str:
@@ -581,6 +585,7 @@ class PickingService:
 
         The Odoo 18 flow uses `stock.move.picked` to track whether a move is done.
         """
+        _t0 = time.monotonic()
         lines = await self._odoo.execute_kw(
             "stock.move.line",
             "read",
@@ -714,6 +719,15 @@ class PickingService:
                         "recorded_serial": recorded_serial,
                     }
 
+        logger.info(json.dumps({
+            "event_type": "serial_confirm",
+            "picking_id": picking_id,
+            "move_line_id": move_line_id,
+            "product_id": product_id,
+            "success": True,
+            "serial_recorded": bool(recorded_serial),
+            "latency_ms": int((time.monotonic() - _t0) * 1000),
+        }, ensure_ascii=False))
         return {
             "success": True,
             "message": "Auftrag abgeschlossen." if picking_complete else "Bestätigt.",
