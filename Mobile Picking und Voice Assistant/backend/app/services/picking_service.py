@@ -711,6 +711,7 @@ class PickingService:
                         "integration_status": "degraded",
                         "integration_error": event_result.error,
                         "correlation_id": event_result.correlation_id,
+                        "recorded_serial": recorded_serial,
                     }
 
         return {
