@@ -2158,6 +2158,52 @@ function applyRenderedDetailCopyFixes({ picking, lines, currentLineIndex, stockS
     }
 }
 
+/**
+ * Show a modal prompt for serial number entry and resolve with the entered value.
+ * Returns '' if the user skips/cancels.
+ * Only called when line.tracking === 'serial'.
+ */
+function askSerialNumber(productName) {
+    return new Promise((resolve) => {
+        const overlay = overlayEl();
+        if (!overlay) { resolve(''); return; }
+
+        overlay.hidden = false;
+        // Build static HTML structure (no user content interpolated here)
+        overlay.innerHTML = [
+            '<div class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="serial-title">',
+            '<div class="modal-sheet__eyebrow">Seriennummer</div>',
+            '<h2 id="serial-title" class="modal-sheet__title">Seriennummer scannen oder eingeben</h2>',
+            '<p id="serial-product-name" class="modal-sheet__text"></p>',
+            '<input type="text" id="serial-input" class="manual-barcode-entry__input"',
+            '       inputmode="text" placeholder="Seriennummer" autocomplete="off"',
+            '       style="margin:0.75rem 0;width:100%;box-sizing:border-box;">',
+            '<div class="modal-sheet__actions modal-sheet__actions--stack">',
+            '<button type="button" id="serial-confirm" class="picker-option picker-option--primary">Bestätigen</button>',
+            '<button type="button" id="serial-skip" class="picker-option">Überspringen</button>',
+            '</div></div>',
+        ].join('');
+
+        // Set user-visible product name safely via textContent (no XSS risk)
+        const nameEl = overlay.querySelector('#serial-product-name');
+        if (nameEl) nameEl.textContent = productName;
+
+        const input = overlay.querySelector('#serial-input');
+        input?.focus();
+
+        const finish = (value) => {
+            closeOverlay();
+            resolve(value || '');
+        };
+
+        overlay.querySelector('#serial-confirm')?.addEventListener('click', () => finish(input?.value.trim()));
+        overlay.querySelector('#serial-skip')?.addEventListener('click', () => finish(''));
+        input?.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') finish(input.value.trim());
+        });
+    });
+}
+
 async function handleScan(barcode) {
     stopSpeaking();
     const { currentPicking, currentLineIndex, currentPicker } = getState();
@@ -2186,6 +2232,13 @@ async function handleScan(barcode) {
         return;
     }
 
+    // For serial-tracked products, ask for the serial number before confirming.
+    // Non-serial lines are completely unaffected (serialNumber stays '').
+    let serialNumber = '';
+    if (line.tracking === 'serial') {
+        serialNumber = await askSerialNumber(getLineDisplayName(line));
+    }
+
     try {
         const result = await withManagedRequest((signal) => confirmLine(
             currentPicking.id,
@@ -2193,6 +2246,7 @@ async function handleScan(barcode) {
                 move_line_id: line.id,
                 scanned_barcode: barcode || line.product_barcode || '',
                 quantity: line.quantity_demand,
+                serial_number: serialNumber,
             },
             {
                 idempotencyKey: buildOperationKey('confirm-line', [

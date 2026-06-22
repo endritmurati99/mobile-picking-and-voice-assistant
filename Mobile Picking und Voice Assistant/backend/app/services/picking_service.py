@@ -475,7 +475,7 @@ class PickingService:
             products = await self._odoo.search_read(
                 "product.product",
                 [("id", "in", product_ids)],
-                ["id", "barcode", "default_code"],
+                ["id", "barcode", "default_code", "tracking"],
             )
             product_meta_map = {product["id"]: product for product in products}
 
@@ -501,6 +501,7 @@ class PickingService:
                         "product_name": _clean_product_name(raw_line["product_id"][1]) if raw_line.get("product_id") else "",
                         "product_barcode": product_meta_map.get(product_id, {}).get("barcode") if product_id else None,
                         "product_sku": product_meta_map.get(product_id, {}).get("default_code") if product_id else "",
+                        "tracking": product_meta_map.get(product_id, {}).get("tracking") if product_id else None,
                         "quantity_demand": move.get("product_uom_qty", raw_line.get("quantity", 0)),
                         "quantity_done": raw_line.get("quantity", 0) if move.get("picked") else 0,
                         "picked": bool(move.get("picked")),
