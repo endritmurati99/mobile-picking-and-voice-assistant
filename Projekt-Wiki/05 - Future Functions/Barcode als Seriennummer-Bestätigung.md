@@ -27,6 +27,10 @@ Nachweis erfasst — für **Rückverfolgbarkeit** (Traceability).
 > 2. **Zweiter Scan: Seriennummer / Lot** des physischen Stücks
 > 3. Backend erfasst die Seriennummer an der Move Line → bestätigt
 
+> [!note] Prof-Wunsch (2026-06-22): Fokus auf hochwertige Güter
+> Seriennummer-Dokumentation v. a. für **hochwertige Güter** (z. B. teure CPUs) — dort lohnt der Mehraufwand.
+> **Optional zusätzliches Foto** beim Erfassen als visueller Nachweis (verknüpft mit der [[Lokale Bild-KI-Qualitaetspruefung (Design und Recherche)|Bild-KI]] und mit [[Karton- und Behaelter-Tracking (Put-to-Box)]] / [[Cluster- und Batch-Picking]]).
+
 ## Akzeptanzkriterien
 - [ ] PWA kann nach dem Produkt-Scan einen zweiten Scan „Seriennummer/Lot" erfassen
 - [ ] Backend schreibt die Seriennummer an die Move Line (`lot_id` / `lot_name`)

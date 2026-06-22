@@ -65,8 +65,10 @@ Kombiniert mit [[Barcode als Seriennummer-Bestätigung]] und [[Karton- und Behae
 
 **Export (2026-06-22):** 47 Produktbilder wurden aus Odoo (DB `masterfischer`) exportiert nach `_attachments/produktbilder/` — überwiegend Lego-Blöcke (`Brick 2x2 rot`, `Brick 2x4 W. Bows blau`, `Plate 2x4 grün`, `Roof Tile …`) plus einige Baumodelle. Diese dienen als **Referenz-Soll-Bilder** für den Identitätsabgleich.
 
-> [!warning] Noch zu beschaffen
-> Die Odoo-Bilder sind **saubere Katalog-Referenzen (Soll-Zustand)**. Für die **Defekt**-Erkennung brauchen wir zusätzlich **Ist-Fotos mit echten Mängeln** (Kratzer, fehlende Noppen) als Test-/Benchmark-Material — die müssen wir noch fotografieren/sammeln.
+> [!tip] Zero-Shot: KEINE vortrainierten Defekt-Bilder nötig zum Start
+> Wir haben (und brauchen) **keine kaputten Beispielbilder**. Ein modernes Vision-Modell erkennt **zero-shot** (ohne Training): man zeigt ihm das Foto (optional zusätzlich das saubere Referenzbild) und fragt „Fehlt eine Noppe? Kratzer? Defekt?" — es antwortet aus seinem allgemeinen Bildverständnis. So kann man **sofort starten und demonstrieren mit null Defekt-Bildern**.
+>
+> Nur für die **Genauigkeits-Messung** in der Evaluation hilft später ein kleiner Satz echter Fotos (ein paar gute + ein paar defekte), um zu prüfen, wie oft das Modell richtig liegt. Optional, nicht für den Start nötig.
 
 ## 2. Einordnung in die bestehende Architektur
 
