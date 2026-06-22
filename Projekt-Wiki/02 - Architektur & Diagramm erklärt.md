@@ -50,12 +50,10 @@ Die 10 Container im Überblick (faktisch aus `docker-compose.yml`):
 | 5 | `whisper` | Spracherkennung STT (Deutsch, Modell `small`) | 9000 | Image |
 | 6 | `piper` | Sprachausgabe TTS (Deutsch „thorsten-high") | 5500 | Build (`./piper/Dockerfile`) |
 | 7 | `n8n` | Workflow-Orchestrator | 5678 | Image (`n8n:2.13.3`) |
-| 8 | `tunnel` | Cloudflare Named Tunnel (externe HTTPS-URL) | — | Image (`cloudflared`) |
-| 9 | `mailpit` | SMTP-Mock / E-Mail-Test-Utility | 8025 (UI) | Image |
-| 10 | `pwa` | Statischer Webserver für die PWA (Frontend) | 80 (intern) | Image (`caddy:2-alpine`) |
+| 8 | `pwa` | Statischer Webserver für die PWA (Frontend) | 80 (intern) | Image (`caddy:2-alpine`) |
 
 > [!note] Warum taucht Caddy "zweimal" auf?
-> Es gibt zwei Caddy-Container mit unterschiedlichen Rollen: `caddy` (Nr. 1) ist der **Haupt-Verteiler** am Eingang (Port 443/80). `pwa` (Nr. 10) ist ein **zweiter, kleiner Caddy**, der nur die statischen Frontend-Dateien ausliefert. Der Haupt-Caddy leitet den Frontend-Verkehr intern an den PWA-Caddy weiter (`reverse_proxy pwa:80`). Das sind zwei getrennte Container mit je einer Aufgabe — kein Widerspruch zur Single-Responsibility-Regel.
+> Es gibt zwei Caddy-Container mit unterschiedlichen Rollen: `caddy` (Nr. 1) ist der **Haupt-Verteiler** am Eingang (Port 443/80). `pwa` (Nr. 8) ist ein **zweiter, kleiner Caddy**, der nur die statischen Frontend-Dateien ausliefert. Der Haupt-Caddy leitet den Frontend-Verkehr intern an den PWA-Caddy weiter (`reverse_proxy pwa:80`). Das sind zwei getrennte Container mit je einer Aufgabe — kein Widerspruch zur Single-Responsibility-Regel.
 
 ---
 
@@ -199,8 +197,6 @@ Diese Container gehören zum Netz `picking-net`, sind aber Hilfsdienste:
 |-----------|-------|--------------|--------|
 | `whisper` | STT (Sprache → Text), Deutsch, Modell `small` | Backend **→** Whisper (`http://whisper:9000/asr`) | `backend/app/services/whisper_client.py` |
 | `piper` | TTS (Text → Sprache), Deutsch | Backend **→** Piper (`http://piper:5500/synthesize`) | `backend/app/services/piper_client.py` |
-| `tunnel` | Cloudflare Named Tunnel | exponiert `n8n` über permanente HTTPS-URL (für Telegram/externe Webhooks); `depends_on: n8n` | `docker-compose.yml` |
-| `mailpit` | SMTP-Mock zum E-Mail-Testen | reine Test-Utility, keine Business-Logik (UI auf Port 8025) | `docker-compose.yml` |
 
 > [!note] Whisper-Fallback und Piper-Fallback
 > - **Whisper** liefert bei Fehler einen leeren String `""` zurück (Timeout 60 s).

@@ -5,7 +5,7 @@ async function bootDesktopList(page, viewport) {
   await mockPwaApi(page);
   await page.setViewportSize(viewport);
   await page.goto('/');
-  await page.getByRole('button', { name: 'Endrit Murati' }).click();
+  await page.getByRole('button', { name: 'Lena Lager' }).click();
   await expect(page.locator('.list-workspace')).toBeVisible();
 }
 

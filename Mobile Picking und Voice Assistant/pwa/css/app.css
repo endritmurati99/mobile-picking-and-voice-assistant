@@ -246,7 +246,7 @@ body {
 /* Header content */
 .greeting {
     font-size: 0.95rem;
-    color: var(--ink-muted);
+    color: var(--ink-soft);
     margin-bottom: 4px;
     font-weight: 500;
 }
@@ -855,18 +855,18 @@ main > * {
 }
 
 .btn-confirm {
-    background: var(--success);
-    box-shadow: 0 4px 0 color-mix(in oklab, var(--success) 56%, black 26%), var(--shadow-sm);
+    background: #187348;
+    box-shadow: 0 4px 0 #0d4e30, var(--shadow-sm);
 }
 
 .btn-confirm:hover {
     transform: translateY(-1px);
-    box-shadow: 0 5px 0 color-mix(in oklab, var(--success) 56%, black 26%), var(--shadow);
+    box-shadow: 0 5px 0 #0d4e30, var(--shadow);
 }
 
 .btn-confirm:active {
     transform: translateY(3px);
-    box-shadow: 0 1px 0 color-mix(in oklab, var(--success) 56%, black 26%);
+    box-shadow: 0 1px 0 #0d4e30;
 }
 
 .btn-big svg,
@@ -2626,8 +2626,8 @@ main::-webkit-scrollbar-thumb {
 
 .pick-list-card__badge--warning {
     background: color-mix(in oklab, var(--danger) 12%, var(--surface));
-    color: var(--danger);
-    border: 1px solid color-mix(in oklab, var(--danger) 24%, var(--line));
+    color: #a3262f;
+    border: 1px solid color-mix(in oklab, #a3262f 36%, var(--line));
 }
 
 .pick-list-card__body {

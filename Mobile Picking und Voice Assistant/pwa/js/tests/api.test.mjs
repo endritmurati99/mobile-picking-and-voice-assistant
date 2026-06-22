@@ -66,7 +66,7 @@ test('assistVoice sends a JSON payload with picker headers', async () => {
     };
 
     try {
-        setActivePicker({ id: 7, name: 'Endrit Murati' });
+        setActivePicker({ id: 7, name: 'Lena Lager' });
         await assistVoice({
             text: 'Was baue ich hier?',
             intent: 'unknown',
@@ -124,11 +124,11 @@ test('picker catalog cache round-trips through localStorage', () => {
     try {
         setCachedPickers([
             { id: 17, name: 'Administrator' },
-            { id: 18, name: 'Endrit Murati' },
+            { id: 18, name: 'Lena Lager' },
         ]);
         assert.deepEqual(getCachedPickers(), [
             { id: 17, name: 'Administrator' },
-            { id: 18, name: 'Endrit Murati' },
+            { id: 18, name: 'Lena Lager' },
         ]);
     } finally {
         global.localStorage = originalStorage;

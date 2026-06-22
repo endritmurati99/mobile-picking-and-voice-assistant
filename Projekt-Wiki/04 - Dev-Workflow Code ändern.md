@@ -95,7 +95,7 @@ Ein **Rebuild** (`docker compose build <service> && docker compose up -d <servic
 - **requirements.txt** (Python-Abhängigkeiten – Backend, Odoo, Piper)
 - **Odoo-Addon-Code** (`odoo/addons/**` ist read-only gemountet, aber Odoo lädt Addons beim Start; Änderungen erfordern Rebuild + Up – ggf. zusätzlich Modul-Update in Odoo)
 
-**Quelle (docker-compose.yml):** Services mit `build:`-Direktive sind `odoo` (`./odoo/Dockerfile`), `backend` (`./backend/Dockerfile`) und `piper` (`./piper/Dockerfile`). Services mit fertigem `image:` (caddy, db, whisper, n8n, tunnel, mailpit, pwa) werden in der Regel nicht selbst gebaut.
+**Quelle (docker-compose.yml):** Services mit `build:`-Direktive sind `odoo` (`./odoo/Dockerfile`), `backend` (`./backend/Dockerfile`) und `piper` (`./piper/Dockerfile`). Services mit fertigem `image:` (caddy, db, whisper, n8n, pwa) werden in der Regel nicht selbst gebaut.
 
 ```bash
 # Beispiel Backend nach requirements.txt-Änderung
@@ -124,7 +124,7 @@ Das passiert automatisch mit `docker compose up -d`: Compose vergleicht die Soll
 
 Typische Auslöser:
 
-- **`.env`-Änderung** (z. B. `POSTGRES_PASSWORD`, `N8N_ENCRYPTION_KEY`, `CLOUDFLARE_TUNNEL_TOKEN`, `LAN_HOST`, CORS-Origins) → Umgebungsvariablen werden beim Erzeugen gesetzt, daher Recreate.
+- **`.env`-Änderung** (z. B. `POSTGRES_PASSWORD`, `N8N_ENCRYPTION_KEY`, `LAN_HOST`, CORS-Origins) → Umgebungsvariablen werden beim Erzeugen gesetzt, daher Recreate.
 - **`docker-compose.yml`-Änderung** (Ports, Volumes, Abhängigkeits-Graph, Ressourcenlimits) → Compose evaluiert den Stack neu.
 - **`Caddyfile`-Änderung** (Routing) → Caddy-Container neu hochfahren, damit die neue Konfiguration greift.
 

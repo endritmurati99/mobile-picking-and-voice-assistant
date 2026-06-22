@@ -22,8 +22,8 @@ Nutze diese Wrapper statt direkter MCP-Interaktion:
 Wenn die Wrapper im aktuellen Terminal nicht gefunden werden, nutze die direkten Pfade:
 
 ```powershell
-C:\Users\endri\.local\bin\n8nctl.cmd
-C:\Users\endri\.local\bin\odoocli.cmd
+$env:USERPROFILE\.local\bin\n8nctl.cmd
+$env:USERPROFILE\.local\bin\odoocli.cmd
 ```
 
 ## n8n
@@ -62,7 +62,6 @@ Nur nach klarer Nutzerfreigabe:
 n8nctl.cmd workflow activate --file shortage-reported.json
 n8nctl.cmd workflow deactivate --file voice-exception-query.json
 n8nctl.cmd workflow import .\n8n\workflows\quality-alert-created.json
-n8nctl.cmd credential import .\n8n\backups\credentials\gmail.json
 n8nctl.cmd credential export-all --backup -o .\n8n\backups\credentials
 n8nctl.cmd rollout backup
 n8nctl.cmd rollout import <backup-dir>
@@ -159,7 +158,7 @@ Nutze n8nctl.cmd --json workflow list und pruefe, welche Workflows aktiv sind.
 
 ## Projektkontext
 
-- Projektroot: `C:\Users\endri\Desktop\Bachelor\Mobile Picking und Voice Assistant`
+- Projektroot: aktuelles Repository-Unterverzeichnis `Mobile Picking und Voice Assistant`
 - n8n nutzt lokale Workflow-Dateien in `n8n/workflows/`
 - Odoo ist System of Record
 - PWA spricht nur mit FastAPI, nicht direkt mit Odoo oder n8n

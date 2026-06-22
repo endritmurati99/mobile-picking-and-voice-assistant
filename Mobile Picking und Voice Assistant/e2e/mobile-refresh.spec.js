@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const { mockPwaApi } = require('./helpers/pwa-api');
 
-async function choosePicker(page, name = 'Endrit Murati') {
+async function choosePicker(page, name = 'Lena Lager') {
   await expect(page.getByRole('heading', { name: 'Profil auswählen' })).toBeVisible();
   await page.getByRole('button', { name }).click();
 }

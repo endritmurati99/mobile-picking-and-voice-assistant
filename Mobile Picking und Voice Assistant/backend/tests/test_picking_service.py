@@ -561,6 +561,42 @@ class TestConfirmPickLineSerial:
             vals = call.args[2] if len(call.args) > 2 else call.kwargs.get("vals", {})
             assert "lot_name" not in vals
 
+    @pytest.mark.anyio
+    async def test_whitespace_only_serial_is_not_recorded(self, service, odoo, n8n):
+        """A serial_number of only whitespace must result in recorded_serial == '' and no lot_name write."""
+        async def fake_execute_kw(model, method, args, kwargs=None):
+            if model == "stock.move.line" and method == "read":
+                return [{"id": 50, "product_id": [5, "[CPU] Xeon"], "quantity": 1,
+                         "move_id": [10, "MOVE/10"], "location_id": [1, "WH/Stock/A-1"]}]
+            if model == "stock.move" and method == "search_read":
+                return [{"id": 10, "picked": True}]
+            raise AssertionError(f"unexpected execute_kw {model}.{method}")
+
+        async def fake_search_read(model, domain, fields, limit=100):
+            if model == "product.product" and "barcode" in fields:
+                return [{"barcode": "CPU-XEON-1"}]
+            if model == "product.product" and "tracking" in fields:
+                return [{"tracking": "serial"}]
+            if model == "stock.quant":
+                return [{"quantity": 10, "reserved_quantity": 0, "location_id": [1, "WH/Stock/A-1"]}]
+            raise AssertionError(f"unexpected search_read {model} {fields}")
+
+        odoo.execute_kw.side_effect = fake_execute_kw
+        odoo.search_read.side_effect = fake_search_read
+        odoo.write.return_value = True
+        odoo.call_method.return_value = True
+        n8n.fire_event.return_value = N8NEventResult(delivered=True, correlation_id="c1", error=None)
+
+        result = await service.confirm_pick_line(
+            picking_id=1, move_line_id=50, scanned_barcode="CPU-XEON-1",
+            quantity=1, serial_number="   ",
+        )
+
+        assert result["recorded_serial"] == ""
+        for call in odoo.write.call_args_list:
+            vals = call.args[2] if len(call.args) > 2 else call.kwargs.get("vals", {})
+            assert "lot_name" not in vals
+
 
 class TestRequestReplenishment:
     @pytest.mark.anyio

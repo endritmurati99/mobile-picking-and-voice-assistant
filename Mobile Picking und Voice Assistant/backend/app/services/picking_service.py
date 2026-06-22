@@ -23,6 +23,26 @@ from app.services.route_optimizer import build_route_plan
 logger = logging.getLogger(__name__)
 
 
+def _emit_serial_confirm(
+    success: bool,
+    picking_id: int,
+    move_line_id: int,
+    product_id: int | None,
+    serial_recorded: bool,
+    t0: float,
+) -> None:
+    """Emit a structured serial_confirm telemetry event."""
+    logger.info(json.dumps({
+        "event_type": "serial_confirm",
+        "picking_id": picking_id,
+        "move_line_id": move_line_id,
+        "product_id": product_id,
+        "success": success,
+        "serial_recorded": serial_recorded,
+        "latency_ms": int((time.monotonic() - t0) * 1000),
+    }, ensure_ascii=False))
+
+
 def _clean_product_name(display_name: str) -> str:
     """Strip Odoo's '[barcode/ref] ' prefix from product display names."""
     return re.sub(r"^\[.*?\]\s*", "", display_name or "")
@@ -613,6 +633,7 @@ class PickingService:
             )
             expected_barcode = products[0].get("barcode") if products else None
             if expected_barcode and scanned_barcode != expected_barcode:
+                _emit_serial_confirm(False, picking_id, move_line_id, product_id, False, _t0)
                 return {
                     "success": False,
                     "message": f"Falscher Artikel. Erwartet: {expected_barcode}",
@@ -626,6 +647,7 @@ class PickingService:
                 location_id=location_id,
             )
         if stock_snapshot and stock_snapshot["status"] == "out_of_stock":
+            _emit_serial_confirm(False, picking_id, move_line_id, product_id, False, _t0)
             return {
                 "success": False,
                 "message": "Kein Bestand am aktuellen Lagerplatz. Bitte Problem melden, Nachschub anfordern oder überspringen.",
@@ -720,15 +742,7 @@ class PickingService:
                         "recorded_serial": recorded_serial,
                     }
 
-        logger.info(json.dumps({
-            "event_type": "serial_confirm",
-            "picking_id": picking_id,
-            "move_line_id": move_line_id,
-            "product_id": product_id,
-            "success": True,
-            "serial_recorded": bool(recorded_serial),
-            "latency_ms": int((time.monotonic() - _t0) * 1000),
-        }, ensure_ascii=False))
+        _emit_serial_confirm(True, picking_id, move_line_id, product_id, bool(recorded_serial), _t0)
         return {
             "success": True,
             "message": "Auftrag abgeschlossen." if picking_complete else "Bestätigt.",

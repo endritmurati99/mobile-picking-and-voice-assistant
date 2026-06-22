@@ -348,7 +348,7 @@ class N8NWebhookClient:
 
     def _format_event_error(self, exc: Exception) -> str:
         if isinstance(exc, httpx.TimeoutException):
-            return "n8n Zeitlimit überschritten."
+            return "n8n Zeitlimit ueberschritten."
         if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
             return f"n8n antwortete mit HTTP {exc.response.status_code}."
         if isinstance(exc, httpx.TransportError):

@@ -26,7 +26,7 @@ async function expectVisualSnapshot(locator, name) {
 test('picking list matches the mobile visual baseline', async ({ page }) => {
   await mockPwaApi(page);
   await page.goto('/');
-  await page.getByRole('button', { name: 'Endrit Murati' }).click();
+  await page.getByRole('button', { name: 'Lena Lager' }).click();
   await expect(page.getByText('4x Brick 2x2 orange')).toBeVisible();
   await expect(page.locator('#status-indicator')).toHaveText('Online');
   await expect(page.locator('#status-indicator')).toHaveClass(/online/);
@@ -37,7 +37,7 @@ test('picking list matches the mobile visual baseline', async ({ page }) => {
 test('picking detail matches the mobile visual baseline', async ({ page }) => {
   await mockPwaApi(page);
   await page.goto('/');
-  await page.getByRole('button', { name: 'Endrit Murati' }).click();
+  await page.getByRole('button', { name: 'Lena Lager' }).click();
   await page.getByText('4x Brick 2x2 orange').click();
   await expect(page.locator('#main')).toContainText('Brick 2x2 orange');
   await disableMotion(page);
@@ -47,7 +47,7 @@ test('picking detail matches the mobile visual baseline', async ({ page }) => {
 test('quality alert matches the mobile visual baseline', async ({ page }) => {
   await mockPwaApi(page);
   await page.goto('/');
-  await page.getByRole('button', { name: 'Endrit Murati' }).click();
+  await page.getByRole('button', { name: 'Lena Lager' }).click();
   await page.getByText('4x Brick 2x2 orange').click();
   await page.locator('#btn-alert').click();
   await expect(page.getByRole('heading', { name: 'Problem melden' })).toBeVisible();

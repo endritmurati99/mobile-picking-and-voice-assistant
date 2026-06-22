@@ -27,8 +27,8 @@ Die PWA ist eine **Vanilla-JavaScript-Applikation ohne Framework** (kein React, 
 > [!note] „Vanilla JS" – warum kein Framework?
 > „Vanilla" bedeutet: pures JavaScript, das der Browser nativ versteht, ohne zusätzliche Bibliothek. Vorteil für eine Bachelorarbeit: weniger Abhängigkeiten, kleinere Auslieferung, jeder Code-Pfad ist nachvollziehbar. Die Haupt-Logikdatei `js/app.js` umfasst rund 2960 Zeilen.
 
-**Projektverzeichnis (absolut):**
-`C:/Users/endri/Desktop/Bachelor/Mobile Picking und Voice Assistant/pwa/`
+**Projektverzeichnis (relativ):**
+`Mobile Picking und Voice Assistant/pwa/`
 
 ---
 

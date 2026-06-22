@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const { mockPwaApi } = require('./helpers/pwa-api');
 
-async function choosePicker(page, name = 'Endrit Murati') {
+async function choosePicker(page, name = 'Lena Lager') {
   const pickerOption = page.locator('.picker-option').filter({ hasText: name }).first();
   if (await pickerOption.isVisible().catch(() => false)) {
     await pickerOption.click();
@@ -23,7 +23,7 @@ test('loads the picking list and opens the picking detail view', async ({ page }
   await expect(page.getByText('4x Brick 2x2 orange')).toBeVisible();
   await expect(page.getByText('WH/INT/00007')).toBeVisible();
   await expect(page.locator('#task-counter')).toHaveText('3 Aufgaben offen');
-  await expect(page.locator('#picker-indicator')).toHaveAttribute('data-short-label', 'EM');
+  await expect(page.locator('#picker-indicator')).toHaveAttribute('data-short-label', 'LL');
 
   await page.getByText('LEGO Ente').click();
 

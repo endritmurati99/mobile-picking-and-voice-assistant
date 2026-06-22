@@ -73,7 +73,7 @@ Die zentralen Belegdateien (Pfade relativ zum Projekt-Root `Mobile Picking und V
 | 2026-05-19 | `3519a11`…`d16a793` | Architektur-Diagramm + Odoo-n8n-Trigger-Doku |
 
 > [!warning] Datums-Anomalie in der Git-Historie
-> Mehrere inhaltlich "spätere" Commits (z. B. die Phase-5-Commits `3698656`/`dbaf055`, der PWA-Refresh `d27685d`) tragen im `git log` das **Author-Datum 2026-03-22**, obwohl die zugehörige Session-Doku `SESSION_2026-03-31` auf Ende März datiert. **Annahme:** Diese frühen Daten entstehen durch Rebase/Cherry-Pick auf dem Branch `wip/staff-hardening-2026-03-22` (alle als `Merge pull request #1…#5 from endritmurati99/wip/staff-hardening-2026-03-22` gemergt). Für die inhaltliche Reihenfolge ist daher die **logische Abfolge** maßgeblich, nicht das nominelle Commit-Datum. Die ab April datierten Commits (`c2863fe` ff.) sind chronologisch zuverlässig.
+> Mehrere inhaltlich "spätere" Commits (z. B. die Phase-5-Commits `3698656`/`dbaf055`, der PWA-Refresh `d27685d`) tragen im `git log` das **Author-Datum 2026-03-22**, obwohl die zugehörige Session-Doku `SESSION_2026-03-31` auf Ende März datiert. **Annahme:** Diese frühen Daten entstehen durch Rebase/Cherry-Pick auf einem frueheren Staff-Hardening-Branch. Für die inhaltliche Reihenfolge ist daher die **logische Abfolge** maßgeblich, nicht das nominelle Commit-Datum. Die ab April datierten Commits (`c2863fe` ff.) sind chronologisch zuverlässig.
 
 ---
 

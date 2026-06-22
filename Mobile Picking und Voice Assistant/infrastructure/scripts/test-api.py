@@ -38,6 +38,25 @@ def main():
 
     print(f"Testing API at {args.base_url}\n")
 
+    picker_headers = {}
+    if not args.expect_odoo_down:
+        try:
+            picker_resp = client.get("/api/pickers")
+            if picker_resp.status_code == 200:
+                pickers = picker_resp.json()
+                if pickers:
+                    picker_headers["X-Picker-User-Id"] = str(pickers[0]["id"])
+                    print(
+                        f"  [OK] GET /api/pickers -> 200 "
+                        f"[Using picker {pickers[0]['id']} for picker-scoped reads]"
+                    )
+                else:
+                    print("  [WARN] GET /api/pickers -> 200 but no active pickers returned")
+            else:
+                print(f"  [WARN] GET /api/pickers -> {picker_resp.status_code}")
+        except Exception as exc:
+            print(f"  [WARN] GET /api/pickers -> error: {exc}")
+
     tests = [
         ("GET", "/api/health", 200, None, "Health check", False),
         ("GET", "/api/pickings", 200 if not args.expect_odoo_down else None, None, "Load pickings", True),
@@ -100,6 +119,8 @@ def main():
                     kwargs["params"] = payload["params"]
                 if "data" in payload:
                     kwargs["data"] = payload["data"]
+            if path == "/api/pickings" and picker_headers:
+                kwargs["headers"] = picker_headers
 
             resp = client.request(method, path, **kwargs)
 

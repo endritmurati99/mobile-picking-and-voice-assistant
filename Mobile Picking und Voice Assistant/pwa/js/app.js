@@ -2360,12 +2360,24 @@ async function handleConfirmAll(picking, lines, startIndex) {
         return;
     }
 
-    speak(`${remaining.length} ${remaining.length === 1 ? 'Position' : 'Positionen'} werden bestätigt.`);
-    showToast(`Bestätige ${remaining.length} Positionen...`, 'info');
+    const serialLines = remaining.filter((l) => l.tracking === 'serial');
+    const bulkLines = remaining.filter((l) => l.tracking !== 'serial');
+
+    if (!bulkLines.length) {
+        speak('Alle verbleibenden Positionen sind serialisiert. Bitte einzeln scannen.');
+        showToast(
+            `${serialLines.length} serialisierte Artikel bitte einzeln scannen (Seriennummer erfassen).`,
+            'warning',
+        );
+        return;
+    }
+
+    speak(`${bulkLines.length} ${bulkLines.length === 1 ? 'Position' : 'Positionen'} werden bestätigt.`);
+    showToast(`Bestätige ${bulkLines.length} Positionen...`, 'info');
 
     let confirmedCount = 0;
-    for (const [offset, pickLine] of remaining.entries()) {
-        const lineIdx = startIndex + offset;
+    for (const [offset, pickLine] of bulkLines.entries()) {
+        const lineIdx = startIndex + remaining.indexOf(pickLine);
         try {
             const result = await withManagedRequest((signal) => confirmLine(
                 picking.id,
@@ -2408,6 +2420,13 @@ async function handleConfirmAll(picking, lines, startIndex) {
     speak('Alles erledigt.');
     setState({ currentLineIndex: lines.length });
     renderResponsiveCurrentLine();
+
+    if (serialLines.length > 0) {
+        showToast(
+            `${serialLines.length} serialisierte Artikel bitte einzeln scannen (Seriennummer erfassen).`,
+            'warning',
+        );
+    }
 }
 
 async function handleVoiceIntent(result) {

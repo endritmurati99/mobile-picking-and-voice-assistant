@@ -74,7 +74,7 @@ def main():
 
         demo_users = [
             ("Administrator", "admin"),
-            ("Endrit Murati", "endrit.murati"),
+            ("Lena Lager", "lena.lager"),
             ("Max Picker", "max.picker"),
         ]
 

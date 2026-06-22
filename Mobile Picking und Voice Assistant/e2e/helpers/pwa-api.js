@@ -199,7 +199,7 @@ function createPickers() {
     },
     {
       id: 18,
-      name: 'Endrit Murati',
+      name: 'Lena Lager',
     },
     {
       id: 19,

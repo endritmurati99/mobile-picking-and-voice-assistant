@@ -2,8 +2,6 @@
 
 Dieses Dokument friert die produktiven n8n-Vertraege fuer Stufe 1 ein. Ziel ist
 Regressionsvermeidung im bestehenden `FastAPI + PWA + Odoo + n8n`-Stand.
-login:endrit.murati99@gmail.com
-passwort:d51$n4hYgLV#PGEHKVr%dtHBE oder VVj8GenABcDH2N
 
 
 ## Grundregeln

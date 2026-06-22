@@ -64,11 +64,10 @@ Für eine **Bachelorarbeit / ein PoC** ist das besonders wertvoll: Der Aufbau is
 
 ---
 
-## Alle 10 Container im Überblick
+## Alle 8 Container im Überblick
 
 > [!info] Lesehilfe zur Spalte "Nötig fürs PoC"
 > - **Kern** = ohne diesen Container funktioniert der zentrale Picking-/Voice-Pfad nicht.
-> - **Optional** = nützlich, aber nicht zwingend für den Kern-Nachweis. Konkret: `tunnel` wird nur für **Diti-AI / Telegram** (externe Webhooks) gebraucht, `mailpit` ist nur ein **Mail-Catcher** zum Testen.
 
 | # | Name | Aufgabe | Port | Image oder Build | Nötig fürs PoC | Abhängig von |
 |---|---|---|---|---|---|---|
@@ -79,13 +78,10 @@ Für eine **Bachelorarbeit / ein PoC** ist das besonders wertvoll: Der Aufbau is
 | 5 | **whisper** | Speech-to-Text (STT), deutsches Modell `small` | 9000 (intern) | Image `onerahmet/openai-whisper-asr-webservice:latest` | **Kern** (Voice) | — |
 | 6 | **piper** | Text-to-Speech (TTS), Deutsch „thorsten-high" | 5500 (intern) | **Build** `./piper/Dockerfile` | **Kern** (Voice) | — |
 | 7 | **n8n** | Workflow-Orchestrierung (`/n8n/*`, Alias `/nn/*`) | 5678 (intern, via Caddy) | Image `docker.n8n.io/n8nio/n8n:2.13.3` | **Kern** (Orchestrierung) | db (healthy) |
-| 8 | **tunnel** | Cloudflare Named Tunnel — macht n8n über permanente HTTPS-URL erreichbar | — (keine lokalen Ports) | Image `cloudflare/cloudflared:latest` | **Optional** (nur Diti-AI / Telegram, externe Webhooks) | n8n |
-| 9 | **mailpit** | SMTP-Mock / Mail-Catcher zum Testen von E-Mails | 8025 (UI) | Image `axllent/mailpit:latest` | **Optional** (reine Test-Utility) | — |
-| 10 | **pwa** | Statischer Webserver für die PWA-Oberfläche (Frontend) | 80 (intern) | Image `caddy:2-alpine` | **Kern** (Frontend) | — |
+| 8 | **pwa** | Statischer Webserver für die PWA-Oberfläche (Frontend) | 80 (intern) | Image `caddy:2-alpine` | **Kern** (Frontend) | — |
 
 > [!warning] Port-Hinweise
 > - **`db` (PostgreSQL)** ist mit `127.0.0.1:5433` **nur lokal** erreichbar, **nicht im LAN** — bewusste Sicherheitsentscheidung. Intern (zwischen Containern) läuft PostgreSQL auf dem Standardport **5432**.
-> - **`tunnel`** veröffentlicht keine lokalen Ports; er baut eine ausgehende Verbindung zu Cloudflare auf.
 > - Die "internen" Ports (8069, 8000, 9000, 5500, 5678, 80) sind im Normalfall **nur über Caddy** erreichbar, nicht direkt von außen.
 
 ### Kurzdetails je Container (faktisch, mit Pfaden)
@@ -100,7 +96,7 @@ Für eine **Bachelorarbeit / ein PoC** ist das besonders wertvoll: Der Aufbau is
 > Build `./odoo/Dockerfile`. `depends_on: db (service_healthy)`. Env: DB-Verbindung (`HOST=db`, `PORT=5432`, `USER`, `PASSWORD`). Volumes: `./odoo/odoo.conf` → `/etc/odoo/odoo.conf` (ro), `./odoo/addons` → `/mnt/extra-addons` (ro, Custom-Addons), benanntes Volume `odoo_data`. Mehr in [[06 - Odoo]].
 
 > [!note] backend (FastAPI)
-> Build `./backend/Dockerfile`. `depends_on: odoo, whisper, piper`. Volumes: `./backend/app` → `/app/app` (ro, Python-Quellcode), `../Notzien` → `/obsidian` (ro, externe Obsidian-Vault). Start-Command: `uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`.
+> Build `./backend/Dockerfile`. `depends_on: odoo, whisper, piper`. Volumes: `./backend/app` → `/app/app` (ro, Python-Quellcode), `./docs` → `/obsidian` (ro, optionale Projektkontext-Dateien). Start-Command: `uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`.
 > **Wichtig:** `--reload` aktiviert Hot-Reload — Änderungen in `./backend/app` starten den Dienst automatisch neu, **kein** `docker compose restart` nötig. Details in [[04 - Dev-Workflow Code ändern]] und [[05 - Backend (FastAPI)]].
 
 > [!note] whisper
@@ -110,13 +106,7 @@ Für eine **Bachelorarbeit / ein PoC** ist das besonders wertvoll: Der Aufbau is
 > Build `./piper/Dockerfile`. Port 5500 (intern). Deutsche Stimme „thorsten-high". Bei Abhängigkeits-/Dockerfile-Änderung: `docker compose build piper && docker compose up -d`.
 
 > [!note] n8n
-> Image `docker.n8n.io/n8nio/n8n:2.13.3`. `depends_on: db (service_healthy)`. Ressourcen-Limits: 2 GB RAM, 1.5 CPUs, 256 PIDs. Nutzt die PostgreSQL-Datenbank `n8n` (im selben Cluster wie Odoo). Wichtige Env: `N8N_ENCRYPTION_KEY` (erforderlich), `N8N_CALLBACK_SECRET` (erforderlich), `N8N_SSRF_ALLOWED_HOSTNAMES=backend`, `N8N_RESTRICT_FILE_ACCESS_TO=/home/node/.n8n-files;/data/obsidian-vault`, `N8N_CONCURRENCY_PRODUCTION_LIMIT=3`, Execution-Retention max. 168h (nur Fehler + manuelle/Progress-Läufe). Volumes: `n8n_data` (Workflows + Encryption-Keys), `./n8n/workflows` → `/imports` (ro), `./n8n/tmp` → `/home/node/.n8n-files`, `C:/Users/endri/Desktop/Claude-Projects/Diti AI/obsidian-vault` → `/data/obsidian-vault`. Healthcheck: `wget -qO- http://localhost:5678/healthz`. Mehr in [[07 - n8n]].
-
-> [!note] tunnel
-> Image `cloudflare/cloudflared:latest`. Command: `tunnel --no-autoupdate --protocol http2 run --token ${CLOUDFLARE_TUNNEL_TOKEN}`. `depends_on: n8n`. Stellt n8n über eine permanente HTTPS-URL für Telegram/externe Webhooks bereit (→ Diti-AI-Anbindung).
-
-> [!note] mailpit
-> Image `axllent/mailpit:latest`. UI-Port 8025. Reine Test-Utility (SMTP-Mock) ohne Business-Logik — fängt ausgehende E-Mails im Test ab.
+> Image `docker.n8n.io/n8nio/n8n:2.13.3`. `depends_on: db (service_healthy)`. Ressourcen-Limits: 2 GB RAM, 1.5 CPUs, 256 PIDs. Nutzt die PostgreSQL-Datenbank `n8n` (im selben Cluster wie Odoo). Wichtige Env: `N8N_ENCRYPTION_KEY` (erforderlich), `N8N_CALLBACK_SECRET` (erforderlich), `N8N_SSRF_ALLOWED_HOSTNAMES=backend`, `N8N_RESTRICT_FILE_ACCESS_TO=/home/node/.n8n-files`, `N8N_CONCURRENCY_PRODUCTION_LIMIT=3`, Execution-Retention max. 168h (nur Fehler + manuelle/Progress-Läufe). Volumes: `n8n_data` (Workflows + Encryption-Keys), `./n8n/workflows` → `/imports` (ro), `./n8n/tmp` → `/home/node/.n8n-files`. Healthcheck: `wget -qO- http://localhost:5678/healthz`. Mehr in [[07 - n8n]].
 
 > [!note] pwa
 > Image `caddy:2-alpine` (zweite Caddy-Instanz, getrennt vom Reverse-Proxy). Volumes: `./pwa` → `/srv` (ro), `./infrastructure/caddy/Caddyfile.pwa` → `/etc/caddy/Caddyfile`. Konfiguration (`Caddyfile.pwa`): Port 80, `file_server`, `try_files {path} /index.html` (SPA-Fallback), Header `Service-Worker-Allowed: /` und `Cache-Control: no-cache`. Bei Änderung in `./pwa` reicht ein Browser-Refresh. Mehr in [[08 - PWA & Voice-Pfad]].
@@ -148,7 +138,6 @@ backend ─────────▶ whisper:9000 (STT)
 backend ─────────▶ piper:5500   (TTS)
 odoo    ─────────▶ db:5432  (PostgreSQL, DB "postgres"/Odoo-DB)
 n8n     ─────────▶ db:5432  (PostgreSQL, DB "n8n")
-tunnel  ─────────▶ n8n      (über Cloudflare nach außen)
 ```
 
 > [!info] Caddy-Routing-Details

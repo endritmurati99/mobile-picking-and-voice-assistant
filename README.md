@@ -1,129 +1,147 @@
-# Mobile Picking und Voice Assistant
+# Mobile Picking & Voice Assistant
 
-Bachelorarbeit-PoC fuer einen hybriden, sprachgestuetzten mobilen Picking-Assistenten auf Basis von Odoo 18 Community, FastAPI, n8n und einer PWA.
+Bachelorarbeit-Proof-of-Concept fuer einen mobilen Picking-Assistenten, der Lagerauftraege aus Odoo 18 auf einem Smartphone bedienbar macht und die normale Arbeit mit Scan, Touch und lokaler Spracheingabe unterstuetzt.
 
-## Aktueller Stand
+Das Projekt untersucht, wie ein hybrider Assistent in einem Lagerprozess aussehen kann: Odoo bleibt die fuehrende Datenquelle, FastAPI bildet die kontrollierte App-Schicht, die PWA ist die mobile Oberflaeche, und n8n uebernimmt nachgelagerte Workflows wie Quality-Alerts, Fehlmengen und Ausnahmeassistenz.
 
-- Odoo bleibt System of Record
-- FastAPI bleibt die einzige App-API fuer die PWA
-- n8n bleibt Orchestrator fuer async Events und synchrone Ausnahmeassistenz
-- Whisper laeuft lokal als ASR-Service; der normale Voice-Pfad bleibt ohne n8n
-- Welle A fuer die Quality-Alert-KI-Bewertung ist im Repo umgesetzt
-- Phase A-C fuer kontrollierte Inbetriebnahme, neutrales Integrations-Logging und Telemetrie-Export ist im Repo vorbereitet
+## Kurzbeschreibung
 
-## Welle A: Quality Alert KI-Bewertung
+Der Mobile Picking & Voice Assistant ist eine mobile Web-App fuer Picker im Lager. Ein Picker sieht offene Odoo-Pickings, wird schrittweise zum naechsten Artikel gefuehrt, bestaetigt Positionen per Barcode, Touch oder Stimme und kann Probleme direkt als Quality Alert oder Fehlmenge melden.
 
-Diese Welle war bewusst klein und technisch risikoarm.
+Der Kernworkflow bleibt lokal und robust: Die PWA spricht nie direkt mit Odoo oder n8n, sondern ausschliesslich mit dem FastAPI-Backend. Odoo bleibt System of Record. Sprache wird lokal ueber Whisper erkannt; Piper oder der Browser geben Antworten aus. n8n wird nicht zum App-Backend, sondern nur fuer Folgeprozesse und Ausnahmefaelle genutzt.
 
-Umgesetzt:
+## Was das System in 5 Schritten macht
 
-- Odoo-UI der Tab `KI-Bewertung` bereinigt
-- Odoo-Datenmodell minimal erweitert um:
-  - `ai_enhanced_description`
-  - `ai_photo_analysis`
-- internen Writeback-Vertrag fuer `quality-assessment` erweitert
-- Klartext-Chatter fuer KI-Writebacks eingefuehrt
-- `n8n/workflows/quality-alert-created.json` minimal erweitert
-- Heuristik-Fallback beibehalten
+1. **Auftrag aus Odoo laden**
+   Die PWA ruft ueber FastAPI offene Pickings aus Odoo ab. Ein Picker waehlt oder uebernimmt einen Auftrag.
 
-Nicht Teil von Welle A:
+2. **Naechste Position verstaendlich anzeigen**
+   Die App zeigt Lagerplatz, Produkt, Menge, Artikelbild, Fortschritt und Kontext so an, dass der Picker am Smartphone arbeiten kann.
 
-- keine mobile Diktierfunktion
-- kein `draft-enhancement`
-- keine echte Vision-Pipeline
-- kein OpenAI-Zwang
-- keine neue Quality-Alert-Bedienlogik in der PWA
+3. **Position bestaetigen**
+   Der Picker bestaetigt per Barcode-Scan, Touch-Button oder Voice-Kommando. Bei serialisierten Artikeln kann zusaetzlich eine Seriennummer erfasst werden.
 
-## Kernfunktionen
+4. **Backend prueft und schreibt nach Odoo**
+   FastAPI validiert Barcode, Bestand, Picker-Identitaet, Idempotency und Seriennummernlogik. Erst danach wird die Bewegung in Odoo aktualisiert.
 
-### Picking
-- offene Pickings in der PWA
-- Soft Claiming mit Heartbeats
-- Idempotency fuer mutierende Requests
-- Barcode-, Touch- und Voice-Bestaetigung
-- Route-Plan fuer offene Pick-Positionen
+5. **Folgeprozesse laufen kontrolliert weiter**
+   Nach der fachlichen Odoo-Aktion stoesst FastAPI bei Bedarf n8n-Workflows an: Quality-Alert-Bewertung, Fehlmengenprozess, Pick-Abschluss oder synchrone Ausnahmeassistenz. Wenn n8n ausfaellt, bleibt der Picking-Kern trotzdem bedienbar.
 
-### Voice
-- `POST /api/voice/recognize` fuer lokalen Voice-Hot-Path
-- `POST /api/voice/assist` fuer synchrone Ausnahmeassistenz
-- Odoo- und Obsidian-Kontext koennen in Ausnahmefaellen angereichert werden
+## Architektur
 
-### Quality Alerts
-- `POST /api/quality-alerts` akzeptiert Beschreibung, Kontext und optional mehrere Fotos
-- Alerts werden zuerst in Odoo erstellt; `ai_evaluation_status = pending` wird nur gesetzt, wenn `quality-alert-created` erfolgreich an n8n uebergeben wurde
-- wenn die n8n-Uebergabe scheitert, bleibt der Alert sichtbar, wird aber auf `failed` markiert und im Chatter begruendet
-- n8n bewertet den Alert asynchron und schreibt kontrolliert ueber FastAPI zurueck
-- Odoo zeigt im Hauptblock `Systembewertung` nur:
-  - Analyse-Status
-  - Einstufung
-  - Empfohlene Aktion
-  - Analysiert am
+![Architekturuebersicht](Projekt-Wiki/_attachments/architektur.png)
 
-## Architektur in Kurzform
+Die Architektur folgt drei Grundregeln:
+
+- **Odoo ist System of Record:** Stammdaten, Lagerbestand, Pickings und Quality Alerts bleiben in Odoo.
+- **FastAPI ist die einzige App-API:** Die PWA spricht nur mit `/api/*`, nie direkt mit Odoo oder n8n.
+- **n8n ist Orchestrator:** n8n verarbeitet Folgeprozesse, liegt aber nicht im normalen Voice- oder Picking-Hot-Path.
+
+Kurzform:
 
 ```text
 PWA -> Caddy -> FastAPI -> Odoo
                 |-> Whisper
+                |-> Piper
                 `-> n8n
+
 n8n -> interne FastAPI-Callbacks -> Odoo
 ```
 
-## Wichtige Endpunkte
+## Kernfunktionen
 
-| Methode | Pfad | Zweck |
-| ------- | ---- | ----- |
-| `GET` | `/api/pickers` | aktive Odoo-Picker |
-| `GET` | `/api/pickings` | offene Pickings |
-| `POST` | `/api/pickings/{id}/confirm-line` | Pick bestaetigen |
-| `POST` | `/api/quality-alerts` | Quality Alert anlegen |
-| `POST` | `/api/voice/recognize` | Transkript + Intent |
-| `POST` | `/api/voice/assist` | synchrone Ausnahmeassistenz |
-| `POST` | `/api/internal/n8n/quality-assessment` | Quality-Writeback |
-| `POST` | `/api/internal/n8n/replenishment-action` | Replenishment-Writeback |
-| `POST` | `/api/integration/log` | neutrales Integrations-/Audit-Logging fuer n8n |
+- Mobile PWA fuer offene Odoo-Pickings
+- Picker-Auswahl, Claiming, Heartbeat und idempotente Schreiboperationen
+- Barcode-, Touch- und Voice-Bestaetigung
+- Optionaler Seriennummern-Scan fuer serialisierte Produkte
+- Lokale Spracherkennung ueber Whisper
+- Lokale oder Browser-basierte Sprachausgabe
+- Quality Alerts mit Foto- und Kontextdaten
+- n8n-Callbacks fuer Quality-Bewertung, Fehlmengen und manuelle Pruefung
+- Telemetrie fuer Serial-Confirm und n8n-Callback-Auswertung
+- Playwright-Tests fuer Kernflows, Accessibility und visuelle Baselines
+
+## Aktueller Stand
+
+Stand: 22. Juni 2026.
+
+Der aktuelle Branch arbeitet am Seriennummer-Confirm-Flow. Bereits umgesetzt sind:
+
+- Seriennummern werden im Confirm-Flow erfasst und an das Backend uebergeben.
+- Das Backend schreibt Seriennummern bei serialisierten Produkten nach Odoo.
+- Whitespace-only-Seriennummern werden nicht gespeichert.
+- Serial-Confirm-Events werden strukturiert geloggt.
+- Die PWA verhindert Bulk-Confirm fuer serialisierte Restpositionen.
+- Backend-, PWA-, Playwright-, A11y-, Visual- und Stack-Smoke-Checks sind lokal pruefbar.
+
+Bereinigter GitHub-Stand:
+
+- Der Docker-Stack enthaelt nur noch die fuer den Mobile-Picking-Kern noetigen Services: Caddy, PostgreSQL, Odoo, FastAPI, Whisper, Piper, n8n und PWA.
+- Mailpit, Cloudflare-Tunnel und fachfremde Diti/P1/WH-Workflows sind nicht Teil dieses Repository-Stands.
+- Generierte n8n-Backups, lokale Load-Test-Ergebnisse und temporaere Praesentationsskripte sind nicht Teil des GitHub-Stands.
+- Fachfremde Workflows koennen lokal noch in einer n8n-Instanz aktiv sein; sie gehoeren aber nicht zum bereinigten Bachelor-Repository.
+- Die README ist bewusst nur Einstieg und Ueberblick. Detailwissen liegt in `Projekt-Wiki/` und `Mobile Picking und Voice Assistant/docs/`.
+
+## Repository-Struktur
+
+```text
+.
+|-- README.md
+|-- Projektbeschreibung.txt
+|-- Projekt-Wiki/
+|   |-- 00 - Start Hier (Übersichtskarte).md
+|   |-- 02 - Architektur & Diagramm erklärt.md
+|   `-- _attachments/architektur.png
+`-- Mobile Picking und Voice Assistant/
+    |-- docker-compose.yml   Lokaler Kernstack
+    |-- Makefile             Linux/macOS-Kommandos
+    |-- package.json         PWA-/Playwright-Testkommandos
+    |-- backend/            FastAPI, Odoo-Adapter, Picking-Logik, Tests
+    |-- pwa/                Mobile PWA in HTML/CSS/Vanilla JS
+    |-- odoo/               Custom Odoo-Addons und Odoo-Konfiguration
+    |-- n8n/                Mobile-Picking-Workflows und n8n-Tests
+    |-- e2e/                Playwright, A11y und Visual-Tests
+    |-- infrastructure/     Caddy, Docker, Zertifikate, Smoke-/Import-Skripte
+    |-- piper/              Lokaler TTS-Service
+    `-- docs/               Architektur, Vertrage, Evaluation, Setup
+```
 
 ## Wichtige Dokumente
 
-- `docs/ARCHITECTURE.md`
-- `docs/QUALITY_ALERT_AI_FIELDS.md`
-- `docs/N8N_CONTRACT_FREEZE_V1.md`
+- `Projekt-Wiki/00 - Start Hier (Übersichtskarte).md`
+- `Projekt-Wiki/02 - Architektur & Diagramm erklärt.md`
+- `Mobile Picking und Voice Assistant/docs/ARCHITECTURE.md`
+- `Mobile Picking und Voice Assistant/docs/N8N_CONTRACT_FREEZE_V1.md`
+- `Mobile Picking und Voice Assistant/docs/EVALUATION.md`
+- `Mobile Picking und Voice Assistant/docs/SETUP.md`
 
-Private Obsidian-Notizen liegen nicht mehr im Workspace. Falls sie gebraucht werden,
-liegen sie im OneDrive-Archiv unter `Bachelor-Auslagerung/2026-05-12/Notzien`.
+## Verifikation
 
-## Setup in Kurzform
+Der Projektstand ist so aufgebaut, dass die wichtigsten Ebenen separat pruefbar sind:
 
-```powershell
-docker compose up -d
+- Backend: Python/Pytest
+- PWA-Logik: Node-Test-Runner
+- Mobile UI: Playwright
+- Accessibility: Axe + Playwright
+- Visual Regression: Playwright-Snapshots
+- n8n-Vertraege: statische Workflow-Vertragspruefung
+- Lokaler Stack: API-Smoke gegen Docker Compose
+
+Die dokumentierten Projekt-Kommandos liegen in:
+
+```text
+Mobile Picking und Voice Assistant/Makefile
+Mobile Picking und Voice Assistant/infrastructure/scripts/workflow.ps1
 ```
 
-Danach typischerweise:
+## Bachelorarbeits-Kontext
 
-1. Odoo-Addons installieren oder upgraden
-2. `.env` sauber setzen und `ODOO_API_KEY` auf einen dedizierten Service-User legen
-3. n8n-Backup erzeugen: `bash infrastructure/scripts/import-workflows.sh backup`
-4. n8n-Workflows kontrolliert importieren: `bash infrastructure/scripts/import-workflows.sh import <backup-dir>`
-5. Workflows gezielt aktivieren: `bash infrastructure/scripts/import-workflows.sh activate <backup-dir> <workflow-file>`
-6. API und PWA pruefen
+Das Projekt ist kein generisches Warenwirtschaftssystem, sondern ein fokussierter Forschungs-Prototyp. Es zeigt, wie ein bestehendes ERP-System durch eine mobile, sprachgestuetzte Bedienoberflaeche erweitert werden kann, ohne die fachliche Datenhoheit aus Odoo herauszuziehen.
 
-## Verifikation des Welle-A-Stands
+Im Mittelpunkt stehen:
 
-Lokal erfolgreich geprueft:
-
-- `python -m pytest backend/tests/test_n8n_internal_routes.py -q`
-- Python-Syntaxcheck der geaenderten Backend-Dateien
-- XML-Parse der Odoo-View
-- JSON-Parse des n8n-Workflows
-
-Noch offen fuer den Live-Stand:
-
-- Odoo-Addon-Upgrade in der aktiven Datenbank
-- gestuften n8n-Importpfad gegen die Live-Runtime durchlaufen
-- Smoke-Tests fuer Voice, Quality und Replenishment live ausfuehren
-- Telemetrie-Export fuer das Live-Testfenster erzeugen
-
-## Naechste sinnvolle Schritte
-
-1. gestuften n8n-Rollout mit `backup -> import -> activate` live durchlaufen
-2. Erfolgspfad und Fehlerpfad fuer Quality/Voice/Replenishment manuell pruefen
-3. Telemetrie mit `python infrastructure/scripts/export_telemetry_stats.py --since ...` auswertbar exportieren
+- Praxistauglichkeit fuer mobile Lagerarbeit
+- robuste Fallbacks statt reiner Sprachbedienung
+- klare Trennung zwischen Kernprozess und Automatisierung
+- nachvollziehbare Datenfluesse fuer Evaluation und Bachelorarbeit
+- saubere Dokumentation der Architekturentscheidungen

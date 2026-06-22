@@ -6,7 +6,7 @@ export const VOICE_STATES = Object.freeze({
     COOLDOWN: 'cooldown',
 });
 
-export const POST_TTS_COOLDOWN_MS = 500;
+export const POST_TTS_COOLDOWN_MS = 900;
 
 export function normalizePromptText(text) {
     return String(text || '')
