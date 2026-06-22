@@ -15,3 +15,11 @@ def test_reconcile_detects_missing_unknown_and_duplicates():
 def test_reconcile_ok_when_identical():
     result = reconcile_serials(["A1", "A2"], ["A2", "A1"])
     assert result == {"ok": True, "missing": [], "unknown": [], "duplicates": []}
+
+
+def test_reconcile_empty_inputs():
+    assert reconcile_serials([], []) == {"ok": True, "missing": [], "unknown": [], "duplicates": []}
+
+
+def test_reconcile_strips_whitespace():
+    assert reconcile_serials([" A1 "], ["A1"]) == {"ok": True, "missing": [], "unknown": [], "duplicates": []}
