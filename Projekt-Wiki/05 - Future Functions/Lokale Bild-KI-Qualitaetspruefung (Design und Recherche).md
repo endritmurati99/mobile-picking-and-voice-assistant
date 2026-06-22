@@ -29,8 +29,8 @@ created: 2026-06-22
 ### A) Qualitäts-/Identitätsprüfung beim Picking
 - Picker wählt/scannt ein Produkt (z. B. `rosa brick 2x2`).
 - Kamera nimmt ein Foto auf → lokales Vision-Modell bewertet:
-  - **Identität:** Ist das wirklich ein `rosa brick 2x2`? (Abgleich gegen erwarteten Namen / Referenzbild)
-  - **Zustand:** Beschädigt? Verschmutzt? Vollständig?
+  - **Identität:** Ist das wirklich der erwartete Lego-Block (z. B. `Brick 2x2 rot`)? (Abgleich gegen Namen / Referenzbild)
+  - **Defekt (Kern-Fokus):** Kratzer, fehlende oder beschädigte **Noppen**, Verschmutzung, Verformung — und **Seriennummer unlesbar**.
 - Ergebnis als **strukturierte Ausgabe** → kann einen Quality Alert (`quality.alert.custom`) anreichern.
 
 ### B) Retouren-Prüfung per Seriennummer (+ optional Bild)
@@ -50,6 +50,23 @@ Kombiniert mit [[Barcode als Seriennummer-Bestätigung]] und [[Karton- und Behae
 **Nutzen:** lückenlose Rückverfolgbarkeit + Schutz gegen Retouren-Betrug — „die teure CPU, die rausging, ist auch die, die zurückkommt".
 
 ---
+
+## 1b. Konkretisierung (2026-06-22): Lego-Defekterkennung
+
+> [!success] Scope geklärt
+> Die Produkte sind **Lego-Blöcke**. Das Modell soll **einfach** prüfen: **Ist der Block defekt?**
+> Konkret: **Kratzer**, **fehlende/beschädigte Noppen**, Verschmutzung/Verformung, und **Seriennummer unlesbar**.
+> Also primär **Defekt ja/nein + Art des Defekts** — keine komplexe Szenenanalyse nötig (gut für kleine, lokale Modelle).
+
+### Datenquelle: Produktbilder (Referenzbilder)
+
+> [!info] Wo die Bilder liegen
+> Produktbilder liegen **in Odoo** im Feld `product.product.image_1920` (bzw. `image_256` …) — **nicht** als Dateien auf der Platte. Die PWA holt sie über den Backend-Endpoint `GET /api/products/{id}/image` (`backend/app/routers/pickings.py`).
+
+**Export (2026-06-22):** 47 Produktbilder wurden aus Odoo (DB `masterfischer`) exportiert nach `_attachments/produktbilder/` — überwiegend Lego-Blöcke (`Brick 2x2 rot`, `Brick 2x4 W. Bows blau`, `Plate 2x4 grün`, `Roof Tile …`) plus einige Baumodelle. Diese dienen als **Referenz-Soll-Bilder** für den Identitätsabgleich.
+
+> [!warning] Noch zu beschaffen
+> Die Odoo-Bilder sind **saubere Katalog-Referenzen (Soll-Zustand)**. Für die **Defekt**-Erkennung brauchen wir zusätzlich **Ist-Fotos mit echten Mängeln** (Kratzer, fehlende Noppen) als Test-/Benchmark-Material — die müssen wir noch fotografieren/sammeln.
 
 ## 2. Einordnung in die bestehende Architektur
 
@@ -130,11 +147,11 @@ Der Harness ist ein **reproduzierbares Skript** über einen festen Bildsatz und 
 ---
 
 ## 7. Offene Fragen / nächste Schritte
-- [ ] **Zielhardware** klären: Demo-Laptop vs. Prof-Rechner vs. perspektivisch Lager-Gerät → bestimmt das RAM-Budget und die Modellauswahl.
-- [ ] **Was genau erkennen?** Nur Identität, oder auch Defekt/Verschmutzung/Vollständigkeit/Label-OCR?
-- [ ] Referenzbild-Ordner: pro Produkt 1 Referenz oder mehrere Winkel?
+- [x] **Was genau erkennen?** → Lego-Defekte: Kratzer, fehlende/beschädigte Noppen, Verschmutzung, Seriennummer unlesbar (Defekt ja/nein + Art).
+- [x] **Referenz-Soll-Bilder** → 47 Produktbilder aus Odoo exportiert nach `_attachments/produktbilder/`.
+- [ ] **Zielhardware**: läuft auf dem Demo-Laptop UND später auf dem Rechner des Profs (andere RAM/Leistung) → Harness muss portabel messen.
+- [ ] **Ist-Fotos mit Defekten** sammeln/fotografieren (Benchmark-/Test-Bildsatz: gut / Kratzer / fehlende Noppe / falsches Produkt).
 - [ ] Erstes Modell für den Prototyp festlegen (Vorschlag: **Qwen2.5-VL 3B** oder **Moondream 2**).
-- [ ] Benchmark-Bildsatz vorbereiten (Gut-/Schlecht-/Falsch-Produkt-Bilder).
 - [ ] Danach: konkreter Implementierungsplan (`writing-plans`).
 
 ## Quellen (Recherche)
