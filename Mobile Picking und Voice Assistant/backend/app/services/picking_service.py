@@ -574,6 +574,7 @@ class PickingService:
         scanned_barcode: str,
         quantity: float,
         picker_identity: PickerIdentity | None = None,
+        serial_number: str = "",
     ) -> dict:
         """
         Confirm a move line via barcode scan.
@@ -629,6 +630,19 @@ class PickingService:
 
         qty = quantity if quantity > 0 else line.get("quantity", 1.0)
         await self._odoo.write("stock.move.line", [move_line_id], {"quantity": qty})
+
+        recorded_serial = ""
+        serial_clean = (serial_number or "").strip()
+        if serial_clean and product_id:
+            tracked = await self._odoo.search_read(
+                "product.product", [("id", "=", product_id)], ["tracking"]
+            )
+            tracking = tracked[0].get("tracking") if tracked else None
+            if tracking in ("serial", "lot"):
+                await self._odoo.write(
+                    "stock.move.line", [move_line_id], {"lot_name": serial_clean}
+                )
+                recorded_serial = serial_clean
 
         if move_id:
             await self._odoo.write("stock.move", [move_id], {"picked": True})
@@ -703,6 +717,7 @@ class PickingService:
             "success": True,
             "message": "Auftrag abgeschlossen." if picking_complete else "Bestätigt.",
             "picking_complete": picking_complete,
+            "recorded_serial": recorded_serial,
         }
 
     async def request_replenishment(

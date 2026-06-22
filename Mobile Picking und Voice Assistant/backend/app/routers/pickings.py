@@ -40,6 +40,7 @@ class ConfirmLineRequest(BaseModel):
     move_line_id: int
     scanned_barcode: str = ""
     quantity: float = 0
+    serial_number: str = ""
 
 
 class ReplenishmentRequest(BaseModel):
@@ -301,6 +302,7 @@ async def confirm_line(
             body.scanned_barcode,
             body.quantity,
             picker_identity=picker_identity,
+            serial_number=body.serial_number,
         )
     except ClaimConflictError as exc:
         await _finalize_error(workflow, reservation, 409, exc.detail)

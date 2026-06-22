@@ -452,6 +452,42 @@ class TestConfirmPickLine:
         assert result["picking_complete"] is False
         n8n.fire_event.assert_not_called()
 
+
+class TestConfirmPickLineSerial:
+    @pytest.mark.anyio
+    async def test_writes_lot_name_for_serial_tracked_product(self, service, odoo, n8n):
+        async def fake_execute_kw(model, method, args, kwargs=None):
+            if model == "stock.move.line" and method == "read":
+                return [{"id": 50, "product_id": [5, "[CPU] Xeon"], "quantity": 1,
+                         "move_id": [10, "MOVE/10"], "location_id": [1, "WH/Stock/A-1"]}]
+            if model == "stock.move" and method == "search_read":
+                return [{"id": 10, "picked": True}]
+            raise AssertionError(f"unexpected execute_kw {model}.{method}")
+
+        async def fake_search_read(model, domain, fields, limit=100):
+            if model == "product.product" and "barcode" in fields:
+                return [{"barcode": "CPU-XEON-1"}]
+            if model == "product.product" and "tracking" in fields:
+                return [{"tracking": "serial"}]
+            if model == "stock.quant":
+                return [{"quantity": 10, "reserved_quantity": 0, "location_id": [1, "WH/Stock/A-1"]}]
+            raise AssertionError(f"unexpected search_read {model} {fields}")
+
+        odoo.execute_kw.side_effect = fake_execute_kw
+        odoo.search_read.side_effect = fake_search_read
+        odoo.write.return_value = True
+        odoo.call_method.return_value = True
+        n8n.fire_event.return_value = N8NEventResult(delivered=True, correlation_id="c1", error=None)
+
+        result = await service.confirm_pick_line(
+            picking_id=1, move_line_id=50, scanned_barcode="CPU-XEON-1",
+            quantity=1, serial_number="SN-0001",
+        )
+
+        assert result["success"] is True
+        assert result["recorded_serial"] == "SN-0001"
+        odoo.write.assert_any_call("stock.move.line", [50], {"lot_name": "SN-0001"})
+
     @pytest.mark.anyio
     async def test_skips_barcode_check_if_no_barcode_in_odoo(self, service, odoo):
         odoo.execute_kw.side_effect = [
