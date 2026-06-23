@@ -10,6 +10,7 @@ from app.services.mobile_workflow import (
     PickerIdentity,
     WriteRequestContext,
 )
+from app.services.cluster_service import ClusterService
 from app.services.n8n_webhook import N8NWebhookClient
 from app.services.odoo_client import OdooClient
 from app.services.picking_service import PickingService
@@ -28,6 +29,10 @@ def get_n8n_client() -> N8NWebhookClient:
 
 def get_picking_service() -> PickingService:
     return PickingService(get_odoo_client(), get_n8n_client())
+
+
+def get_cluster_service() -> ClusterService:
+    return ClusterService(get_odoo_client(), get_n8n_client())
 
 
 def get_mobile_workflow_service() -> MobileWorkflowService:
