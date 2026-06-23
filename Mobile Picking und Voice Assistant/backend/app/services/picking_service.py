@@ -31,7 +31,14 @@ def _emit_serial_confirm(
     serial_recorded: bool,
     t0: float,
 ) -> None:
-    """Emit a structured serial_confirm telemetry event."""
+    """Emit a structured serial_confirm telemetry event.
+
+    Invariant: ``confirm_pick_line`` emits exactly one such event per call on
+    every exit path — both failures (``success=False``: line missing, wrong
+    barcode, out of stock) and successes. This keeps the ``success_rate`` metric
+    in ``summarize_serial_events`` a true rate over all confirm attempts, not
+    only over the ones that happened to succeed.
+    """
     logger.info(json.dumps({
         "event_type": "serial_confirm",
         "picking_id": picking_id,
@@ -614,6 +621,7 @@ class PickingService:
             {"fields": ["id", "product_id", "quantity", "move_id", "location_id"]},
         )
         if not lines:
+            _emit_serial_confirm(False, picking_id, move_line_id, None, False, _t0)
             return {
                 "success": False,
                 "message": "Move-Line nicht gefunden",
@@ -657,7 +665,7 @@ class PickingService:
             }
 
         qty = quantity if quantity > 0 else line.get("quantity", 1.0)
-        await self._odoo.write("stock.move.line", [move_line_id], {"quantity": qty})
+        line_values: dict[str, Any] = {"quantity": qty}
 
         recorded_serial = ""
         serial_clean = (serial_number or "").strip()
@@ -667,10 +675,12 @@ class PickingService:
             )
             tracking = tracked[0].get("tracking") if tracked else None
             if tracking in ("serial", "lot"):
-                await self._odoo.write(
-                    "stock.move.line", [move_line_id], {"lot_name": serial_clean}
-                )
+                line_values["lot_name"] = serial_clean
                 recorded_serial = serial_clean
+
+        # Quantity (and the optional serial) go to Odoo in a single move-line write
+        # instead of two separate round-trips for the same record.
+        await self._odoo.write("stock.move.line", [move_line_id], line_values)
 
         if move_id:
             await self._odoo.write("stock.move", [move_id], {"picked": True})
@@ -729,6 +739,12 @@ class PickingService:
                     },
                 ))
                 if not event_result.delivered:
+                    # The pick (and serial) was recorded in Odoo — only the n8n
+                    # follow-up degraded. Emit a success event so this confirm still
+                    # counts in the telemetry denominator.
+                    _emit_serial_confirm(
+                        True, picking_id, move_line_id, product_id, bool(recorded_serial), _t0
+                    )
                     return {
                         "success": True,
                         "message": (
