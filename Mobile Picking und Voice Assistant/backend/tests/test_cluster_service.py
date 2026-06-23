@@ -180,3 +180,108 @@ class TestGetBatch:
         odoo.search_read.return_value = []
         result = await service.get_batch(123)
         assert result.get("error")
+
+
+class TestConfirmClusterLine:
+    @pytest.mark.anyio
+    async def test_writes_quantity_and_picked_without_validate(self, service, odoo):
+        async def fake_execute_kw(model, method, args, kwargs=None):
+            if model == "stock.move.line" and method == "read":
+                return [{"id": 100, "product_id": [5, "Wal"], "quantity": 0,
+                         "move_id": [50, "m"], "location_id": [9, "L"]}]
+            raise AssertionError((model, method))
+
+        odoo.execute_kw.side_effect = fake_execute_kw
+        odoo.search_read.return_value = []  # get_batch progress reads -> leer ok
+
+        await service.confirm_cluster_line(99, 1, 100, scanned_barcode="", quantity=2)
+
+        odoo.write.assert_any_call("stock.move.line", [100], {"quantity": 2})
+        odoo.write.assert_any_call("stock.move", [50], {"picked": True})
+        # KEIN button_validate
+        for call in odoo.call_method.call_args_list:
+            assert call.args[1] != "button_validate"
+
+    @pytest.mark.anyio
+    async def test_records_serial_for_tracked_product(self, service, odoo):
+        async def fake_execute_kw(model, method, args, kwargs=None):
+            if model == "stock.move.line" and method == "read":
+                return [{"id": 100, "product_id": [5, "Wal"], "quantity": 0,
+                         "move_id": [50, "m"], "location_id": [9, "L"]}]
+            raise AssertionError((model, method))
+
+        odoo.execute_kw.side_effect = fake_execute_kw
+
+        async def fake_search_read(model, domain, fields, limit=100):
+            if model == "product.product":
+                return [{"id": 5, "tracking": "serial", "barcode": "111"}]
+            return []
+
+        odoo.search_read.side_effect = fake_search_read
+
+        result = await service.confirm_cluster_line(99, 1, 100, scanned_barcode="111",
+                                                    quantity=1, serial_number="SN-1")
+        written = [c.args[2] for c in odoo.write.call_args_list if c.args[0] == "stock.move.line"]
+        assert any(v.get("lot_name") == "SN-1" for v in written)
+        assert result["recorded_serial"] == "SN-1"
+
+    @pytest.mark.anyio
+    async def test_rejects_wrong_barcode(self, service, odoo):
+        async def fake_execute_kw(model, method, args, kwargs=None):
+            if model == "stock.move.line" and method == "read":
+                return [{"id": 100, "product_id": [5, "Wal"], "quantity": 0,
+                         "move_id": [50, "m"], "location_id": [9, "L"]}]
+            raise AssertionError((model, method))
+
+        odoo.execute_kw.side_effect = fake_execute_kw
+
+        async def fake_search_read(model, domain, fields, limit=100):
+            if model == "product.product":
+                return [{"id": 5, "barcode": "111", "tracking": "none"}]
+            return []
+
+        odoo.search_read.side_effect = fake_search_read
+        result = await service.confirm_cluster_line(99, 1, 100, scanned_barcode="999", quantity=1)
+        assert result["success"] is False
+        odoo.write.assert_not_called()
+
+
+class TestValidateBatch:
+    @pytest.mark.anyio
+    async def test_calls_action_done_with_backorder_ctx_and_fires_n8n(self, service, odoo, n8n):
+        from app.services.n8n_webhook import N8NEventResult
+        odoo.search_read.return_value = [{"id": 99, "picking_ids": [1, 2]}]
+        odoo.call_method.return_value = True
+        n8n.fire_event.return_value = N8NEventResult(delivered=True, error=None, correlation_id="c1")
+
+        from app.services.mobile_workflow import PickerIdentity
+        result = await service.validate_batch(99, PickerIdentity(user_id=7))
+
+        done_call = [c for c in odoo.call_method.call_args_list
+                     if c.args[:2] == ("stock.picking.batch", "action_done")]
+        assert done_call, "action_done must be called"
+        assert done_call[0].args[2] == [99]
+        assert done_call[0].kwargs["context"]["skip_backorder"] is True
+        assert done_call[0].kwargs["context"]["picking_ids_not_to_backorder"] == [1, 2]
+        n8n.fire_event.assert_called_once()
+        assert result["batch_complete"] is True
+
+    @pytest.mark.anyio
+    async def test_reports_pending_when_action_done_returns_wizard(self, service, odoo, n8n):
+        odoo.search_read.return_value = [{"id": 99, "picking_ids": [1, 2]}]
+        odoo.call_method.return_value = {"res_model": "stock.backorder.confirmation",
+                                         "type": "ir.actions.act_window"}
+        result = await service.validate_batch(99)
+        assert result["success"] is False
+        assert result["batch_complete"] is False
+        assert result["pending_action"] == "stock.backorder.confirmation"
+        n8n.fire_event.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_reports_failure_when_action_done_raises(self, service, odoo, n8n):
+        from app.services.odoo_client import OdooAPIError
+        odoo.search_read.return_value = [{"id": 99, "picking_ids": [1, 2]}]
+        odoo.call_method.side_effect = OdooAPIError("rpc error")
+        result = await service.validate_batch(99)
+        assert result["success"] is False
+        assert result["batch_complete"] is False

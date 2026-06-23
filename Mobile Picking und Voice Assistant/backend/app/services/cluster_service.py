@@ -243,3 +243,113 @@ class ClusterService:
                 "ratio": round(done / total, 4) if total else 0.0,
             },
         }
+
+    async def confirm_cluster_line(
+        self, batch_id, picking_id, move_line_id,
+        scanned_barcode="", quantity=0, serial_number="", picker_identity=None,
+    ) -> dict[str, Any]:
+        """Position bestaetigen: Menge (+ optional Serial) schreiben, OHNE Validierung.
+
+        Anders als confirm_pick_line wird hier KEIN button_validate ausgeloest -
+        der ganze Batch wird spaeter gesammelt via validate_batch abgeschlossen.
+        """
+        t0 = time.monotonic()
+        lines = await self._odoo.execute_kw(
+            "stock.move.line", "read", [[move_line_id]],
+            {"fields": ["id", "product_id", "quantity", "move_id", "location_id"]},
+        )
+        if not lines:
+            self._emit_cluster_confirm(False, batch_id, picking_id, move_line_id, None, False, t0)
+            return {"success": False, "message": "Move-Line nicht gefunden", "progress": None}
+
+        line = lines[0]
+        product_id = line["product_id"][0] if line.get("product_id") else None
+        move_id = line["move_id"][0] if line.get("move_id") else None
+
+        if product_id and scanned_barcode:
+            products = await self._odoo.search_read(
+                "product.product", [("id", "=", product_id)], ["barcode", "tracking"])
+            expected = products[0].get("barcode") if products else None
+            if expected and scanned_barcode != expected:
+                self._emit_cluster_confirm(False, batch_id, picking_id, move_line_id, product_id, False, t0)
+                return {"success": False, "message": f"Falscher Artikel. Erwartet: {expected}",
+                        "progress": None}
+
+        qty = quantity if quantity > 0 else line.get("quantity", 1.0)
+        line_values: dict[str, Any] = {"quantity": qty}
+
+        recorded_serial = ""
+        serial_clean = (serial_number or "").strip()
+        if serial_clean and product_id:
+            tracked = await self._odoo.search_read(
+                "product.product", [("id", "=", product_id)], ["tracking"])
+            if tracked and tracked[0].get("tracking") in ("serial", "lot"):
+                line_values["lot_name"] = serial_clean
+                recorded_serial = serial_clean
+
+        await self._odoo.write("stock.move.line", [move_line_id], line_values)
+        if move_id:
+            await self._odoo.write("stock.move", [move_id], {"picked": True})
+
+        self._emit_cluster_confirm(
+            True, batch_id, picking_id, move_line_id, product_id, bool(recorded_serial), t0)
+        batch = await self.get_batch(batch_id)
+        return {"success": True, "message": "Bestätigt.", "recorded_serial": recorded_serial,
+                "progress": batch.get("progress")}
+
+    async def validate_batch(self, batch_id, picker_identity=None) -> dict[str, Any]:
+        """Ganzen Batch gesammelt abschliessen via action_done (+ n8n-Event)."""
+        batches = await self._odoo.search_read(
+            "stock.picking.batch", [("id", "=", batch_id)], ["picking_ids"], limit=1)
+        member_ids = (batches[0].get("picking_ids", []) if batches else []) or []
+
+        try:
+            result = await self._odoo.call_method(
+                "stock.picking.batch", "action_done", [batch_id],
+                context={
+                    "skip_backorder": True,
+                    "picking_ids_not_to_backorder": member_ids,
+                    "skip_sms": True,
+                },
+            )
+        except OdooAPIError as exc:
+            return {"success": False, "batch_complete": False,
+                    "message": f"Batch-Abschluss fehlgeschlagen: {exc}"}
+
+        # action_done gibt bei offenen Rueckfragen ein Wizard-Action-Dict zurueck.
+        if isinstance(result, dict) and result.get("res_model"):
+            return {"success": False, "batch_complete": False,
+                    "pending_action": result.get("res_model"),
+                    "message": ("Batch-Abschluss erfordert eine manuelle Bestätigung in Odoo "
+                                f"({result.get('res_model')}).")}
+
+        completed_by = "mobile-picking-assistant"
+        user_id = False
+        if picker_identity and getattr(picker_identity, "user_id", None):
+            completed_by = getattr(picker_identity, "picker_name", None) or completed_by
+            user_id = picker_identity.user_id
+
+        event = coerce_event_result(await self._n8n.fire_event(
+            "batch-confirmed",
+            {"batch_id": batch_id, "completed_by": completed_by, "completed_by_user_id": user_id},
+            picker={"user_id": user_id or None, "name": completed_by},
+        ))
+        if not event.delivered:
+            return {"success": True, "batch_complete": True, "integration_status": "degraded",
+                    "integration_error": event.error,
+                    "message": "Batch abgeschlossen, n8n-Folgeprozess degradiert."}
+        return {"success": True, "batch_complete": True, "message": "Batch abgeschlossen."}
+
+    def _emit_cluster_confirm(self, success, batch_id, picking_id, move_line_id,
+                              product_id, serial_recorded, t0):
+        """Strukturiertes cluster_confirm-Telemetrie-Event (analog serial_confirm)."""
+        logger.info(json.dumps({
+            "event_type": "cluster_confirm",
+            "batch_id": batch_id,
+            "picking_id": picking_id,
+            "move_line_id": move_line_id,
+            "product_id": product_id,
+            "success": success,
+            "serial_recorded": serial_recorded,
+            "latency_ms": int((time.monotonic() - t0) * 1000),
+        }, ensure_ascii=False))
