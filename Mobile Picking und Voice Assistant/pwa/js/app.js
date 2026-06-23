@@ -3093,6 +3093,21 @@ function formatClusterQty(value) {
     return Number.isInteger(num) ? String(num) : num.toFixed(2).replace(/\.?0+$/, '');
 }
 
+// Nur sichere Farbwerte in inline-styles zulassen (CSS-Injection-Schutz):
+// Hex-Farben oder var(--token). Alles andere faellt auf den Primaerton zurueck.
+function safeColor(value) {
+    const str = String(value ?? '').trim();
+    if (/^#[0-9a-fA-F]{3,8}$/.test(str)) return str;
+    if (/^var\(--[a-z0-9-]+\)$/i.test(str)) return str;
+    return 'var(--primary)';
+}
+
+// Ganzzahl fuer data-Attribute/Anzeige (verhindert Attribut-Ausbruch/XSS).
+function safeInt(value, fallback = 0) {
+    const num = Number.parseInt(value, 10);
+    return Number.isFinite(num) ? num : fallback;
+}
+
 async function enterClusterMode() {
     stopSpeaking();
     closeOverlay();
@@ -3141,7 +3156,7 @@ function renderClusterSelect() {
             const zone = picking.next_location_short || '';
             return `
                 <button type="button" class="cluster-pick ${isSelected ? 'cluster-pick--on' : ''}"
-                    data-cluster-pick-id="${picking.id}" aria-pressed="${isSelected}">
+                    data-cluster-pick-id="${safeInt(picking.id)}" aria-pressed="${isSelected ? 'true' : 'false'}">
                     <span class="cluster-pick__check" aria-hidden="true">${isSelected ? '✓' : ''}</span>
                     <span class="cluster-pick__body">
                         <span class="cluster-pick__ref">${escapeHtml(reference)}</span>
@@ -3259,12 +3274,14 @@ async function loadBatch(batchId) {
 function renderClusterWalk(batch) {
     const lines = Array.isArray(batch.lines) ? batch.lines : [];
     const progress = batch.progress || { total: lines.length, done: 0, ratio: 0 };
-    const pct = Math.round((progress.ratio || 0) * 100);
-    const allDone = progress.total > 0 && progress.done >= progress.total;
+    const doneCount = safeInt(progress.done);
+    const totalCount = safeInt(progress.total);
+    const pct = Math.max(0, Math.min(100, Math.round((Number(progress.ratio) || 0) * 100)));
+    const allDone = totalCount > 0 && doneCount >= totalCount;
 
     const legendHtml = (batch.boxes || []).map((box) => `
         <span class="cluster-box-legend__item">
-            <span class="cluster-box-chip" style="--box-color:${escapeHtml(box.box_color)}">${box.box_index}</span>
+            <span class="cluster-box-chip" style="--box-color:${safeColor(box.box_color)}">${safeInt(box.box_index)}</span>
             ${escapeHtml(box.picking_name)}
         </span>`).join('');
 
@@ -3275,24 +3292,25 @@ function renderClusterWalk(batch) {
         const name = line.product_name || 'Produkt';
         const serialBadge = line.tracking === 'serial' || line.tracking === 'lot'
             ? '<span class="cluster-stop__serial">Serial</span>' : '';
+        const lineId = safeInt(line.id);
         return `
             <article class="cluster-stop ${done ? 'cluster-stop--done' : ''}"
-                style="--box-color:${escapeHtml(line.box_color || 'var(--primary)')}"
-                data-stop-line="${line.id}" data-stop-picking="${line.picking_id}">
+                style="--box-color:${safeColor(line.box_color)}"
+                data-stop-line="${lineId}" data-stop-picking="${safeInt(line.picking_id)}">
                 <div class="cluster-stop__location">${escapeHtml(loc)}</div>
                 <div class="cluster-stop__body">
                     <div class="cluster-stop__product">${escapeHtml(name)} ${serialBadge}</div>
                     <div class="cluster-stop__box">
-                        <span class="cluster-box-chip" style="--box-color:${escapeHtml(line.box_color || 'var(--primary)')}">${line.box_index ?? '?'}</span>
+                        <span class="cluster-box-chip" style="--box-color:${safeColor(line.box_color)}">${safeInt(line.box_index, '?')}</span>
                         <span class="cluster-stop__order">${escapeHtml(line.picking_name || '')}</span>
-                        <span class="cluster-stop__qty">${qty} Stück</span>
+                        <span class="cluster-stop__qty">${escapeHtml(qty)} Stück</span>
                     </div>
                 </div>
                 <div class="cluster-stop__actions">
-                    <button type="button" class="icon-btn cluster-stop__voice" data-stop-voice="${line.id}" aria-label="Vorlesen">🔊</button>
+                    <button type="button" class="icon-btn cluster-stop__voice" data-stop-voice="${lineId}" aria-label="Vorlesen">🔊</button>
                     ${done
                         ? '<span class="cluster-stop__check" aria-label="Erledigt">✓</span>'
-                        : `<button type="button" class="btn-confirm cluster-stop__confirm" data-stop-confirm="${line.id}">Bestätigen</button>`}
+                        : `<button type="button" class="btn-confirm cluster-stop__confirm" data-stop-confirm="${lineId}">Bestätigen</button>`}
                 </div>
             </article>`;
     }).join('');
@@ -3302,7 +3320,7 @@ function renderClusterWalk(batch) {
             <header class="cluster-progress" aria-label="Batch-Fortschritt">
                 <div class="cluster-progress__head">
                     <div class="cluster-progress__title">${escapeHtml(batch.name || 'Batch')}</div>
-                    <div class="cluster-progress__count">${progress.done} / ${progress.total}</div>
+                    <div class="cluster-progress__count">${doneCount} / ${totalCount}</div>
                 </div>
                 <div class="cluster-progress__track" aria-hidden="true">
                     <span class="cluster-progress__bar" style="width:${pct}%"></span>
