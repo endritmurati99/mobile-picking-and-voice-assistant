@@ -361,6 +361,9 @@ function renderDetailLineList(lines, currentLineIndex) {
 let activeFilter = DEFAULT_FILTER;
 let claimHeartbeatTimer = null;
 let claimedPickingId = null;
+let serialPromptActive = false;
+let serialPromptCleanup = null;
+let confirmAllInProgress = false;
 let voiceLongPressTimer = null;
 let voiceLongPressStarted = false;
 let suppressNextVoiceClick = false;
@@ -808,6 +811,9 @@ function renderFilterChips(basePickings) {
 function closeOverlay() {
     const overlay = overlayEl();
     if (!overlay) return;
+    // Wird das Overlay extern geschlossen (z. B. Navigation), einen offenen
+    // Seriennummer-Prompt sauber als "Ueberspringen" aufloesen statt haengen zu lassen.
+    if (serialPromptCleanup) serialPromptCleanup();
     overlay.onclick = null;
     overlay.hidden = true;
     overlay.innerHTML = '';
@@ -1285,7 +1291,8 @@ function renderResponsiveCurrentLine() {
     const { currentPicking, currentLineIndex } = getState();
     if (!currentPicking) return;
     updateToolbar('detail');
-    closeOverlay();
+    // Ein offenes Seriennummer-Modal nicht durch ein Hintergrund-Re-Render schliessen.
+    if (!serialPromptActive) closeOverlay();
 
     const lines = currentPicking.move_lines || [];
     if (currentLineIndex >= lines.length) {
@@ -2168,6 +2175,9 @@ function askSerialNumber(productName) {
         const overlay = overlayEl();
         if (!overlay) { resolve(''); return; }
 
+        // Solange der Prompt offen ist, darf ein asynchrones Re-Render
+        // (Heartbeat-/Detail-Refresh) das Modal nicht wegschliessen.
+        serialPromptActive = true;
         overlay.hidden = false;
         // Build static HTML structure (no user content interpolated here)
         overlay.innerHTML = [
@@ -2191,9 +2201,35 @@ function askSerialNumber(productName) {
         const input = overlay.querySelector('#serial-input');
         input?.focus();
 
-        const finish = (value) => {
-            closeOverlay();
+        // Escape schliesst das Modal als "Ueberspringen" (capture-Phase, damit es
+        // auch bei Fokus im Eingabefeld greift).
+        const onKeydown = (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                finish('');
+            }
+        };
+
+        // settle() loest das Promise genau einmal auf und raeumt den Listener weg.
+        // Es wird sowohl von finish() (User-Aktion) als auch von closeOverlay()
+        // (externes Schliessen, z. B. Navigation) ueber serialPromptCleanup gerufen.
+        const settle = (value) => {
+            if (!serialPromptActive) return;
+            serialPromptActive = false;
+            serialPromptCleanup = null;
+            document.removeEventListener('keydown', onKeydown, true);
             resolve(value || '');
+        };
+        const finish = (value) => {
+            settle(value);
+            closeOverlay();
+        };
+        serialPromptCleanup = () => settle('');
+
+        document.addEventListener('keydown', onKeydown, true);
+        // Klick auf den Backdrop = Ueberspringen, konsistent zum Zone-Picker.
+        overlay.onclick = (event) => {
+            if (event.target === overlay) finish('');
         };
 
         overlay.querySelector('#serial-confirm')?.addEventListener('click', () => finish(input?.value.trim()));
@@ -2350,8 +2386,24 @@ async function finishVoiceLongPress() {
 }
 
 /**
+ * Programmatischer Einstieg fuer "alle verbleibenden Positionen bestaetigen".
+ * Wird vom Voice-Intent confirm_all genutzt und ueber window._app exponiert,
+ * damit der Bulk-(Serial-)Pfad in E2E-Tests deterministisch fahrbar ist.
+ */
+function triggerConfirmAll() {
+    const { currentPicking, currentLineIndex } = getState();
+    // Re-Entry verhindern: ein zweiter confirm_all-Trigger waehrend eines
+    // laufenden Bulk-Laufs wuerde ein offenes Serial-Modal-DOM ueberschreiben.
+    if (!currentPicking || confirmAllInProgress) return Promise.resolve();
+    confirmAllInProgress = true;
+    const lines = currentPicking.move_lines || [];
+    return Promise.resolve(handleConfirmAll(currentPicking, lines, currentLineIndex))
+        .finally(() => { confirmAllInProgress = false; });
+}
+
+/**
  * Bestätigt alle verbleibenden Pick-Positionen auf einmal.
- * Ruft confirm-line fuer jede offene Linie sequenziell auf.
+ * Serien-getrackte Positionen erzwingen dabei den Seriennummer-Modal-Flow.
  */
 async function handleConfirmAll(picking, lines, startIndex) {
     const remaining = lines.slice(startIndex);
@@ -2360,24 +2412,27 @@ async function handleConfirmAll(picking, lines, startIndex) {
         return;
     }
 
-    const serialLines = remaining.filter((l) => l.tracking === 'serial');
-    const bulkLines = remaining.filter((l) => l.tracking !== 'serial');
+    // Serien-getrackte Positionen werden NICHT uebersprungen: fuer jede wird der
+    // gleiche Seriennummer-Modal-Flow wie beim Einzel-Scan erzwungen, damit die
+    // Rueckverfolgbarkeit hochwertiger Gueter auch im "Alle bestaetigen"-Pfad
+    // erhalten bleibt. Nicht-getrackte Positionen werden direkt bestaetigt.
+    const serialCount = remaining.filter((l) => l.tracking === 'serial').length;
+    speak(`${remaining.length} ${remaining.length === 1 ? 'Position' : 'Positionen'} werden bestätigt.`);
+    showToast(
+        serialCount > 0
+            ? `Bestätige ${remaining.length} Positionen – ${serialCount} serialisiert, bitte Seriennummer erfassen.`
+            : `Bestätige ${remaining.length} Positionen...`,
+        'info',
+    );
 
-    if (!bulkLines.length) {
-        speak('Alle verbleibenden Positionen sind serialisiert. Bitte einzeln scannen.');
-        showToast(
-            `${serialLines.length} serialisierte Artikel bitte einzeln scannen (Seriennummer erfassen).`,
-            'warning',
-        );
-        return;
-    }
+    for (const [offset, pickLine] of remaining.entries()) {
+        const lineIdx = startIndex + offset;
 
-    speak(`${bulkLines.length} ${bulkLines.length === 1 ? 'Position' : 'Positionen'} werden bestätigt.`);
-    showToast(`Bestätige ${bulkLines.length} Positionen...`, 'info');
+        let serialNumber = '';
+        if (pickLine.tracking === 'serial') {
+            serialNumber = await askSerialNumber(getLineDisplayName(pickLine));
+        }
 
-    let confirmedCount = 0;
-    for (const [offset, pickLine] of bulkLines.entries()) {
-        const lineIdx = startIndex + remaining.indexOf(pickLine);
         try {
             const result = await withManagedRequest((signal) => confirmLine(
                 picking.id,
@@ -2385,6 +2440,7 @@ async function handleConfirmAll(picking, lines, startIndex) {
                     move_line_id: pickLine.id,
                     scanned_barcode: pickLine.product_barcode || '',
                     quantity: pickLine.quantity_demand,
+                    serial_number: serialNumber,
                 },
                 {
                     idempotencyKey: buildOperationKey('confirm-all', [
@@ -2398,12 +2454,12 @@ async function handleConfirmAll(picking, lines, startIndex) {
             ));
 
             if (!result.success) {
+                feedbackError();
                 speak(`Position ${offset + 1} konnte nicht bestätigt werden.`);
                 showToast(result.message || 'Fehler bei Bulk-Bestätigung', 'error');
                 return;
             }
 
-            confirmedCount += 1;
             setState({ currentLineIndex: lineIdx + 1 });
             renderResponsiveCurrentLine();
 
@@ -2420,13 +2476,6 @@ async function handleConfirmAll(picking, lines, startIndex) {
     speak('Alles erledigt.');
     setState({ currentLineIndex: lines.length });
     renderResponsiveCurrentLine();
-
-    if (serialLines.length > 0) {
-        showToast(
-            `${serialLines.length} serialisierte Artikel bitte einzeln scannen (Seriennummer erfassen).`,
-            'warning',
-        );
-    }
 }
 
 async function handleVoiceIntent(result) {
@@ -2465,7 +2514,7 @@ async function handleVoiceIntent(result) {
 
     switch (result.intent) {
         case 'confirm_all':
-            if (currentPicking) await handleConfirmAll(currentPicking, lines, currentLineIndex);
+            await triggerConfirmAll();
             break;
         case 'confirm':
             if (line) await handleScan(line.product_barcode || '');
@@ -3026,6 +3075,7 @@ window._app = {
     loadPickingDetail,
     setFilter,
     goToLine,
+    triggerConfirmAll,
 };
 
 // Module scripts are always deferred — DOMContentLoaded is not needed.
