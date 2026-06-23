@@ -183,16 +183,20 @@ class TestGetBatch:
 
 
 class TestConfirmClusterLine:
+    @staticmethod
+    def _line_reader(line):
+        """search_read-Fake: Move-Line nur zurueckgeben, wenn die Batch-Domain matcht."""
+        async def fake_search_read(model, domain, fields, limit=100):
+            if model == "stock.move.line":
+                return [line]
+            return []
+        return fake_search_read
+
     @pytest.mark.anyio
     async def test_writes_quantity_and_picked_without_validate(self, service, odoo):
-        async def fake_execute_kw(model, method, args, kwargs=None):
-            if model == "stock.move.line" and method == "read":
-                return [{"id": 100, "product_id": [5, "Wal"], "quantity": 0,
-                         "move_id": [50, "m"], "location_id": [9, "L"]}]
-            raise AssertionError((model, method))
-
-        odoo.execute_kw.side_effect = fake_execute_kw
-        odoo.search_read.return_value = []  # get_batch progress reads -> leer ok
+        line = {"id": 100, "product_id": [5, "Wal"], "quantity": 0,
+                "move_id": [50, "m"], "location_id": [9, "L"]}
+        odoo.search_read.side_effect = self._line_reader(line)
 
         await service.confirm_cluster_line(99, 1, 100, scanned_barcode="", quantity=2)
 
@@ -203,16 +207,21 @@ class TestConfirmClusterLine:
             assert call.args[1] != "button_validate"
 
     @pytest.mark.anyio
-    async def test_records_serial_for_tracked_product(self, service, odoo):
-        async def fake_execute_kw(model, method, args, kwargs=None):
-            if model == "stock.move.line" and method == "read":
-                return [{"id": 100, "product_id": [5, "Wal"], "quantity": 0,
-                         "move_id": [50, "m"], "location_id": [9, "L"]}]
-            raise AssertionError((model, method))
+    async def test_rejects_move_line_outside_batch(self, service, odoo):
+        # Scoped search_read matcht nichts -> fremde/ungueltige Position (IDOR-Schutz).
+        odoo.search_read.return_value = []
+        result = await service.confirm_cluster_line(99, 1, 100, quantity=1)
+        assert result["success"] is False
+        odoo.write.assert_not_called()
 
-        odoo.execute_kw.side_effect = fake_execute_kw
+    @pytest.mark.anyio
+    async def test_records_serial_for_tracked_product(self, service, odoo):
+        line = {"id": 100, "product_id": [5, "Wal"], "quantity": 0,
+                "move_id": [50, "m"], "location_id": [9, "L"]}
 
         async def fake_search_read(model, domain, fields, limit=100):
+            if model == "stock.move.line":
+                return [line]
             if model == "product.product":
                 return [{"id": 5, "tracking": "serial", "barcode": "111"}]
             return []
@@ -227,15 +236,12 @@ class TestConfirmClusterLine:
 
     @pytest.mark.anyio
     async def test_rejects_wrong_barcode(self, service, odoo):
-        async def fake_execute_kw(model, method, args, kwargs=None):
-            if model == "stock.move.line" and method == "read":
-                return [{"id": 100, "product_id": [5, "Wal"], "quantity": 0,
-                         "move_id": [50, "m"], "location_id": [9, "L"]}]
-            raise AssertionError((model, method))
-
-        odoo.execute_kw.side_effect = fake_execute_kw
+        line = {"id": 100, "product_id": [5, "Wal"], "quantity": 0,
+                "move_id": [50, "m"], "location_id": [9, "L"]}
 
         async def fake_search_read(model, domain, fields, limit=100):
+            if model == "stock.move.line":
+                return [line]
             if model == "product.product":
                 return [{"id": 5, "barcode": "111", "tracking": "none"}]
             return []
@@ -285,3 +291,14 @@ class TestValidateBatch:
         result = await service.validate_batch(99)
         assert result["success"] is False
         assert result["batch_complete"] is False
+
+    @pytest.mark.anyio
+    async def test_rejects_validate_from_other_picker(self, service, odoo, n8n):
+        # Batch gehoert Picker 7, Anfrage kommt von Picker 8 -> abgelehnt, kein action_done.
+        odoo.search_read.return_value = [{"id": 99, "picking_ids": [1, 2], "user_id": [7, "Max"]}]
+        from app.services.mobile_workflow import PickerIdentity
+        result = await service.validate_batch(99, PickerIdentity(user_id=8))
+        assert result["success"] is False
+        assert result["batch_complete"] is False
+        odoo.call_method.assert_not_called()
+        n8n.fire_event.assert_not_called()

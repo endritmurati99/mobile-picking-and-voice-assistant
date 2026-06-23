@@ -254,13 +254,24 @@ class ClusterService:
         der ganze Batch wird spaeter gesammelt via validate_batch abgeschlossen.
         """
         t0 = time.monotonic()
-        lines = await self._odoo.execute_kw(
-            "stock.move.line", "read", [[move_line_id]],
-            {"fields": ["id", "product_id", "quantity", "move_id", "location_id"]},
+        # IDOR-Schutz: die Move-Line MUSS zu picking_id gehoeren UND dieses Picking
+        # zum angefragten batch_id. Sonst koennte ein Client eine fremde move_line_id
+        # einschleusen und Menge/Serial/picked auf einen anderen Auftrag schreiben.
+        lines = await self._odoo.search_read(
+            "stock.move.line",
+            [
+                ("id", "=", move_line_id),
+                ("picking_id", "=", picking_id),
+                ("picking_id.batch_id", "=", batch_id),
+            ],
+            ["id", "product_id", "quantity", "move_id", "location_id"],
+            limit=1,
         )
         if not lines:
             self._emit_cluster_confirm(False, batch_id, picking_id, move_line_id, None, False, t0)
-            return {"success": False, "message": "Move-Line nicht gefunden", "progress": None}
+            return {"success": False,
+                    "message": "Position gehört nicht zu diesem Batch.",
+                    "progress": None}
 
         line = lines[0]
         product_id = line["product_id"][0] if line.get("product_id") else None
@@ -300,8 +311,19 @@ class ClusterService:
     async def validate_batch(self, batch_id, picker_identity=None) -> dict[str, Any]:
         """Ganzen Batch gesammelt abschliessen via action_done (+ n8n-Event)."""
         batches = await self._odoo.search_read(
-            "stock.picking.batch", [("id", "=", batch_id)], ["picking_ids"], limit=1)
-        member_ids = (batches[0].get("picking_ids", []) if batches else []) or []
+            "stock.picking.batch", [("id", "=", batch_id)], ["picking_ids", "user_id"], limit=1)
+        if not batches:
+            return {"success": False, "batch_complete": False, "message": "Batch nicht gefunden."}
+        batch = batches[0]
+        member_ids = batch.get("picking_ids", []) or []
+
+        # Ownership: nur der zugewiesene Picker darf den Batch (destruktiv) abschliessen.
+        owner = batch.get("user_id")
+        owner_id = owner[0] if isinstance(owner, list) else owner
+        requester_id = getattr(picker_identity, "user_id", None) if picker_identity else None
+        if owner_id and requester_id and owner_id != requester_id:
+            return {"success": False, "batch_complete": False,
+                    "message": "Dieser Batch gehört einem anderen Picker."}
 
         try:
             result = await self._odoo.call_method(
