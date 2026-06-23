@@ -49,11 +49,13 @@ async def create_cluster_batch(
 @router.get("/cluster/batches/{batch_id}")
 async def get_cluster_batch(
     batch_id: int,
-    _identity: PickerIdentity = Depends(get_required_picker_identity),
+    identity: PickerIdentity = Depends(get_required_picker_identity),
     service=Depends(get_cluster_service),
 ):
     """Sammelliste + Fortschritt eines Batches."""
-    result = await service.get_batch(batch_id)
+    result = await service.get_batch(batch_id, picker_identity=identity)
+    if result.get("forbidden"):
+        raise HTTPException(status_code=403, detail=result["error"])
     if result.get("error"):
         raise HTTPException(status_code=404, detail=result["error"])
     return result

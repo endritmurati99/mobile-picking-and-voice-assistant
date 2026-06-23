@@ -156,9 +156,14 @@ class ClusterService:
 
         batch_id = await self._odoo.create("stock.picking.batch", vals)
         await self._odoo.call_method("stock.picking.batch", "action_confirm", [batch_id])
-        return await self.get_batch(batch_id)
+        return await self.get_batch(batch_id, picker_identity=picker_identity)
 
-    async def get_batch(self, batch_id: int) -> dict[str, Any]:
+    @staticmethod
+    def _owner_id(batch: dict[str, Any]) -> int | None:
+        owner = batch.get("user_id")
+        return owner[0] if isinstance(owner, list) else owner
+
+    async def get_batch(self, batch_id: int, picker_identity=None) -> dict[str, Any]:
         """Batch mit gemergter, route-sortierter Sammelliste + Box-Tags + Fortschritt."""
         batches = await self._odoo.search_read(
             "stock.picking.batch", [("id", "=", batch_id)],
@@ -168,6 +173,13 @@ class ClusterService:
             return {"error": "Batch nicht gefunden"}
 
         batch = batches[0]
+        # Ownership-Gate (Paritaet zu confirm_cluster_line/validate_batch): nur der
+        # zugewiesene Picker darf den Batch sehen, wenn ein Owner gesetzt ist.
+        owner_id = self._owner_id(batch)
+        requester_id = getattr(picker_identity, "user_id", None) if picker_identity else None
+        if owner_id and requester_id and owner_id != requester_id:
+            return {"error": "Kein Zugriff auf diesen Batch.", "forbidden": True}
+
         picking_ids = batch.get("picking_ids", []) or []
         pickings = await self._odoo.search_read(
             "stock.picking", [("id", "in", picking_ids)], ["name"],
@@ -254,16 +266,21 @@ class ClusterService:
         der ganze Batch wird spaeter gesammelt via validate_batch abgeschlossen.
         """
         t0 = time.monotonic()
-        # IDOR-Schutz: die Move-Line MUSS zu picking_id gehoeren UND dieses Picking
-        # zum angefragten batch_id. Sonst koennte ein Client eine fremde move_line_id
-        # einschleusen und Menge/Serial/picked auf einen anderen Auftrag schreiben.
+        # IDOR-Schutz + Ownership-Gate in EINER Query: die Move-Line MUSS zu picking_id
+        # gehoeren, dieses Picking zum batch_id, und (wenn ein Picker bekannt ist) der
+        # Batch dem anfragenden Picker. Sonst koennte ein Client eine fremde
+        # move_line_id einschleusen oder in einem fremden Batch schreiben.
+        requester_id = getattr(picker_identity, "user_id", None) if picker_identity else None
+        domain = [
+            ("id", "=", move_line_id),
+            ("picking_id", "=", picking_id),
+            ("picking_id.batch_id", "=", batch_id),
+        ]
+        if requester_id:
+            domain.append(("picking_id.batch_id.user_id", "=", requester_id))
         lines = await self._odoo.search_read(
             "stock.move.line",
-            [
-                ("id", "=", move_line_id),
-                ("picking_id", "=", picking_id),
-                ("picking_id.batch_id", "=", batch_id),
-            ],
+            domain,
             ["id", "product_id", "quantity", "move_id", "location_id"],
             limit=1,
         )
@@ -304,7 +321,7 @@ class ClusterService:
 
         self._emit_cluster_confirm(
             True, batch_id, picking_id, move_line_id, product_id, bool(recorded_serial), t0)
-        batch = await self.get_batch(batch_id)
+        batch = await self.get_batch(batch_id, picker_identity=picker_identity)
         return {"success": True, "message": "Bestätigt.", "recorded_serial": recorded_serial,
                 "progress": batch.get("progress")}
 

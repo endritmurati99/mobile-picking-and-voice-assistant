@@ -181,6 +181,16 @@ class TestGetBatch:
         result = await service.get_batch(123)
         assert result.get("error")
 
+    @pytest.mark.anyio
+    async def test_forbidden_for_other_picker(self, service, odoo):
+        odoo.search_read.return_value = [
+            {"id": 99, "name": "B", "state": "in_progress",
+             "picking_ids": [1], "user_id": [7, "Max"]}
+        ]
+        from app.services.mobile_workflow import PickerIdentity
+        result = await service.get_batch(99, PickerIdentity(user_id=8))
+        assert result.get("forbidden") is True
+
 
 class TestConfirmClusterLine:
     @staticmethod
@@ -213,6 +223,17 @@ class TestConfirmClusterLine:
         result = await service.confirm_cluster_line(99, 1, 100, quantity=1)
         assert result["success"] is False
         odoo.write.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_scopes_domain_to_owner_when_picker_known(self, service, odoo):
+        # Gate-Paritaet: bei bekanntem Picker enthaelt die Domain den Owner-Filter.
+        odoo.search_read.return_value = []
+        from app.services.mobile_workflow import PickerIdentity
+        await service.confirm_cluster_line(99, 1, 100, quantity=1,
+                                           picker_identity=PickerIdentity(user_id=7))
+        first_call = odoo.search_read.call_args_list[0]
+        domain = first_call.args[1]
+        assert ("picking_id.batch_id.user_id", "=", 7) in domain
 
     @pytest.mark.anyio
     async def test_records_serial_for_tracked_product(self, service, odoo):
