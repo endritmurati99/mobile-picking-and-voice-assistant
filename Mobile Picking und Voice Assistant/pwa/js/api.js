@@ -296,6 +296,33 @@ export async function assistVoice(payload, options = {}) {
     });
 }
 
+// --- Cluster-/Batch-Picking ---------------------------------------------
+
+export async function getClusterSuggestions(options = {}) {
+    return request('GET', '/cluster/suggestions', null, {
+        headers: getReadHeaders(), signal: options.signal });
+}
+
+export async function createBatch(pickingIds, options = {}) {
+    return request('POST', '/cluster/batches', { picking_ids: pickingIds }, {
+        headers: getWriteHeaders(options.idempotencyKey), signal: options.signal });
+}
+
+export async function getBatch(batchId, options = {}) {
+    return request('GET', `/cluster/batches/${batchId}`, null, {
+        headers: getReadHeaders(), signal: options.signal });
+}
+
+export async function confirmClusterLine(batchId, data, options = {}) {
+    return request('POST', `/cluster/batches/${batchId}/confirm-line`, data, {
+        headers: getWriteHeaders(options.idempotencyKey), signal: options.signal });
+}
+
+export async function validateBatch(batchId, options = {}) {
+    return request('POST', `/cluster/batches/${batchId}/validate`, null, {
+        headers: getWriteHeaders(options.idempotencyKey), signal: options.signal });
+}
+
 export async function healthCheck() {
     return request('GET', '/health');
 }
