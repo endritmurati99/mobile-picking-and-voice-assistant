@@ -16,8 +16,13 @@ import {
     clearActivePicker,
     clearStoredPicker,
     confirmLine,
+    confirmClusterLine,
+    createBatch,
     createIdempotencyKey,
     createQualityAlert,
+    getBatch,
+    getClusterSuggestions,
+    validateBatch,
     getActivePicker,
     getCachedPickers,
     getDeviceId,
@@ -979,6 +984,9 @@ function renderWorkspaceQueueOverview(visiblePickings, { variant = 'main' } = {}
             </div>
             <div class="queue-overview__helper">${helperCopy}</div>
             ${ctaHtml}
+            <button type="button" class="cluster-entry-btn" data-cluster-start>
+                Mehrere Aufträge bündeln (Cluster-Picking)
+            </button>
         </section>
     `;
 }
@@ -3070,12 +3078,377 @@ function goToLine(idx) {
     renderResponsiveCurrentLine();
 }
 
+// === Cluster-/Batch-Picking ============================================
+// Additive Views: mehrere Auftraege gebuendelt in einem Rundgang. Nutzt den
+// echten Odoo stock.picking.batch ueber /api/cluster/*. Beruehrt den Einzel-
+// Picking-Flow (handleConfirmAll/handleScan) nicht.
+
+function getClusterSelected() {
+    const selected = getState().clusterSelected;
+    return selected instanceof Set ? selected : new Set();
+}
+
+function formatClusterQty(value) {
+    const num = Number(value ?? 0);
+    return Number.isInteger(num) ? String(num) : num.toFixed(2).replace(/\.?0+$/, '');
+}
+
+async function enterClusterMode() {
+    stopSpeaking();
+    closeOverlay();
+    const pickerReady = await ensurePickerSelection();
+    if (!pickerReady) return;
+    updateToolbar('cluster_select');
+    setMainContent(renderLoading());
+    try {
+        const [suggestions, pickings] = await Promise.all([
+            withManagedRequest((signal) => getClusterSuggestions({ signal })),
+            withManagedRequest((signal) => getPickings({ signal })),
+        ]);
+        setState({
+            clusterSuggestions: Array.isArray(suggestions) ? suggestions : [],
+            clusterOpenPickings: Array.isArray(pickings) ? pickings : [],
+            clusterSelected: new Set(),
+        });
+        renderClusterSelect();
+    } catch (error) {
+        if (isAbortError(error)) return;
+        setMainContent(renderError(`Cluster-Vorschläge konnten nicht geladen werden: ${error.message}`));
+    }
+}
+
+function renderClusterSelect() {
+    const { clusterSuggestions = [], clusterOpenPickings = [] } = getState();
+    const selected = getClusterSelected();
+
+    const suggestionsHtml = clusterSuggestions.length
+        ? clusterSuggestions.map((group) => `
+            <article class="cluster-suggestion" data-suggestion-zone="${escapeHtml(group.zone)}">
+                <div class="cluster-suggestion__info">
+                    <div class="cluster-suggestion__zone">${escapeHtml(group.zone)}</div>
+                    <div class="cluster-suggestion__meta">${group.order_count} Aufträge · ${group.line_count} Positionen</div>
+                </div>
+                <button type="button" class="picker-option cluster-suggestion__apply"
+                    data-apply-pickings="${escapeHtml(group.picking_ids.join(','))}">Übernehmen</button>
+            </article>`).join('')
+        : '<p class="cluster-empty">Kein Auto-Vorschlag verfügbar. Wähle Aufträge manuell aus.</p>';
+
+    const pickingsHtml = clusterOpenPickings.length
+        ? clusterOpenPickings.map((picking) => {
+            const isSelected = selected.has(picking.id);
+            const reference = picking.reference_code || picking.name || `#${picking.id}`;
+            const primary = picking.primary_item_display || 'Auftrag';
+            const zone = picking.next_location_short || '';
+            return `
+                <button type="button" class="cluster-pick ${isSelected ? 'cluster-pick--on' : ''}"
+                    data-cluster-pick-id="${picking.id}" aria-pressed="${isSelected}">
+                    <span class="cluster-pick__check" aria-hidden="true">${isSelected ? '✓' : ''}</span>
+                    <span class="cluster-pick__body">
+                        <span class="cluster-pick__ref">${escapeHtml(reference)}</span>
+                        <span class="cluster-pick__primary">${escapeHtml(primary)}</span>
+                    </span>
+                    ${zone ? `<span class="cluster-pick__zone">${escapeHtml(zone)}</span>` : ''}
+                </button>`;
+        }).join('')
+        : renderListEmptyState('Keine offenen Aufträge zum Bündeln.');
+
+    const count = selected.size;
+    setMainContent(`
+        <section class="cluster-select">
+            <header class="queue-overview queue-overview--main" aria-label="Cluster-Picking">
+                <div class="queue-overview__eyebrow">Cluster-Picking</div>
+                <div class="queue-overview__title">Batch zusammenstellen</div>
+                <div class="queue-overview__helper">Vorschlag übernehmen oder Aufträge einzeln antippen.</div>
+            </header>
+
+            <div class="cluster-section">
+                <h2 class="cluster-section__title">Vorschläge</h2>
+                <div class="cluster-suggestions">${suggestionsHtml}</div>
+            </div>
+
+            <div class="cluster-section">
+                <h2 class="cluster-section__title">Offene Aufträge</h2>
+                <div class="cluster-picks">${pickingsHtml}</div>
+            </div>
+        </section>
+
+        <div class="cluster-start-bar">
+            <button type="button" class="cluster-back" data-cluster-back>Zurück</button>
+            <button type="button" class="btn-big btn-big--primary cluster-start"
+                data-cluster-confirm ${count < 1 ? 'disabled' : ''}>
+                Batch starten${count ? ` (${count})` : ''}
+            </button>
+        </div>
+    `);
+    bindClusterSelect();
+}
+
+function bindClusterSelect() {
+    const root = mainEl();
+    if (!root) return;
+
+    root.querySelectorAll('[data-apply-pickings]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const ids = String(btn.dataset.applyPickings || '')
+                .split(',').map(Number).filter(Boolean);
+            const selected = new Set(getClusterSelected());
+            ids.forEach((id) => selected.add(id));
+            setState({ clusterSelected: selected });
+            renderClusterSelect();
+        });
+    });
+
+    root.querySelectorAll('[data-cluster-pick-id]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const id = Number(btn.dataset.clusterPickId);
+            const selected = new Set(getClusterSelected());
+            if (selected.has(id)) selected.delete(id);
+            else selected.add(id);
+            setState({ clusterSelected: selected });
+            renderClusterSelect();
+        });
+    });
+
+    document.querySelector('[data-cluster-back]')?.addEventListener('click', () => loadPickingList());
+    document.querySelector('[data-cluster-confirm]')?.addEventListener('click', createClusterBatch);
+}
+
+async function createClusterBatch() {
+    const ids = Array.from(getClusterSelected());
+    if (!ids.length) return;
+    const startBtn = document.querySelector('[data-cluster-confirm]');
+    if (startBtn) startBtn.disabled = true;  // Doppel-Tap-Schutz (kein Server-Idempotenz im PoC)
+    try {
+        const batch = await withManagedRequest((signal) => createBatch(ids, {
+            idempotencyKey: buildOperationKey('cluster-create', [...ids, Date.now()], { unique: true }),
+            signal,
+        }));
+        if (batch?.error) {
+            showToast(batch.error, 'error');
+            if (startBtn) startBtn.disabled = false;
+            return;
+        }
+        setState({ batch });
+        renderClusterWalk(batch);
+        updateToolbar('cluster_walk');
+    } catch (error) {
+        if (isAbortError(error)) return;
+        if (startBtn) startBtn.disabled = false;
+        const detail = error instanceof ApiError ? error.message : 'Batch konnte nicht angelegt werden.';
+        showToast(detail, 'error');
+    }
+}
+
+async function loadBatch(batchId) {
+    setMainContent(renderLoading());
+    updateToolbar('cluster_walk');
+    try {
+        const batch = await withManagedRequest((signal) => getBatch(batchId, { signal }));
+        if (batch?.error) {
+            setMainContent(renderError(batch.error));
+            return;
+        }
+        setState({ batch });
+        renderClusterWalk(batch);
+    } catch (error) {
+        if (isAbortError(error)) return;
+        setMainContent(renderError(`Batch konnte nicht geladen werden: ${error.message}`));
+    }
+}
+
+function renderClusterWalk(batch) {
+    const lines = Array.isArray(batch.lines) ? batch.lines : [];
+    const progress = batch.progress || { total: lines.length, done: 0, ratio: 0 };
+    const pct = Math.round((progress.ratio || 0) * 100);
+    const allDone = progress.total > 0 && progress.done >= progress.total;
+
+    const legendHtml = (batch.boxes || []).map((box) => `
+        <span class="cluster-box-legend__item">
+            <span class="cluster-box-chip" style="--box-color:${escapeHtml(box.box_color)}">${box.box_index}</span>
+            ${escapeHtml(box.picking_name)}
+        </span>`).join('');
+
+    const linesHtml = lines.map((line) => {
+        const done = Boolean(line.picked);
+        const loc = line.location_src_short || line.location_src || 'Lagerort';
+        const qty = formatClusterQty(line.quantity_demand);
+        const name = line.product_name || 'Produkt';
+        const serialBadge = line.tracking === 'serial' || line.tracking === 'lot'
+            ? '<span class="cluster-stop__serial">Serial</span>' : '';
+        return `
+            <article class="cluster-stop ${done ? 'cluster-stop--done' : ''}"
+                style="--box-color:${escapeHtml(line.box_color || 'var(--primary)')}"
+                data-stop-line="${line.id}" data-stop-picking="${line.picking_id}">
+                <div class="cluster-stop__location">${escapeHtml(loc)}</div>
+                <div class="cluster-stop__body">
+                    <div class="cluster-stop__product">${escapeHtml(name)} ${serialBadge}</div>
+                    <div class="cluster-stop__box">
+                        <span class="cluster-box-chip" style="--box-color:${escapeHtml(line.box_color || 'var(--primary)')}">${line.box_index ?? '?'}</span>
+                        <span class="cluster-stop__order">${escapeHtml(line.picking_name || '')}</span>
+                        <span class="cluster-stop__qty">${qty} Stück</span>
+                    </div>
+                </div>
+                <div class="cluster-stop__actions">
+                    <button type="button" class="icon-btn cluster-stop__voice" data-stop-voice="${line.id}" aria-label="Vorlesen">🔊</button>
+                    ${done
+                        ? '<span class="cluster-stop__check" aria-label="Erledigt">✓</span>'
+                        : `<button type="button" class="btn-confirm cluster-stop__confirm" data-stop-confirm="${line.id}">Bestätigen</button>`}
+                </div>
+            </article>`;
+    }).join('');
+
+    setMainContent(`
+        <section class="cluster-walk">
+            <header class="cluster-progress" aria-label="Batch-Fortschritt">
+                <div class="cluster-progress__head">
+                    <div class="cluster-progress__title">${escapeHtml(batch.name || 'Batch')}</div>
+                    <div class="cluster-progress__count">${progress.done} / ${progress.total}</div>
+                </div>
+                <div class="cluster-progress__track" aria-hidden="true">
+                    <span class="cluster-progress__bar" style="width:${pct}%"></span>
+                </div>
+                <div class="cluster-box-legend">${legendHtml}</div>
+            </header>
+
+            <div class="cluster-stops">${linesHtml || renderListEmptyState('Keine Positionen im Batch.')}</div>
+        </section>
+
+        <div class="cluster-start-bar">
+            <button type="button" class="cluster-back" data-cluster-walk-back>Liste</button>
+            <button type="button" class="btn-big btn-big--primary cluster-start"
+                data-cluster-validate ${allDone ? '' : 'disabled'}>
+                Batch abschließen
+            </button>
+        </div>
+    `);
+    bindClusterWalk(batch);
+}
+
+function bindClusterWalk(batch) {
+    const root = mainEl();
+    if (!root) return;
+    const lineById = new Map((batch.lines || []).map((line) => [String(line.id), line]));
+
+    root.querySelectorAll('[data-stop-voice]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const line = lineById.get(String(btn.dataset.stopVoice));
+            if (line?.voice_instruction_short) speak(line.voice_instruction_short);
+        });
+    });
+
+    root.querySelectorAll('[data-stop-confirm]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const line = lineById.get(String(btn.dataset.stopConfirm));
+            if (line) handleClusterConfirm(batch, line, btn);
+        });
+    });
+
+    document.querySelector('[data-cluster-walk-back]')?.addEventListener('click', () => loadPickingList());
+    document.querySelector('[data-cluster-validate]')?.addEventListener('click', () => validateClusterBatch(batch));
+}
+
+async function handleClusterConfirm(batch, line, btn) {
+    stopSpeaking();
+    if (btn) btn.disabled = true;
+
+    let serialNumber = '';
+    if (line.tracking === 'serial' || line.tracking === 'lot') {
+        serialNumber = await askSerialNumber(line.product_name || 'Produkt');
+    }
+
+    try {
+        const result = await withManagedRequest((signal) => confirmClusterLine(
+            batch.batch_id,
+            {
+                picking_id: line.picking_id,
+                move_line_id: line.id,
+                scanned_barcode: line.product_barcode || '',
+                quantity: line.quantity_demand,
+                serial_number: serialNumber,
+            },
+            {
+                idempotencyKey: buildOperationKey('cluster-confirm',
+                    [batch.batch_id, line.id, line.quantity_demand], { unique: true }),
+                signal,
+            },
+        ));
+        if (!result?.success) {
+            feedbackError();
+            showToast(result?.message || 'Bestätigung fehlgeschlagen.', 'error');
+            if (btn) btn.disabled = false;
+            return;
+        }
+        feedbackSuccess();
+        await loadBatch(batch.batch_id);  // frischer Fortschritt + Re-Render
+    } catch (error) {
+        if (isAbortError(error)) return;
+        feedbackError();
+        if (btn) btn.disabled = false;
+        const detail = error instanceof ApiError ? error.message : 'Bestätigung fehlgeschlagen.';
+        showToast(detail, 'error');
+    }
+}
+
+async function validateClusterBatch(batch) {
+    const validateBtn = document.querySelector('[data-cluster-validate]');
+    if (validateBtn) validateBtn.disabled = true;
+    try {
+        const result = await withManagedRequest((signal) => validateBatch(batch.batch_id, {
+            idempotencyKey: buildOperationKey('cluster-validate', [batch.batch_id, Date.now()], { unique: true }),
+            signal,
+        }));
+        if (!result?.batch_complete) {
+            showToast(result?.message || 'Batch konnte nicht abgeschlossen werden.', 'warning');
+            if (validateBtn) validateBtn.disabled = false;
+            return;
+        }
+        if (result.integration_status === 'degraded') {
+            showToast('Batch abgeschlossen, n8n-Folgeprozess degradiert.', 'warning');
+        }
+        renderClusterComplete(batch);
+    } catch (error) {
+        if (isAbortError(error)) return;
+        if (validateBtn) validateBtn.disabled = false;
+        const detail = error instanceof ApiError ? error.message : 'Abschluss fehlgeschlagen.';
+        showToast(detail, 'error');
+    }
+}
+
+function renderClusterComplete(batch) {
+    const orders = (batch.boxes || []).length;
+    const positions = (batch.lines || []).length;
+    setMainContent(`
+        <section class="cluster-complete state-panel" role="status">
+            <div class="state-panel__eyebrow">Abgeschlossen</div>
+            <div class="state-panel__title">Batch ${escapeHtml(batch.name || '')} fertig</div>
+            <div class="state-panel__meta">${orders} Aufträge · ${positions} Positionen gesammelt validiert.</div>
+            <div class="cluster-complete__actions">
+                <button type="button" class="btn-big btn-big--primary" data-cluster-to-list>Zur Liste</button>
+                <button type="button" class="picker-option" data-cluster-new>Neuer Batch</button>
+            </div>
+        </section>
+    `);
+    document.querySelector('[data-cluster-to-list]')?.addEventListener('click', () => loadPickingList());
+    document.querySelector('[data-cluster-new]')?.addEventListener('click', () => enterClusterMode());
+}
+
+// Einstiegspunkt: Klick auf den "Batch starten"-Button in der Listenansicht.
+// Delegation am Document, damit die Listen-Render-/Bind-Funktionen unberuehrt bleiben.
+document.addEventListener('click', (event) => {
+    if (event.target?.closest?.('[data-cluster-start]')) {
+        event.preventDefault();
+        enterClusterMode();
+    }
+});
+
 window._app = {
     loadPickingList,
     loadPickingDetail,
     setFilter,
     goToLine,
     triggerConfirmAll,
+    enterClusterMode,
+    loadBatch,
 };
 
 // Module scripts are always deferred — DOMContentLoaded is not needed.
