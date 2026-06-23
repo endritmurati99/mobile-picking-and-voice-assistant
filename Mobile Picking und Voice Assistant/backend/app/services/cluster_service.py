@@ -130,3 +130,116 @@ class ClusterService:
             )
         result.sort(key=lambda g: (-g["order_count"], g["zone"]))
         return result
+
+    async def create_batch(self, picking_ids, picker_identity=None) -> dict[str, Any]:
+        """Echten stock.picking.batch anlegen und bestaetigen (draft -> in_progress)."""
+        ids = [int(p) for p in (picking_ids or [])]
+        if not ids:
+            raise ValueError("picking_ids darf nicht leer sein")
+
+        # company_id von den Pickings uebernehmen -> verhindert _check_company.
+        pickings = await self._odoo.search_read(
+            "stock.picking", [("id", "in", ids)], ["company_id"], limit=len(ids)
+        )
+        company_id = None
+        for picking in pickings:
+            if picking.get("company_id"):
+                company_id = picking["company_id"][0]
+                break
+
+        # 'name' bewusst weglassen -> Odoo-Sequenz 'picking.batch' fuellt es.
+        vals: dict[str, Any] = {"picking_ids": [(6, 0, ids)]}
+        if company_id is not None:
+            vals["company_id"] = company_id
+        if picker_identity and getattr(picker_identity, "user_id", None):
+            vals["user_id"] = picker_identity.user_id
+
+        batch_id = await self._odoo.create("stock.picking.batch", vals)
+        await self._odoo.call_method("stock.picking.batch", "action_confirm", [batch_id])
+        return await self.get_batch(batch_id)
+
+    async def get_batch(self, batch_id: int) -> dict[str, Any]:
+        """Batch mit gemergter, route-sortierter Sammelliste + Box-Tags + Fortschritt."""
+        batches = await self._odoo.search_read(
+            "stock.picking.batch", [("id", "=", batch_id)],
+            ["name", "state", "picking_ids", "user_id"], limit=1,
+        )
+        if not batches:
+            return {"error": "Batch nicht gefunden"}
+
+        batch = batches[0]
+        picking_ids = batch.get("picking_ids", []) or []
+        pickings = await self._odoo.search_read(
+            "stock.picking", [("id", "in", picking_ids)], ["name"],
+            limit=len(picking_ids) or 1,
+        ) if picking_ids else []
+        name_by_picking = {p["id"]: p["name"] for p in pickings}
+        box_map = assign_boxes(picking_ids)
+
+        raw_lines = await self._odoo.search_read(
+            "stock.move.line", [("picking_id", "in", picking_ids)],
+            ["picking_id", "product_id", "quantity", "move_id", "location_id"],
+            limit=max(500, len(picking_ids) * 20),
+        ) if picking_ids else []
+
+        move_ids = list({l["move_id"][0] for l in raw_lines if l.get("move_id")})
+        moves = await self._odoo.search_read(
+            "stock.move", [("id", "in", move_ids)], ["id", "product_uom_qty", "picked"],
+        ) if move_ids else []
+        move_map = {m["id"]: m for m in moves}
+
+        product_ids = list({l["product_id"][0] for l in raw_lines if l.get("product_id")})
+        products = await self._odoo.search_read(
+            "product.product", [("id", "in", product_ids)],
+            ["id", "default_code", "barcode", "tracking"],
+        ) if product_ids else []
+        product_map = {p["id"]: p for p in products}
+
+        lines_by_picking: dict[int, list[dict[str, Any]]] = defaultdict(list)
+        for raw in raw_lines:
+            picking_id = raw["picking_id"][0] if raw.get("picking_id") else None
+            move = move_map.get(raw["move_id"][0] if raw.get("move_id") else None, {})
+            product_id = raw["product_id"][0] if raw.get("product_id") else None
+            product = product_map.get(product_id, {})
+            location = raw["location_id"][1] if raw.get("location_id") else ""
+            loc_parts = [part.strip() for part in location.split("/") if part.strip()]
+            lines_by_picking[picking_id].append({
+                "id": raw["id"],
+                "product_id": product_id,
+                "product_name": _clean_product_name(raw["product_id"][1]) if raw.get("product_id") else "",
+                "product_barcode": product.get("barcode"),
+                "product_sku": product.get("default_code") or "",
+                "tracking": product.get("tracking"),
+                "quantity_demand": move.get("product_uom_qty", raw.get("quantity", 0)),
+                "quantity_done": raw.get("quantity", 0) if move.get("picked") else 0,
+                "picked": bool(move.get("picked")),
+                "location_src": location,
+                "location_src_short": loc_parts[-1] if loc_parts else location,
+            })
+
+        ordered = build_cluster_lines(lines_by_picking, box_map)
+        for line in ordered:
+            short = line.get("location_src_short", "")
+            qty = line.get("quantity_demand", 0)
+            name = line.get("product_name", "")
+            line["voice_instruction_short"] = f"{short}. {qty} Stück. {name}.".strip()
+            line["picking_name"] = name_by_picking.get(line.get("picking_id"), "")
+
+        total = len(ordered)
+        done = sum(1 for line in ordered if line.get("picked"))
+        return {
+            "batch_id": batch_id,
+            "name": batch.get("name", ""),
+            "state": batch.get("state", ""),
+            "picker": batch["user_id"][1] if batch.get("user_id") else "",
+            "boxes": [
+                {"picking_id": pid, "picking_name": name_by_picking.get(pid, ""),
+                 "box_index": box_map[pid]["box_index"], "box_color": box_map[pid]["box_color"]}
+                for pid in sorted(picking_ids)
+            ],
+            "lines": ordered,
+            "progress": {
+                "total": total, "done": done,
+                "ratio": round(done / total, 4) if total else 0.0,
+            },
+        }

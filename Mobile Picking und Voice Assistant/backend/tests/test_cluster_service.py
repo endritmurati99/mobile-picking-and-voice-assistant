@@ -97,3 +97,86 @@ class TestSuggestBatches:
     async def test_returns_empty_when_no_open_pickings(self, service, odoo):
         odoo.search_read.return_value = []
         assert await service.suggest_batches() == []
+
+
+class TestCreateBatch:
+    @pytest.mark.anyio
+    async def test_creates_batch_with_six_zero_command_and_confirms(self, service, odoo):
+        odoo.create.return_value = 99
+
+        async def fake_search_read(model, domain, fields, limit=100):
+            if model == "stock.picking.batch":
+                return [{"id": 99, "name": "BATCH/0099", "state": "in_progress",
+                         "picking_ids": [1, 2], "user_id": [7, "Max Picker"]}]
+            if model == "stock.picking":
+                return [{"id": 1, "name": "WH/OUT/001", "company_id": [1, "MyCo"]},
+                        {"id": 2, "name": "WH/OUT/002", "company_id": [1, "MyCo"]}]
+            if model in ("stock.move.line", "stock.move", "product.product"):
+                return []
+            raise AssertionError(model)
+
+        odoo.search_read.side_effect = fake_search_read
+
+        from app.services.mobile_workflow import PickerIdentity
+        result = await service.create_batch([1, 2], PickerIdentity(user_id=7))
+
+        create_args = odoo.create.call_args
+        assert create_args.args[0] == "stock.picking.batch"
+        vals = create_args.args[1]
+        assert vals["picking_ids"] == [(6, 0, [1, 2])]
+        assert vals["user_id"] == 7
+        assert vals["company_id"] == 1
+        assert "name" not in vals
+        odoo.call_method.assert_any_call("stock.picking.batch", "action_confirm", [99])
+        assert result["batch_id"] == 99
+
+    @pytest.mark.anyio
+    async def test_rejects_empty_picking_ids(self, service):
+        with pytest.raises(ValueError):
+            await service.create_batch([])
+
+
+class TestGetBatch:
+    @pytest.mark.anyio
+    async def test_returns_route_sorted_lines_with_box_tags_and_progress(self, service, odoo):
+        async def fake_search_read(model, domain, fields, limit=100):
+            if model == "stock.picking.batch":
+                return [{"id": 99, "name": "BATCH/0099", "state": "in_progress",
+                         "picking_ids": [1, 2], "user_id": [7, "Max Picker"]}]
+            if model == "stock.picking":
+                return [{"id": 1, "name": "WH/OUT/001"}, {"id": 2, "name": "WH/OUT/002"}]
+            if model == "stock.move.line":
+                return [
+                    {"id": 100, "picking_id": [1, "WH/OUT/001"], "product_id": [5, "[X] Wal"],
+                     "quantity": 0, "move_id": [50, "m"], "location_id": [9, "WH/Stock/Mitte/E2-P5"]},
+                    {"id": 200, "picking_id": [2, "WH/OUT/002"], "product_id": [6, "Ente"],
+                     "quantity": 0, "move_id": [60, "m"], "location_id": [8, "WH/Stock/Links/E1-P1"]},
+                ]
+            if model == "stock.move":
+                # Mitte (Linie 100) ist erledigt, Links (Linie 200) noch offen
+                return [{"id": 50, "product_uom_qty": 2, "picked": True},
+                        {"id": 60, "product_uom_qty": 1, "picked": False}]
+            if model == "product.product":
+                return [{"id": 5, "default_code": "WAL", "barcode": "111", "tracking": "serial"},
+                        {"id": 6, "default_code": "ENT", "barcode": "222", "tracking": "none"}]
+            raise AssertionError(model)
+
+        odoo.search_read.side_effect = fake_search_read
+
+        result = await service.get_batch(99)
+        assert result["batch_id"] == 99
+        assert result["state"] == "in_progress"
+        ids = [l["id"] for l in result["lines"]]
+        assert ids[0] == 200  # Links (offen) vor Mitte
+        by_id = {l["id"]: l for l in result["lines"]}
+        assert by_id[100]["box_index"] == 1 and by_id[200]["box_index"] == 2
+        assert by_id[100]["tracking"] == "serial"
+        assert by_id[100]["product_name"] == "Wal"  # [X]-Prefix entfernt
+        assert result["progress"]["total"] == 2
+        assert result["progress"]["done"] == 1
+
+    @pytest.mark.anyio
+    async def test_returns_error_for_unknown_batch(self, service, odoo):
+        odoo.search_read.return_value = []
+        result = await service.get_batch(123)
+        assert result.get("error")
