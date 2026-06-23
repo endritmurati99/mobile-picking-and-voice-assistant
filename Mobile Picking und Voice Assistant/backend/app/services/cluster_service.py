@@ -163,6 +163,22 @@ class ClusterService:
         owner = batch.get("user_id")
         return owner[0] if isinstance(owner, list) else owner
 
+    def _is_authorized(self, batch: dict[str, Any], picker_identity) -> bool:
+        """Fail-closed Zugriffsregel fuer einen Batch.
+
+        Ein Zugriff erfordert (1) einen bekannten Picker und (2) - falls der Batch
+        einem Picker zugewiesen ist - dass es derselbe ist. Fehlt der Picker oder
+        passt der Owner nicht, wird der Zugriff verweigert (kein fail-open ueber
+        unbekannte Identitaet oder ownerlose Batches).
+        """
+        requester_id = getattr(picker_identity, "user_id", None) if picker_identity else None
+        if requester_id is None:
+            return False
+        owner_id = self._owner_id(batch)
+        if owner_id is not None and owner_id != requester_id:
+            return False
+        return True
+
     async def get_batch(self, batch_id: int, picker_identity=None) -> dict[str, Any]:
         """Batch mit gemergter, route-sortierter Sammelliste + Box-Tags + Fortschritt."""
         batches = await self._odoo.search_read(
@@ -173,11 +189,8 @@ class ClusterService:
             return {"error": "Batch nicht gefunden"}
 
         batch = batches[0]
-        # Ownership-Gate (Paritaet zu confirm_cluster_line/validate_batch): nur der
-        # zugewiesene Picker darf den Batch sehen, wenn ein Owner gesetzt ist.
-        owner_id = self._owner_id(batch)
-        requester_id = getattr(picker_identity, "user_id", None) if picker_identity else None
-        if owner_id and requester_id and owner_id != requester_id:
+        # Fail-closed Ownership-Gate (Paritaet zu confirm_cluster_line/validate_batch).
+        if not self._is_authorized(batch, picker_identity):
             return {"error": "Kein Zugriff auf diesen Batch.", "forbidden": True}
 
         picking_ids = batch.get("picking_ids", []) or []
@@ -334,13 +347,11 @@ class ClusterService:
         batch = batches[0]
         member_ids = batch.get("picking_ids", []) or []
 
-        # Ownership: nur der zugewiesene Picker darf den Batch (destruktiv) abschliessen.
-        owner = batch.get("user_id")
-        owner_id = owner[0] if isinstance(owner, list) else owner
-        requester_id = getattr(picker_identity, "user_id", None) if picker_identity else None
-        if owner_id and requester_id and owner_id != requester_id:
+        # Fail-closed Ownership-Gate: nur der zugewiesene Picker darf den Batch
+        # (destruktiv) abschliessen; ohne bekannten Picker wird verweigert.
+        if not self._is_authorized(batch, picker_identity):
             return {"success": False, "batch_complete": False,
-                    "message": "Dieser Batch gehört einem anderen Picker."}
+                    "message": "Kein Zugriff auf diesen Batch."}
 
         try:
             result = await self._odoo.call_method(

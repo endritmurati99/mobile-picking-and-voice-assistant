@@ -163,7 +163,8 @@ class TestGetBatch:
 
         odoo.search_read.side_effect = fake_search_read
 
-        result = await service.get_batch(99)
+        from app.services.mobile_workflow import PickerIdentity
+        result = await service.get_batch(99, PickerIdentity(user_id=7))
         assert result["batch_id"] == 99
         assert result["state"] == "in_progress"
         ids = [l["id"] for l in result["lines"]]
@@ -189,6 +190,15 @@ class TestGetBatch:
         ]
         from app.services.mobile_workflow import PickerIdentity
         result = await service.get_batch(99, PickerIdentity(user_id=8))
+        assert result.get("forbidden") is True
+
+    @pytest.mark.anyio
+    async def test_forbidden_without_picker_identity(self, service, odoo):
+        # Fail-closed: ohne bekannten Picker kein Zugriff, auch bei ownerlosem Batch.
+        odoo.search_read.return_value = [
+            {"id": 99, "name": "B", "state": "in_progress", "picking_ids": [1], "user_id": False}
+        ]
+        result = await service.get_batch(99, None)
         assert result.get("forbidden") is True
 
 
@@ -298,7 +308,8 @@ class TestValidateBatch:
         odoo.search_read.return_value = [{"id": 99, "picking_ids": [1, 2]}]
         odoo.call_method.return_value = {"res_model": "stock.backorder.confirmation",
                                          "type": "ir.actions.act_window"}
-        result = await service.validate_batch(99)
+        from app.services.mobile_workflow import PickerIdentity
+        result = await service.validate_batch(99, PickerIdentity(user_id=7))
         assert result["success"] is False
         assert result["batch_complete"] is False
         assert result["pending_action"] == "stock.backorder.confirmation"
@@ -307,11 +318,20 @@ class TestValidateBatch:
     @pytest.mark.anyio
     async def test_reports_failure_when_action_done_raises(self, service, odoo, n8n):
         from app.services.odoo_client import OdooAPIError
+        from app.services.mobile_workflow import PickerIdentity
         odoo.search_read.return_value = [{"id": 99, "picking_ids": [1, 2]}]
         odoo.call_method.side_effect = OdooAPIError("rpc error")
-        result = await service.validate_batch(99)
+        result = await service.validate_batch(99, PickerIdentity(user_id=7))
         assert result["success"] is False
         assert result["batch_complete"] is False
+
+    @pytest.mark.anyio
+    async def test_validate_denied_without_picker_identity(self, service, odoo, n8n):
+        # Fail-closed: ohne bekannten Picker kein destruktiver Abschluss.
+        odoo.search_read.return_value = [{"id": 99, "picking_ids": [1, 2], "user_id": [7, "Max"]}]
+        result = await service.validate_batch(99, None)
+        assert result["success"] is False
+        odoo.call_method.assert_not_called()
 
     @pytest.mark.anyio
     async def test_rejects_validate_from_other_picker(self, service, odoo, n8n):
