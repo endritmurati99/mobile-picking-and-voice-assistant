@@ -29,6 +29,17 @@
 | Kognitive Last | NASA-TLX Raw | Paarvergleich |
 | Qualitativ | Semi-strukturiertes Interview | Thematische Analyse |
 
+### Serial-Confirm-Telemetrie (System-Log)
+
+Der Endpoint `confirm_pick_line` emittiert pro Bestätigungsversuch **genau ein**
+`serial_confirm`-Event — auf allen Pfaden, auch bei Fehlern (`success=False`:
+Move-Line nicht gefunden, falscher Barcode, kein Bestand) sowie bei erfolgreichem
+Abschluss mit degradiertem n8n-Folgeprozess. Dadurch ist `success_rate`
+(`summarize_serial_events`) eine echte Quote über **alle** Versuche, nicht nur über
+die erfolgreichen. `serial_capture_rate` misst den Anteil der Versuche, bei denen
+tatsächlich eine Serien-/Losnummer geschrieben wurde; `latency_p50/p95_ms` die
+Antwortzeit des Confirm-Calls.
+
 ### Statistik
 - Gepaarte t-Tests (oder Wilcoxon bei Verletzung der Normalverteilung)
 - Cohen's d als Effektstärke

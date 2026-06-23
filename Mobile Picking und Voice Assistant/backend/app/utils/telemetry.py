@@ -9,6 +9,13 @@ def _percentile(sorted_values: list[float], p: float) -> float:
 
 
 def summarize_serial_events(events: list[dict]) -> dict:
+    """Aggregate serial_confirm events for the Design-Science evaluation.
+
+    ``success_rate`` is meaningful only because ``confirm_pick_line`` emits one
+    event per attempt, including failures (``success=False``). ``count`` is the
+    denominator over all attempts; ``serial_capture_rate`` is the share that
+    actually recorded a serial/lot number.
+    """
     count = len(events)
     if count == 0:
         return {"count": 0, "success_rate": 0.0, "serial_capture_rate": 0.0,

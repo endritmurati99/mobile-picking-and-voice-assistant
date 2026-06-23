@@ -5,6 +5,8 @@ Alle Odoo-RPC-Calls werden gemockt - kein laufendes Odoo noetig.
 Testet die Business-Logik: Mapping fuer Listen-/Detailansicht,
 Barcode-Validierung, quantity-Schreiben, all-done-Detection und n8n.
 """
+import json
+import logging
 from unittest.mock import AsyncMock
 
 import pytest
@@ -486,7 +488,12 @@ class TestConfirmPickLineSerial:
 
         assert result["success"] is True
         assert result["recorded_serial"] == "SN-0001"
-        odoo.write.assert_any_call("stock.move.line", [50], {"lot_name": "SN-0001"})
+        # Quantity and serial are written in a single move-line write (no redundant round-trip).
+        odoo.write.assert_any_call("stock.move.line", [50], {"quantity": 1, "lot_name": "SN-0001"})
+        move_line_writes = [
+            call for call in odoo.write.call_args_list if call.args[0] == "stock.move.line"
+        ]
+        assert len(move_line_writes) == 1
 
     @pytest.mark.anyio
     async def test_skips_barcode_check_if_no_barcode_in_odoo(self, service, odoo):
@@ -653,3 +660,91 @@ class TestRequestReplenishment:
         assert result["correlation_id"] == "corr-shortage-2"
         assert result["recommended_location_id"] == 12
         assert result["recommended_location"] == "WH/Stock/B-01"
+
+
+def _serial_confirm_events(caplog) -> list[dict]:
+    """Extract structured serial_confirm telemetry events from captured logs."""
+    events = []
+    for record in caplog.records:
+        try:
+            payload = json.loads(record.getMessage())
+        except (ValueError, TypeError):
+            continue
+        if isinstance(payload, dict) and payload.get("event_type") == "serial_confirm":
+            events.append(payload)
+    return events
+
+
+class TestConfirmPickLineTelemetry:
+    """Every confirm attempt must emit exactly one serial_confirm event, so the
+    Design-Science success_rate metric can measure failures (not only successes)."""
+
+    @pytest.mark.anyio
+    async def test_emits_failure_event_when_line_not_found(self, service, odoo, caplog):
+        odoo.execute_kw.return_value = []
+
+        with caplog.at_level(logging.INFO, logger="app.services.picking_service"):
+            result = await service.confirm_pick_line(1, 99, "x", 1.0)
+
+        assert result["success"] is False
+        events = _serial_confirm_events(caplog)
+        assert len(events) == 1
+        assert events[0]["success"] is False
+        assert events[0]["serial_recorded"] is False
+
+    @pytest.mark.anyio
+    async def test_emits_failure_event_on_wrong_barcode(self, service, odoo, caplog):
+        odoo.execute_kw.return_value = [
+            {"id": 20, "product_id": [5, "Schraube M8"], "quantity": 10}
+        ]
+        odoo.search_read.return_value = [{"id": 5, "barcode": "4006381333931"}]
+
+        with caplog.at_level(logging.INFO, logger="app.services.picking_service"):
+            result = await service.confirm_pick_line(1, 20, "9999999999999", 1.0)
+
+        assert result["success"] is False
+        events = _serial_confirm_events(caplog)
+        assert len(events) == 1
+        assert events[0]["success"] is False
+
+    @pytest.mark.anyio
+    async def test_emits_exactly_one_event_on_happy_path(self, service, odoo, n8n, caplog):
+        odoo.execute_kw.side_effect = [
+            [{"id": 20, "product_id": [5, "Schraube M8"], "quantity": 3, "move_id": [10, "MOVE/10"]}],
+            [{"id": 20, "picked": True}],
+        ]
+        odoo.search_read.return_value = [{"id": 5, "barcode": "4006381333931"}]
+        odoo.write = AsyncMock(return_value=True)
+        odoo.call_method = AsyncMock(return_value=True)
+        n8n.fire_event = AsyncMock(
+            return_value=N8NEventResult(delivered=True, correlation_id="c1", error=None)
+        )
+
+        with caplog.at_level(logging.INFO, logger="app.services.picking_service"):
+            result = await service.confirm_pick_line(1, 20, "4006381333931", 3.0)
+
+        assert result["success"] is True
+        events = _serial_confirm_events(caplog)
+        assert len(events) == 1
+        assert events[0]["success"] is True
+
+    @pytest.mark.anyio
+    async def test_emits_exactly_one_event_on_degraded_completion(self, service, odoo, n8n, caplog):
+        odoo.execute_kw.side_effect = [
+            [{"id": 20, "product_id": [5, "Schraube M8"], "quantity": 3, "move_id": [10, "MOVE/10"]}],
+            [{"id": 20, "picked": True}],
+        ]
+        odoo.search_read.return_value = [{"id": 5, "barcode": "4006381333931"}]
+        odoo.write = AsyncMock(return_value=True)
+        odoo.call_method = AsyncMock(return_value=True)
+        n8n.fire_event = AsyncMock(
+            return_value=N8NEventResult(delivered=False, correlation_id="c1", error="HTTP 503")
+        )
+
+        with caplog.at_level(logging.INFO, logger="app.services.picking_service"):
+            result = await service.confirm_pick_line(1, 20, "4006381333931", 3.0)
+
+        assert result["integration_status"] == "degraded"
+        events = _serial_confirm_events(caplog)
+        assert len(events) == 1
+        assert events[0]["success"] is True
