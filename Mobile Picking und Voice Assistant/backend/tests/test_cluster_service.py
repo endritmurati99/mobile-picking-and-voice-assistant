@@ -367,8 +367,10 @@ class TestConfirmClusterLine:
     @pytest.mark.anyio
     async def test_rejects_move_line_outside_batch(self, service, odoo):
         # Scoped search_read matcht nichts -> fremde/ungueltige Position (IDOR-Schutz).
+        from app.services.mobile_workflow import PickerIdentity
         odoo.search_read.return_value = []
-        result = await service.confirm_cluster_line(99, 1, 100, quantity=1)
+        result = await service.confirm_cluster_line(99, 1, 100, quantity=1,
+                                                    picker_identity=PickerIdentity(user_id=7))
         assert result["success"] is False
         odoo.write.assert_not_called()
 
@@ -418,7 +420,9 @@ class TestConfirmClusterLine:
             return []
 
         odoo.search_read.side_effect = fake_search_read
-        result = await service.confirm_cluster_line(99, 1, 100, scanned_barcode="999", quantity=1)
+        from app.services.mobile_workflow import PickerIdentity
+        result = await service.confirm_cluster_line(99, 1, 100, scanned_barcode="999", quantity=1,
+                                                    picker_identity=PickerIdentity(user_id=7))
         assert result["success"] is False
         odoo.write.assert_not_called()
 
