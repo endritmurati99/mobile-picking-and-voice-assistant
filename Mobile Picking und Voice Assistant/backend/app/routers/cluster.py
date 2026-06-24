@@ -69,11 +69,14 @@ async def confirm_cluster_line(
     service=Depends(get_cluster_service),
 ):
     """Position bestaetigen (Menge/Serial), ohne Picking-Validierung."""
-    return await service.confirm_cluster_line(
+    result = await service.confirm_cluster_line(
         batch_id, body.picking_id, body.move_line_id,
         scanned_barcode=body.scanned_barcode, quantity=body.quantity,
         serial_number=body.serial_number, picker_identity=identity,
     )
+    if result.get("forbidden"):
+        raise HTTPException(status_code=403, detail=result["message"])
+    return result
 
 
 @router.post("/cluster/batches/{batch_id}/validate")
@@ -83,4 +86,7 @@ async def validate_cluster_batch(
     service=Depends(get_cluster_service),
 ):
     """Ganzen Batch gesammelt abschliessen (action_done + n8n)."""
-    return await service.validate_batch(batch_id, picker_identity=identity)
+    result = await service.validate_batch(batch_id, picker_identity=identity)
+    if result.get("forbidden"):
+        raise HTTPException(status_code=403, detail=result["message"])
+    return result

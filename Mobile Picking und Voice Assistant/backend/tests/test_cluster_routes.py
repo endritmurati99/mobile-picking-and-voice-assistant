@@ -65,3 +65,24 @@ def test_validate_batch(client, cluster_service):
                        headers={"X-Picker-User-Id": "7", "X-Device-Id": "d1"})
     assert resp.status_code == 200
     assert resp.json()["batch_complete"] is True
+
+
+def test_confirm_line_forbidden_returns_403(client, cluster_service):
+    # #4: Auth-Fehler (forbidden) -> HTTP 403 statt 200.
+    cluster_service.confirm_cluster_line.return_value = {
+        "success": False, "forbidden": True, "message": "Kein Zugriff auf diesen Batch.",
+        "progress": None}
+    resp = client.post("/api/cluster/batches/99/confirm-line",
+                       json={"picking_id": 1, "move_line_id": 100, "quantity": 1},
+                       headers={"X-Picker-User-Id": "8", "X-Device-Id": "d1"})
+    assert resp.status_code == 403
+
+
+def test_validate_forbidden_returns_403(client, cluster_service):
+    # #4: Auth-Fehler (forbidden) -> HTTP 403 statt 200.
+    cluster_service.validate_batch.return_value = {
+        "success": False, "batch_complete": False, "forbidden": True,
+        "message": "Kein Zugriff auf diesen Batch."}
+    resp = client.post("/api/cluster/batches/99/validate",
+                       headers={"X-Picker-User-Id": "8", "X-Device-Id": "d1"})
+    assert resp.status_code == 403
