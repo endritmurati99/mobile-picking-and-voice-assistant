@@ -25,9 +25,9 @@ implemented: 2026-06-24
 > `action_done` (Cluster-Confirm validiert NICHT pro Picking). Sicherheit: fail-closed Autorisierung,
 > IDOR-Scoping inkl. create_batch, HTTP-403-Parität, CSS-Injection-Schutz.
 >
-> **Offene Folge-Aufgabe (kein Bug):** n8n-Webhook `batch-confirmed` ist nicht registriert (404,
-> gleiche webhookId-Lücke wie die anderen Picking-Webhooks) → Backend meldet `integration_status:
-> degraded`, Batch schließt trotzdem ab. Webhook in n8n noch registrieren.
+> **n8n-Webhook `batch-confirmed` — erledigt (2026-06-24):** Workflow `n8n/workflows/batch-confirmed.json`
+> (mit durablem `webhookId`) erstellt, importiert + aktiviert; live verifiziert (backend→n8n = HTTP 200) →
+> `validate_batch` liefert künftig `integration_status: success`.
 >
 > Artefakte: `docs/superpowers/plans/2026-06-24-cluster-picking-abschluss.md`,
 > `docs/superpowers/reviews/2026-06-24-cluster-picking-review.md`.
