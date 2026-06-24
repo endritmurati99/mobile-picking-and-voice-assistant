@@ -3288,7 +3288,7 @@ function renderClusterWalk(batch) {
     const legendHtml = (batch.boxes || []).map((box) => `
         <span class="cluster-box-legend__item">
             <span class="cluster-box-chip" style="--box-color:${safeColor(box.box_color)}">${safeInt(box.box_index)}</span>
-            ${escapeHtml(box.picking_name)}
+            ${escapeHtml(box.picking_name)}${box.package_name ? `<span class="cluster-box-pkg">${escapeHtml(box.package_name)}</span>` : ''}
         </span>`).join('');
 
     const linesHtml = lines.map((line) => {
@@ -3310,6 +3310,7 @@ function renderClusterWalk(batch) {
                         <span class="cluster-box-chip" style="--box-color:${safeColor(line.box_color)}">${safeInt(line.box_index, '?')}</span>
                         <span class="cluster-stop__order">${escapeHtml(line.picking_name || '')}</span>
                         <span class="cluster-stop__qty">${escapeHtml(qty)} Stück</span>
+                        ${line.package_name ? `<span class="cluster-box-pkg">${escapeHtml(line.package_name)}</span>` : ''}
                     </div>
                 </div>
                 <div class="cluster-stop__actions">

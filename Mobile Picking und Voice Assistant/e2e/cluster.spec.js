@@ -8,6 +8,7 @@ async function mockClusterApi(page) {
     {
       id: 5001, picking_id: 1001, picking_name: 'WH/INT/00007',
       box_index: 1, box_color: '#A299FF',
+      package_name: 'CLUSTER-B1/WH/INT/00007',
       product_name: 'Brick 2x2 orange', product_barcode: '4006381333931',
       tracking: 'none', quantity_demand: 4, picked: false,
       location_src: 'WH/Stock/Lager Links/L-E1-P1', location_src_short: 'L-E1-P1',
@@ -16,6 +17,7 @@ async function mockClusterApi(page) {
     {
       id: 5002, picking_id: 1002, picking_name: 'WH/INT/00008',
       box_index: 2, box_color: '#FF8A7E',
+      package_name: 'CLUSTER-B2/WH/INT/00008',
       product_name: 'Motorblock', product_barcode: '9780201379624',
       tracking: 'serial', quantity_demand: 1, picked: false,
       location_src: 'WH/Stock/Halle A/A-12', location_src_short: 'A-12',
@@ -33,8 +35,8 @@ async function mockClusterApi(page) {
       state: validated ? 'done' : 'in_progress',
       picker: 'Lena Lager',
       boxes: [
-        { picking_id: 1001, picking_name: 'WH/INT/00007', box_index: 1, box_color: '#A299FF' },
-        { picking_id: 1002, picking_name: 'WH/INT/00008', box_index: 2, box_color: '#FF8A7E' },
+        { picking_id: 1001, picking_name: 'WH/INT/00007', box_index: 1, box_color: '#A299FF', package_name: 'CLUSTER-B1/WH/INT/00007' },
+        { picking_id: 1002, picking_name: 'WH/INT/00008', box_index: 2, box_color: '#FF8A7E', package_name: 'CLUSTER-B2/WH/INT/00008' },
       ],
       lines: JSON.parse(JSON.stringify(lines)),
       progress: { total: lines.length, done, ratio: lines.length ? done / lines.length : 0 },
@@ -145,6 +147,7 @@ test('Cluster-Flow: Auswahl -> Rundgang -> Serial -> Abschluss', async ({ page }
   await startBtn.click();
   await expect(page.locator('.cluster-progress__count')).toHaveText('0 / 2');
   await expect(page.locator('.cluster-box-chip').first()).toBeVisible();
+  await expect(page.getByText('CLUSTER-B1/WH/INT/00007').first()).toBeVisible();
 
   // Erste (nicht-serielle) Position bestaetigen
   await page.locator('[data-stop-confirm="5001"]').click();
