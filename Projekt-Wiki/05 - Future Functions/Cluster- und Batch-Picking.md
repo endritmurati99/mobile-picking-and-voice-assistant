@@ -5,10 +5,29 @@ tags:
   - future
   - picking
   - odoo
-status: planned
+status: implemented
 component: backend, pwa, odoo
 created: 2026-06-22
+implemented: 2026-06-24
 ---
+
+> [!success] Umgesetzt & in `main` (2026-06-24)
+> Feature ist implementiert, multi-agent-reviewt, live gegen echtes Odoo (`masterfischer`) verifiziert
+> und per Fast-Forward nach `main` gemergt (HEAD `dd72b9e`). Tests: 146 Backend + 5 e2e grün.
+> **Live-Zyklus bestanden:** suggest → create_batch (BATCH/00001) → 6× confirm → validate_batch
+> (`action_done`) → Batch + Picking `done`. Voraussetzung erfüllt: Odoo-Modul `stock_picking_batch`
+> in `masterfischer` installiert.
+>
+> **Realisierte Architektur** (weicht von der Planung unten ab): eigener
+> `backend/app/services/cluster_service.py` + `routers/cluster.py` (statt picking_service zu erweitern),
+> Box-Zuordnung **logisch/visuell** (Box N ↔ Auftrag N, KEINE echten `stock.quant.package` — das bleibt
+> das separate [[Karton- und Behaelter-Tracking (Put-to-Box)]]), Abschluss gesammelt via
+> `action_done` (Cluster-Confirm validiert NICHT pro Picking). Sicherheit: fail-closed Autorisierung,
+> IDOR-Scoping inkl. create_batch, HTTP-403-Parität, CSS-Injection-Schutz.
+>
+> **Offene Folge-Aufgabe (kein Bug):** n8n-Webhook `batch-confirmed` ist nicht registriert (404,
+> gleiche webhookId-Lücke wie die anderen Picking-Webhooks) → Backend meldet `integration_status:
+> degraded`, Batch schließt trotzdem ab. Webhook in n8n noch registrieren.
 
 # Feature: Cluster-/Batch-Picking
 
