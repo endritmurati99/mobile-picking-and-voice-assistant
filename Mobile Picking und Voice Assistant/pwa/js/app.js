@@ -3115,21 +3115,27 @@ async function enterClusterMode() {
     if (!pickerReady) return;
     updateToolbar('cluster_select');
     setMainContent(renderLoading());
-    try {
-        const [suggestions, pickings] = await Promise.all([
-            withManagedRequest((signal) => getClusterSuggestions({ signal })),
-            withManagedRequest((signal) => getPickings({ signal })),
-        ]);
-        setState({
-            clusterSuggestions: Array.isArray(suggestions) ? suggestions : [],
-            clusterOpenPickings: Array.isArray(pickings) ? pickings : [],
-            clusterSelected: new Set(),
-        });
-        renderClusterSelect();
-    } catch (error) {
-        if (isAbortError(error)) return;
-        setMainContent(renderError(`Cluster-Vorschläge konnten nicht geladen werden: ${error.message}`));
+    // #13: Promise.allSettled so that a failing suggestions request does not block
+    // cluster entry; suggestions are best-effort. Only hard-fail if the pickings
+    // request rejected (and it is not an abort).
+    const [suggestionsResult, pickingsResult] = await Promise.allSettled([
+        withManagedRequest((signal) => getClusterSuggestions({ signal })),
+        withManagedRequest((signal) => getPickings({ signal })),
+    ]);
+    if (pickingsResult.status === 'rejected') {
+        if (isAbortError(pickingsResult.reason)) return;
+        setMainContent(renderError(`Cluster-Vorschläge konnten nicht geladen werden: ${pickingsResult.reason.message}`));
+        return;
     }
+    const suggestions = suggestionsResult.status === 'fulfilled' && Array.isArray(suggestionsResult.value)
+        ? suggestionsResult.value : [];
+    const pickings = Array.isArray(pickingsResult.value) ? pickingsResult.value : [];
+    setState({
+        clusterSuggestions: suggestions,
+        clusterOpenPickings: pickings,
+        clusterSelected: new Set(),
+    });
+    renderClusterSelect();
 }
 
 function renderClusterSelect() {
@@ -3369,6 +3375,13 @@ async function handleClusterConfirm(batch, line, btn) {
     stopSpeaking();
     if (btn) btn.disabled = true;
 
+    // #11: Helper that re-enables the button only when it is still in the document.
+    // After loadBatch() re-renders the DOM the original btn reference is detached;
+    // attempting to mutate it is a no-op but also never needed on the success path.
+    function reenableBtn() {
+        if (btn && btn.isConnected) btn.disabled = false;
+    }
+
     let serialNumber = '';
     if (line.tracking === 'serial' || line.tracking === 'lot') {
         serialNumber = await askSerialNumber(line.product_name || 'Produkt');
@@ -3393,15 +3406,15 @@ async function handleClusterConfirm(batch, line, btn) {
         if (!result?.success) {
             feedbackError();
             showToast(result?.message || 'Bestätigung fehlgeschlagen.', 'error');
-            if (btn) btn.disabled = false;
+            reenableBtn();
             return;
         }
         feedbackSuccess();
-        await loadBatch(batch.batch_id);  // frischer Fortschritt + Re-Render
+        await loadBatch(batch.batch_id);  // frischer Fortschritt + Re-Render (btn nun detached)
     } catch (error) {
         if (isAbortError(error)) return;
         feedbackError();
-        if (btn) btn.disabled = false;
+        reenableBtn();
         const detail = error instanceof ApiError ? error.message : 'Bestätigung fehlgeschlagen.';
         showToast(detail, 'error');
     }
@@ -3416,7 +3429,20 @@ async function validateClusterBatch(batch) {
             signal,
         }));
         if (!result?.batch_complete) {
-            showToast(result?.message || 'Batch konnte nicht abgeschlossen werden.', 'warning');
+            // #8: Distinguish Odoo wizard / pending_action from a plain failure.
+            // Backend signals this via result.pending_action (e.g. "stock.backorder.confirmation").
+            // The picker cannot resolve this in the app; they must escalate to a supervisor.
+            if (result?.pending_action) {
+                feedbackError();
+                showToast(
+                    'Batch konnte nicht automatisch abgeschlossen werden. Bitte Vorgesetzte:n informieren (Odoo-Aktion erforderlich).',
+                    'error',
+                );
+                if (validateBtn) validateBtn.disabled = false;
+                return;
+            }
+            feedbackError();
+            showToast(result?.message || 'Batch konnte nicht abgeschlossen werden.', 'error');
             if (validateBtn) validateBtn.disabled = false;
             return;
         }

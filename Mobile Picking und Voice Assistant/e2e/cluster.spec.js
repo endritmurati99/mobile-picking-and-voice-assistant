@@ -90,6 +90,46 @@ async function enterCluster(page) {
   await expect(page.getByText('Batch zusammenstellen')).toBeVisible();
 }
 
+// #8: Wizard / pending_action: validate returns pending_action -> error toast, button re-enabled.
+test('Cluster-Validate: pending_action wizard zeigt Fehler-Toast und entsperrt Button', async ({ page }) => {
+  await mockPwaApi(page);
+  await mockClusterApi(page);
+
+  // Override the validate endpoint to return a pending_action (wizard) response.
+  await page.route('**/api/cluster/batches/9001/validate', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: false,
+        batch_complete: false,
+        pending_action: 'stock.backorder.confirmation',
+        message: 'Batch-Abschluss erfordert eine manuelle Bestätigung in Odoo (stock.backorder.confirmation).',
+      }),
+    });
+  });
+
+  await enterCluster(page);
+  await page.getByRole('button', { name: 'Übernehmen' }).first().click();
+  await page.locator('[data-cluster-confirm]').click();
+
+  // Mark all lines as done so the validate button is enabled.
+  await page.locator('[data-stop-confirm="5001"]').click();
+  await page.locator('[data-stop-confirm="5002"]').click();
+  await page.locator('#serial-input').fill('SN-TEST-W');
+  await page.locator('#serial-confirm').click();
+
+  const validateBtn = page.locator('[data-cluster-validate]');
+  await expect(validateBtn).toBeEnabled();
+  await validateBtn.click();
+
+  // Error toast with supervisor escalation message must appear.
+  await expect(page.getByText('Bitte Vorgesetzte:n informieren')).toBeVisible();
+
+  // Button must be re-enabled so the picker can retry or escalate.
+  await expect(validateBtn).toBeEnabled();
+});
+
 test('Cluster-Flow: Auswahl -> Rundgang -> Serial -> Abschluss', async ({ page }) => {
   await mockPwaApi(page);
   const cluster = await mockClusterApi(page);
