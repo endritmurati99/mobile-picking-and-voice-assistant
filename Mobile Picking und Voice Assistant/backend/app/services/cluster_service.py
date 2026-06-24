@@ -2,7 +2,11 @@
 Cluster-/Batch-Picking — mehrere stock.picking gebuendelt in einem Rundgang.
 
 Odoo 18: echter stock.picking.batch (action_confirm / action_done).
-Box-Zuordnung ist rein logisch (Box N <-> Picking N), keine Odoo-Packages.
+Box-Zuordnung: jedes Picking erhaelt eine logische Box-Nummer/-Farbe UND ein echtes,
+wiederverwendbares stock.quant.package, das als result_package_id (Ziel-Package) auf
+allen Move-Lines des Pickings gesetzt wird (Box N <-> Order N <-> 1 Package). Beim
+action_done landen die Waren physisch in diesem Package - das definierende Merkmal des
+Cluster-Pickings laut Odoo-Doku.
 picking_service.py bleibt unberuehrt; Route-Sort wird wiederverwendet.
 
 Verifizierte Odoo-18-Fakten siehe docs/superpowers/specs/2026-06-23-odoo18-batch-api-facts.md
@@ -188,7 +192,50 @@ class ClusterService:
                              "(batch %s): %s", batch_id, cancel_exc)
             return {"error": f"Batch-Bestaetigung fehlgeschlagen: {exc}"}
 
+        # Ziel-Packages je Picking anlegen (Box N <-> Order N <-> 1 Package) und als
+        # result_package_id auf die Move-Lines schreiben. Best-effort: ein Package-Glitch
+        # darf den (bereits bestaetigten) Batch nie zerstoeren - daher hier KEIN
+        # action_cancel und KEIN raise, nur loggen und weitermachen.
+        try:
+            await self._assign_packages(allowed_ids)
+        except OdooAPIError as exc:
+            logger.error("create_batch: Package-Zuweisung fehlgeschlagen (batch %s): %s",
+                         batch_id, exc)
+
         return await self.get_batch(batch_id, picker_identity=picker_identity)
+
+    async def _assign_packages(self, allowed_ids: list[int]) -> None:
+        """Je Picking ein reusable stock.quant.package anlegen und als result_package_id
+        auf dessen Move-Lines schreiben. Stabile Reihenfolge ueber box_index."""
+        box_map = assign_boxes(allowed_ids)
+        pickings = await self._odoo.search_read(
+            "stock.picking", [("id", "in", allowed_ids)], ["name"],
+            limit=len(allowed_ids) or 1,
+        )
+        name_by_picking = {p["id"]: p["name"] for p in pickings}
+
+        lines = await self._odoo.search_read(
+            "stock.move.line", [("picking_id", "in", allowed_ids)], ["id", "picking_id"],
+            limit=max(500, len(allowed_ids) * 20),
+        )
+        line_ids_by_picking: dict[int, list[int]] = defaultdict(list)
+        for line in lines:
+            picking_id = line["picking_id"][0] if line.get("picking_id") else None
+            if picking_id is not None:
+                line_ids_by_picking[picking_id].append(line["id"])
+
+        for picking_id in sorted(allowed_ids, key=lambda pid: box_map[pid]["box_index"]):
+            line_ids = line_ids_by_picking.get(picking_id)
+            if not line_ids:
+                continue
+            box_index = box_map[picking_id]["box_index"]
+            picking_name = name_by_picking.get(picking_id) or f"P{picking_id}"
+            package_id = await self._odoo.create(
+                "stock.quant.package",
+                {"name": f"CLUSTER-B{box_index}/{picking_name}", "package_use": "reusable"},
+            )
+            await self._odoo.write(
+                "stock.move.line", line_ids, {"result_package_id": package_id})
 
     @staticmethod
     def _owner_id(batch: dict[str, Any]) -> int | None:
@@ -235,7 +282,8 @@ class ClusterService:
 
         raw_lines = await self._odoo.search_read(
             "stock.move.line", [("picking_id", "in", picking_ids)],
-            ["picking_id", "product_id", "quantity", "move_id", "location_id"],
+            ["picking_id", "product_id", "quantity", "move_id", "location_id",
+             "result_package_id"],
             limit=max(500, len(picking_ids) * 20),
         ) if picking_ids else []
 
@@ -253,6 +301,8 @@ class ClusterService:
         product_map = {p["id"]: p for p in products}
 
         lines_by_picking: dict[int, list[dict[str, Any]]] = defaultdict(list)
+        # Ziel-Package je Picking (alle Lines eines Pickings teilen ein Package).
+        package_by_picking: dict[int, dict[str, Any]] = {}
         for raw in raw_lines:
             picking_id = raw["picking_id"][0] if raw.get("picking_id") else None
             move = move_map.get(raw["move_id"][0] if raw.get("move_id") else None, {})
@@ -260,6 +310,13 @@ class ClusterService:
             product = product_map.get(product_id, {})
             location = raw["location_id"][1] if raw.get("location_id") else ""
             loc_parts = [part.strip() for part in location.split("/") if part.strip()]
+            # result_package_id ist [id, name] oder False (fehlt -> None, abwaertskompatibel).
+            result_package = raw.get("result_package_id")
+            package_id = result_package[0] if result_package else None
+            package_name = result_package[1] if result_package else None
+            if picking_id is not None and package_id is not None:
+                package_by_picking.setdefault(
+                    picking_id, {"package_id": package_id, "package_name": package_name})
             lines_by_picking[picking_id].append({
                 "id": raw["id"],
                 "product_id": product_id,
@@ -272,6 +329,8 @@ class ClusterService:
                 "picked": bool(move.get("picked")),
                 "location_src": location,
                 "location_src_short": loc_parts[-1] if loc_parts else location,
+                "package_id": package_id,
+                "package_name": package_name,
             })
 
         ordered = build_cluster_lines(lines_by_picking, box_map)
@@ -291,7 +350,9 @@ class ClusterService:
             "picker": batch["user_id"][1] if batch.get("user_id") else "",
             "boxes": [
                 {"picking_id": pid, "picking_name": name_by_picking.get(pid, ""),
-                 "box_index": box_map[pid]["box_index"], "box_color": box_map[pid]["box_color"]}
+                 "box_index": box_map[pid]["box_index"], "box_color": box_map[pid]["box_color"],
+                 "package_id": package_by_picking.get(pid, {}).get("package_id"),
+                 "package_name": package_by_picking.get(pid, {}).get("package_name")}
                 for pid in sorted(picking_ids)
             ],
             "lines": ordered,
