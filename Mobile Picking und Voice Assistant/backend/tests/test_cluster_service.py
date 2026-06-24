@@ -197,6 +197,98 @@ class TestCreateBatch:
         assert cancel_calls, "compensating action_cancel must be called"
         assert cancel_calls[0].args[2] == [99]
 
+    @pytest.mark.anyio
+    async def test_creates_one_package_per_picking_and_writes_result_package(self, service, odoo):
+        # Destination Package: je Picking ein stock.quant.package, als result_package_id
+        # auf die Move-Lines dieses Pickings geschrieben (Box N <-> Order N <-> 1 Package).
+        def fake_create(model, vals):
+            if model == "stock.picking.batch":
+                return 99
+            if model == "stock.quant.package":
+                # Package-IDs: aus dem Namen ableiten, damit der Test sie zuordnen kann.
+                return 1000 + len(odoo.create.call_args_list)
+            raise AssertionError(model)
+
+        odoo.create.side_effect = fake_create
+
+        async def fake_search_read(model, domain, fields, limit=100):
+            if model == "stock.picking" and ("state", "=", "assigned") in domain:
+                return [{"id": 1, "name": "WH/OUT/001", "company_id": [1, "MyCo"]},
+                        {"id": 2, "name": "WH/OUT/002", "company_id": [1, "MyCo"]}]
+            if model == "stock.move.line" and any(
+                    isinstance(c, tuple) and c[0] == "picking_id" and c[1] == "in" for c in domain):
+                return [{"id": 100, "picking_id": [1, "WH/OUT/001"]},
+                        {"id": 101, "picking_id": [1, "WH/OUT/001"]},
+                        {"id": 200, "picking_id": [2, "WH/OUT/002"]}]
+            if model == "stock.picking.batch":
+                return [{"id": 99, "name": "B", "state": "in_progress",
+                         "picking_ids": [1, 2], "user_id": [7, "Max"]}]
+            if model == "stock.picking":
+                return [{"id": 1, "name": "WH/OUT/001"}, {"id": 2, "name": "WH/OUT/002"}]
+            return []
+
+        odoo.search_read.side_effect = fake_search_read
+        from app.services.mobile_workflow import PickerIdentity
+        await service.create_batch([1, 2], PickerIdentity(user_id=7))
+
+        # Genau ein Package je Picking angelegt (zwei Pickings -> zwei Packages).
+        pkg_creates = [c for c in odoo.create.call_args_list
+                       if c.args[0] == "stock.quant.package"]
+        assert len(pkg_creates) == 2
+        for c in pkg_creates:
+            assert c.args[1]["package_use"] == "reusable"
+            assert c.args[1].get("name")
+
+        # result_package_id-Write je Picking auf dessen Move-Line-IDs.
+        pkg_writes = [c for c in odoo.write.call_args_list
+                      if c.args[0] == "stock.move.line"
+                      and "result_package_id" in c.args[2]]
+        assert len(pkg_writes) == 2
+        write_by_lineset = {tuple(sorted(c.args[1])): c.args[2]["result_package_id"]
+                            for c in pkg_writes}
+        # Picking 1 hat Lines 100,101; Picking 2 hat Line 200 - getrennte Packages.
+        assert (100, 101) in write_by_lineset
+        assert (200,) in write_by_lineset
+        assert write_by_lineset[(100, 101)] != write_by_lineset[(200,)]
+
+    @pytest.mark.anyio
+    async def test_batch_still_succeeds_when_package_assignment_fails(self, service, odoo):
+        # Best-effort: scheitert die Package-Zuweisung (OdooAPIError), bleibt der Batch
+        # gueltig - kein action_cancel, kein Fehler, Batch wird zurueckgegeben.
+        def fake_create(model, vals):
+            if model == "stock.picking.batch":
+                return 99
+            if model == "stock.quant.package":
+                raise OdooAPIError("package creation blew up")
+            raise AssertionError(model)
+
+        odoo.create.side_effect = fake_create
+
+        async def fake_search_read(model, domain, fields, limit=100):
+            if model == "stock.picking" and ("state", "=", "assigned") in domain:
+                return [{"id": 1, "name": "WH/OUT/001", "company_id": [1, "MyCo"]}]
+            if model == "stock.move.line" and any(
+                    isinstance(c, tuple) and c[0] == "picking_id" and c[1] == "in" for c in domain):
+                return [{"id": 100, "picking_id": [1, "WH/OUT/001"]}]
+            if model == "stock.picking.batch":
+                return [{"id": 99, "name": "B", "state": "in_progress",
+                         "picking_ids": [1], "user_id": [7, "Max"]}]
+            if model == "stock.picking":
+                return [{"id": 1, "name": "WH/OUT/001"}]
+            return []
+
+        odoo.search_read.side_effect = fake_search_read
+        from app.services.mobile_workflow import PickerIdentity
+        result = await service.create_batch([1], PickerIdentity(user_id=7))
+
+        # Batch valide zurueckgegeben - kein Fehler trotz Package-Fehlschlag.
+        assert result.get("batch_id") == 99
+        assert "error" not in result
+        # Kein kompensierendes action_cancel wegen eines Package-Glitches.
+        cancel_calls = [c for c in odoo.call_method.call_args_list
+                        if c.args[:2] == ("stock.picking.batch", "action_cancel")]
+        assert not cancel_calls
+
 
 class TestGetBatch:
     @pytest.mark.anyio
@@ -237,6 +329,79 @@ class TestGetBatch:
         assert by_id[100]["product_name"] == "Wal"  # [X]-Prefix entfernt
         assert result["progress"]["total"] == 2
         assert result["progress"]["done"] == 1
+
+    @pytest.mark.anyio
+    async def test_surfaces_result_package_per_box_and_line(self, service, odoo):
+        # get_batch liefert package_name je Box und je Line aus result_package_id.
+        async def fake_search_read(model, domain, fields, limit=100):
+            if model == "stock.picking.batch":
+                return [{"id": 99, "name": "B", "state": "in_progress",
+                         "picking_ids": [1, 2], "user_id": [7, "Max"]}]
+            if model == "stock.picking":
+                return [{"id": 1, "name": "WH/OUT/001"}, {"id": 2, "name": "WH/OUT/002"}]
+            if model == "stock.move.line":
+                return [
+                    {"id": 100, "picking_id": [1, "WH/OUT/001"], "product_id": [5, "Wal"],
+                     "quantity": 0, "move_id": [50, "m"], "location_id": [9, "WH/Stock/Links/E1-P1"],
+                     "result_package_id": [70, "CLUSTER-B1/WH/OUT/001"]},
+                    {"id": 200, "picking_id": [2, "WH/OUT/002"], "product_id": [6, "Ente"],
+                     "quantity": 0, "move_id": [60, "m"], "location_id": [8, "WH/Stock/Mitte/E2-P5"],
+                     "result_package_id": [71, "CLUSTER-B2/WH/OUT/002"]},
+                ]
+            if model == "stock.move":
+                return [{"id": 50, "product_uom_qty": 1, "picked": False},
+                        {"id": 60, "product_uom_qty": 1, "picked": False}]
+            if model == "product.product":
+                return [{"id": 5, "default_code": "WAL", "barcode": "111", "tracking": "none"},
+                        {"id": 6, "default_code": "ENT", "barcode": "222", "tracking": "none"}]
+            raise AssertionError(model)
+
+        odoo.search_read.side_effect = fake_search_read
+        from app.services.mobile_workflow import PickerIdentity
+        result = await service.get_batch(99, PickerIdentity(user_id=7))
+
+        by_line = {l["id"]: l for l in result["lines"]}
+        assert by_line[100]["package_name"] == "CLUSTER-B1/WH/OUT/001"
+        assert by_line[100]["package_id"] == 70
+        assert by_line[200]["package_name"] == "CLUSTER-B2/WH/OUT/002"
+
+        by_box = {b["picking_id"]: b for b in result["boxes"]}
+        assert by_box[1]["package_name"] == "CLUSTER-B1/WH/OUT/001"
+        assert by_box[1]["package_id"] == 70
+        assert by_box[2]["package_name"] == "CLUSTER-B2/WH/OUT/002"
+        # box_index/box_color bleiben unveraendert erhalten.
+        assert by_box[1]["box_index"] == 1
+        assert by_box[1]["box_color"] in BOX_PALETTE
+
+    @pytest.mark.anyio
+    async def test_package_name_none_when_no_result_package(self, service, odoo):
+        # Backward compatible: aeltere Batches ohne result_package_id -> package_name None.
+        async def fake_search_read(model, domain, fields, limit=100):
+            if model == "stock.picking.batch":
+                return [{"id": 99, "name": "B", "state": "in_progress",
+                         "picking_ids": [1], "user_id": [7, "Max"]}]
+            if model == "stock.picking":
+                return [{"id": 1, "name": "WH/OUT/001"}]
+            if model == "stock.move.line":
+                return [{"id": 100, "picking_id": [1, "WH/OUT/001"], "product_id": [5, "Wal"],
+                         "quantity": 0, "move_id": [50, "m"], "location_id": [9, "WH/Stock/Links/E1-P1"],
+                         "result_package_id": False}]
+            if model == "stock.move":
+                return [{"id": 50, "product_uom_qty": 1, "picked": False}]
+            if model == "product.product":
+                return [{"id": 5, "default_code": "WAL", "barcode": "111", "tracking": "none"}]
+            raise AssertionError(model)
+
+        odoo.search_read.side_effect = fake_search_read
+        from app.services.mobile_workflow import PickerIdentity
+        result = await service.get_batch(99, PickerIdentity(user_id=7))
+
+        by_line = {l["id"]: l for l in result["lines"]}
+        assert by_line[100]["package_name"] is None
+        assert by_line[100]["package_id"] is None
+        by_box = {b["picking_id"]: b for b in result["boxes"]}
+        assert by_box[1]["package_name"] is None
+        assert by_box[1]["box_index"] == 1  # Box weiterhin intakt
 
     @pytest.mark.anyio
     async def test_returns_error_for_unknown_batch(self, service, odoo):
