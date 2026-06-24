@@ -20,10 +20,11 @@ implemented: 2026-06-24
 >
 > **Realisierte Architektur** (weicht von der Planung unten ab): eigener
 > `backend/app/services/cluster_service.py` + `routers/cluster.py` (statt picking_service zu erweitern),
-> Box-Zuordnung **logisch/visuell** (Box N ↔ Auftrag N, KEINE echten `stock.quant.package` — das bleibt
-> das separate [[Karton- und Behaelter-Tracking (Put-to-Box)]]), Abschluss gesammelt via
-> `action_done` (Cluster-Confirm validiert NICHT pro Picking). Sicherheit: fail-closed Autorisierung,
-> IDOR-Scoping inkl. create_batch, HTTP-403-Parität, CSS-Injection-Schutz.
+> **echtes Odoo-Cluster mit Ziel-Verpackung** — je Auftrag eine reusable `stock.quant.package`,
+> `result_package_id` auf den Move-Lines (Odoo-Feature „Packages" aktiviert; nachgerüstet 2026-06-24
+> gemäß offizieller Odoo-Cluster-Doku; Put-to-Box damit in den Cluster-Flow integriert), Abschluss
+> gesammelt via `action_done` (Cluster-Confirm validiert NICHT pro Picking). Sicherheit: fail-closed
+> Autorisierung, IDOR-Scoping inkl. create_batch, HTTP-403-Parität, CSS-Injection-Schutz.
 >
 > **n8n-Webhook `batch-confirmed` — erledigt (2026-06-24):** Workflow `n8n/workflows/batch-confirmed.json`
 > (mit durablem `webhookId`) erstellt, importiert + aktiviert; live verifiziert (backend→n8n = HTTP 200) →
