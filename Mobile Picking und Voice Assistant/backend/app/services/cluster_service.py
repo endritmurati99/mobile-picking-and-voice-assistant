@@ -198,7 +198,7 @@ class ClusterService:
         # action_cancel und KEIN raise, nur loggen und weitermachen.
         try:
             await self._assign_packages(allowed_ids)
-        except OdooAPIError as exc:
+        except Exception as exc:  # noqa: BLE001 - best-effort: bestaetigter Batch muss ueberleben
             logger.error("create_batch: Package-Zuweisung fehlgeschlagen (batch %s): %s",
                          batch_id, exc)
 
