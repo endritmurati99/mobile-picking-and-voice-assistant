@@ -83,23 +83,28 @@ class ClusterService:
 
     async def suggest_batches(self) -> list[dict[str, Any]]:
         """Offene assigned-Pickings ohne Batch nach Lagerzone gruppieren."""
-        pickings = await self._odoo.search_read(
-            "stock.picking",
-            [("state", "=", "assigned"), ("batch_id", "=", False)],
-            ["name", "batch_id"],
-            limit=100,
-        )
-        if not pickings:
-            return []
+        try:
+            pickings = await self._odoo.search_read(
+                "stock.picking",
+                [("state", "=", "assigned"), ("batch_id", "=", False)],
+                ["name", "batch_id"],
+                limit=100,
+            )
+            if not pickings:
+                return []
 
-        picking_ids = [p["id"] for p in pickings]
-        name_by_id = {p["id"]: p["name"] for p in pickings}
-        lines = await self._odoo.search_read(
-            "stock.move.line",
-            [("picking_id", "in", picking_ids)],
-            ["picking_id", "location_id"],
-            limit=max(500, len(picking_ids) * 20),
-        )
+            picking_ids = [p["id"] for p in pickings]
+            name_by_id = {p["id"]: p["name"] for p in pickings}
+            lines = await self._odoo.search_read(
+                "stock.move.line",
+                [("picking_id", "in", picking_ids)],
+                ["picking_id", "location_id"],
+                limit=max(500, len(picking_ids) * 20),
+            )
+        except OdooAPIError as exc:
+            # #14: Sichtbares Service-Logging statt stiller 500er-Propagation.
+            logger.error("suggest_batches: Odoo-Abfrage fehlgeschlagen: %s", exc)
+            raise
 
         groups: dict[str, dict[str, Any]] = defaultdict(
             lambda: {"picking_ids": set(), "line_count": 0}
@@ -137,25 +142,52 @@ class ClusterService:
         if not ids:
             raise ValueError("picking_ids darf nicht leer sein")
 
-        # company_id von den Pickings uebernehmen -> verhindert _check_company.
-        pickings = await self._odoo.search_read(
-            "stock.picking", [("id", "in", ids)], ["company_id"], limit=len(ids)
+        # IDOR-/State-Schutz: nur eigene-faehige Pickings zulassen - assigned und
+        # noch keinem Batch zugeordnet (analog suggest_batches). picking_ids=[(6,0,..)]
+        # ist ein REPLACE, daher duerfen NUR gescopte IDs in die vals.
+        allowed = await self._odoo.search_read(
+            "stock.picking",
+            [("id", "in", ids), ("state", "=", "assigned"), ("batch_id", "=", False)],
+            ["id", "company_id"],
+            limit=len(ids),
         )
+        allowed_ids = [p["id"] for p in allowed]
+        if not allowed_ids:
+            return {"error": "Keine gueltigen Pickings fuer diesen Batch.", "forbidden": True}
+
         company_id = None
-        for picking in pickings:
+        for picking in allowed:
             if picking.get("company_id"):
                 company_id = picking["company_id"][0]
                 break
 
         # 'name' bewusst weglassen -> Odoo-Sequenz 'picking.batch' fuellt es.
-        vals: dict[str, Any] = {"picking_ids": [(6, 0, ids)]}
+        vals: dict[str, Any] = {"picking_ids": [(6, 0, allowed_ids)]}
         if company_id is not None:
             vals["company_id"] = company_id
         if picker_identity and getattr(picker_identity, "user_id", None):
             vals["user_id"] = picker_identity.user_id
 
-        batch_id = await self._odoo.create("stock.picking.batch", vals)
-        await self._odoo.call_method("stock.picking.batch", "action_confirm", [batch_id])
+        try:
+            batch_id = await self._odoo.create("stock.picking.batch", vals)
+        except OdooAPIError as exc:
+            logger.error("create_batch: Anlegen fehlgeschlagen: %s", exc)
+            return {"error": f"Batch-Anlage fehlgeschlagen: {exc}"}
+
+        try:
+            await self._odoo.call_method("stock.picking.batch", "action_confirm", [batch_id])
+        except OdooAPIError as exc:
+            logger.error("create_batch: action_confirm fehlgeschlagen (batch %s): %s",
+                         batch_id, exc)
+            # Kompensieren: keinen verwaisten Draft-Batch hinterlassen.
+            try:
+                await self._odoo.call_method(
+                    "stock.picking.batch", "action_cancel", [batch_id])
+            except OdooAPIError as cancel_exc:
+                logger.error("create_batch: kompensierendes action_cancel fehlgeschlagen "
+                             "(batch %s): %s", batch_id, cancel_exc)
+            return {"error": f"Batch-Bestaetigung fehlgeschlagen: {exc}"}
+
         return await self.get_batch(batch_id, picker_identity=picker_identity)
 
     @staticmethod
@@ -280,17 +312,23 @@ class ClusterService:
         """
         t0 = time.monotonic()
         # IDOR-Schutz + Ownership-Gate in EINER Query: die Move-Line MUSS zu picking_id
-        # gehoeren, dieses Picking zum batch_id, und (wenn ein Picker bekannt ist) der
-        # Batch dem anfragenden Picker. Sonst koennte ein Client eine fremde
-        # move_line_id einschleusen oder in einem fremden Batch schreiben.
+        # gehoeren, dieses Picking zum batch_id, und der Batch dem anfragenden Picker.
+        # Der Owner-Filter ist unbedingt (fail-closed, siehe Guard unten). Sonst koennte
+        # ein Client eine fremde move_line_id einschleusen oder fremd schreiben.
         requester_id = getattr(picker_identity, "user_id", None) if picker_identity else None
+        # #10: Fail-closed wie _is_authorized - ohne bekannten Picker kein Schreibzugriff.
+        if requester_id is None:
+            self._emit_cluster_confirm(False, batch_id, picking_id, move_line_id, None, False, t0)
+            return {"success": False,
+                    "message": "Kein Zugriff auf diesen Batch.",
+                    "forbidden": True,
+                    "progress": None}
         domain = [
             ("id", "=", move_line_id),
             ("picking_id", "=", picking_id),
             ("picking_id.batch_id", "=", batch_id),
+            ("picking_id.batch_id.user_id", "=", requester_id),
         ]
-        if requester_id:
-            domain.append(("picking_id.batch_id.user_id", "=", requester_id))
         lines = await self._odoo.search_read(
             "stock.move.line",
             domain,
@@ -307,10 +345,16 @@ class ClusterService:
         product_id = line["product_id"][0] if line.get("product_id") else None
         move_id = line["move_id"][0] if line.get("move_id") else None
 
-        if product_id and scanned_barcode:
+        # #9: product.product nur EINMAL lesen (barcode + tracking) und fuer beide
+        # Checks (Barcode-Match und Serial/Tracking) wiederverwenden.
+        product: dict[str, Any] = {}
+        if product_id and (scanned_barcode or (serial_number or "").strip()):
             products = await self._odoo.search_read(
                 "product.product", [("id", "=", product_id)], ["barcode", "tracking"])
-            expected = products[0].get("barcode") if products else None
+            product = products[0] if products else {}
+
+        if product_id and scanned_barcode:
+            expected = product.get("barcode")
             if expected and scanned_barcode != expected:
                 self._emit_cluster_confirm(False, batch_id, picking_id, move_line_id, product_id, False, t0)
                 return {"success": False, "message": f"Falscher Artikel. Erwartet: {expected}",
@@ -321,28 +365,52 @@ class ClusterService:
 
         recorded_serial = ""
         serial_clean = (serial_number or "").strip()
-        if serial_clean and product_id:
-            tracked = await self._odoo.search_read(
-                "product.product", [("id", "=", product_id)], ["tracking"])
-            if tracked and tracked[0].get("tracking") in ("serial", "lot"):
-                line_values["lot_name"] = serial_clean
-                recorded_serial = serial_clean
+        if serial_clean and product_id and product.get("tracking") in ("serial", "lot"):
+            line_values["lot_name"] = serial_clean
+            recorded_serial = serial_clean
 
-        await self._odoo.write("stock.move.line", [move_line_id], line_values)
-        if move_id:
-            await self._odoo.write("stock.move", [move_id], {"picked": True})
+        # #1: Beide Writes in try/except - bei OdooAPIError kein HTTP 500, sondern
+        # Fehler-Telemetrie + success:False (Teil-Write bleibt zwar moeglich, aber
+        # der Picker bekommt eine klare Fehlermeldung statt eines 500ers).
+        try:
+            await self._odoo.write("stock.move.line", [move_line_id], line_values)
+            if move_id:
+                await self._odoo.write("stock.move", [move_id], {"picked": True})
+        except OdooAPIError as exc:
+            logger.error("confirm_cluster_line: Write fehlgeschlagen (batch %s, line %s): %s",
+                         batch_id, move_line_id, exc)
+            self._emit_cluster_confirm(
+                False, batch_id, picking_id, move_line_id, product_id, bool(recorded_serial), t0)
+            return {"success": False,
+                    "message": f"Bestaetigung fehlgeschlagen: {exc}",
+                    "progress": None}
 
         self._emit_cluster_confirm(
             True, batch_id, picking_id, move_line_id, product_id, bool(recorded_serial), t0)
-        batch = await self.get_batch(batch_id, picker_identity=picker_identity)
+
+        # #7: Write ist bereits erfolgreich - der nachgelagerte Progress-Read ist
+        # best effort. Schlaegt er fehl, bleibt success:True mit progress:None statt
+        # einen 500er zu werfen (sonst Doppel-Confirm-Risiko).
+        progress = None
+        try:
+            batch = await self.get_batch(batch_id, picker_identity=picker_identity)
+            progress = batch.get("progress")
+        except OdooAPIError as exc:
+            logger.error("confirm_cluster_line: Progress-Read fehlgeschlagen (batch %s): %s",
+                         batch_id, exc)
+
         return {"success": True, "message": "Bestätigt.", "recorded_serial": recorded_serial,
-                "progress": batch.get("progress")}
+                "progress": progress}
 
     async def validate_batch(self, batch_id, picker_identity=None) -> dict[str, Any]:
         """Ganzen Batch gesammelt abschliessen via action_done (+ n8n-Event)."""
+        t0 = time.monotonic()
+        # #5: 'state' mitlesen, um einen bereits abgeschlossenen Batch frueh zu erkennen.
         batches = await self._odoo.search_read(
-            "stock.picking.batch", [("id", "=", batch_id)], ["picking_ids", "user_id"], limit=1)
+            "stock.picking.batch", [("id", "=", batch_id)],
+            ["picking_ids", "user_id", "state"], limit=1)
         if not batches:
+            self._emit_batch_validate(False, batch_id, "not_found", t0)
             return {"success": False, "batch_complete": False, "message": "Batch nicht gefunden."}
         batch = batches[0]
         member_ids = batch.get("picking_ids", []) or []
@@ -350,8 +418,15 @@ class ClusterService:
         # Fail-closed Ownership-Gate: nur der zugewiesene Picker darf den Batch
         # (destruktiv) abschliessen; ohne bekannten Picker wird verweigert.
         if not self._is_authorized(batch, picker_identity):
-            return {"success": False, "batch_complete": False,
+            self._emit_batch_validate(False, batch_id, "auth_denied", t0)
+            return {"success": False, "batch_complete": False, "forbidden": True,
                     "message": "Kein Zugriff auf diesen Batch."}
+
+        # #5: Doppel-Tap / Race gegen Button-Disable - bereits abgeschlossen ist idempotent ok.
+        if batch.get("state") == "done":
+            self._emit_batch_validate(True, batch_id, "already_done", t0)
+            return {"success": True, "batch_complete": True,
+                    "message": "Batch bereits abgeschlossen."}
 
         try:
             result = await self._odoo.call_method(
@@ -363,11 +438,17 @@ class ClusterService:
                 },
             )
         except OdooAPIError as exc:
+            logger.error("validate_batch: action_done fehlgeschlagen (batch %s): %s",
+                         batch_id, exc)
+            self._emit_batch_validate(False, batch_id, "odoo_error", t0)
             return {"success": False, "batch_complete": False,
                     "message": f"Batch-Abschluss fehlgeschlagen: {exc}"}
 
         # action_done gibt bei offenen Rueckfragen ein Wizard-Action-Dict zurueck.
         if isinstance(result, dict) and result.get("res_model"):
+            logger.warning("validate_batch: Wizard erforderlich (batch %s, model %s)",
+                           batch_id, result.get("res_model"))
+            self._emit_batch_validate(False, batch_id, "wizard", t0)
             return {"success": False, "batch_complete": False,
                     "pending_action": result.get("res_model"),
                     "message": ("Batch-Abschluss erfordert eine manuelle Bestätigung in Odoo "
@@ -385,9 +466,11 @@ class ClusterService:
             picker={"user_id": user_id or None, "name": completed_by},
         ))
         if not event.delivered:
+            self._emit_batch_validate(True, batch_id, "success_degraded", t0)
             return {"success": True, "batch_complete": True, "integration_status": "degraded",
                     "integration_error": event.error,
                     "message": "Batch abgeschlossen, n8n-Folgeprozess degradiert."}
+        self._emit_batch_validate(True, batch_id, "success", t0)
         return {"success": True, "batch_complete": True, "message": "Batch abgeschlossen."}
 
     def _emit_cluster_confirm(self, success, batch_id, picking_id, move_line_id,
@@ -401,5 +484,20 @@ class ClusterService:
             "product_id": product_id,
             "success": success,
             "serial_recorded": serial_recorded,
+            "latency_ms": int((time.monotonic() - t0) * 1000),
+        }, ensure_ascii=False))
+
+    def _emit_batch_validate(self, success, batch_id, outcome, t0):
+        """Strukturiertes batch_validate-Telemetrie-Event (analog cluster_confirm).
+
+        Invariante: validate_batch emittiert genau ein Event pro Aufruf auf JEDEM
+        Exit-Pfad (success/wizard/auth_denied/not_found/already_done/odoo_error),
+        damit die Batch-Abschluss-Erfolgsrate eine echte Rate ueber alle Versuche ist.
+        """
+        logger.info(json.dumps({
+            "event_type": "batch_validate",
+            "batch_id": batch_id,
+            "success": success,
+            "outcome": outcome,
             "latency_ms": int((time.monotonic() - t0) * 1000),
         }, ensure_ascii=False))
