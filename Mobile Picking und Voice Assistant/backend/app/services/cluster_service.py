@@ -242,6 +242,20 @@ class ClusterService:
         owner = batch.get("user_id")
         return owner[0] if isinstance(owner, list) else owner
 
+    @staticmethod
+    def _carton_matches(scanned: str, package_id: int, package_name: str | None) -> bool:
+        """True, wenn der bestaetigte Karton dem Ziel-Package entspricht.
+
+        Akzeptiert den Package-Namen (case-insensitiv, getrimmt) ODER die
+        Package-ID als String (z. B. wenn die PWA per Tippen die ID sendet).
+        """
+        s = (scanned or "").strip().lower()
+        if not s:
+            return False
+        if package_name and s == package_name.strip().lower():
+            return True
+        return s == str(package_id)
+
     def _is_authorized(self, batch: dict[str, Any], picker_identity) -> bool:
         """Fail-closed Zugriffsregel fuer einen Batch.
 
@@ -364,12 +378,20 @@ class ClusterService:
 
     async def confirm_cluster_line(
         self, batch_id, picking_id, move_line_id,
-        scanned_barcode="", quantity=0, serial_number="", picker_identity=None,
+        scanned_barcode="", quantity=0, serial_number="", scanned_package="",
+        picker_identity=None,
     ) -> dict[str, Any]:
         """Position bestaetigen: Menge (+ optional Serial) schreiben, OHNE Validierung.
 
         Anders als confirm_pick_line wird hier KEIN button_validate ausgeloest -
         der ganze Batch wird spaeter gesammelt via validate_batch abgeschlossen.
+
+        Empfaengerkarton-Bestaetigung (Put-to-Box / Verwechslungsschutz): hat die
+        Move-Line ein Ziel-Package (``result_package_id``, der Cluster-Normalfall),
+        muss ``scanned_package`` den richtigen Karton treffen (Name ODER Package-ID).
+        Fehlt die Bestaetigung -> ``carton_required``; falscher Karton -> ``wrong_package``;
+        in beiden Faellen wird NICHTS geschrieben. Lines ohne Ziel-Package bleiben
+        rueckwaertskompatibel ohne Karton-Zwang.
         """
         t0 = time.monotonic()
         # IDOR-Schutz + Ownership-Gate in EINER Query: die Move-Line MUSS zu picking_id
@@ -393,7 +415,8 @@ class ClusterService:
         lines = await self._odoo.search_read(
             "stock.move.line",
             domain,
-            ["id", "product_id", "quantity", "move_id", "location_id"],
+            ["id", "product_id", "quantity", "move_id", "location_id",
+             "result_package_id"],
             limit=1,
         )
         if not lines:
@@ -419,6 +442,30 @@ class ClusterService:
             if expected and scanned_barcode != expected:
                 self._emit_cluster_confirm(False, batch_id, picking_id, move_line_id, product_id, False, t0)
                 return {"success": False, "message": f"Falscher Artikel. Erwartet: {expected}",
+                        "progress": None}
+
+        # Empfaengerkarton-Bestaetigung (Put-to-Box / Verwechslungsschutz, Akzeptanz #3+#4):
+        # Hat die Line ein Ziel-Package, muss der bestaetigte Karton passen, sonst KEIN Write.
+        expected_pkg = line.get("result_package_id")
+        expected_pkg_id = expected_pkg[0] if expected_pkg else None
+        expected_pkg_name = expected_pkg[1] if expected_pkg else None
+        if expected_pkg_id is not None:
+            scanned_carton = (scanned_package or "").strip()
+            if not scanned_carton:
+                self._emit_cluster_confirm(
+                    False, batch_id, picking_id, move_line_id, product_id, False, t0,
+                    carton_ok=False)
+                return {"success": False, "carton_required": True,
+                        "expected_package_name": expected_pkg_name,
+                        "message": f"Bitte Empfängerkarton bestätigen: {expected_pkg_name}",
+                        "progress": None}
+            if not self._carton_matches(scanned_carton, expected_pkg_id, expected_pkg_name):
+                self._emit_cluster_confirm(
+                    False, batch_id, picking_id, move_line_id, product_id, False, t0,
+                    carton_ok=False)
+                return {"success": False, "wrong_package": True,
+                        "expected_package_name": expected_pkg_name,
+                        "message": f"Falscher Karton! Erwartet: {expected_pkg_name}",
                         "progress": None}
 
         qty = quantity if quantity > 0 else line.get("quantity", 1.0)
@@ -535,8 +582,12 @@ class ClusterService:
         return {"success": True, "batch_complete": True, "message": "Batch abgeschlossen."}
 
     def _emit_cluster_confirm(self, success, batch_id, picking_id, move_line_id,
-                              product_id, serial_recorded, t0):
-        """Strukturiertes cluster_confirm-Telemetrie-Event (analog serial_confirm)."""
+                              product_id, serial_recorded, t0, carton_ok=True):
+        """Strukturiertes cluster_confirm-Telemetrie-Event (analog serial_confirm).
+
+        ``carton_ok`` macht die Verwechslungsschutz-Quote messbar: False markiert
+        einen abgewiesenen Confirm wegen fehlendem/falschem Empfaengerkarton.
+        """
         logger.info(json.dumps({
             "event_type": "cluster_confirm",
             "batch_id": batch_id,
@@ -545,6 +596,7 @@ class ClusterService:
             "product_id": product_id,
             "success": success,
             "serial_recorded": serial_recorded,
+            "carton_ok": carton_ok,
             "latency_ms": int((time.monotonic() - t0) * 1000),
         }, ensure_ascii=False))
 

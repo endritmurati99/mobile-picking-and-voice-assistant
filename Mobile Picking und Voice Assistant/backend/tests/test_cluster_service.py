@@ -591,6 +591,76 @@ class TestConfirmClusterLine:
         assert result["success"] is False
         odoo.write.assert_not_called()
 
+    @pytest.mark.anyio
+    async def test_carton_match_allows_confirm(self, service, odoo):
+        # Empfaengerkarton-Bestaetigung: passender Ziel-Karton -> Bestaetigung schreibt.
+        from app.services.mobile_workflow import PickerIdentity
+        line = {"id": 100, "product_id": [5, "Wal"], "quantity": 0,
+                "move_id": [50, "m"], "location_id": [9, "L"],
+                "result_package_id": [70, "CLUSTER-B1/WH/INT/00323"]}
+        odoo.search_read.side_effect = self._line_reader(line)
+        result = await service.confirm_cluster_line(
+            99, 1, 100, quantity=2, scanned_package="CLUSTER-B1/WH/INT/00323",
+            picker_identity=PickerIdentity(user_id=7))
+        assert result["success"] is True
+        odoo.write.assert_any_call("stock.move.line", [100], {"quantity": 2})
+
+    @pytest.mark.anyio
+    async def test_carton_mismatch_rejects_and_no_write(self, service, odoo):
+        # Falscher Karton -> Verwechslungsschutz: kein Write, wrong_package-Flag + erwarteter Name.
+        from app.services.mobile_workflow import PickerIdentity
+        line = {"id": 100, "product_id": [5, "Wal"], "quantity": 0,
+                "move_id": [50, "m"], "location_id": [9, "L"],
+                "result_package_id": [70, "CLUSTER-B1/WH/INT/00323"]}
+        odoo.search_read.side_effect = self._line_reader(line)
+        result = await service.confirm_cluster_line(
+            99, 1, 100, quantity=2, scanned_package="CLUSTER-B2/WH/INT/00347",
+            picker_identity=PickerIdentity(user_id=7))
+        assert result["success"] is False
+        assert result.get("wrong_package") is True
+        assert result.get("expected_package_name") == "CLUSTER-B1/WH/INT/00323"
+        odoo.write.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_carton_required_when_package_set_but_not_scanned(self, service, odoo):
+        # Ziel-Karton vorhanden, aber keiner bestaetigt -> Ablehnung (carton_required), kein Write.
+        from app.services.mobile_workflow import PickerIdentity
+        line = {"id": 100, "product_id": [5, "Wal"], "quantity": 0,
+                "move_id": [50, "m"], "location_id": [9, "L"],
+                "result_package_id": [70, "CLUSTER-B1/WH/INT/00323"]}
+        odoo.search_read.side_effect = self._line_reader(line)
+        result = await service.confirm_cluster_line(
+            99, 1, 100, quantity=2, scanned_package="",
+            picker_identity=PickerIdentity(user_id=7))
+        assert result["success"] is False
+        assert result.get("carton_required") is True
+        odoo.write.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_carton_match_by_package_id_string(self, service, odoo):
+        # Tippen sendet die Package-ID -> auch als String akzeptiert.
+        from app.services.mobile_workflow import PickerIdentity
+        line = {"id": 100, "product_id": [5, "Wal"], "quantity": 0,
+                "move_id": [50, "m"], "location_id": [9, "L"],
+                "result_package_id": [70, "CLUSTER-B1/WH/INT/00323"]}
+        odoo.search_read.side_effect = self._line_reader(line)
+        result = await service.confirm_cluster_line(
+            99, 1, 100, quantity=1, scanned_package="70",
+            picker_identity=PickerIdentity(user_id=7))
+        assert result["success"] is True
+
+    @pytest.mark.anyio
+    async def test_no_carton_check_when_line_has_no_package(self, service, odoo):
+        # Rueckwaertskompatibel: Line ohne result_package_id -> kein Karton-Zwang.
+        from app.services.mobile_workflow import PickerIdentity
+        line = {"id": 100, "product_id": [5, "Wal"], "quantity": 0,
+                "move_id": [50, "m"], "location_id": [9, "L"]}
+        odoo.search_read.side_effect = self._line_reader(line)
+        result = await service.confirm_cluster_line(
+            99, 1, 100, quantity=1, scanned_package="",
+            picker_identity=PickerIdentity(user_id=7))
+        assert result["success"] is True
+
 
 class TestValidateBatch:
     @pytest.mark.anyio

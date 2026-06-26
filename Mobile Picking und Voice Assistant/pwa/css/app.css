@@ -3423,6 +3423,55 @@ main::-webkit-scrollbar-thumb {
     text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
 }
 
+/* Empfaengerkarton-Bestaetigung (Put-to-Box / Verwechslungsschutz) */
+.cluster-carton-choices {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0.5rem 0;
+}
+
+.cluster-carton-choice {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 6px solid var(--box-color, var(--primary));
+    border-radius: var(--radius-sm);
+    text-align: left;
+    cursor: pointer;
+    width: 100%;
+}
+
+.cluster-carton-choice:active {
+    transform: scale(0.99);
+}
+
+.cluster-carton-choice__body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.cluster-carton-choice__order {
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-weight: 700;
+    color: var(--ink);
+}
+
+.cluster-carton-warning {
+    margin: 0.25rem 0 0;
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    background: color-mix(in oklab, var(--danger, #d6453d) 14%, var(--surface));
+    color: var(--danger, #d6453d);
+    font-weight: 700;
+    font-size: 0.9rem;
+}
+
 /* Rundgang: eine Position pro Karte */
 .cluster-stop {
     position: relative;

@@ -23,6 +23,7 @@ class ClusterConfirmRequest(BaseModel):
     scanned_barcode: str = ""
     quantity: float = 0
     serial_number: str = ""
+    scanned_package: str = ""
 
 
 @router.get("/cluster/suggestions")
@@ -72,7 +73,8 @@ async def confirm_cluster_line(
     result = await service.confirm_cluster_line(
         batch_id, body.picking_id, body.move_line_id,
         scanned_barcode=body.scanned_barcode, quantity=body.quantity,
-        serial_number=body.serial_number, picker_identity=identity,
+        serial_number=body.serial_number, scanned_package=body.scanned_package,
+        picker_identity=identity,
     )
     if result.get("forbidden"):
         raise HTTPException(status_code=403, detail=result["message"])

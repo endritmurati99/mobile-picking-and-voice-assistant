@@ -105,26 +105,45 @@ async function dismissBlockers(page) {
     console.log(`  batch: ${result.batchName} | progress ${await page.locator('.cluster-progress__count').textContent()}`);
     await shot(page, 'walk-start');
 
-    // 5) Confirm every stop (DOM re-renders after each confirm via loadBatch)
+    // 5) Confirm every stop, progress-driven (each confirm re-renders via loadBatch).
+    //    For every stop: Empfaengerkarton bestaetigen (richtige picking_id), dann ggf. Serial.
     result.step = 'confirm';
-    for (let i = 0; i < 40; i++) {
-      const btns = page.locator('[data-stop-confirm]');
-      const n = await btns.count();
-      if (n === 0) break;
-      await btns.first().scrollIntoViewIfNeeded().catch(() => {});
-      await btns.first().click();
+    const countLoc = page.locator('.cluster-progress__count');
+    const parseCount = async () => {
+      const t = (await countLoc.textContent().catch(() => '')) || '';
+      const m = t.match(/(\d+)\s*\/\s*(\d+)/);
+      return m ? { done: +m[1], total: +m[2] } : { done: 0, total: 0 };
+    };
+    let { done, total } = await parseCount();
+    let safety = 0;
+    while (total > 0 && done < total && safety++ < total + 5) {
+      const btn = page.locator('[data-stop-confirm]').first();
+      await btn.waitFor({ state: 'visible', timeout: 10_000 });
+      const article = btn.locator('xpath=ancestor::*[@data-stop-picking][1]');
+      const pickingId = await article.getAttribute('data-stop-picking').catch(() => null);
+      await btn.scrollIntoViewIfNeeded().catch(() => {});
+      await btn.click();
+      // Empfaengerkarton-Bestaetigung: den RICHTIGEN Karton (gleiche picking_id) tappen.
+      const cartonTitle = page.locator('#carton-title');
+      await cartonTitle.waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {});
+      if (await cartonTitle.isVisible().catch(() => false)) {
+        const choice = pickingId
+          ? page.locator(`[data-carton-pick="${pickingId}"]`).first()
+          : page.locator('[data-carton-pick]').first();
+        await choice.click();
+      }
       // A serial/lot line would pop the serial modal; fill it if present.
       const serialInput = page.locator('#serial-input');
       if (await serialInput.isVisible().catch(() => false)) {
-        await serialInput.fill(`SN-LIVE-${i + 1}`);
+        await serialInput.fill(`SN-LIVE-${safety}`);
         await page.locator('#serial-confirm').click();
       }
-      await page.waitForLoadState('networkidle').catch(() => {});
-      await page.waitForTimeout(500);
-      result.confirmed = i + 1;
+      // Deterministically wait for the progress counter to advance by one.
+      await expect(countLoc).toHaveText(`${done + 1} / ${total}`, { timeout: 15_000 });
+      ({ done, total } = await parseCount());
+      result.confirmed = done;
     }
-    const finalCount = await page.locator('.cluster-progress__count').textContent().catch(() => '?');
-    console.log(`  confirmed lines; progress now ${finalCount}`);
+    console.log(`  confirmed lines; progress now ${done} / ${total}`);
     await shot(page, 'walk-all-confirmed');
 
     // 6) Validate the whole batch

@@ -33,6 +33,30 @@ implemented: 2026-06-24
 > Artefakte: `docs/superpowers/plans/2026-06-24-cluster-picking-abschluss.md`,
 > `docs/superpowers/reviews/2026-06-24-cluster-picking-review.md`.
 
+> [!success] Live end-to-end im echten PWA verifiziert (2026-06-26)
+> Reproduzierbarer Browser-Klick-Durchlauf via Playwright-Harness `e2e/cluster.live.js`
+> (UNGEMOCKT gegen `https://localhost` → Caddy → FastAPI → Odoo `masterfischer`). Zwei grüne Läufe:
+> **BATCH/00005** (manuelle Auswahl 323+347, 13 Pos.) und **BATCH/00006** (Auto-Vorschlag „Lager Links"
+> 353+359, 5 Pos.). Odoo-Datenebene bestätigt: Batch+Pickings=`done`, `result_package_id` auf allen
+> Move-Lines, Waren physisch in `CLUSTER-Bx`-Packages (`stock.quant`), n8n `batch-confirmed` ohne
+> `degraded`. Demo danach via `seed-odoo.py --lego-seed` re-seeded (7 offene Aufträge, Zone „Stock").
+> Branch `test/cluster-live-e2e` (commit `ebff339`). Visual-Artefakt: `.claude/artifacts/cluster-live/`.
+>
+> [!success] Empfängerkarton-Bestätigung umgesetzt (2026-06-26) — Akzeptanz #3 + #4 erfüllt
+> Der Prof-Wunsch „Bestätigung für richtigen Empfängerkarton" ist jetzt umgesetzt: im Rundgang
+> bestätigt der Picker pro Position den **richtigen Ziel-Karton** per **Scan-oder-Tippen** (Hybrid);
+> ein **falscher Karton** löst eine klare Warnung aus und blockiert die Bestätigung (Verwechslungsschutz).
+> Backend (`confirm_cluster_line`) prüft den gescannten Karton gegen `result_package_id`
+> (`_carton_matches`: Package-Name ODER -ID); bei fehlendem/falschem Karton **kein Odoo-Write** +
+> Telemetrie `carton_ok=False`. Rückwärtskompatibel: Lines ohne Ziel-Package erzwingen keinen Scan.
+> Touch bleibt Fallback (Invariante 5). Der **tatsächlich gescannte Token** wird ans Backend gereicht,
+> sodass die Server-Prüfung echt re-validiert (Multi-Agent-Review-Fix, Defense-in-depth).
+> Verifiziert: 155 Backend-Tests (5 neue Karton-Tests), 3 PWA-e2e (inkl. Verwechslungsschutz-Test),
+> live BATCH/00008 + BATCH/00009 end-to-end (Karton-Schritt aktiv) mit `result_package_id` bestätigt.
+> Visual: `.claude/artifacts/cluster-live/carton-02-modal.png` + `carton-03-wrong-warning.png`.
+> Bekannte PoC-Grenze: `stock.quant.package` hat kein Barcode-Feld → scanbarer Identifier ist der
+> Package-Name; für echtes Put-to-Box muss dieser als Barcode-Label am Karton hängen.
+
 # Feature: Cluster-/Batch-Picking
 
 ## Beschreibung
@@ -48,11 +72,11 @@ weniger Laufwege).
 **Prof-Wunsch (2026-06-22):** „Cluster-Picking (Bestätigung für richtigen Empfängerkarton)".
 
 ## Akzeptanzkriterien
-- [ ] Mehrere offene Pickings zu einem **Batch** zusammenfassen
-- [ ] PWA führt durch die kombinierte, optimierte Route (ein Lauf, mehrere Aufträge)
-- [ ] Beim Bestätigen: Ziel-Karton scannen/wählen → System prüft, ob es der **richtige** Auftrag/Karton ist
-- [ ] Falscher Karton → klare Warnung (Verwechslungsschutz)
-- [ ] Touch-Fallback bleibt (Invariante 5)
+- [x] Mehrere offene Pickings zu einem **Batch** zusammenfassen *(live verifiziert 2026-06-26)*
+- [x] PWA führt durch die kombinierte, optimierte Route (ein Lauf, mehrere Aufträge) *(route-sortierte Sammelliste, live verifiziert)*
+- [x] Beim Bestätigen: Ziel-Karton scannen/wählen → System prüft, ob es der **richtige** Auftrag/Karton ist *(2026-06-26: Scan-oder-Tippen-Modal + Backend-`_carton_matches`)*
+- [x] Falscher Karton → klare Warnung (Verwechslungsschutz) *(2026-06-26: Inline-Warnung blockiert Bestätigung; live + e2e verifiziert)*
+- [x] Touch-Fallback bleibt (Invariante 5) *(Bestätigen-Button ist Touch-Fallback)*
 
 ## Technische Umsetzung
 ### Betroffene Dateien

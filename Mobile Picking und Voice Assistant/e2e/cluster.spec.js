@@ -117,7 +117,9 @@ test('Cluster-Validate: pending_action wizard zeigt Fehler-Toast und entsperrt B
 
   // Mark all lines as done so the validate button is enabled.
   await page.locator('[data-stop-confirm="5001"]').click();
+  await page.locator('[data-carton-pick="1001"]').click();
   await page.locator('[data-stop-confirm="5002"]').click();
+  await page.locator('[data-carton-pick="1002"]').click();
   await page.locator('#serial-input').fill('SN-TEST-W');
   await page.locator('#serial-confirm').click();
 
@@ -149,12 +151,15 @@ test('Cluster-Flow: Auswahl -> Rundgang -> Serial -> Abschluss', async ({ page }
   await expect(page.locator('.cluster-box-chip').first()).toBeVisible();
   await expect(page.getByText('CLUSTER-B1/WH/INT/00007').first()).toBeVisible();
 
-  // Erste (nicht-serielle) Position bestaetigen
+  // Erste (nicht-serielle) Position: zuerst Empfaengerkarton bestaetigen
   await page.locator('[data-stop-confirm="5001"]').click();
+  await expect(page.locator('#carton-title')).toBeVisible();
+  await page.locator('[data-carton-pick="1001"]').click();
   await expect(page.locator('.cluster-progress__count')).toHaveText('1 / 2');
 
-  // Zweite Position ist serialisiert -> Serial-Modal erscheint
+  // Zweite Position: Karton bestaetigen, dann Serial-Modal (serialisiert)
   await page.locator('[data-stop-confirm="5002"]').click();
+  await page.locator('[data-carton-pick="1002"]').click();
   await expect(page.locator('#serial-input')).toBeVisible();
   await page.locator('#serial-input').fill('SN-CLUSTER-1');
   await page.locator('#serial-confirm').click();
@@ -172,4 +177,32 @@ test('Cluster-Flow: Auswahl -> Rundgang -> Serial -> Abschluss', async ({ page }
   expect(requests.find((r) => r.move_line_id === 5002)).toMatchObject({
     picking_id: 1002, serial_number: 'SN-CLUSTER-1',
   });
+});
+
+// Verwechslungsschutz (Akzeptanz #4): falscher Empfaengerkarton -> Warnung, kein Confirm.
+test('Cluster-Karton: falscher Karton warnt und blockiert, richtiger geht durch', async ({ page }) => {
+  await mockPwaApi(page);
+  const cluster = await mockClusterApi(page);
+
+  await enterCluster(page);
+  await page.getByRole('button', { name: 'Übernehmen' }).first().click();
+  await page.locator('[data-cluster-confirm]').click();
+
+  // Position 5001 (Auftrag 1001) bestaetigen, aber FALSCHEN Karton (Auftrag 1002) tippen
+  await page.locator('[data-stop-confirm="5001"]').click();
+  await expect(page.locator('#carton-title')).toBeVisible();
+  await page.locator('[data-carton-pick="1002"]').click();
+
+  // Warnung erscheint, Modal bleibt offen, Fortschritt unveraendert, KEIN confirm-Request
+  await expect(page.locator('#carton-warning')).toBeVisible();
+  await expect(page.locator('#carton-title')).toBeVisible();
+  await expect(page.locator('.cluster-progress__count')).toHaveText('0 / 2');
+  expect(cluster.getConfirmRequests()).toHaveLength(0);
+
+  // Richtigen Karton tippen -> Bestaetigung geht durch
+  await page.locator('[data-carton-pick="1001"]').click();
+  await expect(page.locator('.cluster-progress__count')).toHaveText('1 / 2');
+  const reqs = cluster.getConfirmRequests();
+  expect(reqs).toHaveLength(1);
+  expect(reqs[0]).toMatchObject({ move_line_id: 5001, scanned_package: 'CLUSTER-B1/WH/INT/00007' });
 });

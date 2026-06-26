@@ -368,6 +368,8 @@ let claimHeartbeatTimer = null;
 let claimedPickingId = null;
 let serialPromptActive = false;
 let serialPromptCleanup = null;
+let cartonPromptActive = false;
+let cartonPromptCleanup = null;
 let confirmAllInProgress = false;
 let voiceLongPressTimer = null;
 let voiceLongPressStarted = false;
@@ -817,8 +819,9 @@ function closeOverlay() {
     const overlay = overlayEl();
     if (!overlay) return;
     // Wird das Overlay extern geschlossen (z. B. Navigation), einen offenen
-    // Seriennummer-Prompt sauber als "Ueberspringen" aufloesen statt haengen zu lassen.
+    // Seriennummer-/Karton-Prompt sauber als "Ueberspringen" aufloesen statt haengen zu lassen.
     if (serialPromptCleanup) serialPromptCleanup();
+    if (cartonPromptCleanup) cartonPromptCleanup();
     overlay.onclick = null;
     overlay.hidden = true;
     overlay.innerHTML = '';
@@ -2248,6 +2251,121 @@ function askSerialNumber(productName) {
     });
 }
 
+/**
+ * Empfaengerkarton-Bestaetigung (Put-to-Box / Verwechslungsschutz, Akzeptanz #3+#4).
+ * Zeigt alle Kartons des Batches; der Picker bestaetigt den RICHTIGEN per Tippen
+ * ODER Scannen/Eingabe der Karton-Referenz. Falscher Karton -> Inline-Warnung, Modal
+ * bleibt offen (kein Confirm). Resolve mit der Karton-Referenz (Package-Name/-ID) des
+ * erwarteten Kartons, oder '' bei Abbruch. Nur fuer Cluster-Lines mit Ziel-Package.
+ */
+function askCartonConfirm(line, boxes) {
+    return new Promise((resolve) => {
+        const overlay = overlayEl();
+        if (!overlay) { resolve(''); return; }
+
+        const boxList = Array.isArray(boxes) ? boxes : [];
+        const expectedPickingId = line.picking_id;
+        const expectedName = line.package_name || '';
+        const expectedId = line.package_id;
+        const expectedBoxIndex = line.box_index;
+        const expectedRef = expectedName || (expectedId != null ? String(expectedId) : '');
+
+        cartonPromptActive = true;
+        overlay.hidden = false;
+
+        const chipsHtml = boxList.map((box) => `
+            <button type="button" class="cluster-carton-choice" data-carton-pick="${safeInt(box.picking_id)}"
+                style="--box-color:${safeColor(box.box_color)}">
+                <span class="cluster-box-chip" style="--box-color:${safeColor(box.box_color)}">${safeInt(box.box_index, '?')}</span>
+                <span class="cluster-carton-choice__body">
+                    <span class="cluster-carton-choice__order">${escapeHtml(box.picking_name || '')}</span>
+                    ${box.package_name ? `<span class="cluster-box-pkg">${escapeHtml(box.package_name)}</span>` : ''}
+                </span>
+            </button>`).join('');
+
+        overlay.innerHTML = [
+            '<div class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="carton-title">',
+            '<div class="modal-sheet__eyebrow">Empfängerkarton</div>',
+            '<h2 id="carton-title" class="modal-sheet__title">In welchen Karton?</h2>',
+            '<p id="carton-hint" class="modal-sheet__text"></p>',
+            `<div class="cluster-carton-choices">${chipsHtml}</div>`,
+            '<input type="text" id="carton-input" class="manual-barcode-entry__input"',
+            '       inputmode="text" placeholder="Karton scannen oder eingeben" autocomplete="off"',
+            '       style="margin:0.75rem 0;width:100%;box-sizing:border-box;">',
+            '<p id="carton-warning" class="cluster-carton-warning" role="alert" hidden></p>',
+            '<div class="modal-sheet__actions modal-sheet__actions--stack">',
+            '<button type="button" id="carton-confirm" class="picker-option picker-option--primary">Karton bestätigen</button>',
+            '<button type="button" id="carton-skip" class="picker-option">Abbrechen</button>',
+            '</div></div>',
+        ].join('');
+
+        const hintEl = overlay.querySelector('#carton-hint');
+        if (hintEl) {
+            hintEl.textContent = `Auftrag ${line.picking_name || ''} → empfohlen: Karton `
+                + `${expectedBoxIndex ?? '?'}${expectedName ? ' (' + expectedName + ')' : ''}`;
+        }
+        const warnEl = overlay.querySelector('#carton-warning');
+        const input = overlay.querySelector('#carton-input');
+
+        // Nur gegen das matchen, was der Backend-Check (_carton_matches) akzeptiert:
+        // Package-Name oder Package-ID. Kein loseres UI-Gate (kein Box-Index/Auftragsnr.),
+        // damit Client- und Server-Pruefung deckungsgleich bleiben.
+        const isCorrect = (value) => {
+            const v = String(value || '').trim().toLowerCase();
+            if (!v) return false;
+            if (expectedName && v === expectedName.toLowerCase()) return true;
+            if (expectedId != null && v === String(expectedId)) return true;
+            return false;
+        };
+        const warn = (msg) => {
+            if (warnEl) { warnEl.textContent = msg; warnEl.hidden = false; }
+            feedbackError();
+        };
+
+        const onKeydown = (e) => { if (e.key === 'Escape') { e.preventDefault(); finish(''); } };
+        const settle = (value) => {
+            if (!cartonPromptActive) return;
+            cartonPromptActive = false;
+            cartonPromptCleanup = null;
+            document.removeEventListener('keydown', onKeydown, true);
+            resolve(value || '');
+        };
+        const finish = (value) => { settle(value); closeOverlay(); };
+        cartonPromptCleanup = () => settle('');
+
+        // Den TATSAECHLICH gescannten/eingegebenen Token weiterreichen (nicht expectedRef),
+        // damit der Backend-Check _carton_matches echt re-validiert (Defense-in-depth) statt
+        // eine bereits "gewaschene" Soll-Referenz zu erhalten.
+        const tryValue = (value) => {
+            const v = String(value || '').trim();
+            if (isCorrect(v)) finish(v);
+            else warn('Falscher Karton! Bitte den empfohlenen Karton bestätigen.');
+        };
+
+        document.addEventListener('keydown', onKeydown, true);
+        overlay.onclick = (event) => { if (event.target === overlay) finish(''); };
+
+        overlay.querySelectorAll('[data-carton-pick]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const pid = Number(btn.dataset.cartonPick);
+                const box = boxList.find((b) => b.picking_id === pid);
+                if (pid === expectedPickingId) {
+                    // Den getippten Karton mit SEINER eigenen Referenz bestaetigen, damit das
+                    // Backend den tatsaechlich gewaehlten Karton re-validiert (nicht expectedRef).
+                    finish((box && box.package_name)
+                        || (box && box.package_id != null ? String(box.package_id) : expectedRef));
+                } else {
+                    warn(`Falscher Karton! Gehört zu ${box?.picking_name || 'einem anderen Auftrag'}.`);
+                }
+            });
+        });
+        overlay.querySelector('#carton-confirm')?.addEventListener('click', () => tryValue(input?.value));
+        overlay.querySelector('#carton-skip')?.addEventListener('click', () => finish(''));
+        input?.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryValue(input.value); });
+        input?.focus();
+    });
+}
+
 async function handleScan(barcode) {
     stopSpeaking();
     const { currentPicking, currentLineIndex, currentPicker } = getState();
@@ -3383,6 +3501,18 @@ async function handleClusterConfirm(batch, line, btn) {
         if (btn && btn.isConnected) btn.disabled = false;
     }
 
+    // Empfaengerkarton-Bestaetigung zuerst (Put-to-Box / Verwechslungsschutz, Akzeptanz #3+#4):
+    // Hat die Position einen Ziel-Karton, muss der Picker den RICHTIGEN bestaetigen
+    // (Tippen oder Scannen) - falscher Karton -> Inline-Warnung; Abbruch -> kein Confirm.
+    let scannedPackage = '';
+    if (line.package_id || line.package_name) {
+        scannedPackage = await askCartonConfirm(line, batch.boxes);
+        if (!scannedPackage) {
+            reenableBtn();
+            return;
+        }
+    }
+
     let serialNumber = '';
     if (line.tracking === 'serial' || line.tracking === 'lot') {
         serialNumber = await askSerialNumber(line.product_name || 'Produkt');
@@ -3397,6 +3527,7 @@ async function handleClusterConfirm(batch, line, btn) {
                 scanned_barcode: line.product_barcode || '',
                 quantity: line.quantity_demand,
                 serial_number: serialNumber,
+                scanned_package: scannedPackage,
             },
             {
                 idempotencyKey: buildOperationKey('cluster-confirm',
