@@ -76,6 +76,7 @@ services:
       ODOO_USER: ${ODOO_USER:-admin}
       ODOO_API_KEY: ${ODOO_API_KEY:-}
       ODOO_PASSWORD: ${ODOO_PASSWORD:-}
+      ODOO_INSTANCES_JSON: ${ODOO_INSTANCES_JSON:-}
       WHISPER_URL: http://whisper:9000
       PIPER_URL: http://piper:5500
       N8N_WEBHOOK_BASE: http://n8n:5678/webhook

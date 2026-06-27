@@ -1,4 +1,17 @@
+import json
+from dataclasses import dataclass
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+@dataclass(frozen=True)
+class OdooProfile:
+    name: str
+    display_name: str
+    url: str
+    db: str
+    user: str
+    api_key: str = ""
+    password: str = ""
 
 
 class Settings(BaseSettings):
@@ -9,6 +22,7 @@ class Settings(BaseSettings):
     odoo_user: str = "admin"
     odoo_api_key: str = ""
     odoo_password: str = ""
+    odoo_instances_json: str = ""
 
     whisper_url: str = "http://whisper:9000"
     piper_url: str = "http://piper:5500"
@@ -34,3 +48,46 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def get_instance_registry() -> dict[str, OdooProfile]:
+    """Register aller bekannten Odoo-Instanzen. `local` kommt immer kanonisch aus
+    den odoo_*-Settings; weitere Profile aus ODOO_INSTANCES_JSON (Secrets .env-only)."""
+    registry: dict[str, OdooProfile] = {
+        "local": OdooProfile(
+            name="local",
+            display_name="Lokal",
+            url=settings.odoo_url,
+            db=settings.odoo_db,
+            user=settings.odoo_user,
+            api_key=settings.odoo_api_key,
+            password=settings.odoo_password,
+        )
+    }
+    raw = (settings.odoo_instances_json or "").strip()
+    if not raw:
+        return registry
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"ODOO_INSTANCES_JSON ist kein gueltiges JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("ODOO_INSTANCES_JSON muss ein JSON-Objekt sein.")
+    for name, cfg in parsed.items():
+        key = str(name).strip().lower()
+        if key == "local":
+            continue  # local ist kanonisch aus odoo_* — JSON-local wird ignoriert
+        if not isinstance(cfg, dict):
+            raise ValueError(f"ODOO_INSTANCES_JSON['{name}'] muss ein Objekt sein.")
+        if "url" not in cfg or "db" not in cfg:
+            raise ValueError(f"ODOO_INSTANCES_JSON['{name}'] braucht 'url' und 'db'.")
+        registry[key] = OdooProfile(
+            name=key,
+            display_name=str(cfg.get("display_name") or key),
+            url=str(cfg["url"]),
+            db=str(cfg["db"]),
+            user=str(cfg.get("user") or "admin"),
+            api_key=str(cfg.get("api_key") or ""),
+            password=str(cfg.get("password") or ""),
+        )
+    return registry
