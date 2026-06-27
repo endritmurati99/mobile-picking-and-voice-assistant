@@ -1,6 +1,7 @@
 """Dependency Injection fuer FastAPI."""
 from functools import lru_cache
 import secrets
+import threading
 
 from fastapi import Depends, Header, HTTPException, Query
 
@@ -21,12 +22,20 @@ from app.config import settings, get_instance_registry
 # (eigener uid/secret-Cache + httpx-Pool). Reine Funktion (keine Dependency),
 # damit der Instanz-Name nicht als Query-Param auf jedem Endpunkt auftaucht.
 _clients: dict[str, OdooClient] = {}
+# sync DI läuft im FastAPI-Threadpool → double-checked locking verhindert,
+# dass zwei gleichzeitige First-Requests denselben Client doppelt anlegen.
+_clients_lock = threading.Lock()
 
 
 def _get_cached_client(name: str) -> OdooClient:
-    if name not in _clients:
-        _clients[name] = OdooClient(get_instance_registry()[name])
-    return _clients[name]
+    client = _clients.get(name)
+    if client is None:
+        with _clients_lock:
+            client = _clients.get(name)
+            if client is None:
+                client = OdooClient(get_instance_registry()[name])
+                _clients[name] = client
+    return client
 
 
 def get_odoo_client() -> OdooClient:
