@@ -2,6 +2,7 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 from app.services.odoo_client import OdooClient, OdooAPIError
+from app.config import OdooProfile
 
 
 class TestOdooClient:
@@ -54,3 +55,32 @@ class TestOdooClient:
             result = await client.search_read("res.partner", [], ["name"])
             assert len(result) == 1
             assert result[0]["name"] == "Test"
+
+
+def test_client_uses_explicit_profile():
+    profile = OdooProfile(
+        name="logilab", display_name="LogILab",
+        url="https://logilab:8069", db="logilab", user="bot",
+        api_key="abc", password="",
+    )
+    client = OdooClient(profile)
+    assert client._url == "https://logilab:8069"
+    assert client._db == "logilab"
+    assert client._auth_secrets() == ["abc"]
+
+
+@pytest.mark.anyio
+async def test_authenticate_uses_profile_user_and_secret():
+    profile = OdooProfile(
+        name="logilab", display_name="LogILab",
+        url="https://logilab:8069", db="logilab", user="bot",
+        api_key="abc", password="",
+    )
+    client = OdooClient(profile)
+    with patch.object(client, "_json_rpc", new_callable=AsyncMock) as mock_rpc:
+        mock_rpc.return_value = 11
+        uid = await client.authenticate()
+    assert uid == 11
+    # erstes Positional-Arg-Tupel: (service, method, args)
+    args = mock_rpc.await_args.args[2]
+    assert args == ["logilab", "bot", "abc", {}]

@@ -8,7 +8,7 @@ Feldnamen Odoo 18:
 """
 import httpx
 from typing import Any
-from app.config import settings
+from app.config import settings, OdooProfile
 
 # Structured timeout: 5 s to connect, 30 s to read a response.
 # The flat 120 s that was here masked slow Odoo queries silently and
@@ -17,9 +17,17 @@ _ODOO_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0)
 
 
 class OdooClient:
-    def __init__(self):
-        self._url = settings.odoo_url
-        self._db = settings.odoo_db
+    def __init__(self, profile: OdooProfile | None = None):
+        # Ohne Profil: kanonische lokale Instanz aus settings (Verhalten wie bisher).
+        if profile is None:
+            profile = OdooProfile(
+                name="local", display_name="Lokal",
+                url=settings.odoo_url, db=settings.odoo_db, user=settings.odoo_user,
+                api_key=settings.odoo_api_key, password=settings.odoo_password,
+            )
+        self._profile = profile
+        self._url = profile.url
+        self._db = profile.db
         self._uid = None
         self._secret = None
         self._client = httpx.AsyncClient(
@@ -31,10 +39,9 @@ class OdooClient:
             ),
         )
 
-    @staticmethod
-    def _auth_secrets() -> list[str]:
+    def _auth_secrets(self) -> list[str]:
         candidates: list[str] = []
-        for secret in (settings.odoo_api_key, settings.odoo_password):
+        for secret in (self._profile.api_key, self._profile.password):
             normalized = str(secret or "").strip()
             if normalized and normalized not in candidates:
                 candidates.append(normalized)
@@ -58,7 +65,7 @@ class OdooClient:
         for secret in self._auth_secrets():
             uid = await self._json_rpc(
                 "common", "authenticate",
-                [self._db, settings.odoo_user, secret, {}]
+                [self._db, self._profile.user, secret, {}]
             )
             if uid:
                 self._uid = uid
