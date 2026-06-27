@@ -39,6 +39,8 @@ Jeder Eintrag verlinkt direkt auf die jeweilige Notiz und sagt in **einem Satz**
 | 08 | [[08 - PWA & Voice-Pfad]] | Erklärt die Mobile-PWA (Vanilla JS, offline-first, Service Worker) und den kompletten Voice-Pfad von STT (Whisper) bis TTS (Piper). |
 | 09 | [[09 - Projekt-Historie]] | Liefert die vollständige Chronologie von Phase 0 bis Phase 6, inklusive Wellen, Hotfixes und Status Juni 2026. |
 | 10 | [[10 - Glossar]] | Sammelt und erklärt alle Fachbegriffe (z. B. Soft Claiming, Idempotency-Key, Circuit Breaker, Intent-Engine, ADR). |
+| 11 | [[11 - Kommunikation & Datenaktualitaet (Pull vs Push)]] | Erklärt, wann Daten per Pull (Reads über FastAPI→Odoo) und wann per Push (async Events an n8n) fließen, inkl. Datenaktualität. |
+| 12 | [[12 - Funktionsdokumentation]] | **Ordner** — die tiefe, code-belegte Funktionsdokumentation jeder umgesetzten Funktion (Drei-Linsen-Schema: *Wie es funktioniert / Wie es mit Odoo kommuniziert / Was genau zugegriffen wird*), als zitierfähige Vorlage für die Thesis. |
 
 ---
 
@@ -106,6 +108,14 @@ Diese acht Regeln gelten projektweit und werden in [[02 - Architektur & Diagramm
 > - **Nächste Schritte** laut Status Juni 2026: gestufter n8n-Rollout (backup → import → activate), Live-Smoke-Tests und Telemetrie-Export.
 >
 > **Annahme:** Der genaue Inhalt des Ordners "05 - Future Functions" liegt mir nicht als Quelle vor; diese Verknüpfung beschreibt nur seinen Zweck laut Aufgabenstellung. Details zu konkreten Future-Notizen sind dort nachzulesen.
+
+---
+
+## Verweis: Ordner "12 - Funktionsdokumentation"
+
+> [!success] Tiefe, zitierfähige Funktionsdokumentation
+> Der Ordner **"12 - Funktionsdokumentation"** dokumentiert **jede umgesetzte Funktion** code-belegt (mit `Datei:Zeile`-Verweisen) nach einem einheitlichen **Drei-Linsen-Schema**: *Wie es funktioniert*, *Wie es mit Odoo kommuniziert*, *Was genau zugegriffen wird*. Er ist als direkte Vorlage für das Schreiben der Bachelorarbeit gedacht. Einstieg: [[12 - Funktionsdokumentation]] (Inhaltsverzeichnis des Ordners).
+> Enthalten: Überblick & Datenfluss, Odoo-Zugriffskatalog, Einzel-Picking, Cluster-/Batch-Picking, Empfängerkarton-Bestätigung, Seriennummer-Bestätigung, Sprachassistent und Qualitätsmeldungen/n8n.
 
 ---
 
