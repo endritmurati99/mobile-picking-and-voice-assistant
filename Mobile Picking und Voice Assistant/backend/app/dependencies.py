@@ -2,7 +2,7 @@
 from functools import lru_cache
 import secrets
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Query
 
 from app.services.mobile_workflow import (
     InvalidPickerIdentityError,
@@ -14,12 +14,24 @@ from app.services.cluster_service import ClusterService
 from app.services.n8n_webhook import N8NWebhookClient
 from app.services.odoo_client import OdooClient
 from app.services.picking_service import PickingService
-from app.config import settings
+from app.config import settings, get_instance_registry
 
 
-@lru_cache()
+# Per-Profil-Client-Cache: je Odoo-Instanz EIN langlebiger Client
+# (eigener uid/secret-Cache + httpx-Pool). Reine Funktion (keine Dependency),
+# damit der Instanz-Name nicht als Query-Param auf jedem Endpunkt auftaucht.
+_clients: dict[str, OdooClient] = {}
+
+
+def _get_cached_client(name: str) -> OdooClient:
+    if name not in _clients:
+        _clients[name] = OdooClient(get_instance_registry()[name])
+    return _clients[name]
+
+
 def get_odoo_client() -> OdooClient:
-    return OdooClient()
+    """Lokale/Default-Instanz. Genutzt von n8n-Callbacks (bewusst immer local)."""
+    return _get_cached_client("local")
 
 
 @lru_cache()
@@ -27,16 +39,39 @@ def get_n8n_client() -> N8NWebhookClient:
     return N8NWebhookClient()
 
 
-def get_picking_service() -> PickingService:
-    return PickingService(get_odoo_client(), get_n8n_client())
+def resolve_instance(
+    x_odoo_instance: str | None = Header(default=None, alias="X-Odoo-Instance"),
+    instance: str | None = Query(default=None),
+) -> str:
+    """Waehlt das Odoo-Profil pro Request. Default 'local'; unbekannt -> 400."""
+    name = (x_odoo_instance or instance or "local").strip().lower()
+    if name not in get_instance_registry():
+        raise HTTPException(status_code=400, detail=f"Unbekannte Odoo-Instanz: {name}")
+    return name
 
 
-def get_cluster_service() -> ClusterService:
-    return ClusterService(get_odoo_client(), get_n8n_client())
+def get_request_odoo_client(instance: str = Depends(resolve_instance)) -> OdooClient:
+    return _get_cached_client(instance)
 
 
-def get_mobile_workflow_service() -> MobileWorkflowService:
-    return MobileWorkflowService(get_odoo_client())
+def get_picking_service(
+    odoo: OdooClient = Depends(get_request_odoo_client),
+    n8n: N8NWebhookClient = Depends(get_n8n_client),
+) -> PickingService:
+    return PickingService(odoo, n8n)
+
+
+def get_cluster_service(
+    odoo: OdooClient = Depends(get_request_odoo_client),
+    n8n: N8NWebhookClient = Depends(get_n8n_client),
+) -> ClusterService:
+    return ClusterService(odoo, n8n)
+
+
+def get_mobile_workflow_service(
+    odoo: OdooClient = Depends(get_request_odoo_client),
+) -> MobileWorkflowService:
+    return MobileWorkflowService(odoo)
 
 
 def _parse_picker_user_id(picker_user_id: str | None) -> int:
