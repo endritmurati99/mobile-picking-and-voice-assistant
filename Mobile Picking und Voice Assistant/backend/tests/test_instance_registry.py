@@ -67,3 +67,14 @@ def test_profile_missing_url_or_db_raises(monkeypatch):
     )
     with pytest.raises(ValueError):
         get_instance_registry()
+
+
+def test_odoo19_named_profile_must_not_target_live_database(monkeypatch):
+    monkeypatch.setattr(
+        config.settings,
+        "odoo_instances_json",
+        '{"o19-trial": {"url": "http://odoo19-trial:8069", "db": "masterfischer"}}',
+    )
+
+    with pytest.raises(ValueError, match="masterfischer_o19_trial"):
+        get_instance_registry()

@@ -35,8 +35,7 @@ test('confirm-all erfasst die Seriennummer fuer serialisierte Positionen (kein S
   });
 });
 
-// Issue 5: Escape schliesst das Serial-Modal als "Ueberspringen" (serial_number '').
-test('Escape im Serial-Modal ueberspringt und bestaetigt ohne Seriennummer', async ({ page }) => {
+test('Escape im Pflicht-Serial-Modal blockiert den Confirm', async ({ page }) => {
   const detail = createPickingDetail();
   detail.move_lines[0].tracking = 'serial'; // aktuelle Position ist serialisiert
   const api = await mockPwaApi(page, { detail });
@@ -47,16 +46,12 @@ test('Escape im Serial-Modal ueberspringt und bestaetigt ohne Seriennummer', asy
 
   await page.keyboard.press('Escape');
 
-  await expect(page.locator('#serial-input')).toBeHidden();
-  await expect.poll(() => api.getConfirmCalls()).toBe(1);
-  await expect.poll(() => api.getLastConfirmRequest()).toMatchObject({
-    move_line_id: 501,
-    serial_number: '',
-  });
+  await expect(page.locator('#serial-input')).toBeVisible();
+  await expect(page.getByText('Seriennummer erforderlich.')).toBeVisible();
+  await expect.poll(() => api.getConfirmCalls()).toBe(0);
 });
 
-// Issue 5: Klick auf den Backdrop schliesst das Serial-Modal als "Ueberspringen".
-test('Backdrop-Klick ueberspringt das Serial-Modal', async ({ page }) => {
+test('Backdrop-Klick blockiert das Pflicht-Serial-Modal', async ({ page }) => {
   const detail = createPickingDetail();
   detail.move_lines[0].tracking = 'serial';
   const api = await mockPwaApi(page, { detail });
@@ -68,9 +63,7 @@ test('Backdrop-Klick ueberspringt das Serial-Modal', async ({ page }) => {
   // Klick oben links auf das Overlay, ausserhalb der modal-sheet.
   await page.locator('#app-overlay').click({ position: { x: 5, y: 5 } });
 
-  await expect(page.locator('#serial-input')).toBeHidden();
-  await expect.poll(() => api.getConfirmCalls()).toBe(1);
-  await expect.poll(() => api.getLastConfirmRequest()).toMatchObject({
-    serial_number: '',
-  });
+  await expect(page.locator('#serial-input')).toBeVisible();
+  await expect(page.getByText('Seriennummer erforderlich.')).toBeVisible();
+  await expect.poll(() => api.getConfirmCalls()).toBe(0);
 });

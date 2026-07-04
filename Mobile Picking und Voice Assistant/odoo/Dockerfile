@@ -1,3 +1,4 @@
-FROM odoo:18.0
+ARG ODOO_BASE_IMAGE=odoo:18.0
+FROM ${ODOO_BASE_IMAGE}
 USER root
 USER odoo

@@ -42,6 +42,29 @@ function createProductImageSvg(productId) {
   `.trim();
 }
 
+function createSilentWav() {
+  const sampleRate = 8000;
+  const sampleCount = Math.floor(sampleRate * 0.08);
+  const dataSize = sampleCount * 2;
+  const buffer = Buffer.alloc(44 + dataSize);
+
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8);
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataSize, 40);
+
+  return buffer;
+}
+
 function createPickingList() {
   return [
     {
@@ -210,6 +233,7 @@ function createPickers() {
 
 async function mockPwaApi(page, options = {}) {
   const pickers = clone(options.pickers || createPickers());
+  const instances = clone(options.instances || [{ name: 'local', display_name: 'Lager 1' }]);
   let pickingsState = clone(options.pickings || createPickingList());
   let detailState = clone(options.detail || createPickingDetail());
   const confirmResponses = options.confirmResponses || [
@@ -241,6 +265,14 @@ async function mockPwaApi(page, options = {}) {
       return jsonResponse(route, 200, { status: 'ok' });
     }
 
+    if (path === '/api/voice/tts' && request.method() === 'POST') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'audio/wav',
+        body: createSilentWav(),
+      });
+    }
+
     if (/^\/api\/products\/\d+\/image$/.test(path) && request.method() === 'GET') {
       const productId = path.split('/')[3];
       return route.fulfill({
@@ -262,12 +294,37 @@ async function mockPwaApi(page, options = {}) {
       return jsonResponse(route, 200, pickers);
     }
 
+    if (path === '/api/instances' && request.method() === 'GET') {
+      return jsonResponse(route, 200, instances);
+    }
+
     if (path === `/api/pickings/${detailState.id}` && request.method() === 'GET') {
       if (!pickerHeader) {
         return jsonResponse(route, 400, { detail: 'X-Picker-User-Id ist erforderlich.' });
       }
       detailRequests += 1;
       return jsonResponse(route, 200, detailState);
+    }
+
+    if (/^\/api\/pickings\/\d+\/stock$/.test(path) && request.method() === 'GET') {
+      if (!pickerHeader) {
+        return jsonResponse(route, 400, { detail: 'X-Picker-User-Id ist erforderlich.' });
+      }
+      const params = new URL(request.url()).searchParams;
+      const productId = Number(params.get('product_id'));
+      const locationId = Number(params.get('location_id'));
+      return jsonResponse(route, 200, {
+        product_id: Number.isFinite(productId) ? productId : null,
+        location_id: Number.isFinite(locationId) ? locationId : null,
+        location_name: 'Test Lagerplatz',
+        quantity_available: 99,
+        quantity_total: 99,
+        available: 99,
+        total: 99,
+        status: 'available',
+        alternative_locations: [],
+        recommendation: null,
+      });
     }
 
     if (path === `/api/pickings/${detailState.id}/claim` && request.method() === 'POST') {

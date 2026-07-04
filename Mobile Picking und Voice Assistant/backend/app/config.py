@@ -45,9 +45,13 @@ class Settings(BaseSettings):
     mobile_claim_heartbeat_seconds: int = 30
     mobile_idempotency_ttl_seconds: int = 86400
     mobile_header_grace_mode: bool = True
+    demo_traceability_enabled: bool = False
+    demo_traceability_allowed_dbs: str = "masterfischer_o19_trial"
 
 
 settings = Settings()
+ODOO19_TRIAL_PROFILE_NAMES = {"o19", "odoo19", "o19-trial", "odoo19-trial"}
+ODOO19_TRIAL_DB = "masterfischer_o19_trial"
 
 
 def get_instance_registry() -> dict[str, OdooProfile]:
@@ -81,11 +85,17 @@ def get_instance_registry() -> dict[str, OdooProfile]:
             raise ValueError(f"ODOO_INSTANCES_JSON['{name}'] muss ein Objekt sein.")
         if "url" not in cfg or "db" not in cfg:
             raise ValueError(f"ODOO_INSTANCES_JSON['{name}'] braucht 'url' und 'db'.")
+        db_name = str(cfg["db"])
+        if key in ODOO19_TRIAL_PROFILE_NAMES and db_name != ODOO19_TRIAL_DB:
+            raise ValueError(
+                f"ODOO_INSTANCES_JSON['{name}'] muss fuer Odoo-19-Trial die DB "
+                f"'{ODOO19_TRIAL_DB}' nutzen, nicht '{db_name}'."
+            )
         registry[key] = OdooProfile(
             name=key,
             display_name=str(cfg.get("display_name") or key),
             url=str(cfg["url"]),
-            db=str(cfg["db"]),
+            db=db_name,
             user=str(cfg.get("user") or "admin"),
             api_key=str(cfg.get("api_key") or ""),
             password=str(cfg.get("password") or ""),

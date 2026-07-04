@@ -8,6 +8,7 @@ tags:
   - inventory
   - projekt-wiki
 created: 2026-06-22
+stand: 2026-07-04
 ---
 
 # Odoo
@@ -79,7 +80,7 @@ _ODOO_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0)
 
 ## 3. Genutzte Odoo-Standardmodelle
 
-Das Projekt verlässt sich stark auf bestehende Odoo-Standardmodelle und ergänzt nur ein einziges Custom-Addon (siehe Abschnitt 4).
+Das Projekt verlässt sich stark auf bestehende Odoo-Standardmodelle und ergänzt zwei Custom-Addons: `quality_alert_custom` fuer Qualitaetsmeldungen und `picking_assistant_core` fuer Picking-/Assistenzdaten.
 
 | Modell | Kontext im Projekt | Verknüpfung / Feldhinweis |
 |--------|--------------------|---------------------------|
@@ -102,7 +103,9 @@ Das Projekt verlässt sich stark auf bestehende Odoo-Standardmodelle und ergänz
 
 ---
 
-## 4. Custom-Addon: `quality_alert_custom`
+## 4. Custom-Addons
+
+### 4.1 `quality_alert_custom`
 
 **Pfad:** `odoo/addons/quality_alert_custom/`
 
@@ -116,6 +119,12 @@ Das Projekt verlässt sich stark auf bestehende Odoo-Standardmodelle und ergänz
 | `version` | "18.0.1.1.0" |
 | `category` | "Inventory/Quality" |
 | `depends` | `["stock", "mail"]` |
+
+### 4.2 `picking_assistant_core`
+
+**Pfad:** `odoo/addons/picking_assistant_core/`
+
+Dieses Addon enthaelt den Picking-Assistant-nahen Odoo-Anteil, u. a. technische Modelle/Metadaten fuer die mobile Picking-Integration. Im Odoo-18-Livepfad liegt die kompatible Version unter `odoo/addons18/picking_assistant_core/`; der Odoo-19-Port liegt unter `odoo/addons/picking_assistant_core/`.
 
 > [!info] Geerbte Mixins
 > Das Hauptmodell erbt zwei Odoo-Standard-Mixins:
@@ -276,7 +285,7 @@ db_user = odoo
 addons_path = /mnt/extra-addons,/usr/lib/python3/dist-packages/odoo/addons
               # /mnt/extra-addons → quality_alert_custom
 
-admin_passwd = PickingPoc2024!
+# admin_passwd: bewusst nicht im Repo; bei Bedarf lokal setzen
 dbfilter = ^(picking|masterfischer)$   # nur diese DBs zulässig
 list_db = True
 proxy_mode = True            # Betrieb hinter Reverse-Proxy
@@ -291,6 +300,27 @@ limit_time_real = 1200       # Real-Timeout: 20 min
 
 > [!info] Aktive Datenbank: `masterfischer`
 > Der `dbfilter` lässt genau zwei Datenbanken zu: `picking` und `masterfischer`. Die produktiv genutzte / aktive DB im Projekt ist **`masterfischer`** – hier leben die realen Pickings und Quality Alerts. (Mehr zu Containern/Netzwerk in [[03 - Docker & Container]].)
+
+> [!warning] Odoo-19-Trial ist getrennt
+> Seit 2026-07-04 existiert zusaetzlich die Trial-Datenbank **`masterfischer_o19_trial`** auf Odoo 19. Sie laeuft nicht als produktiver Default, sondern als getrennte Demo-/Migrationstest-Instanz auf Port `8100`. Die zugehoerige Config `odoo/odoo19-trial.conf` erlaubt per `dbfilter = ^masterfischer_o19_trial$` nur diese Trial-DB. Der normale Live-Service `odoo` bleibt Odoo 18.
+
+### 5.1 Aktuelle Odoo-Instanzen
+
+| Instanz | URL | DB | Zweck |
+| --- | --- | --- | --- |
+| Odoo 18 Live/Default | `http://localhost:8069` | `masterfischer` | aktueller produktiver Demo-/Arbeitsstand |
+| Odoo 19 Trial | `http://localhost:8100` | `masterfischer_o19_trial` | Migrationstest, Traceability-Demo, Odoo-19-Abnahme |
+| Lager 2 | `http://localhost:8070` | `lager2` | zweite lokale Testinstanz fuer Instanzumschalter; `stock_picking_batch` ist installiert |
+
+Die PWA kann per Instanzschalter zwischen den Backend-Profilen wechseln. Fuer die Trial-DB ist zusaetzlich der Traceability-Demo-Schalter aktiv. Details: [[12 - Funktionsdokumentation/09 - Odoo-19-Trial und Traceability-Demo]].
+
+Hinweis zur DB-Konfiguration: `docker-compose.yml` und `Makefile` haben als generischen Fallback noch `ODOO_DB=picking`. Der aktuelle lokale Arbeitsstand kommt aus `.env` und nutzt fuer `local` die DB `masterfischer`.
+
+Addon-Trennung:
+
+- `odoo/addons18` ist der Odoo-18-kompatible Stand fuer Live/Default und `lager-2`.
+- `odoo/addons` ist der Odoo-19-Port fuer die Trial-Instanz.
+- Grund: Odoo 19 nutzt fuer Gruppenrechte `res.groups.privilege`, Odoo 18 noch `res.groups.category_id`. Ein gemeinsamer Addon-Baum waere fuer Rebuilds riskant.
 
 ---
 
@@ -349,13 +379,12 @@ Picker meldet Problem
 | Zweck | Pfad (relativ zum Projekt) |
 |-------|-----------------------------|
 | Konfiguration | `odoo/odoo.conf` |
-| Addon-Wurzel | `odoo/addons/quality_alert_custom/` |
-| Manifest | `odoo/addons/quality_alert_custom/__manifest__.py` |
-| Modelle | `odoo/addons/quality_alert_custom/models/quality_alert.py` |
-| Security (CSV) | `odoo/addons/quality_alert_custom/security/ir.model.access.csv` |
-| Security (XML) | `odoo/addons/quality_alert_custom/security/quality_alert_security.xml` |
-| Data | `odoo/addons/quality_alert_custom/data/quality_alert_data.xml` |
-| Views | `odoo/addons/quality_alert_custom/views/quality_alert_views.xml` |
+| Odoo-18-Addon-Wurzel | `odoo/addons18/` |
+| Odoo-19-Addon-Wurzel | `odoo/addons/` |
+| Quality-Addon | `odoo/addons*/quality_alert_custom/` |
+| Picking-Assistant-Addon | `odoo/addons*/picking_assistant_core/` |
+| Quality-Modell | `odoo/addons*/quality_alert_custom/models/quality_alert.py` |
+| Quality-Security (CSV/XML) | `odoo/addons*/quality_alert_custom/security/` |
 | JSON-RPC-Client | `backend/app/services/odoo_client.py` |
 
 > [!info] Weiterführend

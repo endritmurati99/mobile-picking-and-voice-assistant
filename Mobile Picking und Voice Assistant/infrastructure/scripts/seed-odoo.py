@@ -1,5 +1,5 @@
 """
-Seed-Daten für Odoo 18 Community.
+Seed-Daten für Odoo 19 Community.
 
 Erstellt Mindest-Testdaten für den Picking-PoC:
 - Lagerorte mit Barcodes
@@ -16,6 +16,27 @@ import argparse
 import sys
 from datetime import date, timedelta
 from xmlrpc.client import ServerProxy
+
+
+ODOO_KWARG_KEYS = {
+    "context",
+    "count",
+    "fields",
+    "limit",
+    "load",
+    "offset",
+    "order",
+}
+
+
+def _normalize_execute_args(args, kwargs):
+    normalized_args = list(args)
+    normalized_kwargs = dict(kwargs)
+    if normalized_args and isinstance(normalized_args[-1], dict):
+        maybe_kwargs = normalized_args[-1]
+        if maybe_kwargs and set(maybe_kwargs).issubset(ODOO_KWARG_KEYS):
+            normalized_kwargs.update(normalized_args.pop())
+    return normalized_args, normalized_kwargs
 
 
 def main():
@@ -39,8 +60,9 @@ def main():
     models = ServerProxy(f"{args.url}/xmlrpc/2/object")
 
     def execute(model, method, *a, **kw):
+        call_args, call_kwargs = _normalize_execute_args(a, kw)
         return models.execute_kw(
-            args.db, uid, args.api_key, model, method, list(a), kw
+            args.db, uid, args.api_key, model, method, call_args, call_kwargs
         )
 
     def find_or_create(model, domain, vals):
@@ -371,24 +393,26 @@ def main():
             first_move = move_ids_p9[0]
             ml_ids = execute("stock.move.line", "search", [("move_id", "=", first_move)])
             if ml_ids:
-                execute("stock.move.line", "write", ml_ids, {"quantity": 6.0})
-            execute("stock.move", "write", [first_move], {"picked": True})
+                execute("stock.move.line", "write", ml_ids, {"quantity": 6.0, "picked": True})
         print(f"  [OK] Picking 9 - Teilweise erledigt (1/3)      (ID: {p9})")
 
-    # ── Quality-Modul prüfen ─────────────────────────────────
-    print("\nQuality-Modul...")
+    # ── Pflichtmodule pruefen ────────────────────────────────
+    print("\nPflichtmodule...")
     try:
         modules = execute(
             "ir.module.module", "search_read",
-            [("name", "=", "quality_alert_custom")],
+            [("name", "in", ["quality_alert_custom", "stock_picking_batch"])],
             fields=["state"],
         )
-        if modules:
-            print(f"  quality_alert_custom: {modules[0]['state']}")
-            if modules[0]["state"] != "installed":
-                print("  [WARN] Modul nicht installiert! In Odoo Apps installieren.")
-        else:
-            print("  [WARN] Modul nicht gefunden. 'Update Apps List' in Odoo ausfuehren.")
+        module_by_name = {module["name"]: module for module in modules}
+        for module_name in ["quality_alert_custom", "stock_picking_batch"]:
+            module = module_by_name.get(module_name)
+            if module:
+                print(f"  {module_name}: {module['state']}")
+                if module["state"] != "installed":
+                    print("  [WARN] Modul nicht installiert! In Odoo Apps installieren.")
+            else:
+                print(f"  [WARN] Modul {module_name} nicht gefunden. 'Update Apps List' in Odoo ausfuehren.")
     except Exception as e:
         print(f"  [WARN] Pruefung fehlgeschlagen: {e}")
 

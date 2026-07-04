@@ -23,6 +23,17 @@ export function initHIDScanner(onScan) {
     scanCallback = onScan;
 
     document.addEventListener('keydown', (e) => {
+        const target = e.target;
+        if (
+            target
+            && (
+                target.matches?.('input, textarea, select')
+                || target.isContentEditable
+            )
+        ) {
+            return;
+        }
+
         // Enter = Scan-Ende
         if (e.key === 'Enter' && scanBuffer.length >= MIN_BARCODE_LENGTH) {
             e.preventDefault();

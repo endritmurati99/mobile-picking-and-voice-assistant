@@ -2,13 +2,13 @@
 title: "Cluster- & Batch-Picking"
 tags: [funktionsdoku, cluster, odoo]
 status: dokumentiert
-stand: 2026-06-26
+stand: 2026-07-04
 ---
 
 # Cluster- & Batch-Picking
 
 > [!abstract] Kurzfassung
-> Cluster-/Batch-Picking bündelt mehrere offene Kommissionieraufträge (`stock.picking`) in einem echten Odoo-`stock.picking.batch` und führt sie als einen einzigen route-sortierten Rundgang aus. Jeder Auftrag erhält eine logische Box (Nummer + Farbe) und ein echtes, wiederverwendbares Ziel-Package (`stock.quant.package`), in das beim Abschluss physisch eingelagert wird. Die Sammelliste mergt alle Move-Lines, sortiert sie nach Laufweg, bestätigt Positionen einzeln ohne Sofort-Validierung und schließt den gesamten Batch erst gesammelt via `action_done` ab.
+> Cluster-/Batch-Picking bündelt mehrere offene Kommissionieraufträge (`stock.picking`) in einem echten Odoo-`stock.picking.batch` und führt sie als einen einzigen route-sortierten Rundgang aus. Jeder Auftrag erhält eine logische Box (Nummer + Farbe) und ein echtes, wiederverwendbares Ziel-Package (`stock.package` in Odoo 19, `stock.quant.package` in Odoo 18), in das beim Abschluss physisch eingelagert wird. Die Sammelliste mergt alle Move-Lines, sortiert sie nach Laufweg, bestätigt Positionen einzeln ohne Sofort-Validierung und schließt den gesamten Batch erst gesammelt via `action_done` ab.
 
 ## 1. Wie es funktioniert
 
@@ -18,7 +18,7 @@ Ablauf:
 
 1. **Vorschläge holen** — `suggest_batches` liest alle `assigned`-Pickings ohne Batch und gruppiert sie nach Lagerzone (vorletztes Segment des Location-Pfads). Ergebnis ist eine nach Auftragszahl sortierte Liste von Zonen-Gruppen (`cluster_service.py:88-141`).
 2. **Batch anlegen** — `create_batch` validiert die übergebenen `picking_ids` gegen `assigned`/`batch_id = False` (IDOR-/State-Schutz), legt einen echten `stock.picking.batch` an und ruft `action_confirm` (`draft -> in_progress`). Schlägt das Confirm fehl, wird der Draft-Batch kompensierend via `action_cancel` zurückgerollt (`cluster_service.py:143-205`).
-3. **Ziel-Packages zuweisen** — `_assign_packages` legt je Picking ein reusable `stock.quant.package` an (Name `CLUSTER-B{box_index}/{picking_name}`) und schreibt es als `result_package_id` auf alle Move-Lines des Pickings (Box N ↔ Order N ↔ 1 Package). Best-Effort: ein Package-Glitch darf den bereits bestätigten Batch nie zerstören (`cluster_service.py:195-238`).
+3. **Ziel-Packages zuweisen** — `_assign_packages` legt je Picking ein reusable Package an (Odoo 19: `stock.package`, Odoo 18: `stock.quant.package`; Name `CLUSTER-B{box_index}/{picking_name}`) und schreibt es als `result_package_id` auf alle Move-Lines des Pickings (Box N ↔ Order N ↔ 1 Package). Best-Effort: ein Package-Glitch darf den bereits bestätigten Batch nie zerstören.
 4. **Sammelliste laden** — `get_batch` mergt die Move-Lines aller Pickings, taggt sie mit Box/Farbe/Package, sortiert offene Positionen route-optimiert nach vorne (gepickte ans Ende) und liefert Fortschritt sowie Box-Übersicht (`cluster_service.py:275-377`).
 5. **Position bestätigen** — `confirm_cluster_line` schreibt Menge (+ optional Serial/Lot) auf die Move-Line und setzt `picked = True` auf den Move. Hat die Line ein Ziel-Package, ist eine Empfängerkarton-Bestätigung (Put-to-Box) Pflicht: ohne Karton `carton_required`, falscher Karton `wrong_package` — in beiden Fällen wird nichts geschrieben. **Kein** `button_validate` (`cluster_service.py:379-511`).
 6. **Batch abschließen** — `validate_batch` schließt den gesamten Batch gesammelt via `action_done` ab (mit `skip_backorder`-Kontext) und feuert danach das n8n-Event `batch-confirmed` (`cluster_service.py:513-582`).
@@ -44,8 +44,7 @@ sequenceDiagram
 
     loop je Position
         PWA->>FastAPI: POST /cluster/batches/{id}/confirm-line
-        FastAPI->>Odoo: write stock.move.line (quantity/lot_name)
-        FastAPI->>Odoo: write stock.move (picked=True)
+        FastAPI->>Odoo: write stock.move.line (quantity/lot_id/picked)
         FastAPI-->>PWA: success + progress
     end
 
@@ -80,11 +79,26 @@ Besonderheiten:
 | Modell | Felder (R = gelesen / W = geschrieben) | Methoden | Domain/Filter | Zweck |
 | --- | --- | --- | --- | --- |
 | `stock.picking` | R: `name`, `batch_id`, `company_id` | `search_read` | `[("state","=","assigned"),("batch_id","=",False)]`; bei `create_batch` zusätzlich `("id","in",ids)` | Batch-fähige Aufträge finden, Scope-/IDOR-Check, `company_id` für Batch übernehmen (`cluster_service.py:91-96`, `:152-157`, `:211-215`, `:290-294`) |
-| `stock.move.line` | R: `picking_id`, `location_id`, `id`, `product_id`, `quantity`, `move_id`, `result_package_id`; W: `result_package_id`, `quantity`, `lot_name` | `search_read`, `write` | `[("picking_id","in",picking_ids)]`; beim Confirm `[("id","=",move_line_id),("picking_id","=",picking_id),("picking_id.batch_id","=",batch_id),("picking_id.batch_id.user_id","=",requester_id)]` | Sammelliste mergen, Ziel-Package setzen, Menge/Serial bestätigen, kombinierter IDOR-+Ownership-Check (`cluster_service.py:102-107`, `:217-238`, `:297-302`, `:409-421`, `:472-484`) |
+| `stock.move.line` | R: `picking_id`, `location_id`, `id`, `product_id`, `quantity`, `move_id`, `result_package_id`, `lot_id`; W: `result_package_id`, `quantity`, `lot_id`, `picked` | `search_read`, `write` | `[("picking_id","in",picking_ids)]`; beim Confirm `[("id","=",move_line_id),("picking_id","=",picking_id),("picking_id.batch_id","=",batch_id),("picking_id.batch_id.user_id","=",requester_id)]` | Sammelliste mergen, Ziel-Package setzen, Menge/Serial/Charge bestätigen, kombinierter IDOR-+Ownership-Check |
 | `stock.move` | R: `id`, `product_uom_qty`, `picked`; W: `picked` | `search_read`, `write` | `[("id","in",move_ids)]` | Soll-Menge und Pick-Status der Sammelliste, `picked=True` beim Confirm (`cluster_service.py:304-308`, `:485-486`) |
 | `product.product` | R: `id`, `default_code`, `barcode`, `tracking` | `search_read` | `[("id","in",product_ids)]` bzw. `[("id","=",product_id)]` | SKU/Barcode für Anzeige, Barcode-Match, Serial/Lot-Tracking-Prüfung (`cluster_service.py:310-315`, `:436-437`) |
 | `stock.picking.batch` | R: `name`, `state`, `picking_ids`, `user_id`; W (indirekt via Methoden) | `create`, `call_method` (`action_confirm`, `action_cancel`, `action_done`), `search_read` | `[("id","=",batch_id)]` | Batch anlegen/bestätigen/abschließen, Ownership-Gate, Sammelliste laden (`cluster_service.py:176-189`, `:277-280`, `:517-547`) |
-| `stock.quant.package` | W: `name`, `package_use` | `create` | — | Reusable Ziel-Package je Box/Order anlegen (`cluster_service.py:233-236`) |
+| `stock.package` / `stock.quant.package` | W: `name`, bei Legacy `package_use` | `create` | — | Reusable Ziel-Package je Box/Order anlegen; Odoo 19 bevorzugt `stock.package`, Odoo 18 nutzt `stock.quant.package` |
+
+## 3.1 Wie Cluster-Vorschlaege bestimmt werden
+
+Der Auto-Vorschlag ist bewusst einfach und deterministisch:
+
+1. Es werden nur Pickings mit `state = assigned` und `batch_id = False` betrachtet.
+2. Aus jeder Move-Line wird die Quell-Location gelesen.
+3. Die Zone ist das vorletzte Segment des Location-Pfads, z. B. `WH/Stock/Regal A-02` -> `Stock`.
+4. Ein Picking landet in der Zone seiner ersten gefundenen Move-Line.
+5. Pro Zone werden `picking_ids`, Auftragszahl und Positionszahl gebildet.
+6. Die Gruppen werden nach groesster Auftragszahl und dann nach Zonennamen sortiert.
+
+Damit ist Cluster-Picking kein Optimierungs-Solver, sondern ein praktikabler Lagerzonen-Buendelungsmechanismus. Die eigentliche Laufweg-Reihenfolge innerhalb des Batches kommt danach aus `build_route_plan`.
+
+Kompatibilitaetsstand 2026-07-04: Wenn eine Odoo-18-Datenbank das Modul `stock_picking_batch` noch nicht installiert hat, fehlt `stock.picking.batch_id`. `suggest_batches` erkennt diesen Odoo-Fehler und faellt fuer Vorschlaege auf `state = assigned` ohne Batch-Filter zurueck, statt einen HTTP 500 an die PWA zu liefern. In `lager-2` wurde `stock_picking_batch` danach installiert; dort ist `batch_id` jetzt vorhanden und echte Batch Transfers sind verfuegbar.
 
 ## 4. API-Endpunkte (FastAPI)
 

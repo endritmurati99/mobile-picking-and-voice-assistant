@@ -1,9 +1,9 @@
 """
 Business logic for picking operations.
 
-Odoo 18 notes:
+Odoo 18/19 notes:
 - `stock.move.line.quantity` is the relevant quantity field
-- `stock.move.picked` indicates whether a move was confirmed in the UI flow
+- `stock.move.line.picked` indicates whether a line was confirmed in the UI flow
 """
 from __future__ import annotations
 
@@ -19,6 +19,8 @@ from app.services.mobile_workflow import PickerIdentity
 from app.services.n8n_webhook import N8NWebhookClient, coerce_event_result
 from app.services.odoo_client import OdooAPIError, OdooClient
 from app.services.route_optimizer import build_route_plan
+from app.services.serial_validation import build_serial_move_line_values
+from app.utils.serial import reconcile_serials
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +55,27 @@ def _emit_serial_confirm(
 def _clean_product_name(display_name: str) -> str:
     """Strip Odoo's '[barcode/ref] ' prefix from product display names."""
     return re.sub(r"^\[.*?\]\s*", "", display_name or "")
+
+
+def _m2o_id(value: Any) -> int | None:
+    if isinstance(value, (list, tuple)) and value:
+        candidate = value[0]
+        return candidate if isinstance(candidate, int) and not isinstance(candidate, bool) else None
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return None
+
+
+def _m2o_name(value: Any) -> str:
+    if isinstance(value, (list, tuple)) and len(value) > 1:
+        return str(value[1] or "").strip()
+    return ""
+
+
+def _line_is_picked(raw_line: dict[str, Any], move: dict[str, Any]) -> bool:
+    if "picked" in raw_line:
+        return bool(raw_line.get("picked"))
+    return bool(move.get("picked"))
 
 
 def _location_parts(location: str) -> list[str]:
@@ -336,6 +359,7 @@ class PickingService:
                     "picking_id",
                     "product_id",
                     "quantity",
+                    "picked",
                     "move_id",
                     "location_id",
                 ],
@@ -383,6 +407,7 @@ class PickingService:
             picking_id = picking_value[0]
             move_id = raw_line["move_id"][0] if raw_line.get("move_id") else None
             move = move_map.get(move_id, {})
+            picked = _line_is_picked(raw_line, move)
             product_id = raw_line["product_id"][0] if raw_line.get("product_id") else None
             product = product_map.get(product_id, {})
             enriched_line = _enrich_line_payload(
@@ -392,8 +417,8 @@ class PickingService:
                     "product_name": _clean_product_name(raw_line["product_id"][1]) if raw_line.get("product_id") else "",
                     "product_sku": product.get("default_code") or "",
                     "quantity_demand": move.get("product_uom_qty", raw_line.get("quantity", 0)),
-                    "quantity_done": raw_line.get("quantity", 0) if move.get("picked") else 0,
-                    "picked": bool(move.get("picked")),
+                    "quantity_done": raw_line.get("quantity", 0) if picked else 0,
+                    "picked": picked,
                     "location_src_id": raw_line["location_id"][0] if raw_line.get("location_id") else None,
                     "location_src": raw_line["location_id"][1] if raw_line.get("location_id") else "",
                 }
@@ -466,6 +491,7 @@ class PickingService:
                     "id",
                     "product_id",
                     "quantity",
+                    "picked",
                     "move_id",
                     "location_id",
                     "location_dest_id",
@@ -520,6 +546,7 @@ class PickingService:
             product_id = raw_line["product_id"][0] if raw_line.get("product_id") else None
             move_id = raw_line["move_id"][0] if raw_line.get("move_id") else None
             move = move_map.get(move_id, {})
+            picked = _line_is_picked(raw_line, move)
             move_lines.append(
                 _enrich_line_payload(
                     {
@@ -530,8 +557,8 @@ class PickingService:
                         "product_sku": product_meta_map.get(product_id, {}).get("default_code") if product_id else "",
                         "tracking": product_meta_map.get(product_id, {}).get("tracking") if product_id else None,
                         "quantity_demand": move.get("product_uom_qty", raw_line.get("quantity", 0)),
-                        "quantity_done": raw_line.get("quantity", 0) if move.get("picked") else 0,
-                        "picked": bool(move.get("picked")),
+                        "quantity_done": raw_line.get("quantity", 0) if picked else 0,
+                        "picked": picked,
                         "location_src_id": raw_line["location_id"][0] if raw_line.get("location_id") else None,
                         "location_src": raw_line["location_id"][1] if raw_line.get("location_id") else "",
                         "location_dest_id": raw_line["location_dest_id"][0] if raw_line.get("location_dest_id") else None,
@@ -599,6 +626,106 @@ class PickingService:
             return picking
         return picking.get("route_plan", build_route_plan([]))
 
+    async def reconcile_return_serials(self, picking_id: int, returned_serials: list[str]) -> dict[str, Any]:
+        """Compare returned serials with the serials recorded on a shipped picking.
+
+        This is intentionally read-only: Odoo remains the system of record for the
+        shipped serials, while follow-up handling of deviations can be layered on
+        later as Quality Alert, n8n event, or supervisor queue.
+        """
+        fields = ["id", "product_id", "lot_id", "lot_name"]
+        try:
+            lines = await self._odoo.execute_kw(
+                "stock.move.line",
+                "search_read",
+                [[("picking_id", "=", picking_id)]],
+                {"fields": fields},
+            )
+        except OdooAPIError:
+            lines = await self._odoo.execute_kw(
+                "stock.move.line",
+                "search_read",
+                [[("picking_id", "=", picking_id)]],
+                {"fields": ["id", "product_id", "lot_id"]},
+            )
+
+        if not lines:
+            return {
+                "success": False,
+                "picking_id": picking_id,
+                "message": "Picking nicht gefunden oder ohne Seriennummern.",
+                "shipped_serials": [],
+                "returned_serials": [serial.strip() for serial in returned_serials if serial and serial.strip()],
+                "reconcile": reconcile_serials([], returned_serials),
+            }
+
+        product_ids = sorted(
+            {
+                product_id
+                for product_id in (_m2o_id(line.get("product_id")) for line in lines)
+                if product_id is not None
+            }
+        )
+        product_meta: dict[int, dict[str, Any]] = {}
+        if product_ids:
+            products = await self._odoo.search_read(
+                "product.product",
+                [("id", "in", product_ids)],
+                ["id", "tracking", "display_name", "name", "default_code"],
+            )
+            product_meta = {product["id"]: product for product in products}
+
+        shipped_entries = []
+        shipped_serials = []
+        for line in lines:
+            product_id = _m2o_id(line.get("product_id"))
+            product = product_meta.get(product_id, {})
+            if product.get("tracking") != "serial":
+                continue
+
+            serial_number = _m2o_name(line.get("lot_id")) or str(line.get("lot_name") or "").strip()
+            if not serial_number:
+                continue
+
+            product_name = (
+                product.get("display_name")
+                or product.get("name")
+                or _m2o_name(line.get("product_id"))
+            )
+            shipped_serials.append(serial_number)
+            shipped_entries.append({
+                "move_line_id": line.get("id"),
+                "product_id": product_id,
+                "product_name": _clean_product_name(product_name),
+                "serial_number": serial_number,
+            })
+
+        returned_clean = [serial.strip() for serial in returned_serials if serial and serial.strip()]
+        result = reconcile_serials(shipped_serials, returned_clean)
+        summary = {
+            "shipped_count": len(shipped_serials),
+            "returned_count": len(returned_clean),
+            "missing_count": len(result["missing"]),
+            "unknown_count": len(result["unknown"]),
+            "duplicate_count": len(result["duplicates"]),
+        }
+
+        return {
+            "success": True,
+            "ok": result["ok"],
+            "picking_id": picking_id,
+            "message": (
+                "Retouren-Seriennummern passen zur Lieferung."
+                if result["ok"]
+                else "Retouren-Seriennummern weichen von der Lieferung ab."
+            ),
+            "shipped_serials": shipped_serials,
+            "shipped_items": shipped_entries,
+            "returned_serials": returned_clean,
+            "reconcile": result,
+            "summary": summary,
+        }
+
     async def confirm_pick_line(
         self,
         picking_id: int,
@@ -611,14 +738,14 @@ class PickingService:
         """
         Confirm a move line via barcode scan.
 
-        The Odoo 18 flow uses `stock.move.picked` to track whether a move is done.
+        The Odoo 18/19 flow uses `stock.move.line.picked` to track whether a line is done.
         """
         _t0 = time.monotonic()
         lines = await self._odoo.execute_kw(
             "stock.move.line",
             "read",
             [[move_line_id]],
-            {"fields": ["id", "product_id", "quantity", "move_id", "location_id"]},
+            {"fields": ["id", "product_id", "quantity", "move_id", "location_id", "lot_id"]},
         )
         if not lines:
             _emit_serial_confirm(False, picking_id, move_line_id, None, False, _t0)
@@ -632,6 +759,7 @@ class PickingService:
         product_id = line["product_id"][0] if line.get("product_id") else None
         move_id = line["move_id"][0] if line.get("move_id") else None
         location_id = line["location_id"][0] if line.get("location_id") else None
+        existing_lot_id = line["lot_id"][0] if line.get("lot_id") else None
 
         if product_id and scanned_barcode:
             products = await self._odoo.search_read(
@@ -665,34 +793,48 @@ class PickingService:
             }
 
         qty = quantity if quantity > 0 else line.get("quantity", 1.0)
-        line_values: dict[str, Any] = {"quantity": qty}
+        line_values: dict[str, Any] = {"quantity": qty, "picked": True}
 
-        recorded_serial = ""
-        serial_clean = (serial_number or "").strip()
-        if serial_clean and product_id:
+        tracking = None
+        if product_id:
             tracked = await self._odoo.search_read(
-                "product.product", [("id", "=", product_id)], ["tracking"]
+                "product.product", [("id", "=", product_id)], ["tracking"], limit=1
             )
             tracking = tracked[0].get("tracking") if tracked else None
-            if tracking in ("serial", "lot"):
-                line_values["lot_name"] = serial_clean
-                recorded_serial = serial_clean
+
+        recorded_serial = ""
+        serial_result = await build_serial_move_line_values(
+            self._odoo,
+            product_id=product_id,
+            tracking=tracking,
+            serial_number=serial_number,
+            quantity=qty,
+            location_id=location_id,
+            existing_lot_id=existing_lot_id,
+        )
+        if not serial_result["ok"]:
+            _emit_serial_confirm(False, picking_id, move_line_id, product_id, False, _t0)
+            return {
+                "success": False,
+                "message": serial_result["message"],
+                "picking_complete": False,
+                **{k: v for k, v in serial_result.items() if k not in {"ok", "message", "values", "recorded_serial"}},
+            }
+        line_values.update(serial_result.get("values", {}))
+        recorded_serial = serial_result.get("recorded_serial", "")
 
         # Quantity (and the optional serial) go to Odoo in a single move-line write
         # instead of two separate round-trips for the same record.
         await self._odoo.write("stock.move.line", [move_line_id], line_values)
 
-        if move_id:
-            await self._odoo.write("stock.move", [move_id], {"picked": True})
-
         # Single search_read instead of search + read (saves one Odoo round-trip).
-        moves = await self._odoo.execute_kw(
-            "stock.move",
+        move_lines = await self._odoo.execute_kw(
+            "stock.move.line",
             "search_read",
             [[("picking_id", "=", picking_id)]],
             {"fields": ["id", "picked"]},
         )
-        all_done = bool(moves) and all(move.get("picked") for move in moves)
+        all_done = bool(move_lines) and all(line.get("picked") for line in move_lines)
 
         picking_complete = False
         if all_done:

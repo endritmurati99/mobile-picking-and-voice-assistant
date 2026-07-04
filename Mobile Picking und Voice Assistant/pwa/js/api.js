@@ -10,6 +10,7 @@ const STORAGE_KEYS = {
     preferredZone: 'picking-assistant-preferred-zone',
     highContrastEnabled: 'picking-assistant-high-contrast',
     searchQuery: 'picking-assistant-search-query',
+    odooInstance: 'picking-assistant-odoo-instance',
 };
 let activePicker = null;
 
@@ -69,6 +70,23 @@ export function getDeviceId() {
         safeStorageSet(STORAGE_KEYS.deviceId, deviceId);
     }
     return deviceId;
+}
+
+function normalizeInstanceName(name) {
+    return String(name || 'local').trim().toLowerCase() || 'local';
+}
+
+export function getActiveInstance() {
+    return normalizeInstanceName(safeStorageGet(STORAGE_KEYS.odooInstance));
+}
+
+export function setActiveInstance(name) {
+    const value = normalizeInstanceName(name);
+    if (value === 'local') {
+        safeStorageRemove(STORAGE_KEYS.odooInstance);
+        return;
+    }
+    safeStorageSet(STORAGE_KEYS.odooInstance, value);
 }
 
 export function getActivePicker() {
@@ -171,6 +189,10 @@ function getReadHeaders() {
 
 async function request(method, path, body = null, options = {}) {
     const headers = { ...(options.headers || {}) };
+    const activeInstance = getActiveInstance();
+    if (activeInstance !== 'local') {
+        headers['X-Odoo-Instance'] = activeInstance;
+    }
     const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
     if (body && !isFormData) {
         headers['Content-Type'] = 'application/json';
@@ -199,6 +221,24 @@ async function request(method, path, body = null, options = {}) {
 
 export async function getPickers(options = {}) {
     return request('GET', '/pickers', null, { signal: options.signal });
+}
+
+export async function getInstances(options = {}) {
+    return request('GET', '/instances', null, { signal: options.signal });
+}
+
+export async function getTraceabilityDemo(options = {}) {
+    return request('GET', '/demo/traceability', null, {
+        headers: getReadHeaders(),
+        signal: options.signal,
+    });
+}
+
+export async function setTraceabilityDemoMode(mode, options = {}) {
+    return request('POST', '/demo/traceability', { mode }, {
+        headers: getWriteHeaders(options.idempotencyKey),
+        signal: options.signal,
+    });
 }
 
 export async function getPickings(options = {}) {

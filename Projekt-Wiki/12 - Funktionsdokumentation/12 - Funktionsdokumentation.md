@@ -6,7 +6,7 @@ tags:
   - bachelorarbeit
   - mobile-picking
 status: dokumentiert
-stand: 2026-06-26
+stand: 2026-07-04
 ---
 
 # Funktionsdokumentation — Map of Content
@@ -33,9 +33,11 @@ Zusätzlich enthält jede Seite (soweit relevant) die betroffenen **FastAPI-Endp
 | 02 | [[02 - Einzel-Kommissionierung (Picking)]] | Offene Aufträge laden, Claim/Heartbeat/Release, Scan-Bestätigung pro Move-Line, Mengen-/Barcode-Prüfung und Routenführung. |
 | 03 | [[03 - Cluster- & Batch-Picking]] | Mehrere Aufträge in einem Rundgang über `stock.picking.batch`, je Auftrag eine Ziel-Verpackung (`result_package_id`), gesammelter Abschluss via `action_done`. |
 | 04 | [[04 - Empfängerkarton-Bestätigung (Put-to-Box)]] | Scan-oder-Tippen des richtigen Ziel-Kartons pro Position, serverseitige Prüfung gegen `result_package_id`, Verwechslungsschutz (falscher Karton → kein Write). |
-| 05 | [[05 - Seriennummer-Bestätigung]] | Erfassung/Validierung der Seriennummer (Lot) beim Pick, Schreiben von `lot_name`, Telemetrie `serial_confirm`. |
+| 05 | [[05 - Seriennummer-Bestätigung]] | Pflicht-Erfassung/Validierung der konkreten Seriennummer beim Pick, Schreiben von `lot_id` für `tracking=serial`, Telemetrie `serial_confirm`. |
 | 06 | [[06 - Sprachassistent (STT, Intent, TTS)]] | Voice-Pfad: Whisper (STT) → Intent-Engine (Keyword-Matching) → Piper (TTS), mit Touch als Pflicht-Fallback und lokalem STT (kein Cloud-Hot-Path). |
 | 07 | [[07 - Qualitätsmeldungen & n8n-Orchestrierung]] | Quality Alert + Foto anlegen, asynchrone KI-Bewertung über n8n, Circuit Breaker, Shadow-Evaluation und kontrollierte Rückschreibung der `ai_*`-Felder. |
+| 08 | [[08 - Odoo-Instanz-Switching (Multi-Mandant)]] | Laufzeitwechsel zwischen Odoo-Profilen/Lagern per PWA-Umschalter und Header `X-Odoo-Instance`, inklusive PoC-Grenzen fuer n8n. |
+| 09 | [[09 - Odoo-19-Trial und Traceability-Demo]] | Aktueller Stand der Odoo-19-Trial-Migration, Demo-Schalter fuer BOM-Komponenten/Endprodukte, Odoo-Orte, Verifikation und naechste Schritte. |
 
 ## Empfohlene Lesereihenfolge
 
@@ -46,6 +48,8 @@ Zusätzlich enthält jede Seite (soweit relevant) die betroffenen **FastAPI-Endp
 5. **[[05 - Seriennummer-Bestätigung]]** — die Exemplar-genaue Erfassung.
 6. **[[06 - Sprachassistent (STT, Intent, TTS)]]** — die Sprachbedienung.
 7. **[[07 - Qualitätsmeldungen & n8n-Orchestrierung]]** — die asynchrone KI-/Ausnahmeschicht.
+8. **[[08 - Odoo-Instanz-Switching (Multi-Mandant)]]** — die Mandanten-/Lagerauswahl fuer Demo und Live-Test.
+9. **[[09 - Odoo-19-Trial und Traceability-Demo]]** — aktueller Arbeitsstand, Demo-Bedienung und Cutover-Plan.
 
 > [!info] Verhältnis zum übrigen Wiki
 > Diese Seiten sind die **tiefe, code-belegte Funktionsdokumentation**. Die übergeordnete Architektur steht in [[02 - Architektur & Diagramm erklärt]], die Komponenten in [[05 - Backend (FastAPI)]], [[06 - Odoo]], [[07 - n8n]] und [[08 - PWA & Voice-Pfad]]. Geplante Erweiterungen liegen im Ordner **„05 - Future Functions"**.

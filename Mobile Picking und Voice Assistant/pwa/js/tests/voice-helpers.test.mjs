@@ -6,6 +6,7 @@ import {
     VOICE_STATES,
     isLikelyPromptEcho,
     normalizePromptText,
+    shouldUsePiperTts,
     transitionVoiceState,
 } from '../voice-helpers.mjs';
 
@@ -49,5 +50,15 @@ test('transitionVoiceState follows the intended cycle', () => {
 });
 
 test('cooldown remains conservative enough for post-TTS gating', () => {
-    assert.equal(POST_TTS_COOLDOWN_MS, 900);
+    assert.equal(POST_TTS_COOLDOWN_MS, 500);
+});
+
+test('short system replies bypass Piper to avoid network TTS latency', () => {
+    assert.equal(shouldUsePiperTts('Fertig.'), false);
+    assert.equal(shouldUsePiperTts('Abgebrochen.'), false);
+    assert.equal(shouldUsePiperTts('Bestätigt.'), false);
+    assert.equal(
+        shouldUsePiperTts('A-12. 5 Stück. Bremsscheibe. Prüfe Karton CLUSTER-B1.'),
+        true,
+    );
 });

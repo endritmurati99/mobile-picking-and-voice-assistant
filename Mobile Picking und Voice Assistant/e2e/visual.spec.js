@@ -15,7 +15,15 @@ async function disableMotion(page) {
   });
 }
 
-async function expectVisualSnapshot(locator, name) {
+async function expectVisualSnapshot(page, locator, name, options = {}) {
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  });
+  if (options.clearHover) {
+    await page.mouse.move(1, 1);
+  }
   await expect(locator).toHaveScreenshot(name, {
     animations: 'disabled',
     caret: 'hide',
@@ -31,7 +39,7 @@ test('picking list matches the mobile visual baseline', async ({ page }) => {
   await expect(page.locator('#status-indicator')).toHaveText('Online');
   await expect(page.locator('#status-indicator')).toHaveClass(/online/);
   await disableMotion(page);
-  await expectVisualSnapshot(page.locator('#app'), 'picking-list.png');
+  await expectVisualSnapshot(page, page.locator('#app'), 'picking-list.png');
 });
 
 test('picking detail matches the mobile visual baseline', async ({ page }) => {
@@ -41,7 +49,7 @@ test('picking detail matches the mobile visual baseline', async ({ page }) => {
   await page.getByText('4x Brick 2x2 orange').click();
   await expect(page.locator('#main')).toContainText('Brick 2x2 orange');
   await disableMotion(page);
-  await expectVisualSnapshot(page.locator('#app'), 'picking-detail.png');
+  await expectVisualSnapshot(page, page.locator('#app'), 'picking-detail.png', { clearHover: true });
 });
 
 test('quality alert matches the mobile visual baseline', async ({ page }) => {
@@ -52,5 +60,5 @@ test('quality alert matches the mobile visual baseline', async ({ page }) => {
   await page.locator('#btn-alert').click();
   await expect(page.getByRole('heading', { name: 'Problem melden' })).toBeVisible();
   await disableMotion(page);
-  await expectVisualSnapshot(page.locator('#app'), 'quality-alert.png');
+  await expectVisualSnapshot(page, page.locator('#app'), 'quality-alert.png', { clearHover: true });
 });

@@ -1,11 +1,11 @@
 @font-face {
-    font-family: "Plus Jakarta Sans";
+    font-family: "Outfit";
     font-style: normal;
     font-weight: 400 800;
     font-display: swap;
     src:
-        local("Plus Jakarta Sans"),
-        url("/fonts/plus-jakarta-sans-latin-variable.woff2") format("woff2");
+        local("Outfit"),
+        url("/fonts/outfit-latin-variable.woff2") format("woff2");
 }
 
 @font-face {
@@ -19,7 +19,7 @@
 }
 
 :root {
-    --font-sans: "Plus Jakarta Sans", "Segoe UI", system-ui, sans-serif;
+    --font-sans: "Segoe UI", system-ui, sans-serif;
     --font-mono: "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
 
     --bg: #f6f8fc;
@@ -204,6 +204,58 @@ body {
     margin-left: auto;
     display: flex;
     gap: 6px;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+.instance-switch {
+    width: clamp(5.5rem, 18vw, 6.8rem);
+    min-height: 40px;
+    padding: 0 28px 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.instance-switch[hidden] {
+    display: none;
+}
+
+.instance-switch:focus-visible {
+    outline: 3px solid color-mix(in oklab, var(--primary) 30%, transparent);
+    outline-offset: 2px;
+}
+
+.demo-mode-switch {
+    width: clamp(6.4rem, 24vw, 8.6rem);
+    min-height: 40px;
+    padding: 0 28px 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.demo-mode-switch[hidden] {
+    display: none;
+}
+
+.demo-mode-switch:focus-visible {
+    outline: 3px solid color-mix(in oklab, var(--primary) 30%, transparent);
+    outline-offset: 2px;
 }
 
 .icon-btn {
@@ -2808,6 +2860,159 @@ main::-webkit-scrollbar-thumb {
     background: var(--surface-2);
     color: var(--ink);
     box-shadow: none;
+}
+
+@media (max-width: 360px) {
+    #header {
+        padding: 12px 14px 8px;
+    }
+
+    .header-row {
+        gap: 8px;
+    }
+
+    .header-row--top {
+        margin-bottom: 10px;
+    }
+
+    .picker-chip {
+        min-width: 0;
+        font-size: 0.8rem;
+    }
+
+    .greeting {
+        margin-bottom: 2px;
+        font-size: 0.9rem;
+    }
+
+    h1.page-title {
+        font-size: 1.52rem;
+    }
+
+    .header-controls {
+        gap: 8px;
+        margin-top: 10px;
+    }
+
+    .instance-switch {
+        max-width: 5.7rem;
+        min-height: 38px;
+        padding-right: 22px;
+        padding-left: 8px;
+        font-size: 0.76rem;
+    }
+
+    .search-input input {
+        min-height: 44px;
+        padding-left: 38px;
+        border-radius: 12px;
+        font-size: 0.88rem;
+    }
+
+    .header-row--filters {
+        gap: 6px;
+        padding: 8px 14px;
+        margin: 0 -14px -8px;
+    }
+
+    .filter-chip {
+        min-height: 38px;
+        padding: 0 12px;
+    }
+
+    main {
+        padding: 12px 14px calc(16px + env(safe-area-inset-bottom));
+    }
+
+    .list-workspace,
+    .list-main {
+        gap: 12px;
+    }
+
+    .list-main > .queue-overview--main {
+        display: none;
+    }
+
+    .pick-list-card {
+        padding: 14px;
+        border-radius: 20px;
+    }
+
+    .pick-list-card__body {
+        gap: 12px;
+    }
+
+    .qa-shell {
+        gap: 10px;
+        padding-bottom: 60px;
+    }
+
+    .qa-card {
+        padding: 14px;
+        gap: 12px;
+    }
+
+    .qa-header {
+        gap: 4px;
+    }
+
+    .qa-card .detail-complete-title,
+    .qa-card h2 {
+        font-size: 1.46rem;
+        line-height: 1.08;
+    }
+
+    .qa-field-group {
+        gap: 8px;
+    }
+
+    .qa-chips {
+        gap: 6px;
+    }
+
+    .qa-chip {
+        min-height: 34px;
+        padding: 0 10px;
+        font-size: 0.8rem;
+    }
+
+    .qa-field,
+    .qa-select,
+    .qa-textarea {
+        padding: 10px 12px;
+        border-radius: 14px;
+        font-size: 0.88rem;
+    }
+
+    .qa-textarea {
+        min-height: 84px;
+    }
+
+    .qa-photo-button {
+        min-height: 40px;
+    }
+
+    .qa-actions {
+        position: fixed;
+        right: 14px;
+        bottom: calc(12px + env(safe-area-inset-bottom));
+        left: 14px;
+        z-index: 30;
+        gap: 8px;
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: color-mix(in oklab, var(--surface) 96%, transparent);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(14px);
+    }
+
+    .qa-submit,
+    .qa-cancel {
+        min-height: 44px;
+        padding: 0 12px;
+        border-radius: 14px;
+    }
 }
 
 /* ===== TABLET LAYOUT (600–899px) ===== */

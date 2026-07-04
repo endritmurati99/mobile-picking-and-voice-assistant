@@ -1,15 +1,16 @@
 """
 Cluster-/Batch-Picking — mehrere stock.picking gebuendelt in einem Rundgang.
 
-Odoo 18: echter stock.picking.batch (action_confirm / action_done).
+Odoo 18/19: echter stock.picking.batch (action_confirm / action_done).
 Box-Zuordnung: jedes Picking erhaelt eine logische Box-Nummer/-Farbe UND ein echtes,
-wiederverwendbares stock.quant.package, das als result_package_id (Ziel-Package) auf
-allen Move-Lines des Pickings gesetzt wird (Box N <-> Order N <-> 1 Package). Beim
+wiederverwendbares Ziel-Package, das als result_package_id auf allen Move-Lines des
+Pickings gesetzt wird (Box N <-> Order N <-> 1 Package). Beim
 action_done landen die Waren physisch in diesem Package - das definierende Merkmal des
 Cluster-Pickings laut Odoo-Doku.
 picking_service.py bleibt unberuehrt; Route-Sort wird wiederverwendet.
 
-Verifizierte Odoo-18-Fakten siehe docs/superpowers/specs/2026-06-23-odoo18-batch-api-facts.md
+Verifizierte Odoo-18-Fakten siehe docs/superpowers/specs/2026-06-23-odoo18-batch-api-facts.md.
+Odoo 19 nutzt fuer Packages ``stock.package`` statt ``stock.quant.package``.
 """
 from __future__ import annotations
 
@@ -23,11 +24,15 @@ from typing import Any
 from app.services.n8n_webhook import coerce_event_result
 from app.services.odoo_client import OdooAPIError
 from app.services.route_optimizer import build_route_plan
+from app.services.serial_validation import build_serial_move_line_values
 
 logger = logging.getLogger(__name__)
 
 # Farbtokens passend zum PWA-Designsystem (Akzent-Palette, zyklisch).
 BOX_PALETTE: list[str] = ["#A299FF", "#FF8A7E", "#6FD3C7", "#F4C77B", "#7EA8FF", "#C58BFF"]
+PACKAGE_MODEL_ODOO19 = "stock.package"
+PACKAGE_MODEL_LEGACY = "stock.quant.package"
+PACKAGE_MODEL_CANDIDATES = (PACKAGE_MODEL_ODOO19, PACKAGE_MODEL_LEGACY)
 
 
 def assign_boxes(picking_ids: list[int]) -> dict[int, dict[str, Any]]:
@@ -80,20 +85,50 @@ def _clean_product_name(display_name: str) -> str:
     return re.sub(r"^\[.*?\]\s*", "", display_name or "")
 
 
+def _line_is_picked(raw_line: dict[str, Any], move: dict[str, Any]) -> bool:
+    if "picked" in raw_line:
+        return bool(raw_line.get("picked"))
+    return bool(move.get("picked"))
+
+
+def _is_missing_batch_field_error(exc: OdooAPIError) -> bool:
+    message = str(exc)
+    return (
+        "Invalid field" in message
+        and "stock.picking" in message
+        and "batch_id" in message
+    )
+
+
 class ClusterService:
     def __init__(self, odoo, n8n):
         self._odoo = odoo
         self._n8n = n8n
+        self._package_model_name: str | None = None
 
     async def suggest_batches(self) -> list[dict[str, Any]]:
         """Offene assigned-Pickings ohne Batch nach Lagerzone gruppieren."""
         try:
-            pickings = await self._odoo.search_read(
-                "stock.picking",
-                [("state", "=", "assigned"), ("batch_id", "=", False)],
-                ["name", "batch_id"],
-                limit=100,
-            )
+            try:
+                pickings = await self._odoo.search_read(
+                    "stock.picking",
+                    [("state", "=", "assigned"), ("batch_id", "=", False)],
+                    ["name", "batch_id"],
+                    limit=100,
+                )
+            except OdooAPIError as exc:
+                if not _is_missing_batch_field_error(exc):
+                    raise
+                logger.warning(
+                    "suggest_batches: stock.picking.batch_id fehlt; nutze assigned-Fallback: %s",
+                    exc,
+                )
+                pickings = await self._odoo.search_read(
+                    "stock.picking",
+                    [("state", "=", "assigned")],
+                    ["name"],
+                    limit=100,
+                )
             if not pickings:
                 return []
 
@@ -149,12 +184,31 @@ class ClusterService:
         # IDOR-/State-Schutz: nur eigene-faehige Pickings zulassen - assigned und
         # noch keinem Batch zugeordnet (analog suggest_batches). picking_ids=[(6,0,..)]
         # ist ein REPLACE, daher duerfen NUR gescopte IDs in die vals.
-        allowed = await self._odoo.search_read(
-            "stock.picking",
-            [("id", "in", ids), ("state", "=", "assigned"), ("batch_id", "=", False)],
-            ["id", "company_id"],
-            limit=len(ids),
-        )
+        try:
+            allowed = await self._odoo.search_read(
+                "stock.picking",
+                [("id", "in", ids), ("state", "=", "assigned"), ("batch_id", "=", False)],
+                ["id", "company_id"],
+                limit=len(ids),
+            )
+        except OdooAPIError as exc:
+            if not _is_missing_batch_field_error(exc):
+                logger.error("create_batch: Picking-Scope-Abfrage fehlgeschlagen: %s", exc)
+                return {"error": f"Batch-Scope-Abfrage fehlgeschlagen: {exc}"}
+            logger.warning(
+                "create_batch: stock.picking.batch_id fehlt; pruefe Pickings ohne Batch-Filter: %s",
+                exc,
+            )
+            try:
+                allowed = await self._odoo.search_read(
+                    "stock.picking",
+                    [("id", "in", ids), ("state", "=", "assigned")],
+                    ["id", "company_id"],
+                    limit=len(ids),
+                )
+            except OdooAPIError as fallback_exc:
+                logger.error("create_batch: Picking-Fallback-Abfrage fehlgeschlagen: %s", fallback_exc)
+                return {"error": f"Batch-Picking ist in dieser Instanz nicht verfuegbar: {fallback_exc}"}
         allowed_ids = [p["id"] for p in allowed]
         if not allowed_ids:
             return {"error": "Keine gueltigen Pickings fuer diesen Batch.", "forbidden": True}
@@ -205,8 +259,12 @@ class ClusterService:
         return await self.get_batch(batch_id, picker_identity=picker_identity)
 
     async def _assign_packages(self, allowed_ids: list[int]) -> None:
-        """Je Picking ein reusable stock.quant.package anlegen und als result_package_id
-        auf dessen Move-Lines schreiben. Stabile Reihenfolge ueber box_index."""
+        """Je Picking ein Ziel-Package anlegen und als result_package_id schreiben.
+
+        Odoo 19 nennt das Modell ``stock.package``; Odoo 18 verwendet
+        ``stock.quant.package`` mit ``package_use``. Die Reihenfolge bleibt stabil
+        ueber box_index.
+        """
         box_map = assign_boxes(allowed_ids)
         pickings = await self._odoo.search_read(
             "stock.picking", [("id", "in", allowed_ids)], ["name"],
@@ -230,12 +288,62 @@ class ClusterService:
                 continue
             box_index = box_map[picking_id]["box_index"]
             picking_name = name_by_picking.get(picking_id) or f"P{picking_id}"
-            package_id = await self._odoo.create(
-                "stock.quant.package",
-                {"name": f"CLUSTER-B{box_index}/{picking_name}", "package_use": "reusable"},
-            )
+            package_id = await self._create_cluster_package(
+                f"CLUSTER-B{box_index}/{picking_name}")
             await self._odoo.write(
                 "stock.move.line", line_ids, {"result_package_id": package_id})
+
+    async def _resolve_package_model(self) -> str:
+        if self._package_model_name:
+            return self._package_model_name
+
+        try:
+            records = await self._odoo.search_read(
+                "ir.model",
+                [("model", "in", list(PACKAGE_MODEL_CANDIDATES))],
+                ["model"],
+                limit=len(PACKAGE_MODEL_CANDIDATES),
+            )
+        except OdooAPIError as exc:
+            logger.warning("Package-Modell konnte nicht ueber ir.model gelesen werden: %s", exc)
+            self._package_model_name = PACKAGE_MODEL_LEGACY
+            return self._package_model_name
+
+        available = {record.get("model") for record in records}
+        if PACKAGE_MODEL_ODOO19 in available:
+            self._package_model_name = PACKAGE_MODEL_ODOO19
+        elif PACKAGE_MODEL_LEGACY in available:
+            self._package_model_name = PACKAGE_MODEL_LEGACY
+        else:
+            logger.warning("Kein bekanntes Odoo-Package-Modell gefunden; nutze Legacy-Fallback.")
+            self._package_model_name = PACKAGE_MODEL_LEGACY
+        return self._package_model_name
+
+    @staticmethod
+    def _package_create_values(model: str, name: str) -> dict[str, Any]:
+        vals: dict[str, Any] = {"name": name}
+        if model == PACKAGE_MODEL_LEGACY:
+            vals["package_use"] = "reusable"
+        return vals
+
+    async def _create_cluster_package(self, name: str) -> int:
+        primary = await self._resolve_package_model()
+        candidates = [primary] + [m for m in PACKAGE_MODEL_CANDIDATES if m != primary]
+        last_error: OdooAPIError | None = None
+
+        for model in candidates:
+            try:
+                package_id = await self._odoo.create(
+                    model, self._package_create_values(model, name))
+            except OdooAPIError as exc:
+                last_error = exc
+                logger.warning("Package-Anlage ueber %s fehlgeschlagen: %s", model, exc)
+                continue
+
+            self._package_model_name = model
+            return package_id
+
+        raise last_error or OdooAPIError("Kein Odoo-Package-Modell verfuegbar")
 
     @staticmethod
     def _owner_id(batch: dict[str, Any]) -> int | None:
@@ -297,7 +405,7 @@ class ClusterService:
         raw_lines = await self._odoo.search_read(
             "stock.move.line", [("picking_id", "in", picking_ids)],
             ["picking_id", "product_id", "quantity", "move_id", "location_id",
-             "result_package_id"],
+             "picked", "result_package_id"],
             limit=max(500, len(picking_ids) * 20),
         ) if picking_ids else []
 
@@ -322,6 +430,7 @@ class ClusterService:
             move = move_map.get(raw["move_id"][0] if raw.get("move_id") else None, {})
             product_id = raw["product_id"][0] if raw.get("product_id") else None
             product = product_map.get(product_id, {})
+            picked = _line_is_picked(raw, move)
             location = raw["location_id"][1] if raw.get("location_id") else ""
             loc_parts = [part.strip() for part in location.split("/") if part.strip()]
             # result_package_id ist [id, name] oder False (fehlt -> None, abwaertskompatibel).
@@ -339,8 +448,8 @@ class ClusterService:
                 "product_sku": product.get("default_code") or "",
                 "tracking": product.get("tracking"),
                 "quantity_demand": move.get("product_uom_qty", raw.get("quantity", 0)),
-                "quantity_done": raw.get("quantity", 0) if move.get("picked") else 0,
-                "picked": bool(move.get("picked")),
+                "quantity_done": raw.get("quantity", 0) if picked else 0,
+                "picked": picked,
                 "location_src": location,
                 "location_src_short": loc_parts[-1] if loc_parts else location,
                 "package_id": package_id,
@@ -416,7 +525,7 @@ class ClusterService:
             "stock.move.line",
             domain,
             ["id", "product_id", "quantity", "move_id", "location_id",
-             "result_package_id"],
+             "result_package_id", "lot_id"],
             limit=1,
         )
         if not lines:
@@ -428,11 +537,13 @@ class ClusterService:
         line = lines[0]
         product_id = line["product_id"][0] if line.get("product_id") else None
         move_id = line["move_id"][0] if line.get("move_id") else None
+        location_id = line["location_id"][0] if line.get("location_id") else None
+        existing_lot_id = line["lot_id"][0] if line.get("lot_id") else None
 
         # #9: product.product nur EINMAL lesen (barcode + tracking) und fuer beide
         # Checks (Barcode-Match und Serial/Tracking) wiederverwenden.
         product: dict[str, Any] = {}
-        if product_id and (scanned_barcode or (serial_number or "").strip()):
+        if product_id:
             products = await self._odoo.search_read(
                 "product.product", [("id", "=", product_id)], ["barcode", "tracking"])
             product = products[0] if products else {}
@@ -469,21 +580,33 @@ class ClusterService:
                         "progress": None}
 
         qty = quantity if quantity > 0 else line.get("quantity", 1.0)
-        line_values: dict[str, Any] = {"quantity": qty}
+        line_values: dict[str, Any] = {"quantity": qty, "picked": True}
 
-        recorded_serial = ""
-        serial_clean = (serial_number or "").strip()
-        if serial_clean and product_id and product.get("tracking") in ("serial", "lot"):
-            line_values["lot_name"] = serial_clean
-            recorded_serial = serial_clean
+        serial_result = await build_serial_move_line_values(
+            self._odoo,
+            product_id=product_id,
+            tracking=product.get("tracking"),
+            serial_number=serial_number,
+            quantity=qty,
+            location_id=location_id,
+            existing_lot_id=existing_lot_id,
+        )
+        if not serial_result["ok"]:
+            self._emit_cluster_confirm(False, batch_id, picking_id, move_line_id, product_id, False, t0)
+            return {
+                "success": False,
+                "message": serial_result["message"],
+                "progress": None,
+                **{k: v for k, v in serial_result.items() if k not in {"ok", "message", "values", "recorded_serial"}},
+            }
+        line_values.update(serial_result.get("values", {}))
+        recorded_serial = serial_result.get("recorded_serial", "")
 
         # #1: Beide Writes in try/except - bei OdooAPIError kein HTTP 500, sondern
         # Fehler-Telemetrie + success:False (Teil-Write bleibt zwar moeglich, aber
         # der Picker bekommt eine klare Fehlermeldung statt eines 500ers).
         try:
             await self._odoo.write("stock.move.line", [move_line_id], line_values)
-            if move_id:
-                await self._odoo.write("stock.move", [move_id], {"picked": True})
         except OdooAPIError as exc:
             logger.error("confirm_cluster_line: Write fehlgeschlagen (batch %s, line %s): %s",
                          batch_id, move_line_id, exc)

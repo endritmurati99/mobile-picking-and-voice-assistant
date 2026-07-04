@@ -93,7 +93,7 @@ Ein **Rebuild** (`docker compose build <service> && docker compose up -d <servic
 
 - **Dockerfile** eines Services (Build-Anweisungen selbst geändert)
 - **requirements.txt** (Python-Abhängigkeiten – Backend, Odoo, Piper)
-- **Odoo-Addon-Code** (`odoo/addons/**` ist read-only gemountet, aber Odoo lädt Addons beim Start; Änderungen erfordern Rebuild + Up – ggf. zusätzlich Modul-Update in Odoo)
+- **Odoo-Addon-Code** (`odoo/addons18/**` fuer Odoo 18 Live/`lager-2`, `odoo/addons/**` fuer Odoo 19 Trial; beide read-only gemountet, Odoo lädt Addons beim Start; Änderungen erfordern Rebuild + Up – ggf. zusätzlich Modul-Update in Odoo)
 
 **Quelle (docker-compose.yml):** Services mit `build:`-Direktive sind `odoo` (`./odoo/Dockerfile`), `backend` (`./backend/Dockerfile`) und `piper` (`./piper/Dockerfile`). Services mit fertigem `image:` (caddy, db, whisper, n8n, pwa) werden in der Regel nicht selbst gebaut.
 
@@ -112,7 +112,7 @@ docker compose up -d piper
 ```
 
 > [!note] Annahme: Odoo-Addon-Workflow
-> Die Quellen belegen, dass `odoo/addons` als `/mnt/extra-addons` (read-only) gemountet ist und dass Dockerfile-/`odoo/requirements.txt`-Änderungen einen Rebuild erfordern. Ob für reine Python-Logik in einem bereits installierten Addon ein Modul-Upgrade in Odoo (statt nur Rebuild) nötig ist, hängt vom konkreten Addon-Inhalt ab – das ist hier als **Annahme** markiert und sollte beim ersten echten Addon-Change verifiziert werden.
+> Die Quellen belegen, dass `odoo/addons18` fuer Odoo 18 und `odoo/addons` fuer Odoo 19 als `/mnt/extra-addons` (read-only) gemountet sind und dass Dockerfile-/`odoo/requirements.txt`-Änderungen einen Rebuild erfordern. Ob für reine Python-Logik in einem bereits installierten Addon ein Modul-Upgrade in Odoo (statt nur Rebuild) nötig ist, hängt vom konkreten Addon-Inhalt ab – das ist hier als **Annahme** markiert und sollte beim ersten echten Addon-Change verifiziert werden.
 
 ---
 
@@ -151,7 +151,8 @@ docker compose up -d caddy
 | **PWA-Frontend** `./pwa/**` | Volume-Mount + statisches File-Serving | Speichern + Browser F5 | **keins** |
 | **Backend-Abhängigkeiten** `backend/requirements.txt` | Im Image eingebacken (`COPY` + `pip install`) | Rebuild + Up | `docker compose build backend && docker compose up -d backend` |
 | **Backend-Dockerfile** `./backend/Dockerfile` | Build-Definition | Rebuild + Up | `docker compose build backend && docker compose up -d backend` |
-| **Odoo-Addon / requirements** `odoo/addons/**`, `odoo/requirements.txt` | Im Image eingebacken / Addon-Load beim Start | Rebuild + Up | `docker compose build odoo && docker compose up -d odoo` |
+| **Odoo-18-Addon / requirements** `odoo/addons18/**`, `odoo/requirements.txt` | Read-only Mount / Addon-Load beim Start | Rebuild + Up | `docker compose build odoo odoo-lager-2 && docker compose up -d odoo odoo-lager-2` |
+| **Odoo-19-Trial-Addon** `odoo/addons/**` | Read-only Mount / Addon-Load beim Start | Rebuild + Up Trial | `docker compose --profile odoo19-trial build odoo19-trial && docker compose --profile odoo19-trial up -d odoo19-trial` |
 | **Piper** `piper/Dockerfile`, `piper/requirements.txt` | Im Image eingebacken | Rebuild + Up | `docker compose build piper && docker compose up -d piper` |
 | **Caddyfile (Routing)** `infrastructure/caddy/Caddyfile` | Container-Konfiguration | Recreate Caddy | `docker compose up -d caddy` |
 | **`.env`** (Secrets, Env-Vars) | Umgebung beim Container-Start | Recreate | `docker compose up -d` |

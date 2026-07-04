@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
 
-from app.dependencies import get_n8n_client, get_odoo_client, get_picking_service
+from app.dependencies import get_n8n_client, get_odoo_client, get_picking_service, get_request_odoo_client
 from app.main import app
 from app.routers import voice as voice_router
 from app.services.n8n_webhook import N8NEventResult, N8NReply
@@ -97,6 +97,30 @@ def test_voice_recognize_allows_done_only_when_no_lines_remain(monkeypatch):
     assert blocked_response.json()["intent"] == "unknown"
 
 
+def test_voice_recognize_blocks_done_when_last_line_is_still_active(monkeypatch):
+    monkeypatch.setattr(voice_router, "convert_to_wav", AsyncMock(return_value=b"wav-bytes"))
+    monkeypatch.setattr(
+        voice_router.whisper_client,
+        "transcribe_audio",
+        AsyncMock(return_value="fertig"),
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/voice/recognize",
+            data={
+                "context": "awaiting_command",
+                "surface": "detail",
+                "remaining_line_count": "0",
+                "active_line_present": "true",
+            },
+            files={"audio": ("voice.webm", b"1234", "audio/webm")},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["intent"] == "unknown"
+
+
 def test_voice_assist_returns_n8n_response():
     picking_service = MagicMock()
     picking_service.get_picking_detail = AsyncMock(
@@ -131,6 +155,7 @@ def test_voice_assist_returns_n8n_response():
     app.dependency_overrides[get_picking_service] = lambda: picking_service
     app.dependency_overrides[get_n8n_client] = lambda: n8n
     app.dependency_overrides[get_odoo_client] = lambda: odoo
+    app.dependency_overrides[get_request_odoo_client] = lambda: odoo
 
     try:
         with TestClient(app) as client:
@@ -227,6 +252,7 @@ def test_voice_assist_triggers_shortage_event_from_local_fallback():
     app.dependency_overrides[get_picking_service] = lambda: picking_service
     app.dependency_overrides[get_n8n_client] = lambda: n8n
     app.dependency_overrides[get_odoo_client] = lambda: odoo
+    app.dependency_overrides[get_request_odoo_client] = lambda: odoo
 
     try:
         with TestClient(app) as client:
@@ -310,6 +336,7 @@ def test_voice_assist_mentions_shortage_dispatch_failure():
     app.dependency_overrides[get_picking_service] = lambda: picking_service
     app.dependency_overrides[get_n8n_client] = lambda: n8n
     app.dependency_overrides[get_odoo_client] = lambda: odoo
+    app.dependency_overrides[get_request_odoo_client] = lambda: odoo
 
     try:
         with TestClient(app) as client:

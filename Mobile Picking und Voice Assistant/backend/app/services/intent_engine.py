@@ -63,6 +63,7 @@ PRIORITY_ORDER = (
     "problem",
     "confirm_all",
     "confirm",
+    "next_order",
     "next",
     "previous",
     "photo",
@@ -95,6 +96,7 @@ ALIASES = {
         "bestaetige alle",
         "bestaetige den auftrag",
         "auftrag fertig",
+        "auftrag erledigt",
         "auftrag abschliessen",
     ),
     "confirm": (
@@ -129,6 +131,23 @@ ALIASES = {
         "yep",
         "yes",
         "mhm",
+        "paket erledigt",
+        "paket fertig",
+        "karton erledigt",
+        "karton fertig",
+        "position erledigt",
+        "position fertig",
+        "artikel erledigt",
+        "artikel fertig",
+    ),
+    "next_order": (
+        "naechster auftrag",
+        "naechsten auftrag",
+        "naechste auftrag",
+        "zum naechsten auftrag",
+        "weiter zum naechsten auftrag",
+        "gib mir den naechsten auftrag",
+        "naechster auftrag bitte",
     ),
     "next": (
         "weiter",
@@ -284,13 +303,19 @@ REGEX_PATTERNS = {
         r"\b(alle positionen bestaetigen|auftrag komplett|auftrag abschliessen)\b",
         r"\b(alles erledigt|alle erledigt|alle durch|alles durch)\b",
         r"\b(alle auf einmal|alles auf einmal|bestaetige alles|bestaetige alle)\b",
-        r"\b(bestaetige den auftrag|auftrag fertig|komplett fertig)\b",
+        r"\b(bestaetige den auftrag|auftrag fertig|auftrag erledigt|komplett fertig)\b",
     ),
     "confirm": (
         r"\b(bestaetigt|bestaetige|bestaetigen|ja|ok|okay|check)\b",
         r"\b(jep|jup|jo|joa|jupp|klar|gut|passt|stimmt|richtig|genau|jawohl|sicher)\b",
         r"\b(alles klar|geht klar|in ordnung|perfekt|super|alles gut)\b",
         r"\b(fine|yep|yes|mhm)\b",
+        r"\b(paket|karton|position|artikel)\s+(erledigt|fertig)\b",
+    ),
+    "next_order": (
+        r"\b(naechster|naechsten|naechste)\s+auftrag\b",
+        r"\b(zum|zum naechsten|weiter zum naechsten)\s+auftrag\b",
+        r"\bgib mir den naechsten auftrag\b",
     ),
     "next": (
         r"\b(naechster|naechste|naechstes|weiter|weitermachen|skip|ueberspringen)\b",
@@ -547,8 +572,18 @@ def _resolve_with_context(
             return intent
         return _unknown_intent(intent.raw_text, intent.normalized_text)
 
+    if intent.action == "confirm_all":
+        if surface == VoiceSurface.DETAIL and active_line_present:
+            return intent
+        return _unknown_intent(intent.raw_text, intent.normalized_text)
+
+    if intent.action == "next_order":
+        if surface in {VoiceSurface.LIST, VoiceSurface.COMPLETE} or not active_line_present:
+            return intent
+        return _unknown_intent(intent.raw_text, intent.normalized_text)
+
     if intent.action == "done":
-        if remaining_line_count <= 0:
+        if remaining_line_count <= 0 and not active_line_present:
             return intent
         return _unknown_intent(intent.raw_text, intent.normalized_text)
 
@@ -620,14 +655,14 @@ def _get_surface_actions(
     of context-inappropriate actions.
     """
     if surface == VoiceSurface.LIST:
-        return ["filter_high", "filter_normal", "status", "help", "pause"]
+        return ["next_order", "filter_high", "filter_normal", "status", "help", "pause"]
     if surface == VoiceSurface.QUALITY_ALERT:
         return ["pause", "repeat"]
     if surface == VoiceSurface.COMPLETE:
-        return ["pause", "help"]
+        return ["next_order", "pause", "help"]
     # DETAIL (default)
     actions = ["confirm", "next", "previous", "problem", "repeat", "pause", "photo"]
-    if remaining_line_count <= 0:
+    if remaining_line_count <= 0 and not active_line_present:
         actions.append("done")
     if not active_line_present and "confirm" in actions:
         actions.remove("confirm")

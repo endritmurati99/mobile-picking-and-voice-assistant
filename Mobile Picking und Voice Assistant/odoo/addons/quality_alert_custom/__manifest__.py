@@ -1,6 +1,7 @@
 {
     "name": "Quality Alert Custom",
-    "version": "18.0.1.1.0",
+    "version": "19.0.1.1.0",
+    "author": "Mobile Picking Assistant",
     "category": "Inventory/Quality",
     "summary": "Leichtgewichtiges Quality-Alert-Modul für Community Edition",
     "depends": ["stock", "mail"],

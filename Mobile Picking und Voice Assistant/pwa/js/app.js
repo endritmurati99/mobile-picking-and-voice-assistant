@@ -24,22 +24,27 @@ import {
     getClusterSuggestions,
     validateBatch,
     getActivePicker,
+    getActiveInstance,
     getCachedPickers,
     getDeviceId,
+    getInstances,
     getLineStock,
     getPickers,
     getPickingDetail,
     getPickings,
+    getTraceabilityDemo,
     getStoredHighContrastEnabled,
     getStoredPreferredZone,
     getStoredSearchQuery,
     requestReplenishment,
     releasePicking,
     setActivePicker,
+    setActiveInstance,
     setCachedPickers,
     setStoredHighContrastEnabled,
     setStoredPreferredZone,
     setStoredSearchQuery,
+    setTraceabilityDemoMode,
     heartbeatPicking,
 } from './api.js';
 import { feedbackSuccess, feedbackError } from './feedback.js';
@@ -402,6 +407,8 @@ const filterChipsEl = () => document.getElementById('filter-chips');
 const filterRowEl = () => document.querySelector('.header-row--filters');
 const highContrastToggleEl = () => document.getElementById('high-contrast-toggle');
 const searchToggleEl = () => document.getElementById('search-toggle');
+const instanceSwitchEl = () => document.getElementById('instance-switch');
+const demoTraceabilityModeEl = () => document.getElementById('demo-traceability-mode');
 const overlayEl = () => document.getElementById('app-overlay');
 const navEl = () => document.getElementById('nav');
 const btnVoice = () => document.getElementById('btn-voice');
@@ -565,6 +572,108 @@ function updatePickerIndicator() {
         indicator.dataset.shortLabel = '+';
         indicator.classList.add('picker-indicator--empty');
     }
+}
+
+async function initInstanceSwitch() {
+    const select = instanceSwitchEl();
+    if (!select) return;
+
+    let instances = [];
+    try {
+        instances = await withManagedRequest((signal) => getInstances({ signal }));
+    } catch (error) {
+        if (!isAbortError(error)) {
+            console.warn('Odoo-Instanzen konnten nicht geladen werden:', error);
+        }
+        instances = [{ name: 'local', display_name: 'Lager 1' }];
+    }
+
+    const validInstances = Array.isArray(instances)
+        ? instances
+            .map((item) => ({
+                name: String(item?.name || '').trim().toLowerCase(),
+                display_name: String(item?.display_name || item?.name || '').trim(),
+            }))
+            .filter((item) => item.name)
+        : [];
+
+    if (validInstances.length <= 1) {
+        setActiveInstance('local');
+        select.hidden = true;
+        return;
+    }
+
+    const validNames = new Set(validInstances.map((item) => item.name));
+    let active = getActiveInstance();
+    if (!validNames.has(active)) {
+        active = 'local';
+        setActiveInstance(active);
+    }
+
+    select.innerHTML = '';
+    for (const instance of validInstances) {
+        const option = document.createElement('option');
+        option.value = instance.name;
+        option.textContent = instance.display_name || instance.name;
+        option.selected = instance.name === active;
+        select.appendChild(option);
+    }
+
+    select.hidden = false;
+    select.addEventListener('change', () => {
+        setActiveInstance(select.value);
+        window.location.reload();
+    }, { once: true });
+}
+
+async function initDemoTraceabilitySwitch() {
+    const select = demoTraceabilityModeEl();
+    if (!select) return;
+
+    let status = null;
+    try {
+        status = await withManagedRequest((signal) => getTraceabilityDemo({ signal }));
+    } catch (error) {
+        if (!isAbortError(error)) {
+            console.warn('Traceability-Demo konnte nicht geladen werden:', error);
+        }
+        select.hidden = true;
+        return;
+    }
+
+    if (!status?.enabled || !Array.isArray(status.modes)) {
+        select.hidden = true;
+        return;
+    }
+
+    select.innerHTML = '';
+    for (const mode of status.modes) {
+        const option = document.createElement('option');
+        option.value = String(mode.name || '');
+        option.textContent = String(mode.label || mode.name || '');
+        option.title = String(mode.description || '');
+        option.selected = option.value === status.mode;
+        select.appendChild(option);
+    }
+    select.hidden = false;
+
+    select.addEventListener('change', async () => {
+        const mode = select.value;
+        select.disabled = true;
+        showToast('Traceability-Demo wird umgeschaltet...', 'info');
+        try {
+            const result = await withManagedRequest((signal) => setTraceabilityDemoMode(mode, {
+                idempotencyKey: buildOperationKey('demo-traceability', [getActiveInstance(), mode], { unique: true }),
+                signal,
+            }));
+            showToast(`Traceability: ${result.message || mode}`, 'success');
+            await loadPickingList();
+        } catch (error) {
+            showToast(error.message || 'Demo-Modus konnte nicht gesetzt werden.', 'error');
+        } finally {
+            select.disabled = false;
+        }
+    });
 }
 
 function updateConnectivityStatus({ loading = false } = {}) {
@@ -2178,13 +2287,15 @@ function applyRenderedDetailCopyFixes({ picking, lines, currentLineIndex, stockS
 
 /**
  * Show a modal prompt for serial number entry and resolve with the entered value.
- * Returns '' if the user skips/cancels.
- * Only called when line.tracking === 'serial'.
+ * Returns '' if the user skips/cancels an optional prompt.
  */
-function askSerialNumber(productName) {
+function askSerialNumber(productName, { required = false, tracking = 'serial' } = {}) {
     return new Promise((resolve) => {
         const overlay = overlayEl();
         if (!overlay) { resolve(''); return; }
+        const isLot = tracking === 'lot';
+        const kind = isLot ? 'Charge' : 'Seriennummer';
+        const title = isLot ? 'Chargennummer scannen oder eingeben' : 'Seriennummer scannen oder eingeben';
 
         // Solange der Prompt offen ist, darf ein asynchrones Re-Render
         // (Heartbeat-/Detail-Refresh) das Modal nicht wegschliessen.
@@ -2193,31 +2304,47 @@ function askSerialNumber(productName) {
         // Build static HTML structure (no user content interpolated here)
         overlay.innerHTML = [
             '<div class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="serial-title">',
-            '<div class="modal-sheet__eyebrow">Seriennummer</div>',
-            '<h2 id="serial-title" class="modal-sheet__title">Seriennummer scannen oder eingeben</h2>',
+            '<div class="modal-sheet__eyebrow" id="serial-eyebrow"></div>',
+            '<h2 id="serial-title" class="modal-sheet__title"></h2>',
             '<p id="serial-product-name" class="modal-sheet__text"></p>',
             '<input type="text" id="serial-input" class="manual-barcode-entry__input"',
-            '       inputmode="text" placeholder="Seriennummer" autocomplete="off"',
+            '       inputmode="text" autocomplete="off"',
             '       style="margin:0.75rem 0;width:100%;box-sizing:border-box;">',
+            '<p id="serial-warning" class="cluster-carton-warning" role="alert" hidden></p>',
             '<div class="modal-sheet__actions modal-sheet__actions--stack">',
             '<button type="button" id="serial-confirm" class="picker-option picker-option--primary">Bestätigen</button>',
-            '<button type="button" id="serial-skip" class="picker-option">Überspringen</button>',
+            required ? '' : '<button type="button" id="serial-skip" class="picker-option">Überspringen</button>',
             '</div></div>',
         ].join('');
 
         // Set user-visible product name safely via textContent (no XSS risk)
+        const eyebrowEl = overlay.querySelector('#serial-eyebrow');
+        if (eyebrowEl) eyebrowEl.textContent = kind;
+        const titleEl = overlay.querySelector('#serial-title');
+        if (titleEl) titleEl.textContent = title;
         const nameEl = overlay.querySelector('#serial-product-name');
         if (nameEl) nameEl.textContent = productName;
 
         const input = overlay.querySelector('#serial-input');
+        if (input) input.placeholder = kind;
+        const warning = overlay.querySelector('#serial-warning');
         input?.focus();
+
+        const warnRequired = () => {
+            if (warning) {
+                warning.textContent = `${kind} erforderlich.`;
+                warning.hidden = false;
+            }
+            feedbackError();
+        };
 
         // Escape schliesst das Modal als "Ueberspringen" (capture-Phase, damit es
         // auch bei Fokus im Eingabefeld greift).
         const onKeydown = (e) => {
             if (e.key === 'Escape') {
                 e.preventDefault();
-                finish('');
+                if (required) warnRequired();
+                else finish('');
             }
         };
 
@@ -2229,6 +2356,10 @@ function askSerialNumber(productName) {
             serialPromptActive = false;
             serialPromptCleanup = null;
             document.removeEventListener('keydown', onKeydown, true);
+            if (required && !value) {
+                resolve(null);
+                return;
+            }
             resolve(value || '');
         };
         const finish = (value) => {
@@ -2240,13 +2371,24 @@ function askSerialNumber(productName) {
         document.addEventListener('keydown', onKeydown, true);
         // Klick auf den Backdrop = Ueberspringen, konsistent zum Zone-Picker.
         overlay.onclick = (event) => {
-            if (event.target === overlay) finish('');
+            if (event.target !== overlay) return;
+            if (required) warnRequired();
+            else finish('');
         };
 
-        overlay.querySelector('#serial-confirm')?.addEventListener('click', () => finish(input?.value.trim()));
+        const submit = () => {
+            const value = input?.value.trim() || '';
+            if (required && !value) {
+                warnRequired();
+                return;
+            }
+            finish(value);
+        };
+
+        overlay.querySelector('#serial-confirm')?.addEventListener('click', submit);
         overlay.querySelector('#serial-skip')?.addEventListener('click', () => finish(''));
         input?.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') finish(input.value.trim());
+            if (e.key === 'Enter') submit();
         });
     });
 }
@@ -2394,11 +2536,15 @@ async function handleScan(barcode) {
         return;
     }
 
-    // For serial-tracked products, ask for the serial number before confirming.
-    // Non-serial lines are completely unaffected (serialNumber stays '').
+    // For tracked products, ask for the lot/serial number before confirming.
+    // Untracked lines are completely unaffected (serialNumber stays '').
     let serialNumber = '';
-    if (line.tracking === 'serial') {
-        serialNumber = await askSerialNumber(getLineDisplayName(line));
+    if (line.tracking === 'serial' || line.tracking === 'lot') {
+        serialNumber = await askSerialNumber(getLineDisplayName(line), {
+            required: true,
+            tracking: line.tracking,
+        });
+        if (!serialNumber) return;
     }
 
     try {
@@ -2418,6 +2564,7 @@ async function handleScan(barcode) {
                     line.id,
                     barcode || line.product_barcode || '',
                     line.quantity_demand,
+                    serialNumber,
                 ]),
                 signal,
             },
@@ -2527,6 +2674,22 @@ function triggerConfirmAll() {
         .finally(() => { confirmAllInProgress = false; });
 }
 
+async function openNextOrderFromVoice() {
+    const { currentPicking, pickings } = getState();
+    const nextPicking = getNextPickingCandidate(pickings || [], {
+        excludeId: currentPicking?.id ?? null,
+    });
+
+    if (nextPicking?.id) {
+        await loadPickingDetail(nextPicking.id);
+        speak('Nächster Auftrag.');
+        return;
+    }
+
+    await loadPickingList({ skipRelease: true });
+    speak('Kein weiterer Auftrag.');
+}
+
 /**
  * Bestätigt alle verbleibenden Pick-Positionen auf einmal.
  * Serien-getrackte Positionen erzwingen dabei den Seriennummer-Modal-Flow.
@@ -2542,11 +2705,11 @@ async function handleConfirmAll(picking, lines, startIndex) {
     // gleiche Seriennummer-Modal-Flow wie beim Einzel-Scan erzwungen, damit die
     // Rueckverfolgbarkeit hochwertiger Gueter auch im "Alle bestaetigen"-Pfad
     // erhalten bleibt. Nicht-getrackte Positionen werden direkt bestaetigt.
-    const serialCount = remaining.filter((l) => l.tracking === 'serial').length;
+    const serialCount = remaining.filter((l) => l.tracking === 'serial' || l.tracking === 'lot').length;
     speak(`${remaining.length} ${remaining.length === 1 ? 'Position' : 'Positionen'} werden bestätigt.`);
     showToast(
         serialCount > 0
-            ? `Bestätige ${remaining.length} Positionen – ${serialCount} serialisiert, bitte Seriennummer erfassen.`
+            ? `Bestätige ${remaining.length} Positionen - ${serialCount} mit Charge/Seriennummer.`
             : `Bestätige ${remaining.length} Positionen...`,
         'info',
     );
@@ -2555,8 +2718,12 @@ async function handleConfirmAll(picking, lines, startIndex) {
         const lineIdx = startIndex + offset;
 
         let serialNumber = '';
-        if (pickLine.tracking === 'serial') {
-            serialNumber = await askSerialNumber(getLineDisplayName(pickLine));
+        if (pickLine.tracking === 'serial' || pickLine.tracking === 'lot') {
+            serialNumber = await askSerialNumber(getLineDisplayName(pickLine), {
+                required: true,
+                tracking: pickLine.tracking,
+            });
+            if (!serialNumber) return;
         }
 
         try {
@@ -2574,6 +2741,7 @@ async function handleConfirmAll(picking, lines, startIndex) {
                         pickLine.id,
                         lineIdx,
                         pickLine.quantity_demand,
+                        serialNumber,
                     ]),
                     signal,
                 },
@@ -2644,6 +2812,9 @@ async function handleVoiceIntent(result) {
             break;
         case 'confirm':
             if (line) await handleScan(line.product_barcode || '');
+            break;
+        case 'next_order':
+            await openNextOrderFromVoice();
             break;
         case 'next':
             if (line && currentLineIndex < lines.length - 1) {
@@ -3183,6 +3354,8 @@ async function init() {
         updateConnectivityStatus();
     }
 
+    await initInstanceSwitch();
+    await initDemoTraceabilitySwitch();
     updateToolbar('profile_required');
     await showProfileSelection();
 }
@@ -3414,8 +3587,11 @@ function renderClusterWalk(batch) {
         const loc = line.location_src_short || line.location_src || 'Lagerort';
         const qty = formatClusterQty(line.quantity_demand);
         const name = line.product_name || 'Produkt';
-        const serialBadge = line.tracking === 'serial' || line.tracking === 'lot'
-            ? '<span class="cluster-stop__serial">Serial</span>' : '';
+        const trackingBadge = line.tracking === 'serial'
+            ? '<span class="cluster-stop__serial">Serial</span>'
+            : line.tracking === 'lot'
+                ? '<span class="cluster-stop__serial">Charge</span>'
+                : '';
         const lineId = safeInt(line.id);
         return `
             <article class="cluster-stop ${done ? 'cluster-stop--done' : ''}"
@@ -3423,7 +3599,7 @@ function renderClusterWalk(batch) {
                 data-stop-line="${lineId}" data-stop-picking="${safeInt(line.picking_id)}">
                 <div class="cluster-stop__location">${escapeHtml(loc)}</div>
                 <div class="cluster-stop__body">
-                    <div class="cluster-stop__product">${escapeHtml(name)} ${serialBadge}</div>
+                    <div class="cluster-stop__product">${escapeHtml(name)} ${trackingBadge}</div>
                     <div class="cluster-stop__box">
                         <span class="cluster-box-chip" style="--box-color:${safeColor(line.box_color)}">${safeInt(line.box_index, '?')}</span>
                         <span class="cluster-stop__order">${escapeHtml(line.picking_name || '')}</span>
@@ -3515,7 +3691,14 @@ async function handleClusterConfirm(batch, line, btn) {
 
     let serialNumber = '';
     if (line.tracking === 'serial' || line.tracking === 'lot') {
-        serialNumber = await askSerialNumber(line.product_name || 'Produkt');
+        serialNumber = await askSerialNumber(
+            line.product_name || 'Produkt',
+            { required: true, tracking: line.tracking },
+        );
+        if (!serialNumber) {
+            reenableBtn();
+            return;
+        }
     }
 
     try {
@@ -3531,7 +3714,7 @@ async function handleClusterConfirm(batch, line, btn) {
             },
             {
                 idempotencyKey: buildOperationKey('cluster-confirm',
-                    [batch.batch_id, line.id, line.quantity_demand], { unique: true }),
+                    [batch.batch_id, line.id, line.quantity_demand, scannedPackage, serialNumber], { unique: true }),
                 signal,
             },
         ));
@@ -3623,6 +3806,7 @@ window._app = {
     setFilter,
     goToLine,
     triggerConfirmAll,
+    handleVoiceIntent,
     enterClusterMode,
     loadBatch,
 };

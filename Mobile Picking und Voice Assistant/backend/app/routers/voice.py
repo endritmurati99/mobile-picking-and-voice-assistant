@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
-from app.dependencies import get_n8n_client, get_odoo_client, get_picking_service, get_write_request_context
+from app.dependencies import get_n8n_client, get_odoo_client, get_picking_service, get_request_odoo_client, get_write_request_context
 from app.models.n8n import VoiceAssistRequest, VoiceAssistResponse
 from app.models.voice import TTSRequest
 from app.services.obsidian_context import format_obsidian_hits, search_obsidian_notes
@@ -342,7 +342,7 @@ async def assist_voice(
     body: VoiceAssistRequest,
     service: PickingService = Depends(get_picking_service),
     n8n: N8NWebhookClient = Depends(get_n8n_client),
-    odoo: OdooClient = Depends(get_odoo_client),
+    odoo: OdooClient = Depends(get_request_odoo_client),
     context: WriteRequestContext = Depends(get_write_request_context),
 ):
     started_at = time.monotonic()

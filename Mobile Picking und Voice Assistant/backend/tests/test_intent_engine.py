@@ -86,6 +86,69 @@ class TestIntentRecognition:
         assert done_intent.action == "done"
         assert blocked_intent.action == "unknown"
 
+    def test_done_is_blocked_while_last_line_is_still_active(self):
+        intent = recognize_intent(
+            "auftrag erledigt",
+            PickingContext.AWAITING_COMMAND,
+            surface=VoiceSurface.DETAIL,
+            remaining_line_count=0,
+            active_line_present=True,
+        )
+
+        assert intent.action == "confirm_all"
+
+        done_intent = recognize_intent(
+            "fertig",
+            PickingContext.AWAITING_COMMAND,
+            surface=VoiceSurface.DETAIL,
+            remaining_line_count=0,
+            active_line_present=True,
+        )
+
+        assert done_intent.action == "unknown"
+
+    def test_package_and_carton_done_confirm_the_active_line(self):
+        for text in ("paket erledigt", "karton erledigt", "position erledigt", "artikel erledigt"):
+            intent = recognize_intent(
+                text,
+                PickingContext.AWAITING_COMMAND,
+                surface=VoiceSurface.DETAIL,
+                remaining_line_count=2,
+                active_line_present=True,
+            )
+
+            assert intent.action == "confirm"
+
+    def test_confirm_all_is_context_blocked_outside_active_detail(self):
+        list_intent = recognize_intent(
+            "komplett",
+            PickingContext.AWAITING_COMMAND,
+            surface=VoiceSurface.LIST,
+            remaining_line_count=0,
+            active_line_present=False,
+        )
+        complete_intent = recognize_intent(
+            "auftrag fertig",
+            PickingContext.AWAITING_COMMAND,
+            surface=VoiceSurface.COMPLETE,
+            remaining_line_count=0,
+            active_line_present=False,
+        )
+
+        assert list_intent.action == "unknown"
+        assert complete_intent.action == "unknown"
+
+    def test_next_order_is_distinct_from_next_line(self):
+        intent = recognize_intent(
+            "naechster auftrag",
+            PickingContext.AWAITING_COMMAND,
+            surface=VoiceSurface.COMPLETE,
+            remaining_line_count=0,
+            active_line_present=False,
+        )
+
+        assert intent.action == "next_order"
+
     def test_quality_alert_surface_only_allows_repeat_or_pause(self):
         intent = recognize_intent(
             "problem",

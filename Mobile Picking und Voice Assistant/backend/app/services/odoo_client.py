@@ -1,8 +1,8 @@
 """
 Odoo JSON-RPC Client.
 
-Odoo 18 Community: JSON-RPC (nicht JSON-2).
-Feldnamen Odoo 18:
+Odoo 18/19 Community: JSON-RPC (nicht JSON-2).
+Feldnamen Odoo 18/19:
   - stock.move.line: quantity (NICHT qty_done)
   - stock.picking: move_ids (NICHT move_lines)
 """

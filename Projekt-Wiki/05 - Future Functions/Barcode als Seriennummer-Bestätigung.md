@@ -5,7 +5,7 @@ tags:
   - future
   - scanning
   - odoo
-status: planned
+status: partially-implemented
 component: backend, pwa
 created: 2026-06-22
 ---
@@ -32,11 +32,15 @@ Nachweis erfasst — für **Rückverfolgbarkeit** (Traceability).
 > **Optional zusätzliches Foto** beim Erfassen als visueller Nachweis (verknüpft mit der [[Lokale Bild-KI-Qualitaetspruefung (Design und Recherche)|Bild-KI]] und mit [[Karton- und Behaelter-Tracking (Put-to-Box)]] / [[Cluster- und Batch-Picking]]).
 
 ## Akzeptanzkriterien
-- [ ] PWA kann nach dem Produkt-Scan einen zweiten Scan „Seriennummer/Lot" erfassen
-- [ ] Backend schreibt die Seriennummer an die Move Line (`lot_id` / `lot_name`)
-- [ ] Bei **serialisierten** Produkten (`tracking = serial`) ist der Serial-Scan **Pflicht**, sonst optional
+- [x] PWA kann nach dem Produkt-Scan einen zweiten Scan „Seriennummer/Lot" erfassen
+- [x] Backend schreibt die Seriennummer an die Move Line (`lot_id` fuer `tracking=serial`, `lot_name` fuer `tracking=lot`)
+- [x] Bei **serialisierten** Produkten (`tracking = serial`) ist der Serial-Scan **Pflicht**, sonst optional
 - [ ] Bereits verwendete / doppelte Seriennummern werden erkannt und abgelehnt
-- [ ] Touch-Fallback bleibt: Seriennummer auch manuell eingebbar (Invariante 5: Touch ist Fallback)
+- [x] Touch-Fallback bleibt: Seriennummer auch manuell eingebbar (Invariante 5: Touch ist Fallback)
+- [x] Retouren-Soll/Ist-Abgleich per API (`/api/pickings/{picking_id}/returns/reconcile`) vergleicht ausgelieferte mit zurückgescannten Seriennummern
+
+> [!status] Stand 2026-07-03
+> Der Pick-Confirm ist gehärtet: `tracking=serial` erzwingt eine vorhandene Odoo-Seriennummer (`stock.lot`) fuer genau eine Einheit und schreibt `lot_id`, statt freie Phantom-Seriennummern per `lot_name` zu erzeugen. Seit 2026-07-03 gibt es zusätzlich einen read-only Retouren-Abgleich (`/api/pickings/{picking_id}/returns/reconcile`) für `missing`, `unknown` und `duplicates`. Offen bleibt eine explizite Wiederverwendungsprüfung gegen frühere Lieferungen/Retouren sowie die Persistenz von Abweichungen.
 
 ## Technische Umsetzung
 
@@ -48,6 +52,7 @@ Nachweis erfasst — für **Rückverfolgbarkeit** (Traceability).
 
 ### API-Endpunkte
 - `confirm-line`-Body erweitern um `serial_number` / `lot_name`
+- `POST /api/pickings/{picking_id}/returns/reconcile` zum Soll/Ist-Abgleich zurückgescannter Seriennummern
 - optional `POST /api/scan/serial` zur Vorab-Validierung (analog zu `/api/scan/validate`)
 
 ### Odoo-Modelle
@@ -57,9 +62,10 @@ Nachweis erfasst — für **Rückverfolgbarkeit** (Traceability).
 
 ## Tests
 - [ ] EAN/GS1-Parsing inkl. AI `21` (Serial) und `10` (Lot)
-- [ ] Pflicht-Erzwingung bei `tracking = serial`
+- [x] Pflicht-Erzwingung bei `tracking = serial`
 - [ ] Duplikat-/Wiederverwendungs-Erkennung
-- [ ] Touch-Eingabe als Fallback funktioniert
+- [x] Touch-Eingabe als Fallback funktioniert
+- [x] Retouren-Abgleich erkennt fehlende, unbekannte und doppelt zurückgegebene Seriennummern
 
 ## Notizen
 - **Baut auf vorhandener Scan-Infrastruktur auf** (HID-Scan + `/scan/validate`) — keine Parallelwelt.

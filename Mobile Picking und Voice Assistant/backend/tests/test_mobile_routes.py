@@ -8,6 +8,7 @@ from app.dependencies import (
     get_n8n_client,
     get_odoo_client,
     get_picking_service,
+    get_request_odoo_client,
 )
 from app.main import app
 from app.services.mobile_workflow import (
@@ -27,6 +28,7 @@ def _override_dependencies(*, workflow=None, picking_service=None, odoo=None, n8
         app.dependency_overrides[get_picking_service] = lambda: picking_service
     if odoo is not None:
         app.dependency_overrides[get_odoo_client] = lambda: odoo
+        app.dependency_overrides[get_request_odoo_client] = lambda: odoo
     if n8n is not None:
         app.dependency_overrides[get_n8n_client] = lambda: n8n
 
@@ -164,6 +166,93 @@ def test_confirm_line_returns_409_for_conflicting_idempotency_key():
     assert response.status_code == 409
     assert response.json()["detail"] == "Idempotency-Key wird bereits fuer einen anderen Request verwendet."
     picking_service.confirm_pick_line.assert_not_awaited()
+
+
+def test_confirm_line_fingerprint_and_service_call_include_serial_number():
+    workflow = _create_workflow_mock()
+    picking_service = MagicMock()
+    picking_service.confirm_pick_line = AsyncMock(
+        return_value={"success": True, "message": "Bestaetigt.", "picking_complete": False, "recorded_serial": "SN-A"}
+    )
+    _override_dependencies(workflow=workflow, picking_service=picking_service)
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/pickings/44/confirm-line",
+                json={
+                    "move_line_id": 900,
+                    "scanned_barcode": "1234567890",
+                    "quantity": 1,
+                    "serial_number": "SN-A",
+                },
+                headers={
+                    "X-Picker-User-Id": "7",
+                    "X-Device-Id": "device-1",
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    fingerprint_payload = workflow.build_request_fingerprint.call_args.args[0]
+    assert fingerprint_payload["serial_number"] == "SN-A"
+    picking_service.confirm_pick_line.assert_awaited_once()
+    assert picking_service.confirm_pick_line.await_args.kwargs["serial_number"] == "SN-A"
+
+
+def test_return_reconcile_requires_picker_and_calls_service():
+    workflow = _create_workflow_mock()
+    picking_service = MagicMock()
+    picking_service.reconcile_return_serials = AsyncMock(
+        return_value={
+            "success": True,
+            "ok": False,
+            "picking_id": 44,
+            "returned_serials": ["SN-1", "SN-X"],
+            "shipped_serials": ["SN-1", "SN-2"],
+            "reconcile": {
+                "ok": False,
+                "missing": ["SN-2"],
+                "unknown": ["SN-X"],
+                "duplicates": [],
+            },
+        }
+    )
+    _override_dependencies(workflow=workflow, picking_service=picking_service)
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/pickings/44/returns/reconcile",
+                json={"returned_serials": ["SN-1", "SN-X"]},
+                headers={"X-Picker-User-Id": "7"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["reconcile"]["missing"] == ["SN-2"]
+    picking_service.reconcile_return_serials.assert_awaited_once_with(44, ["SN-1", "SN-X"])
+
+
+def test_return_reconcile_rejects_missing_picker_header():
+    workflow = _create_workflow_mock()
+    picking_service = MagicMock()
+    picking_service.reconcile_return_serials = AsyncMock()
+    _override_dependencies(workflow=workflow, picking_service=picking_service)
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/pickings/44/returns/reconcile",
+                json={"returned_serials": ["SN-1"]},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+    picking_service.reconcile_return_serials.assert_not_awaited()
 
 
 def test_claim_returns_409_when_another_picker_holds_the_lock():

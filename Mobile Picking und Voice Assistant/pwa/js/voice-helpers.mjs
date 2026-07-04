@@ -6,7 +6,8 @@ export const VOICE_STATES = Object.freeze({
     COOLDOWN: 'cooldown',
 });
 
-export const POST_TTS_COOLDOWN_MS = 900;
+export const POST_TTS_COOLDOWN_MS = 500;
+const PIPER_MIN_TEXT_LENGTH = 24;
 
 export function normalizePromptText(text) {
     return String(text || '')
@@ -54,6 +55,12 @@ export function isLikelyPromptEcho(transcript, prompt) {
     const promptCoverage = overlap / promptTokens.length;
 
     return transcriptCoverage >= 0.75 || (transcriptCoverage >= 0.6 && promptCoverage >= 0.4);
+}
+
+export function shouldUsePiperTts(text) {
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return false;
+    return normalized.length > PIPER_MIN_TEXT_LENGTH;
 }
 
 export function transitionVoiceState(currentState, event, { voiceModeActive = true } = {}) {

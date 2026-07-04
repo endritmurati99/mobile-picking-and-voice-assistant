@@ -11,6 +11,7 @@ import {
     POST_TTS_COOLDOWN_MS,
     VOICE_STATES,
     isLikelyPromptEcho,
+    shouldUsePiperTts,
     transitionVoiceState,
 } from './voice-helpers.mjs';
 
@@ -323,6 +324,11 @@ export function speak(text) {
             enterCooldown();
             resolve();
         };
+
+        if (!shouldUsePiperTts(text)) {
+            _speakBrowserTTS(text, done);
+            return;
+        }
 
         _tryPiper(text).then((piperOk) => {
             if (piperOk) {

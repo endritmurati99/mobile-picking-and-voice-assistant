@@ -8,18 +8,38 @@ tags:
   - chronologie
   - git
 created: 2026-06-22
+stand: 2026-07-04
 ---
 
 # Projekt-Historie
 
 > [!info] Worum geht es in dieser Notiz?
-> Diese Notiz erzählt die **vollständige Geschichte** des Projekts **Mobile Picking & Voice Assistant** — von der ersten Code-Zeile am 22.03.2026 bis zum Stand Juni 2026. Sie ist der **rote Faden**: *Was haben wir wann gebaut, und warum so?*
+> Diese Notiz erzählt die **vollständige Geschichte** des Projekts **Mobile Picking & Voice Assistant** — von der ersten Code-Zeile am 22.03.2026 bis zum Stand Juli 2026. Sie ist der **rote Faden**: *Was haben wir wann gebaut, und warum so?*
 > Alle Angaben stammen aus **belegbaren Quellen**: dem `git log` des Repositories, den ADRs (`docs/DECISIONS.md`), den technischen Dokumenten in `docs/` und den projektinternen Arbeitsanweisungen (`CLAUDE.md`, `AGENTS.md`). Es wird nichts erfunden. Wo eine Aussage eine Interpretation ist, ist sie ausdrücklich als **Annahme** markiert.
 
 > [!note] Analogie für Nicht-Experten
 > Stell dir das Projekt wie den Bau eines Hauses vor: Zuerst das Fundament (Phase 0), dann die tragenden Wände gegen Erdbeben (Phase 1 = Transaktionshärtung), dann die Inneneinrichtung und Bedienung (Voice & UI), schließlich Feinschliff und Barrierefreiheit. Die "Wellen" und "Hotfixes" sind nachträgliche Reparaturen und Anbauten, die während des Bewohnens nötig wurden.
 
 Schwesternotizen für Details: [[00 - Start Hier (Übersichtskarte)]] · [[01 - Was ist das Projekt & wie es anfing]] · [[02 - Architektur & Diagramm erklärt]] · [[05 - Backend (FastAPI)]] · [[06 - Odoo]] · [[07 - n8n]] · [[08 - PWA & Voice-Pfad]] · [[10 - Glossar]]
+
+## Update 2026-07-04 — Odoo-19-Trial, BOM-Traceability und Demo-Schalter
+
+Am 2026-07-04 wurde ein klarer Zwischenstand gesichert:
+
+- Die Live-/Default-Instanz bleibt Odoo 18 auf DB `masterfischer`.
+- Eine getrennte Odoo-19-Trial-Instanz laeuft auf DB `masterfischer_o19_trial`.
+- Die PWA kann ueber den Instanzschalter `Odoo 19 Trial` auswaehlen.
+- Auf der Trial-DB gibt es einen Traceability-Demo-Schalter mit neun Modi: alle Kombinationen aus Endprodukt-Tracking und Komponenten-Tracking.
+- Die Demo unterscheidet BOM-Endprodukte und BOM-Komponenten.
+- Fachlich wurde korrigiert: Fuer die Rueckverfolgbarkeit sind primaer die Komponenten/Bauteile aus der Stueckliste relevant, nicht nur das fertige Endprodukt.
+- Der aktuelle Demo-Modus ist `Komponenten Lot`: BOM-Komponenten sind chargenpflichtig, Endprodukte nicht.
+- Cluster-Picking wurde in der Odoo-19-Trial-DB geprueft: 21 offene Auftraege, 2 Cluster-Vorschlaege.
+- `lager-2` wurde fuer Cluster-Picking nachgezogen: Odoo-18-Addon-Baum `odoo/addons18`, Modul `stock_picking_batch` installiert, 9 offene Auftraege und 1 Cluster-Vorschlag verifiziert.
+- Docker wurde abgesichert: normales Compose bleibt Odoo 18; Odoo 19 ist ein expliziter Trial-Service mit eigenem DB-Filter. Odoo-18-Live nutzt `odoo/addons18`, Odoo-19-Trial nutzt `odoo/addons`.
+
+Der Stand ist demo-faehig, aber noch kein produktiver Odoo-19-Cutover. Fuer den Cutover fehlen noch finaler Backup-/Restore-Test, Modulupdate-Test, n8n-Instanzbewusstsein und Abnahme der wichtigsten Odoo-19-Ansichten.
+
+Siehe Detailseite: [[12 - Funktionsdokumentation/09 - Odoo-19-Trial und Traceability-Demo]].
 
 ---
 
@@ -407,14 +427,15 @@ Der sichtbare Odoo-Hauptblock heißt **`Systembewertung`** und zeigt nur: `ai_ev
 
 ---
 
-## Status Juni 2026
+## Status Juli 2026
 
 > [!note] Kurzstand (belegt aus Git-Historie + `docs/ARCHITECTURE.md`)
-> - **Phase 0–6:** alle abgeschlossen und committed; Phase 7 (Deployment-Vorbereitung) als Mai-Doku-Strang im Repo.
-> - **Welle A:** im Repo umgesetzt, **Addon-Upgrade in der Live-DB noch ausstehend** (siehe Runtime-Hinweis in `docs/ARCHITECTURE.md`).
+> - **Phase 0–6:** abgeschlossen und im Repo dokumentiert; Phase 7 (Deployment-/Betriebsvorbereitung) ist als Doku- und Infrastrukturstrang vorhanden.
+> - **Odoo-19-Trial:** getrennte Trial-DB `masterfischer_o19_trial`, Traceability-Demo mit BOM-Komponentenfokus und neun Modi.
+> - **Live-Stand:** Odoo 18 bleibt Default/Live; Odoo 19 ist noch kein produktiver Cutover.
 > - **Dokumentation:** `ARCHITECTURE.md`, `DECISIONS.md`, `N8N_CONTRACT_FREEZE_V1.md`, `PHASE_1_TRANSACTION_HARDENING.md`, `QUALITY_ALERT_AI_FIELDS.md`, `SESSION_2026-03-31_UI_HARDENING.md`, `VOICE_COMMANDS.md`.
 > - **Verifikation:** Python-Tests (`make test`), Workflow-Vertragsprüfung (`make verify-workflows`), Playwright-E2E + Visual-Diff + Axe-A11y.
-> - **Nächste Schritte:** gestufter n8n-Rollout (`backup → import → activate` über `infrastructure/scripts/import-workflows.sh`), Live-Smoke-Tests, Telemetrie-/Metriken-Export.
+> - **Nächste Schritte:** Demo-Screenshots/Evaluation sichern, Odoo-19-Cutover nur mit Backup-/Restore-Test und Modulupdate-Abnahme vorbereiten, n8n-Instanzbewusstsein final klären.
 
 ---
 

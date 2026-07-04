@@ -53,6 +53,38 @@ docker compose up -d
 - Suche: "Quality Alert Custom"
 - Installieren
 
+### 7b. Optional: zweite Odoo-Instanz fuer den Lagerumschalter
+
+Der PWA-Umschalter liest `GET /api/instances`. Das lokale Standardprofil heisst technisch `local`.
+Eine zweite lokale Testinstanz kann ueber das optionale Compose-Profil `second-odoo` gestartet werden:
+
+```powershell
+docker compose --profile second-odoo up -d odoo-lager-2
+```
+
+Sie nutzt Port `8070`, ein eigenes Filestore-Volume und die Odoo-Datenbank `lager2`.
+Das Backend wird erst ueber `.env` bzw. die Shell-Umgebung auf dieses Profil aufmerksam:
+
+```powershell
+ODOO_INSTANCES_JSON={"lager-2":{"display_name":"Lager 2","url":"http://odoo-lager-2:8069","db":"lager2","user":"admin","password":"<passwort-oder-api-key>"}}
+```
+
+Regeln:
+
+- `display_name` ist die sichtbare Bezeichnung in der PWA, z. B. `Lager 1` / `Lager 2`.
+- `url`, `db`, `user`, `api_key` und ggf. `password` bleiben lokal in `.env` oder der Shell; keine Secrets committen.
+- `local` kommt immer aus den bestehenden `ODOO_*`-Variablen und wird nicht aus `ODOO_INSTANCES_JSON` ueberschrieben.
+- Nach Aenderung von `.env`: `docker compose up -d backend --force-recreate` oder Stack neu starten.
+- Fuer eine frische `lager2`-DB: Custom-Module installieren und dann `seed-odoo.py --url http://localhost:8070 --db lager2 --user admin --api-key <passwort-oder-api-key>` ausfuehren.
+
+Fachliche Mindestdaten fuer einen echten Live-Test:
+
+- Das Custom-Addon `quality_alert_custom` muss in jeder Zielinstanz installiert/aktualisiert sein.
+- Testprodukte brauchen gepflegte Barcodes, damit Scan-Confirm real pruefbar ist.
+- Serienpflichtige Produkte muessen in Odoo `tracking = serial` oder `tracking = lot` haben.
+- Am erwarteten Lagerplatz muss verfuegbarer Bestand (`stock.quant`) vorhanden sein.
+- Es muss mindestens einen aktiven internen Picker-Benutzer geben.
+
 ### 8. Seed-Daten laden
 ```bash
 python infrastructure/scripts/seed-odoo.py \
@@ -68,7 +100,10 @@ python infrastructure/scripts/seed-odoo.py \
 - Odoo Admin: `http://<HOST>:8069/`
 - n8n: `https://<LAN-IP>/n8n/`
 
-> Hinweis: Odoo 18 wird im aktuellen Setup für die Administration direkt über Port `8069` verwendet.
+> Hinweis: Odoo 19 wird im aktuellen Setup für die Administration direkt über Port `8069` verwendet.
+> Bestehende Odoo-18-Datenbanken nicht blind mit dem Odoo-19-Container starten.
+> Vor einem Wechsel der Hauptinstanz: Datenbank sichern und eine echte Major-Migration
+> durchführen. Für technische Smokes eine frische Odoo-19-Datenbank verwenden.
 
 ### 10. n8n Public API einrichten
 - In n8n: `Settings > n8n API`

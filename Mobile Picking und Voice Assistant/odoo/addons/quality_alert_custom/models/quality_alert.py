@@ -1,5 +1,5 @@
 from odoo import models, fields, api
-from markupsafe import Markup
+from markupsafe import Markup, escape
 
 
 class QualityAlertStage(models.Model):
@@ -117,9 +117,10 @@ class QualityAlert(models.Model):
                 continue
             parts = []
             for att in attachments:
-                url = f"/web/image/{att.id}"
+                url = escape(f"/web/image/{int(att.id)}")
+                title = escape(att.name or "")
                 parts.append(
-                    f'<a href="{url}" target="_blank" title="{att.name}"'
+                    f'<a href="{url}" target="_blank" title="{title}"'
                     f' style="display:block;overflow:hidden;border-radius:8px;">'
                     f'<img src="{url}" style="width:100%;height:120px;'
                     f'border:1px solid #ddd;object-fit:cover;display:block;'

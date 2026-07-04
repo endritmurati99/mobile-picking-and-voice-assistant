@@ -37,11 +37,13 @@ services:
     networks:
       - picking-net
 
-  # ── Odoo 18 Community ─────────────────────────────────────
+  # ── Odoo 18 Community (Live/Default) ──────────────────────
   odoo:
     build:
       context: ./odoo
       dockerfile: Dockerfile
+      args:
+        ODOO_BASE_IMAGE: odoo:18.0
     restart: unless-stopped
     depends_on:
       db:
@@ -56,6 +58,60 @@ services:
     volumes:
       - odoo_data:/var/lib/odoo
       - ./odoo/odoo.conf:/etc/odoo/odoo.conf:ro
+      - ./odoo/addons18:/mnt/extra-addons:ro
+    networks:
+      - picking-net
+
+  # ── Optionale zweite Odoo-Instanz fuer Lagerumschalter ─────
+  odoo-lager-2:
+    build:
+      context: ./odoo
+      dockerfile: Dockerfile
+      args:
+        ODOO_BASE_IMAGE: odoo:18.0
+    profiles:
+      - second-odoo
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      HOST: db
+      PORT: 5432
+      USER: ${POSTGRES_USER:-odoo}
+      PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${ODOO_LAGER2_PORT:-8070}:8069"
+    volumes:
+      - odoo_lager2_data:/var/lib/odoo
+      - ./odoo/odoo-lager2.conf:/etc/odoo/odoo.conf:ro
+      - ./odoo/addons18:/mnt/extra-addons:ro
+    networks:
+      - picking-net
+
+  # ── Odoo 19 Trial (Demo/Migration, explicit profile) ──────
+  odoo19-trial:
+    build:
+      context: ./odoo
+      dockerfile: Dockerfile
+      args:
+        ODOO_BASE_IMAGE: odoo:19.0
+    profiles:
+      - odoo19-trial
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      HOST: db
+      PORT: 5432
+      USER: ${POSTGRES_USER:-odoo}
+      PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:${ODOO19_TRIAL_PORT:-8100}:8069"
+    volumes:
+      - odoo19_trial_data:/var/lib/odoo
+      - ./odoo/odoo19-trial.conf:/etc/odoo/odoo.conf:ro
       - ./odoo/addons:/mnt/extra-addons:ro
     networks:
       - picking-net
@@ -92,6 +148,8 @@ services:
       OBSIDIAN_PATH: /obsidian
       CORS_ORIGINS: "https://${LAN_HOST:-localhost}"
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      DEMO_TRACEABILITY_ENABLED: ${DEMO_TRACEABILITY_ENABLED:-false}
+      DEMO_TRACEABILITY_ALLOWED_DBS: ${DEMO_TRACEABILITY_ALLOWED_DBS:-masterfischer_o19_trial}
     volumes:
       - ./backend/app:/app/app:ro
       - ./docs:/obsidian:ro
@@ -206,6 +264,9 @@ services:
 volumes:
   pg_data:
   odoo_data:
+  odoo_lager2_data:
+  odoo19_trial_data:
+    name: odoo19_trial_data
   caddy_data:
   caddy_config:
   n8n_data:

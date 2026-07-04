@@ -11,6 +11,8 @@ from app.services.odoo_client import OdooAPIError
 from app.services.cluster_service import (
     BOX_PALETTE,
     ClusterService,
+    PACKAGE_MODEL_LEGACY,
+    PACKAGE_MODEL_ODOO19,
     assign_boxes,
     build_cluster_lines,
 )
@@ -98,6 +100,36 @@ class TestSuggestBatches:
     async def test_returns_empty_when_no_open_pickings(self, service, odoo):
         odoo.search_read.return_value = []
         assert await service.suggest_batches() == []
+
+    @pytest.mark.anyio
+    async def test_suggestions_fall_back_when_picking_batch_field_is_missing(self, service, odoo, caplog):
+        import logging
+
+        calls = []
+
+        async def fake_search_read(model, domain, fields, limit=100):
+            calls.append((model, domain, fields))
+            if model == "stock.picking" and ("batch_id", "=", False) in domain:
+                raise OdooAPIError(
+                    "Invalid field stock.picking.batch_id in leaf ('batch_id', '=', False)"
+                )
+            if model == "stock.picking":
+                return [{"id": 1, "name": "L2/OUT/001"}]
+            if model == "stock.move.line":
+                return [
+                    {"id": 10, "picking_id": [1, "L2/OUT/001"],
+                     "location_id": [5, "WH/Stock/Links/E1-P1"]}
+                ]
+            raise AssertionError(model)
+
+        odoo.search_read.side_effect = fake_search_read
+
+        with caplog.at_level(logging.WARNING):
+            result = await service.suggest_batches()
+
+        assert result[0]["picking_ids"] == [1]
+        assert any(call[1] == [("state", "=", "assigned")] for call in calls)
+        assert any("batch_id fehlt" in record.getMessage() for record in caplog.records)
 
 
 class TestCreateBatch:
@@ -199,12 +231,12 @@ class TestCreateBatch:
 
     @pytest.mark.anyio
     async def test_creates_one_package_per_picking_and_writes_result_package(self, service, odoo):
-        # Destination Package: je Picking ein stock.quant.package, als result_package_id
+        # Destination Package: je Picking ein Package, als result_package_id
         # auf die Move-Lines dieses Pickings geschrieben (Box N <-> Order N <-> 1 Package).
         def fake_create(model, vals):
             if model == "stock.picking.batch":
                 return 99
-            if model == "stock.quant.package":
+            if model == PACKAGE_MODEL_LEGACY:
                 # Package-IDs: aus dem Namen ableiten, damit der Test sie zuordnen kann.
                 return 1000 + len(odoo.create.call_args_list)
             raise AssertionError(model)
@@ -233,7 +265,7 @@ class TestCreateBatch:
 
         # Genau ein Package je Picking angelegt (zwei Pickings -> zwei Packages).
         pkg_creates = [c for c in odoo.create.call_args_list
-                       if c.args[0] == "stock.quant.package"]
+                       if c.args[0] == PACKAGE_MODEL_LEGACY]
         assert len(pkg_creates) == 2
         for c in pkg_creates:
             assert c.args[1]["package_use"] == "reusable"
@@ -252,13 +284,52 @@ class TestCreateBatch:
         assert write_by_lineset[(100, 101)] != write_by_lineset[(200,)]
 
     @pytest.mark.anyio
+    async def test_uses_odoo19_stock_package_without_package_use(self, service, odoo):
+        # Odoo 19: stock.quant.package wurde durch stock.package ersetzt.
+        def fake_create(model, vals):
+            if model == "stock.picking.batch":
+                return 99
+            if model == PACKAGE_MODEL_ODOO19:
+                assert "package_use" not in vals
+                assert vals["name"] == "CLUSTER-B1/WH/OUT/001"
+                return 1700
+            raise AssertionError(model)
+
+        odoo.create.side_effect = fake_create
+
+        async def fake_search_read(model, domain, fields, limit=100):
+            if model == "stock.picking" and ("state", "=", "assigned") in domain:
+                return [{"id": 1, "name": "WH/OUT/001", "company_id": [1, "MyCo"]}]
+            if model == "ir.model":
+                return [{"model": PACKAGE_MODEL_ODOO19}]
+            if model == "stock.move.line" and any(
+                    isinstance(c, tuple) and c[0] == "picking_id" and c[1] == "in" for c in domain):
+                return [{"id": 100, "picking_id": [1, "WH/OUT/001"]}]
+            if model == "stock.picking.batch":
+                return [{"id": 99, "name": "B", "state": "in_progress",
+                         "picking_ids": [1], "user_id": [7, "Max"]}]
+            if model == "stock.picking":
+                return [{"id": 1, "name": "WH/OUT/001"}]
+            return []
+
+        odoo.search_read.side_effect = fake_search_read
+
+        from app.services.mobile_workflow import PickerIdentity
+        await service.create_batch([1], PickerIdentity(user_id=7))
+
+        odoo.create.assert_any_call(
+            PACKAGE_MODEL_ODOO19, {"name": "CLUSTER-B1/WH/OUT/001"})
+        odoo.write.assert_any_call(
+            "stock.move.line", [100], {"result_package_id": 1700})
+
+    @pytest.mark.anyio
     async def test_batch_still_succeeds_when_package_assignment_fails(self, service, odoo):
         # Best-effort: scheitert die Package-Zuweisung (OdooAPIError), bleibt der Batch
         # gueltig - kein action_cancel, kein Fehler, Batch wird zurueckgegeben.
         def fake_create(model, vals):
             if model == "stock.picking.batch":
                 return 99
-            if model == "stock.quant.package":
+            if model in (PACKAGE_MODEL_ODOO19, PACKAGE_MODEL_LEGACY):
                 raise OdooAPIError("package creation blew up")
             raise AssertionError(model)
 
@@ -453,8 +524,7 @@ class TestConfirmClusterLine:
         move_line_writes = [c for c in odoo.write.call_args_list
                             if c.args[0] == "stock.move.line"]
         assert len(move_line_writes) == 1
-        odoo.write.assert_any_call("stock.move.line", [100], {"quantity": 2})
-        odoo.write.assert_any_call("stock.move", [50], {"picked": True})
+        odoo.write.assert_any_call("stock.move.line", [100], {"quantity": 2, "picked": True})
         # KEIN button_validate
         for call in odoo.call_method.call_args_list:
             assert call.args[1] != "button_validate"
@@ -486,6 +556,8 @@ class TestConfirmClusterLine:
             if model == "stock.move.line" and calls["n"] == 0:
                 calls["n"] += 1
                 return [line]
+            if model == "product.product":
+                return [{"id": 5, "barcode": "111", "tracking": "none"}]
             # get_batch ruft danach erneut search_read -> Fehler simulieren.
             raise OdooAPIError("read failed")
 
@@ -506,6 +578,10 @@ class TestConfirmClusterLine:
                 return [line]
             if model == "product.product":
                 return [{"id": 5, "barcode": "111", "tracking": "serial"}]
+            if model == "stock.lot":
+                return [{"id": 90, "name": "SN-1", "product_id": [5, "Wal"]}]
+            if model == "stock.quant":
+                return [{"quantity": 1, "reserved_quantity": 0, "location_id": [9, "L"]}]
             return []
 
         odoo.search_read.side_effect = fake_search_read
@@ -560,6 +636,10 @@ class TestConfirmClusterLine:
                 return [line]
             if model == "product.product":
                 return [{"id": 5, "tracking": "serial", "barcode": "111"}]
+            if model == "stock.lot":
+                return [{"id": 90, "name": "SN-1", "product_id": [5, "Wal"]}]
+            if model == "stock.quant":
+                return [{"quantity": 1, "reserved_quantity": 0, "location_id": [9, "L"]}]
             return []
 
         odoo.search_read.side_effect = fake_search_read
@@ -569,8 +649,30 @@ class TestConfirmClusterLine:
                                                     quantity=1, serial_number="SN-1",
                                                     picker_identity=PickerIdentity(user_id=7))
         written = [c.args[2] for c in odoo.write.call_args_list if c.args[0] == "stock.move.line"]
-        assert any(v.get("lot_name") == "SN-1" for v in written)
+        assert any(v.get("lot_id") == 90 for v in written)
         assert result["recorded_serial"] == "SN-1"
+
+    @pytest.mark.anyio
+    async def test_requires_serial_for_serial_tracked_product(self, service, odoo):
+        line = {"id": 100, "product_id": [5, "Wal"], "quantity": 0,
+                "move_id": [50, "m"], "location_id": [9, "L"]}
+
+        async def fake_search_read(model, domain, fields, limit=100):
+            if model == "stock.move.line":
+                return [line]
+            if model == "product.product":
+                return [{"id": 5, "tracking": "serial", "barcode": "111"}]
+            return []
+
+        odoo.search_read.side_effect = fake_search_read
+
+        from app.services.mobile_workflow import PickerIdentity
+        result = await service.confirm_cluster_line(99, 1, 100, scanned_barcode="111",
+                                                    quantity=1, serial_number="",
+                                                    picker_identity=PickerIdentity(user_id=7))
+        assert result["success"] is False
+        assert result["serial_required"] is True
+        odoo.write.assert_not_called()
 
     @pytest.mark.anyio
     async def test_rejects_wrong_barcode(self, service, odoo):
@@ -603,7 +705,7 @@ class TestConfirmClusterLine:
             99, 1, 100, quantity=2, scanned_package="CLUSTER-B1/WH/INT/00323",
             picker_identity=PickerIdentity(user_id=7))
         assert result["success"] is True
-        odoo.write.assert_any_call("stock.move.line", [100], {"quantity": 2})
+        odoo.write.assert_any_call("stock.move.line", [100], {"quantity": 2, "picked": True})
 
     @pytest.mark.anyio
     async def test_carton_mismatch_rejects_and_no_write(self, service, odoo):

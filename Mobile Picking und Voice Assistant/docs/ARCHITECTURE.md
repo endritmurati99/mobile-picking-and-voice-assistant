@@ -20,15 +20,29 @@
 3. n8n liegt nicht im normalen Voice-Hot-Path.
 4. Fachliche Writes aus n8n laufen nur ueber interne FastAPI-Callbacks.
 5. Touch bleibt Fallback, Voice ist Enhancement.
+6. Bei mehreren Odoo-Instanzen bleibt jede Instanz ihr eigenes System of Record; es gibt keine Datenvermischung zwischen Profilen.
 
 ## Hauptfluesse
 
 ### Pick-Bestaetigung
-1. PWA -> `POST /api/pickings/{id}/confirm-line`
-2. FastAPI validiert Identitaet, Claim und Idempotency
-3. FastAPI schreibt nach Odoo
+1. PWA -> `POST /api/pickings/{id}/confirm-line` mit optionalem `X-Odoo-Instance`
+2. FastAPI validiert Instanz, Identitaet, Claim und Idempotency
+3. FastAPI schreibt nach der gewaehlten Odoo-Instanz
 4. FastAPI feuert `pick-confirmed` asynchron an n8n
 5. Wenn die n8n-Uebergabe fehlschlaegt, bleibt das Picking fachlich abgeschlossen, aber die Antwort wird als degradierter Folgeprozess markiert
+
+### Odoo-Instanz-Switch
+1. PWA -> `GET /api/instances`
+2. FastAPI gibt nur `name` und `display_name` zurueck, keine URLs, DB-Namen oder Secrets
+3. Picker waehlt in der PWA ein Lager/Profil, z. B. `Lager 2`
+4. `pwa/js/api.js` haengt fuer alle Folge-Requests `X-Odoo-Instance: lager-2` an
+5. FastAPI loest das Profil in `resolve_instance` auf und nutzt einen gecachten `OdooClient` pro Profil
+6. Unbekanntes Profil fuehrt zu HTTP 400, kein stiller Fallback
+
+PoC-Grenze:
+
+- Direkte Sync-Pfade wie Pickings, Produktbilder, Bestand, Quality-Alert-Anlage und Voice-Assist-Odoo-Kontext folgen der gewaehlten Instanz.
+- n8n-Callbacks bleiben bewusst auf `local`, bis der Event-Envelope instanz-bewusst erweitert wird.
 
 ### Voice-Hot-Path
 1. PWA -> `POST /api/voice/recognize`
@@ -87,3 +101,4 @@ Fuer den sichtbaren Live-Effekt fehlen aber weiterhin:
 
 - Odoo-Addon-Upgrade in der aktiven Datenbank
 - kontrollierter Import bzw. Aktivierungsabgleich des aktualisierten `quality-alert-created`-Workflows
+- fuer Multi-Instanz-Demos: Installation des Quality-Addons, Barcodes, Seriennummern-Tracking und Bestand in jeder Zielinstanz

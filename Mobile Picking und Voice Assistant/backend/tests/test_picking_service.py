@@ -371,7 +371,7 @@ class TestConfirmPickLine:
         result = await service.confirm_pick_line(1, 20, "4006381333931", 10.0)
 
         assert result["success"] is True
-        odoo.write.assert_called_once_with("stock.move.line", [20], {"quantity": 10.0})
+        odoo.write.assert_called_once_with("stock.move.line", [20], {"quantity": 10.0, "picked": True})
 
     @pytest.mark.anyio
     async def test_uses_demand_quantity_when_zero_passed(self, service, odoo):
@@ -384,7 +384,7 @@ class TestConfirmPickLine:
 
         await service.confirm_pick_line(1, 20, "4006381333931", 0)
 
-        odoo.write.assert_called_once_with("stock.move.line", [20], {"quantity": 5.0})
+        odoo.write.assert_called_once_with("stock.move.line", [20], {"quantity": 5.0, "picked": True})
 
     @pytest.mark.anyio
     async def test_fires_n8n_webhook_when_picking_complete(self, service, odoo, n8n):
@@ -461,8 +461,9 @@ class TestConfirmPickLineSerial:
         async def fake_execute_kw(model, method, args, kwargs=None):
             if model == "stock.move.line" and method == "read":
                 return [{"id": 50, "product_id": [5, "[CPU] Xeon"], "quantity": 1,
-                         "move_id": [10, "MOVE/10"], "location_id": [1, "WH/Stock/A-1"]}]
-            if model == "stock.move" and method == "search_read":
+                         "move_id": [10, "MOVE/10"], "location_id": [1, "WH/Stock/A-1"],
+                         "lot_id": False}]
+            if model == "stock.move.line" and method == "search_read":
                 return [{"id": 10, "picked": True}]
             raise AssertionError(f"unexpected execute_kw {model}.{method}")
 
@@ -471,6 +472,8 @@ class TestConfirmPickLineSerial:
                 return [{"barcode": "CPU-XEON-1"}]
             if model == "product.product" and "tracking" in fields:
                 return [{"tracking": "serial"}]
+            if model == "stock.lot":
+                return [{"id": 99, "name": "SN-0001", "product_id": [5, "[CPU] Xeon"]}]
             if model == "stock.quant":
                 return [{"quantity": 10, "reserved_quantity": 0, "location_id": [1, "WH/Stock/A-1"]}]
             raise AssertionError(f"unexpected search_read {model} {fields}")
@@ -488,8 +491,8 @@ class TestConfirmPickLineSerial:
 
         assert result["success"] is True
         assert result["recorded_serial"] == "SN-0001"
-        # Quantity and serial are written in a single move-line write (no redundant round-trip).
-        odoo.write.assert_any_call("stock.move.line", [50], {"quantity": 1, "lot_name": "SN-0001"})
+        # Quantity and serial lot are written in a single move-line write (no redundant round-trip).
+        odoo.write.assert_any_call("stock.move.line", [50], {"quantity": 1, "picked": True, "lot_id": 99})
         move_line_writes = [
             call for call in odoo.write.call_args_list if call.args[0] == "stock.move.line"
         ]
@@ -538,8 +541,9 @@ class TestConfirmPickLineSerial:
         async def fake_execute_kw(model, method, args, kwargs=None):
             if model == "stock.move.line" and method == "read":
                 return [{"id": 50, "product_id": [5, "[X] Brick"], "quantity": 1,
-                         "move_id": [10, "MOVE/10"], "location_id": [1, "WH/Stock/A-1"]}]
-            if model == "stock.move" and method == "search_read":
+                         "move_id": [10, "MOVE/10"], "location_id": [1, "WH/Stock/A-1"],
+                         "lot_id": False}]
+            if model == "stock.move.line" and method == "search_read":
                 return [{"id": 10, "picked": True}]
             raise AssertionError(f"unexpected execute_kw {model}.{method}")
 
@@ -569,13 +573,14 @@ class TestConfirmPickLineSerial:
             assert "lot_name" not in vals
 
     @pytest.mark.anyio
-    async def test_whitespace_only_serial_is_not_recorded(self, service, odoo, n8n):
-        """A serial_number of only whitespace must result in recorded_serial == '' and no lot_name write."""
+    async def test_whitespace_only_serial_is_rejected_for_serial_product(self, service, odoo, n8n):
+        """Serial-tracked products must not be confirmed without a concrete serial."""
         async def fake_execute_kw(model, method, args, kwargs=None):
             if model == "stock.move.line" and method == "read":
                 return [{"id": 50, "product_id": [5, "[CPU] Xeon"], "quantity": 1,
-                         "move_id": [10, "MOVE/10"], "location_id": [1, "WH/Stock/A-1"]}]
-            if model == "stock.move" and method == "search_read":
+                         "move_id": [10, "MOVE/10"], "location_id": [1, "WH/Stock/A-1"],
+                         "lot_id": False}]
+            if model == "stock.move.line" and method == "search_read":
                 return [{"id": 10, "picked": True}]
             raise AssertionError(f"unexpected execute_kw {model}.{method}")
 
@@ -599,10 +604,118 @@ class TestConfirmPickLineSerial:
             quantity=1, serial_number="   ",
         )
 
-        assert result["recorded_serial"] == ""
-        for call in odoo.write.call_args_list:
-            vals = call.args[2] if len(call.args) > 2 else call.kwargs.get("vals", {})
-            assert "lot_name" not in vals
+        assert result["success"] is False
+        assert result["serial_required"] is True
+        odoo.write.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_rejects_unknown_serial_for_serial_tracked_product(self, service, odoo, n8n):
+        async def fake_execute_kw(model, method, args, kwargs=None):
+            if model == "stock.move.line" and method == "read":
+                return [{"id": 50, "product_id": [5, "[CPU] Xeon"], "quantity": 1,
+                         "move_id": [10, "MOVE/10"], "location_id": [1, "WH/Stock/A-1"],
+                         "lot_id": False}]
+            raise AssertionError(f"unexpected execute_kw {model}.{method}")
+
+        async def fake_search_read(model, domain, fields, limit=100):
+            if model == "product.product" and "barcode" in fields:
+                return [{"barcode": "CPU-XEON-1"}]
+            if model == "product.product" and "tracking" in fields:
+                return [{"tracking": "serial"}]
+            if model == "stock.quant":
+                return [{"quantity": 10, "reserved_quantity": 0, "location_id": [1, "WH/Stock/A-1"]}]
+            if model == "stock.lot":
+                return []
+            raise AssertionError(f"unexpected search_read {model} {fields}")
+
+        odoo.execute_kw.side_effect = fake_execute_kw
+        odoo.search_read.side_effect = fake_search_read
+
+        result = await service.confirm_pick_line(
+            picking_id=1, move_line_id=50, scanned_barcode="CPU-XEON-1",
+            quantity=1, serial_number="SN-MISSING",
+        )
+
+        assert result["success"] is False
+        assert result["serial_not_found"] is True
+        odoo.write.assert_not_called()
+
+
+class TestReturnSerialReconcile:
+    @pytest.mark.anyio
+    async def test_reconcile_detects_missing_unknown_and_duplicate_return_serials(self, service, odoo):
+        async def fake_execute_kw(model, method, args, kwargs=None):
+            assert model == "stock.move.line"
+            assert method == "search_read"
+            assert args == [[("picking_id", "=", 77)]]
+            return [
+                {"id": 501, "product_id": [5, "[BRICK] Brick 2x2"], "lot_id": [91, "SN-1"], "lot_name": False},
+                {"id": 502, "product_id": [5, "[BRICK] Brick 2x2"], "lot_id": [92, "SN-2"], "lot_name": False},
+                {"id": 503, "product_id": [6, "[BULK] Bulk Teil"], "lot_id": False, "lot_name": False},
+            ]
+
+        async def fake_search_read(model, domain, fields, limit=100):
+            assert model == "product.product"
+            assert domain == [("id", "in", [5, 6])]
+            return [
+                {"id": 5, "tracking": "serial", "display_name": "[BRICK] Brick 2x2", "name": "Brick 2x2"},
+                {"id": 6, "tracking": "none", "display_name": "[BULK] Bulk Teil", "name": "Bulk Teil"},
+            ]
+
+        odoo.execute_kw.side_effect = fake_execute_kw
+        odoo.search_read.side_effect = fake_search_read
+
+        result = await service.reconcile_return_serials(77, ["SN-1", "SN-X", "SN-X"])
+
+        assert result["success"] is True
+        assert result["ok"] is False
+        assert result["shipped_serials"] == ["SN-1", "SN-2"]
+        assert result["returned_serials"] == ["SN-1", "SN-X", "SN-X"]
+        assert result["reconcile"] == {
+            "ok": False,
+            "missing": ["SN-2"],
+            "unknown": ["SN-X"],
+            "duplicates": ["SN-X"],
+        }
+        assert result["summary"] == {
+            "shipped_count": 2,
+            "returned_count": 3,
+            "missing_count": 1,
+            "unknown_count": 1,
+            "duplicate_count": 1,
+        }
+        assert result["shipped_items"][0]["product_name"] == "Brick 2x2"
+
+    @pytest.mark.anyio
+    async def test_reconcile_uses_lot_name_fallback_for_older_serial_writes(self, service, odoo):
+        odoo.execute_kw.return_value = [
+            {"id": 501, "product_id": [5, "[CPU] Xeon"], "lot_id": False, "lot_name": "SN-LEGACY"}
+        ]
+        odoo.search_read.return_value = [
+            {"id": 5, "tracking": "serial", "display_name": "[CPU] Xeon", "name": "Xeon"}
+        ]
+
+        result = await service.reconcile_return_serials(77, [" SN-LEGACY "])
+
+        assert result["success"] is True
+        assert result["ok"] is True
+        assert result["shipped_serials"] == ["SN-LEGACY"]
+        assert result["returned_serials"] == ["SN-LEGACY"]
+
+    @pytest.mark.anyio
+    async def test_reconcile_returns_failure_when_picking_has_no_lines(self, service, odoo):
+        odoo.execute_kw.return_value = []
+
+        result = await service.reconcile_return_serials(404, ["SN-X"])
+
+        assert result["success"] is False
+        assert result["picking_id"] == 404
+        assert result["reconcile"] == {
+            "ok": False,
+            "missing": [],
+            "unknown": ["SN-X"],
+            "duplicates": [],
+        }
 
 
 class TestRequestReplenishment:

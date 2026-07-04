@@ -4,13 +4,14 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.dependencies import (
     get_mobile_workflow_service,
     get_odoo_client,
     get_picking_service,
+    get_request_odoo_client,
     get_required_picker_identity,
     get_write_request_context,
 )
@@ -46,6 +47,10 @@ class ConfirmLineRequest(BaseModel):
 class ReplenishmentRequest(BaseModel):
     move_line_id: int
     reason: str = ""
+
+
+class ReturnReconcileRequest(BaseModel):
+    returned_serials: list[str] = Field(default_factory=list)
 
 
 def _require_identity(context: WriteRequestContext) -> None:
@@ -105,7 +110,7 @@ async def list_pickers(workflow=Depends(get_mobile_workflow_service)):
 async def get_product_image(
     product_id: int,
     size: int = Query(default=256, ge=128, le=1920),
-    odoo: OdooClient = Depends(get_odoo_client),
+    odoo: OdooClient = Depends(get_request_odoo_client),
 ):
     """Produktbild in passender Groesse aus Odoo als Binary."""
     resolved_size, requested_field = next(
@@ -284,6 +289,7 @@ async def confirm_line(
             "move_line_id": body.move_line_id,
             "scanned_barcode": body.scanned_barcode,
             "quantity": body.quantity,
+            "serial_number": body.serial_number,
         }
     )
     reservation = await workflow.begin_idempotent_request("pickings.confirm-line", context, fingerprint, picking_id)
@@ -315,6 +321,17 @@ async def confirm_line(
 
     await workflow.finalize_idempotent_request(reservation, result, 200)
     return result
+
+
+@router.post("/pickings/{picking_id}/returns/reconcile")
+async def reconcile_return_serials(
+    picking_id: int,
+    body: ReturnReconcileRequest,
+    _picker_identity: PickerIdentity = Depends(get_required_picker_identity),
+    service=Depends(get_picking_service),
+):
+    """Retouren-Seriennummern gegen die ausgelieferten Odoo-Serials vergleichen."""
+    return await service.reconcile_return_serials(picking_id, body.returned_serials)
 
 
 @router.post("/pickings/{picking_id}/replenishment-request")
