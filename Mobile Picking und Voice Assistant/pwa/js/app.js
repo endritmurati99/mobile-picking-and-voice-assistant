@@ -3374,6 +3374,10 @@ function goToLine(idx) {
 // echten Odoo stock.picking.batch ueber /api/cluster/*. Beruehrt den Einzel-
 // Picking-Flow (handleConfirmAll/handleScan) nicht.
 
+const CLUSTER_MIN_ORDERS = 2;
+const CLUSTER_RECOMMENDED_MIN_ORDERS = 4;
+const CLUSTER_MAX_ORDERS = 8;
+
 function getClusterSelected() {
     const selected = getState().clusterSelected;
     return selected instanceof Set ? selected : new Set();
@@ -3391,6 +3395,20 @@ function resolveClusterPackageToken(line, boxes = []) {
     if (box?.package_name) return String(box.package_name);
     if (box?.package_id != null) return String(box.package_id);
     return '';
+}
+
+function getClusterSelectionStatus(selectedIds) {
+    const count = selectedIds.length;
+    if (count < CLUSTER_MIN_ORDERS) {
+        return { ok: false, message: `Mindestens ${CLUSTER_MIN_ORDERS} Aufträge wählen.` };
+    }
+    if (count > CLUSTER_MAX_ORDERS) {
+        return { ok: false, message: `Maximal ${CLUSTER_MAX_ORDERS} Aufträge pro Wagen.` };
+    }
+    if (count < CLUSTER_RECOMMENDED_MIN_ORDERS) {
+        return { ok: true, message: `Gültig; empfohlen sind ${CLUSTER_RECOMMENDED_MIN_ORDERS}-${CLUSTER_MAX_ORDERS}.` };
+    }
+    return { ok: true, message: `${count}/${CLUSTER_MAX_ORDERS} Aufträge im Wagen.` };
 }
 
 // Nur sichere Farbwerte in inline-styles zulassen (CSS-Injection-Schutz):
@@ -3441,17 +3459,27 @@ async function enterClusterMode() {
 function renderClusterSelect() {
     const { clusterSuggestions = [], clusterOpenPickings = [] } = getState();
     const selected = getClusterSelected();
+    const ids = Array.from(selected);
+    const status = getClusterSelectionStatus(ids);
 
     const suggestionsHtml = clusterSuggestions.length
-        ? clusterSuggestions.map((group) => `
+        ? clusterSuggestions.map((group) => {
+            const reasonChips = Array.isArray(group.reasons)
+                ? group.reasons.map((reason) => `<span class="cluster-rule-chip">${escapeHtml(reason)}</span>`).join('')
+                : '';
+            const score = Number.isFinite(Number(group.score)) ? ` · Score ${safeInt(group.score)}` : '';
+            const delivery = group.delivery_date ? ` · ${escapeHtml(group.delivery_date)}` : '';
+            return `
             <article class="cluster-suggestion" data-suggestion-zone="${escapeHtml(group.zone)}">
                 <div class="cluster-suggestion__info">
                     <div class="cluster-suggestion__zone">${escapeHtml(group.zone)}</div>
-                    <div class="cluster-suggestion__meta">${group.order_count} Aufträge · ${group.line_count} Positionen</div>
+                    <div class="cluster-suggestion__meta">${group.order_count} Aufträge · ${group.line_count} Positionen${delivery}${score}</div>
+                    ${reasonChips ? `<div class="cluster-rule-chips">${reasonChips}</div>` : ''}
                 </div>
                 <button type="button" class="picker-option cluster-suggestion__apply"
                     data-apply-pickings="${escapeHtml(group.picking_ids.join(','))}">Übernehmen</button>
-            </article>`).join('')
+            </article>`;
+        }).join('')
         : '<p class="cluster-empty">Kein Auto-Vorschlag verfügbar. Wähle Aufträge manuell aus.</p>';
 
     const pickingsHtml = clusterOpenPickings.length
@@ -3473,13 +3501,13 @@ function renderClusterSelect() {
         }).join('')
         : renderListEmptyState('Keine offenen Aufträge zum Bündeln.');
 
-    const count = selected.size;
+    const count = ids.length;
     setMainContent(`
         <section class="cluster-select">
             <header class="queue-overview queue-overview--main" aria-label="Cluster-Picking">
                 <div class="queue-overview__eyebrow">Cluster-Picking</div>
                 <div class="queue-overview__title">Batch zusammenstellen</div>
-                <div class="queue-overview__helper">Vorschlag übernehmen oder Aufträge einzeln antippen.</div>
+                <div class="queue-overview__helper">Vorschlag übernehmen oder Aufträge einzeln antippen. Wagen: separate Kartons je Auftrag.</div>
             </header>
 
             <div class="cluster-section">
@@ -3495,9 +3523,12 @@ function renderClusterSelect() {
 
         <div class="cluster-start-bar">
             <button type="button" class="cluster-back" data-cluster-back>Zurück</button>
+            <div class="cluster-capacity ${status.ok ? 'cluster-capacity--ok' : 'cluster-capacity--bad'}">
+                ${escapeHtml(status.message)}
+            </div>
             <button type="button" class="btn-big btn-big--primary cluster-start"
-                data-cluster-confirm ${count < 1 ? 'disabled' : ''}>
-                Batch starten${count ? ` (${count})` : ''}
+                data-cluster-confirm ${status.ok ? '' : 'disabled'}>
+                Batch starten${count ? ` (${count}/${CLUSTER_MAX_ORDERS})` : ''}
             </button>
         </div>
     `);
@@ -3537,6 +3568,11 @@ function bindClusterSelect() {
 async function createClusterBatch() {
     const ids = Array.from(getClusterSelected());
     if (!ids.length) return;
+    const status = getClusterSelectionStatus(ids);
+    if (!status.ok) {
+        showToast(status.message, 'error');
+        return;
+    }
     const startBtn = document.querySelector('[data-cluster-confirm]');
     if (startBtn) startBtn.disabled = true;  // Doppel-Tap-Schutz (kein Server-Idempotenz im PoC)
     try {
@@ -3632,6 +3668,7 @@ function renderClusterWalk(batch) {
                     <div class="cluster-progress__title">${escapeHtml(batch.name || 'Batch')}</div>
                     <div class="cluster-progress__count">${doneCount} / ${totalCount}</div>
                 </div>
+                <div class="cluster-progress__helper">Wagen: separate Kartons je Auftrag.</div>
                 <div class="cluster-progress__track" aria-hidden="true">
                     <span class="cluster-progress__bar" style="width:${pct}%"></span>
                 </div>

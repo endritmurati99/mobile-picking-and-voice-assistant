@@ -62,6 +62,11 @@ async function mockClusterApi(page, options = {}) {
         zone: 'Lager Links', picking_ids: [1001, 1002],
         order_count: 2, line_count: 2,
         picking_names: ['WH/INT/00007', 'WH/INT/00008'],
+        delivery_date: '2026-07-09',
+        score: 85,
+        reasons: ['Ausliefertag 2026-07-09', 'Zone Lager Links', '1 gemeinsame Produkte'],
+        warnings: ['2 Aufträge sind gültig, empfohlen sind 4-8.'],
+        product_overlap_count: 1,
       }]);
     }
     if (path === '/api/cluster/batches' && method === 'POST') {
@@ -149,7 +154,7 @@ test('Cluster-Flow: Auswahl -> Rundgang -> Serial -> Abschluss', async ({ page }
   // Vorschlag uebernehmen -> beide Auftraege ausgewaehlt
   await page.getByRole('button', { name: 'Übernehmen' }).first().click();
   const startBtn = page.locator('[data-cluster-confirm]');
-  await expect(startBtn).toContainText('(2)');
+  await expect(startBtn).toContainText('(2/8)');
 
   // Batch starten -> Rundgang
   await startBtn.click();
@@ -211,6 +216,28 @@ test('Cluster-Karton: falscher Karton warnt und blockiert, richtiger geht durch'
   const reqs = cluster.getConfirmRequests();
   expect(reqs).toHaveLength(1);
   expect(reqs[0]).toMatchObject({ move_line_id: 5001, scanned_package: 'CLUSTER-B1/WH/INT/00007' });
+});
+
+test('Cluster-Auswahl sperrt Einzelauftrag', async ({ page }) => {
+  await mockPwaApi(page);
+  await mockClusterApi(page);
+
+  await enterCluster(page);
+  await page.locator('[data-cluster-pick-id]').first().click();
+
+  await expect(page.locator('[data-cluster-confirm]')).toBeDisabled();
+  await expect(page.getByText(/Mindestens 2/i)).toBeVisible();
+});
+
+test('Cluster-Vorschlag zeigt fachliche Gruende', async ({ page }) => {
+  await mockPwaApi(page);
+  await mockClusterApi(page);
+
+  await enterCluster(page);
+
+  await expect(page.getByText(/Ausliefertag/i)).toBeVisible();
+  await expect(page.getByText(/gemeinsame Produkte/i)).toBeVisible();
+  await expect(page.getByText(/separate Kartons/i)).toBeVisible();
 });
 
 test('Cluster-Karton: fehlender Zielkarton blockiert Confirm', async ({ page }) => {

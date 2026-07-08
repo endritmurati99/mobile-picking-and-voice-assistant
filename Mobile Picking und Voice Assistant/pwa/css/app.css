@@ -3436,6 +3436,26 @@ main::-webkit-scrollbar-thumb {
     color: var(--ink-soft);
 }
 
+.cluster-rule-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.cluster-rule-chip,
+.cluster-capacity {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 0 10px;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    line-height: 1.2;
+    background: var(--surface-2);
+    color: var(--ink-soft);
+}
+
 .cluster-suggestion__apply {
     flex: 0 0 auto;
     width: auto;
@@ -3525,6 +3545,7 @@ main::-webkit-scrollbar-thumb {
     bottom: 0;
     left: 0;
     display: flex;
+    align-items: center;
     gap: 10px;
     padding: 12px 0 calc(12px + env(safe-area-inset-bottom));
     background: linear-gradient(180deg, transparent, var(--bg) 28%);
@@ -3552,6 +3573,24 @@ main::-webkit-scrollbar-thumb {
 .cluster-start:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+.cluster-capacity {
+    flex: 1 1 auto;
+    min-height: 44px;
+    justify-content: center;
+    text-align: center;
+    font-weight: 700;
+}
+
+.cluster-capacity--ok {
+    background: color-mix(in oklab, var(--success, #19a974) 14%, var(--surface));
+    color: var(--ink);
+}
+
+.cluster-capacity--bad {
+    background: color-mix(in oklab, var(--danger, #d64545) 14%, var(--surface));
+    color: var(--danger, #d64545);
 }
 
 /* Rundgang: Fortschritt + Box-Legende */
@@ -3583,6 +3622,11 @@ main::-webkit-scrollbar-thumb {
     font-size: 1.05rem;
     font-weight: 800;
     color: var(--primary);
+}
+
+.cluster-progress__helper {
+    font-size: 0.86rem;
+    color: var(--ink-soft);
 }
 
 .cluster-progress__track {
