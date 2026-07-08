@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">Cluster-Picking Wagenmodell</title>
+  <desc id="desc">Zeigt einen Kommissionierwagen mit mehreren auftragsbezogenen Kartons und gemeinsamem Laufweg.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#334155"/>
+    </marker>
+    <style>
+      .bg { fill: #f8fafc; }
+      .title { font: 700 26px Arial, sans-serif; fill: #0f172a; }
+      .small { font: 14px Arial, sans-serif; fill: #334155; }
+      .label { font: 700 17px Arial, sans-serif; fill: #0f172a; }
+      .tiny { font: 13px Arial, sans-serif; fill: #475569; }
+      .wagon { fill: #e2e8f0; stroke: #334155; stroke-width: 4; rx: 22; }
+      .shelf { stroke: #64748b; stroke-width: 4; }
+      .box1 { fill: #ede9fe; stroke: #7c3aed; stroke-width: 3; rx: 12; }
+      .box2 { fill: #ffedd5; stroke: #ea580c; stroke-width: 3; rx: 12; }
+      .box3 { fill: #dcfce7; stroke: #16a34a; stroke-width: 3; rx: 12; }
+      .box4 { fill: #cffafe; stroke: #0891b2; stroke-width: 3; rx: 12; }
+      .loc { fill: #ffffff; stroke: #94a3b8; stroke-width: 2; rx: 12; }
+      .arrow { stroke: #334155; stroke-width: 4; fill: none; marker-end: url(#arrow); }
+      .put { stroke: #16a34a; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+      .warn { fill: #fef2f2; stroke: #dc2626; stroke-width: 2; rx: 10; }
+    </style>
+  </defs>
+  <rect class="bg" width="1280" height="720"/>
+  <text class="title" x="50" y="52">Cluster-Picking: ein Laufweg, mehrere Zielkartons</text>
+  <text class="small" x="50" y="82">Der Picker sammelt gleiche oder aehnliche Produkte fuer mehrere Auftraege und sortiert sofort in den richtigen Auftragkarton.</text>
+
+  <rect class="wagon" x="420" y="160" width="430" height="390"/>
+  <text class="label" x="552" y="198">Kommissionierwagen</text>
+  <line class="shelf" x1="450" y1="335" x2="820" y2="335"/>
+
+  <rect class="box1" x="458" y="225" width="160" height="82"/>
+  <text class="label" x="486" y="258">Karton 1</text>
+  <text class="tiny" x="486" y="282">SO-DEMO-001</text>
+
+  <rect class="box2" x="652" y="225" width="160" height="82"/>
+  <text class="label" x="680" y="258">Karton 2</text>
+  <text class="tiny" x="680" y="282">SO-DEMO-002</text>
+
+  <rect class="box3" x="458" y="370" width="160" height="82"/>
+  <text class="label" x="486" y="403">Karton 3</text>
+  <text class="tiny" x="486" y="427">SO-DEMO-003</text>
+
+  <rect class="box4" x="652" y="370" width="160" height="82"/>
+  <text class="label" x="680" y="403">Karton 4</text>
+  <text class="tiny" x="680" y="427">SO-DEMO-004</text>
+
+  <circle cx="495" cy="575" r="28" fill="#334155"/>
+  <circle cx="775" cy="575" r="28" fill="#334155"/>
+  <circle cx="495" cy="575" r="12" fill="#f8fafc"/>
+  <circle cx="775" cy="575" r="12" fill="#f8fafc"/>
+
+  <rect class="loc" x="70" y="168" width="220" height="78"/>
+  <text class="label" x="106" y="200">Regal A-01</text>
+  <text class="tiny" x="106" y="224">301121 fuer 4 Auftraege</text>
+
+  <rect class="loc" x="70" y="308" width="220" height="78"/>
+  <text class="label" x="106" y="340">Regal A-02</text>
+  <text class="tiny" x="106" y="364">343721 / 343724 / 4166960</text>
+
+  <rect class="loc" x="990" y="238" width="220" height="78"/>
+  <text class="label" x="1026" y="270">Packplatz</text>
+  <text class="tiny" x="1026" y="294">Nachsortieren reduziert</text>
+
+  <path class="arrow" d="M290 207 C350 180 385 184 420 220"/>
+  <path class="arrow" d="M290 347 C350 350 385 350 420 390"/>
+  <path class="arrow" d="M850 355 C910 350 944 318 990 285"/>
+
+  <path class="put" d="M370 205 C420 240 430 252 458 260"/>
+  <path class="put" d="M370 205 C520 214 612 232 652 260"/>
+  <path class="put" d="M370 205 C415 348 430 392 458 405"/>
+  <path class="put" d="M370 205 C560 342 610 380 652 405"/>
+
+  <rect class="warn" x="80" y="520" width="310" height="92"/>
+  <text class="label" x="108" y="552">Wichtiger Unterschied</text>
+  <text class="small" x="108" y="578">Nicht alle Auftraege in einen Karton.</text>
+  <text class="small" x="108" y="598">Ein Auftrag = ein Ziel-Package.</text>
+
+  <text class="small" x="456" y="500">PWA verlangt vor jedem Confirm den passenden Karton.</text>
+</svg>
