@@ -72,6 +72,45 @@ def _m2o_name(value: Any) -> str:
     return ""
 
 
+def _date_key(value: Any) -> str:
+    raw = str(value or "").strip()
+    return raw[:10] if len(raw) >= 10 else ""
+
+
+def _shipping_address(partner: dict[str, Any]) -> dict[str, str]:
+    country = partner.get("country_id")
+    return {
+        "street": partner.get("street") or "",
+        "street2": partner.get("street2") or "",
+        "zip": partner.get("zip") or "",
+        "city": partner.get("city") or "",
+        "country": country[1] if isinstance(country, (list, tuple)) and len(country) > 1 else "",
+    }
+
+
+async def _read_partner_map(odoo, partner_ids: list[int]) -> dict[int, dict[str, Any]]:
+    ids = sorted({pid for pid in partner_ids if pid is not None})
+    if not ids:
+        return {}
+    partners = await odoo.search_read(
+        "res.partner",
+        [("id", "in", ids)],
+        ["name", "street", "street2", "zip", "city", "country_id", "email", "phone"],
+        limit=len(ids),
+    )
+    return {partner["id"]: partner for partner in partners}
+
+
+def _apply_shipping_context(picking: dict[str, Any], partner_map: dict[int, dict[str, Any]]) -> None:
+    partner_id = _m2o_id(picking.get("partner_id"))
+    partner = partner_map.get(partner_id, {})
+    picking["customer_name"] = _m2o_name(picking.get("partner_id")) or partner.get("name") or ""
+    picking["shipping_address"] = _shipping_address(partner)
+    picking["customer_reference"] = picking.get("origin") or picking.get("name") or ""
+    picking["delivery_date"] = _date_key(picking.get("date_deadline") or picking.get("scheduled_date"))
+    picking["carrier_name"] = _m2o_name(picking.get("carrier_id")) if "carrier_id" in picking else ""
+
+
 def _line_is_picked(raw_line: dict[str, Any], move: dict[str, Any]) -> bool:
     if "picked" in raw_line:
         return bool(raw_line.get("picked"))
@@ -339,6 +378,7 @@ class PickingService:
                 "origin",
                 "partner_id",
                 "scheduled_date",
+                "date_deadline",
                 "state",
                 "picking_type_id",
                 "priority",
@@ -347,6 +387,13 @@ class PickingService:
         )
         if not pickings:
             return []
+
+        partner_map = await _read_partner_map(
+            self._odoo,
+            [_m2o_id(picking.get("partner_id")) for picking in pickings],
+        )
+        for picking in pickings:
+            _apply_shipping_context(picking, partner_map)
 
         picking_ids = [picking["id"] for picking in pickings]
         raw_lines = await self._odoo.execute_kw(
@@ -468,6 +515,7 @@ class PickingService:
                 "origin",
                 "partner_id",
                 "scheduled_date",
+                "date_deadline",
                 "state",
                 "move_ids",
                 "location_id",
@@ -481,6 +529,11 @@ class PickingService:
             return {"error": "Picking nicht gefunden"}
 
         picking = pickings[0]
+        partner_map = await _read_partner_map(
+            self._odoo,
+            [_m2o_id(picking.get("partner_id"))],
+        )
+        _apply_shipping_context(picking, partner_map)
         # Single search_read instead of search + read (saves one Odoo round-trip).
         raw_lines = await self._odoo.execute_kw(
             "stock.move.line",

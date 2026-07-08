@@ -40,14 +40,26 @@ class TestGetOpenPickings:
                     {
                         "id": 1,
                         "name": "WH/INT/00001",
-                        "origin": "[324876] LEGO Ente (BOM 324876)",
+                        "origin": "SO-DEMO-001",
                         "state": "assigned",
-                        "partner_id": [7, "Werk 1"],
+                        "partner_id": [7, "ACME Demo GmbH"],
                         "scheduled_date": "2026-03-24 08:00:00",
                         "picking_type_id": [4, "My Company: Internal Transfers"],
                         "priority": "1",
                     }
                 ]
+            if model == "res.partner":
+                return [{
+                    "id": 7,
+                    "name": "ACME Demo GmbH",
+                    "street": "Musterstrasse 12",
+                    "street2": "",
+                    "zip": "48149",
+                    "city": "Muenster",
+                    "country_id": [49, "Deutschland"],
+                    "email": "logistik@acme-demo.example",
+                    "phone": "+49 251 000001",
+                }]
             if model == "stock.move":
                 return [
                     {"id": 10, "product_uom_qty": 5, "picked": False},
@@ -93,7 +105,10 @@ class TestGetOpenPickings:
         assert result[0]["progress_ratio"] == 0.0
         assert result[0]["primary_zone_key"] == "halle-a"
         assert result[0]["voice_instruction_short"] == "A-12. 5 Stück. Bremsscheibe."
-        assert result[0]["kit_name"] == "LEGO Ente"
+        assert result[0]["customer_name"] == "ACME Demo GmbH"
+        assert result[0]["shipping_address"]["city"] == "Muenster"
+        assert result[0]["customer_reference"] == "SO-DEMO-001"
+        assert result[0]["delivery_date"] == "2026-03-24"
         assert result[0]["has_human_context"] is True
 
     @pytest.mark.anyio
@@ -186,18 +201,30 @@ class TestGetPickingDetail:
                 return [
                     {
                         "id": 1,
-                        "name": "WH/INT/00001",
-                        "origin": "[324876] LEGO Ente (BOM 324876)",
+                        "name": "WH/OUT/00001",
+                        "origin": "SO-DEMO-001",
                         "state": "assigned",
                         "move_ids": [10],
                         "location_id": [1, "Stock"],
                         "location_dest_id": [2, "Out"],
-                        "partner_id": False,
-                        "scheduled_date": False,
+                        "partner_id": [7, "ACME Demo GmbH"],
+                        "scheduled_date": "2026-07-09 08:00:00",
                         "picking_type_id": [4, "My Company: Internal Transfers"],
                         "priority": "1",
                     }
                 ]
+            if model == "res.partner":
+                return [{
+                    "id": 7,
+                    "name": "ACME Demo GmbH",
+                    "street": "Musterstrasse 12",
+                    "street2": "",
+                    "zip": "48149",
+                    "city": "Muenster",
+                    "country_id": [49, "Deutschland"],
+                    "email": "logistik@acme-demo.example",
+                    "phone": "+49 251 000001",
+                }]
             if model == "product.product":
                 return [{"id": 5, "barcode": "4006381333931", "default_code": "SC-M8"}]
             if model == "stock.move":
@@ -219,7 +246,17 @@ class TestGetPickingDetail:
 
         result = await service.get_picking_detail(1)
 
-        assert result["reference_code"] == "WH/INT/00001"
+        assert result["reference_code"] == "WH/OUT/00001"
+        assert result["customer_name"] == "ACME Demo GmbH"
+        assert result["shipping_address"] == {
+            "street": "Musterstrasse 12",
+            "street2": "",
+            "zip": "48149",
+            "city": "Muenster",
+            "country": "Deutschland",
+        }
+        assert result["customer_reference"] == "SO-DEMO-001"
+        assert result["delivery_date"] == "2026-07-09"
         assert result["primary_item_display"] == "10x Schraube M8"
         assert result["primary_item_sku"] == "SC-M8"
         assert result["next_location_short"] == "A-01"
@@ -236,8 +273,8 @@ class TestGetPickingDetail:
         assert result["move_lines"][0]["ui_display"] == "Schraube M8"
         assert result["move_lines"][0]["voice_instruction_short"] == "A-01. 10 Stück. Schraube M8."
         assert result["route_plan"]["next_move_line_id"] == 20
-        assert result["kit_name"] == "LEGO Ente"
-        assert result["voice_intro"] == "LEGO Ente. A-01. 10 Stück. Schraube M8."
+        assert result["kit_name"] == "SO-DEMO-001"
+        assert result["voice_intro"] == "SO-DEMO-001. A-01. 10 Stück. Schraube M8."
         assert result["has_human_context"] is True
 
     @pytest.mark.anyio

@@ -123,6 +123,42 @@ def _date_key(value: Any) -> str:
     return raw[:10] if len(raw) >= 10 else ""
 
 
+def _shipping_address(partner: dict[str, Any]) -> dict[str, str]:
+    country = partner.get("country_id")
+    return {
+        "street": partner.get("street") or "",
+        "street2": partner.get("street2") or "",
+        "zip": partner.get("zip") or "",
+        "city": partner.get("city") or "",
+        "country": country[1] if isinstance(country, (list, tuple)) and len(country) > 1 else "",
+    }
+
+
+async def _read_partner_map(odoo, partner_ids: list[int]) -> dict[int, dict[str, Any]]:
+    ids = sorted({pid for pid in partner_ids if pid is not None})
+    if not ids:
+        return {}
+    partners = await odoo.search_read(
+        "res.partner",
+        [("id", "in", ids)],
+        ["name", "street", "street2", "zip", "city", "country_id", "email", "phone"],
+        limit=len(ids),
+    )
+    return {partner["id"]: partner for partner in partners}
+
+
+def _picking_shipping_context(picking: dict[str, Any], partner_map: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    partner_id = _many2one_id(picking.get("partner_id"))
+    partner = partner_map.get(partner_id, {})
+    return {
+        "customer_name": _many2one_name(picking.get("partner_id")) or partner.get("name") or "",
+        "shipping_address": _shipping_address(partner),
+        "customer_reference": picking.get("origin") or picking.get("name") or "",
+        "delivery_date": _date_key(picking.get("date_deadline") or picking.get("scheduled_date")),
+        "carrier_name": _many2one_name(picking.get("carrier_id")) if "carrier_id" in picking else "",
+    }
+
+
 def _clean_product_name(display_name: str) -> str:
     """Odoo-'[ref] '-Prefix aus dem Produktnamen entfernen."""
     return re.sub(r"^\[.*?\]\s*", "", display_name or "")
@@ -572,10 +608,17 @@ class ClusterService:
 
         picking_ids = batch.get("picking_ids", []) or []
         pickings = await self._odoo.search_read(
-            "stock.picking", [("id", "in", picking_ids)], ["name"],
+            "stock.picking",
+            [("id", "in", picking_ids)],
+            ["name", "partner_id", "origin", "scheduled_date", "date_deadline"],
             limit=len(picking_ids) or 1,
         ) if picking_ids else []
         name_by_picking = {p["id"]: p["name"] for p in pickings}
+        picking_by_id = {p["id"]: p for p in pickings}
+        partner_map = await _read_partner_map(
+            self._odoo,
+            [_many2one_id(picking.get("partner_id")) for picking in pickings],
+        )
         box_map = assign_boxes(picking_ids)
 
         raw_lines = await self._odoo.search_read(
@@ -651,7 +694,8 @@ class ClusterService:
                 {"picking_id": pid, "picking_name": name_by_picking.get(pid, ""),
                  "box_index": box_map[pid]["box_index"], "box_color": box_map[pid]["box_color"],
                  "package_id": package_by_picking.get(pid, {}).get("package_id"),
-                 "package_name": package_by_picking.get(pid, {}).get("package_name")}
+                 "package_name": package_by_picking.get(pid, {}).get("package_name"),
+                 **_picking_shipping_context(picking_by_id.get(pid, {}), partner_map)}
                 for pid in sorted(picking_ids)
             ],
             "lines": ordered,

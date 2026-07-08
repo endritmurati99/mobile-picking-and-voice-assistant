@@ -399,7 +399,23 @@ class TestCreateBatch:
                 return [{"id": 99, "name": "B", "state": "in_progress",
                          "picking_ids": [1, 2], "user_id": [7, "Max"]}]
             if model == "stock.picking":
-                return [{"id": 1, "name": "WH/OUT/001"}, {"id": 2, "name": "WH/OUT/002"}]
+                return [
+                    {"id": 1, "name": "WH/OUT/001", "partner_id": [50, "ACME Demo GmbH"],
+                     "origin": "SO-DEMO-001", "scheduled_date": "2026-07-09 08:00:00"},
+                    {"id": 2, "name": "WH/OUT/002", "partner_id": [51, "Meyer KG"],
+                     "origin": "SO-DEMO-002", "scheduled_date": "2026-07-09 10:00:00"},
+                ]
+            if model == "res.partner":
+                return [
+                    {"id": 50, "name": "ACME Demo GmbH", "street": "Musterstrasse 12",
+                     "street2": "", "zip": "48149", "city": "Muenster",
+                     "country_id": [49, "Deutschland"], "email": "logistik@acme-demo.example",
+                     "phone": "+49 251 000001"},
+                    {"id": 51, "name": "Meyer KG", "street": "Hafenweg 7",
+                     "street2": "", "zip": "48155", "city": "Muenster",
+                     "country_id": [49, "Deutschland"], "email": "wareneingang@meyer-demo.example",
+                     "phone": "+49 251 000002"},
+                ]
             return []
 
         odoo.search_read.side_effect = fake_search_read
@@ -456,7 +472,23 @@ class TestCreateBatch:
                 return [{"id": 99, "name": "B", "state": "in_progress",
                          "picking_ids": [1, 2], "user_id": [7, "Max"]}]
             if model == "stock.picking":
-                return [{"id": 1, "name": "WH/OUT/001"}, {"id": 2, "name": "WH/OUT/002"}]
+                return [
+                    {"id": 1, "name": "WH/OUT/001", "partner_id": [50, "ACME Demo GmbH"],
+                     "origin": "SO-DEMO-001", "scheduled_date": "2026-07-09 08:00:00"},
+                    {"id": 2, "name": "WH/OUT/002", "partner_id": [51, "Meyer KG"],
+                     "origin": "SO-DEMO-002", "scheduled_date": "2026-07-09 10:00:00"},
+                ]
+            if model == "res.partner":
+                return [
+                    {"id": 50, "name": "ACME Demo GmbH", "street": "Musterstrasse 12",
+                     "street2": "", "zip": "48149", "city": "Muenster",
+                     "country_id": [49, "Deutschland"], "email": "logistik@acme-demo.example",
+                     "phone": "+49 251 000001"},
+                    {"id": 51, "name": "Meyer KG", "street": "Hafenweg 7",
+                     "street2": "", "zip": "48155", "city": "Muenster",
+                     "country_id": [49, "Deutschland"], "email": "wareneingang@meyer-demo.example",
+                     "phone": "+49 251 000002"},
+                ]
             return []
 
         odoo.search_read.side_effect = fake_search_read
@@ -493,7 +525,23 @@ class TestCreateBatch:
                 return [{"id": 99, "name": "B", "state": "in_progress",
                          "picking_ids": [1, 2], "user_id": [7, "Max"]}]
             if model == "stock.picking":
-                return [{"id": 1, "name": "WH/OUT/001"}, {"id": 2, "name": "WH/OUT/002"}]
+                return [
+                    {"id": 1, "name": "WH/OUT/001", "partner_id": [50, "ACME Demo GmbH"],
+                     "origin": "SO-DEMO-001", "scheduled_date": "2026-07-09 08:00:00"},
+                    {"id": 2, "name": "WH/OUT/002", "partner_id": [51, "Meyer KG"],
+                     "origin": "SO-DEMO-002", "scheduled_date": "2026-07-09 10:00:00"},
+                ]
+            if model == "res.partner":
+                return [
+                    {"id": 50, "name": "ACME Demo GmbH", "street": "Musterstrasse 12",
+                     "street2": "", "zip": "48149", "city": "Muenster",
+                     "country_id": [49, "Deutschland"], "email": "logistik@acme-demo.example",
+                     "phone": "+49 251 000001"},
+                    {"id": 51, "name": "Meyer KG", "street": "Hafenweg 7",
+                     "street2": "", "zip": "48155", "city": "Muenster",
+                     "country_id": [49, "Deutschland"], "email": "wareneingang@meyer-demo.example",
+                     "phone": "+49 251 000002"},
+                ]
             return []
 
         odoo.search_read.side_effect = fake_search_read
@@ -568,7 +616,23 @@ class TestGetBatch:
                 return [{"id": 99, "name": "B", "state": "in_progress",
                          "picking_ids": [1, 2], "user_id": [7, "Max"]}]
             if model == "stock.picking":
-                return [{"id": 1, "name": "WH/OUT/001"}, {"id": 2, "name": "WH/OUT/002"}]
+                return [
+                    {"id": 1, "name": "WH/OUT/001", "partner_id": [50, "ACME Demo GmbH"],
+                     "origin": "SO-DEMO-001", "scheduled_date": "2026-07-09 08:00:00"},
+                    {"id": 2, "name": "WH/OUT/002", "partner_id": [51, "Meyer KG"],
+                     "origin": "SO-DEMO-002", "scheduled_date": "2026-07-09 10:00:00"},
+                ]
+            if model == "res.partner":
+                return [
+                    {"id": 50, "name": "ACME Demo GmbH", "street": "Musterstrasse 12",
+                     "street2": "", "zip": "48149", "city": "Muenster",
+                     "country_id": [49, "Deutschland"], "email": "logistik@acme-demo.example",
+                     "phone": "+49 251 000001"},
+                    {"id": 51, "name": "Meyer KG", "street": "Hafenweg 7",
+                     "street2": "", "zip": "48155", "city": "Muenster",
+                     "country_id": [49, "Deutschland"], "email": "wareneingang@meyer-demo.example",
+                     "phone": "+49 251 000002"},
+                ]
             if model == "stock.move.line":
                 return [
                     {"id": 100, "picking_id": [1, "WH/OUT/001"], "product_id": [5, "Wal"],
@@ -598,6 +662,10 @@ class TestGetBatch:
         by_box = {b["picking_id"]: b for b in result["boxes"]}
         assert by_box[1]["package_name"] == "CLUSTER-B1/WH/OUT/001"
         assert by_box[1]["package_id"] == 70
+        assert by_box[1]["customer_name"] == "ACME Demo GmbH"
+        assert by_box[1]["shipping_address"]["city"] == "Muenster"
+        assert by_box[1]["customer_reference"] == "SO-DEMO-001"
+        assert by_box[1]["delivery_date"] == "2026-07-09"
         assert by_box[2]["package_name"] == "CLUSTER-B2/WH/OUT/002"
         # box_index/box_color bleiben unveraendert erhalten.
         assert by_box[1]["box_index"] == 1
