@@ -33,6 +33,9 @@ BOX_PALETTE: list[str] = ["#A299FF", "#FF8A7E", "#6FD3C7", "#F4C77B", "#7EA8FF",
 PACKAGE_MODEL_ODOO19 = "stock.package"
 PACKAGE_MODEL_LEGACY = "stock.quant.package"
 PACKAGE_MODEL_CANDIDATES = (PACKAGE_MODEL_ODOO19, PACKAGE_MODEL_LEGACY)
+CLUSTER_MIN_ORDERS = 2
+CLUSTER_RECOMMENDED_MIN_ORDERS = 4
+CLUSTER_MAX_ORDERS = 8
 
 
 def assign_boxes(picking_ids: list[int]) -> dict[int, dict[str, Any]]:
@@ -44,6 +47,26 @@ def assign_boxes(picking_ids: list[int]) -> dict[int, dict[str, Any]]:
             "box_color": BOX_PALETTE[index % len(BOX_PALETTE)],
         }
     return box_map
+
+
+def validate_cluster_capacity(picking_ids: list[int]) -> dict[str, Any]:
+    unique_ids = sorted({int(pid) for pid in (picking_ids or [])})
+    count = len(unique_ids)
+    if count < CLUSTER_MIN_ORDERS:
+        return {
+            "ok": False,
+            "code": "cluster_capacity",
+            "message": f"Cluster braucht mindestens {CLUSTER_MIN_ORDERS} Auftraege.",
+            "picking_ids": unique_ids,
+        }
+    if count > CLUSTER_MAX_ORDERS:
+        return {
+            "ok": False,
+            "code": "cluster_capacity",
+            "message": f"Cluster erlaubt maximal {CLUSTER_MAX_ORDERS} Auftraege pro Wagen.",
+            "picking_ids": unique_ids,
+        }
+    return {"ok": True, "picking_ids": unique_ids, "count": count}
 
 
 def build_cluster_lines(
@@ -106,7 +129,7 @@ class ClusterService:
         self._n8n = n8n
         self._package_model_name: str | None = None
 
-    async def suggest_batches(self) -> list[dict[str, Any]]:
+    async def suggest_batches(self, picker_identity=None) -> list[dict[str, Any]]:
         """Offene assigned-Pickings ohne Batch nach Lagerzone gruppieren."""
         try:
             try:
@@ -120,15 +143,10 @@ class ClusterService:
                 if not _is_missing_batch_field_error(exc):
                     raise
                 logger.warning(
-                    "suggest_batches: stock.picking.batch_id fehlt; nutze assigned-Fallback: %s",
+                    "suggest_batches: stock.picking.batch_id nicht verfuegbar; keine Cluster-Vorschlaege: %s",
                     exc,
                 )
-                pickings = await self._odoo.search_read(
-                    "stock.picking",
-                    [("state", "=", "assigned")],
-                    ["name"],
-                    limit=100,
-                )
+                return []
             if not pickings:
                 return []
 
@@ -177,9 +195,17 @@ class ClusterService:
 
     async def create_batch(self, picking_ids, picker_identity=None) -> dict[str, Any]:
         """Echten stock.picking.batch anlegen und bestaetigen (draft -> in_progress)."""
-        ids = [int(p) for p in (picking_ids or [])]
-        if not ids:
+        if not picking_ids:
             raise ValueError("picking_ids darf nicht leer sein")
+        capacity = validate_cluster_capacity(picking_ids)
+        if not capacity["ok"]:
+            return {
+                "success": False,
+                "error": capacity["message"],
+                "message": capacity["message"],
+                "code": capacity["code"],
+            }
+        ids = capacity["picking_ids"]
 
         # IDOR-/State-Schutz: nur eigene-faehige Pickings zulassen - assigned und
         # noch keinem Batch zugeordnet (analog suggest_batches). picking_ids=[(6,0,..)]
@@ -195,23 +221,25 @@ class ClusterService:
             if not _is_missing_batch_field_error(exc):
                 logger.error("create_batch: Picking-Scope-Abfrage fehlgeschlagen: %s", exc)
                 return {"error": f"Batch-Scope-Abfrage fehlgeschlagen: {exc}"}
-            logger.warning(
-                "create_batch: stock.picking.batch_id fehlt; pruefe Pickings ohne Batch-Filter: %s",
-                exc,
-            )
-            try:
-                allowed = await self._odoo.search_read(
-                    "stock.picking",
-                    [("id", "in", ids), ("state", "=", "assigned")],
-                    ["id", "company_id"],
-                    limit=len(ids),
-                )
-            except OdooAPIError as fallback_exc:
-                logger.error("create_batch: Picking-Fallback-Abfrage fehlgeschlagen: %s", fallback_exc)
-                return {"error": f"Batch-Picking ist in dieser Instanz nicht verfuegbar: {fallback_exc}"}
+            logger.error("create_batch: stock_picking_batch nicht verfuegbar: %s", exc)
+            return {
+                "success": False,
+                "error": "Cluster-Picking ist in dieser Odoo-Instanz nicht verfuegbar.",
+                "message": "Cluster-Picking ist in dieser Odoo-Instanz nicht verfuegbar.",
+                "code": "stock_picking_batch_unavailable",
+                "unavailable": True,
+            }
         allowed_ids = [p["id"] for p in allowed]
         if not allowed_ids:
             return {"error": "Keine gueltigen Pickings fuer diesen Batch.", "forbidden": True}
+        allowed_capacity = validate_cluster_capacity(allowed_ids)
+        if not allowed_capacity["ok"]:
+            return {
+                "success": False,
+                "error": allowed_capacity["message"],
+                "message": allowed_capacity["message"],
+                "code": allowed_capacity["code"],
+            }
 
         company_id = None
         for picking in allowed:
@@ -376,9 +404,9 @@ class ClusterService:
         if requester_id is None:
             return False
         owner_id = self._owner_id(batch)
-        if owner_id is not None and owner_id != requester_id:
+        if owner_id is None:
             return False
-        return True
+        return owner_id == requester_id
 
     async def get_batch(self, batch_id: int, picker_identity=None) -> dict[str, Any]:
         """Batch mit gemergter, route-sortierter Sammelliste + Box-Tags + Fortschritt."""

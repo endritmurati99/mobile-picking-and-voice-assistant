@@ -29,6 +29,17 @@ def test_get_suggestions(client, cluster_service):
     assert resp.json()[0]["zone"] == "Links"
 
 
+def test_suggestions_pass_picker_identity(client, cluster_service):
+    cluster_service.suggest_batches.return_value = []
+    resp = client.get(
+        "/api/cluster/suggestions",
+        headers={"X-Picker-User-Id": "7", "X-Device-Id": "dev-1"},
+    )
+    assert resp.status_code == 200
+    _, kwargs = cluster_service.suggest_batches.call_args
+    assert kwargs["picker_identity"].user_id == 7
+
+
 def test_create_batch(client, cluster_service):
     cluster_service.create_batch.return_value = {"batch_id": 99}
     resp = client.post("/api/cluster/batches", json={"picking_ids": [1, 2]},
@@ -42,6 +53,37 @@ def test_create_batch_rejects_empty(client, cluster_service):
     resp = client.post("/api/cluster/batches", json={"picking_ids": []},
                        headers={"X-Picker-User-Id": "7", "X-Device-Id": "d1"})
     assert resp.status_code == 400
+
+
+def test_create_batch_maps_capacity_error_to_422(client, cluster_service):
+    cluster_service.create_batch.return_value = {
+        "success": False,
+        "error": "Cluster braucht mindestens 2 Auftraege.",
+        "message": "Cluster braucht mindestens 2 Auftraege.",
+        "code": "cluster_capacity",
+    }
+    resp = client.post(
+        "/api/cluster/batches",
+        json={"picking_ids": [1]},
+        headers={"X-Picker-User-Id": "7", "X-Device-Id": "dev-1"},
+    )
+    assert resp.status_code == 422
+
+
+def test_create_batch_maps_unavailable_error_to_503(client, cluster_service):
+    cluster_service.create_batch.return_value = {
+        "success": False,
+        "error": "Cluster-Picking ist in dieser Odoo-Instanz nicht verfuegbar.",
+        "message": "Cluster-Picking ist in dieser Odoo-Instanz nicht verfuegbar.",
+        "code": "stock_picking_batch_unavailable",
+        "unavailable": True,
+    }
+    resp = client.post(
+        "/api/cluster/batches",
+        json={"picking_ids": [1, 2]},
+        headers={"X-Picker-User-Id": "7", "X-Device-Id": "dev-1"},
+    )
+    assert resp.status_code == 503
 
 
 def test_get_batch_404(client, cluster_service):

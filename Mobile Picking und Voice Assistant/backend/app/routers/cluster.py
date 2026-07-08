@@ -32,7 +32,7 @@ async def cluster_suggestions(
     service=Depends(get_cluster_service),
 ):
     """Auto-Vorschlaege fuer Batches (offene Pickings nach Zone gruppiert)."""
-    return await service.suggest_batches()
+    return await service.suggest_batches(picker_identity=_identity)
 
 
 @router.post("/cluster/batches")
@@ -44,7 +44,16 @@ async def create_cluster_batch(
     """Batch aus picking_ids anlegen (echter stock.picking.batch)."""
     if not body.picking_ids:
         raise HTTPException(status_code=400, detail="picking_ids darf nicht leer sein.")
-    return await service.create_batch(body.picking_ids, picker_identity=identity)
+    result = await service.create_batch(body.picking_ids, picker_identity=identity)
+    if result.get("forbidden"):
+        raise HTTPException(status_code=403, detail=result.get("message") or result.get("error"))
+    if result.get("code") == "cluster_capacity":
+        raise HTTPException(status_code=422, detail=result.get("message") or result.get("error"))
+    if result.get("code") == "stock_picking_batch_unavailable" or result.get("unavailable"):
+        raise HTTPException(status_code=503, detail=result.get("message") or result.get("error"))
+    if result.get("error"):
+        raise HTTPException(status_code=409, detail=result["error"])
+    return result
 
 
 @router.get("/cluster/batches/{batch_id}")

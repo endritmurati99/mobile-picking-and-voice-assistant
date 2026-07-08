@@ -3,6 +3,7 @@ Tests fuer ClusterService (Cluster-/Batch-Picking).
 
 Alle Odoo-RPC-Calls werden gemockt - kein laufendes Odoo noetig.
 """
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -102,7 +103,7 @@ class TestSuggestBatches:
         assert await service.suggest_batches() == []
 
     @pytest.mark.anyio
-    async def test_suggestions_fall_back_when_picking_batch_field_is_missing(self, service, odoo, caplog):
+    async def test_suggestions_fail_closed_when_picking_batch_field_is_missing(self, service, odoo, caplog):
         import logging
 
         calls = []
@@ -127,12 +128,26 @@ class TestSuggestBatches:
         with caplog.at_level(logging.WARNING):
             result = await service.suggest_batches()
 
-        assert result[0]["picking_ids"] == [1]
-        assert any(call[1] == [("state", "=", "assigned")] for call in calls)
-        assert any("batch_id fehlt" in record.getMessage() for record in caplog.records)
+        assert result == []
+        assert not any(call[1] == [("state", "=", "assigned")] for call in calls)
+        assert any("nicht verfuegbar" in record.getMessage() for record in caplog.records)
 
 
 class TestCreateBatch:
+    @pytest.mark.anyio
+    async def test_create_batch_rejects_single_order(self, service):
+        result = await service.create_batch([101], picker_identity=SimpleNamespace(user_id=7))
+        assert result["success"] is False
+        assert result["code"] == "cluster_capacity"
+        assert "mindestens 2" in result["message"]
+
+    @pytest.mark.anyio
+    async def test_create_batch_rejects_more_than_eight_orders(self, service):
+        result = await service.create_batch(list(range(1, 10)), picker_identity=SimpleNamespace(user_id=7))
+        assert result["success"] is False
+        assert result["code"] == "cluster_capacity"
+        assert "maximal 8" in result["message"]
+
     @pytest.mark.anyio
     async def test_creates_batch_with_six_zero_command_and_confirms(self, service, odoo):
         odoo.create.return_value = 99
@@ -169,24 +184,34 @@ class TestCreateBatch:
             await service.create_batch([])
 
     @pytest.mark.anyio
+    async def test_create_batch_missing_batch_field_fails_closed(self, service, odoo):
+        odoo.search_read.side_effect = OdooAPIError(
+            "Invalid field stock.picking.batch_id on model stock.picking"
+        )
+        result = await service.create_batch([1, 2], picker_identity=SimpleNamespace(user_id=7))
+        assert result["success"] is False
+        assert result["code"] == "stock_picking_batch_unavailable"
+
+    @pytest.mark.anyio
     async def test_scopes_picking_ids_to_assigned_unbatched(self, service, odoo):
         # #3: search_read scopt auf assigned + ohne Batch; vals nutzt nur erlaubte IDs.
         odoo.create.return_value = 99
 
         async def fake_search_read(model, domain, fields, limit=100):
             if model == "stock.picking" and ("state", "=", "assigned") in domain:
-                # Nur Picking 1 ist erlaubt; 2 ist fremd/gebatcht und faellt raus.
-                return [{"id": 1, "company_id": [1, "MyCo"]}]
+                # Nur Picking 1 und 3 sind erlaubt; 2 ist fremd/gebatcht und faellt raus.
+                return [{"id": 1, "company_id": [1, "MyCo"]},
+                        {"id": 3, "company_id": [1, "MyCo"]}]
             if model == "stock.picking.batch":
                 return [{"id": 99, "name": "B", "state": "in_progress",
-                         "picking_ids": [1], "user_id": [7, "Max"]}]
+                         "picking_ids": [1, 3], "user_id": [7, "Max"]}]
             return []
 
         odoo.search_read.side_effect = fake_search_read
         from app.services.mobile_workflow import PickerIdentity
-        await service.create_batch([1, 2], PickerIdentity(user_id=7))
+        await service.create_batch([1, 2, 3], PickerIdentity(user_id=7))
         vals = odoo.create.call_args.args[1]
-        assert vals["picking_ids"] == [(6, 0, [1])]
+        assert vals["picking_ids"] == [(6, 0, [1, 3])]
         # Scoped-Domain muss state + batch_id enthalten.
         scoped = [c for c in odoo.search_read.call_args_list
                   if c.args[0] == "stock.picking" and ("state", "=", "assigned") in c.args[1]]
@@ -210,7 +235,8 @@ class TestCreateBatch:
 
         async def fake_search_read(model, domain, fields, limit=100):
             if model == "stock.picking":
-                return [{"id": 1, "company_id": [1, "MyCo"]}]
+                return [{"id": 1, "company_id": [1, "MyCo"]},
+                        {"id": 2, "company_id": [1, "MyCo"]}]
             return []
 
         odoo.search_read.side_effect = fake_search_read
@@ -222,7 +248,7 @@ class TestCreateBatch:
 
         odoo.call_method.side_effect = fake_call_method
         from app.services.mobile_workflow import PickerIdentity
-        result = await service.create_batch([1], PickerIdentity(user_id=7))
+        result = await service.create_batch([1, 2], PickerIdentity(user_id=7))
         assert result.get("error")
         cancel_calls = [c for c in odoo.call_method.call_args_list
                         if c.args[:2] == ("stock.picking.batch", "action_cancel")]
@@ -299,23 +325,25 @@ class TestCreateBatch:
 
         async def fake_search_read(model, domain, fields, limit=100):
             if model == "stock.picking" and ("state", "=", "assigned") in domain:
-                return [{"id": 1, "name": "WH/OUT/001", "company_id": [1, "MyCo"]}]
+                return [{"id": 1, "name": "WH/OUT/001", "company_id": [1, "MyCo"]},
+                        {"id": 2, "name": "WH/OUT/002", "company_id": [1, "MyCo"]}]
             if model == "ir.model":
                 return [{"model": PACKAGE_MODEL_ODOO19}]
             if model == "stock.move.line" and any(
                     isinstance(c, tuple) and c[0] == "picking_id" and c[1] == "in" for c in domain):
-                return [{"id": 100, "picking_id": [1, "WH/OUT/001"]}]
+                return [{"id": 100, "picking_id": [1, "WH/OUT/001"]},
+                        {"id": 200, "picking_id": [2, "WH/OUT/002"]}]
             if model == "stock.picking.batch":
                 return [{"id": 99, "name": "B", "state": "in_progress",
-                         "picking_ids": [1], "user_id": [7, "Max"]}]
+                         "picking_ids": [1, 2], "user_id": [7, "Max"]}]
             if model == "stock.picking":
-                return [{"id": 1, "name": "WH/OUT/001"}]
+                return [{"id": 1, "name": "WH/OUT/001"}, {"id": 2, "name": "WH/OUT/002"}]
             return []
 
         odoo.search_read.side_effect = fake_search_read
 
         from app.services.mobile_workflow import PickerIdentity
-        await service.create_batch([1], PickerIdentity(user_id=7))
+        await service.create_batch([1, 2], PickerIdentity(user_id=7))
 
         odoo.create.assert_any_call(
             PACKAGE_MODEL_ODOO19, {"name": "CLUSTER-B1/WH/OUT/001"})
@@ -337,20 +365,22 @@ class TestCreateBatch:
 
         async def fake_search_read(model, domain, fields, limit=100):
             if model == "stock.picking" and ("state", "=", "assigned") in domain:
-                return [{"id": 1, "name": "WH/OUT/001", "company_id": [1, "MyCo"]}]
+                return [{"id": 1, "name": "WH/OUT/001", "company_id": [1, "MyCo"]},
+                        {"id": 2, "name": "WH/OUT/002", "company_id": [1, "MyCo"]}]
             if model == "stock.move.line" and any(
                     isinstance(c, tuple) and c[0] == "picking_id" and c[1] == "in" for c in domain):
-                return [{"id": 100, "picking_id": [1, "WH/OUT/001"]}]
+                return [{"id": 100, "picking_id": [1, "WH/OUT/001"]},
+                        {"id": 200, "picking_id": [2, "WH/OUT/002"]}]
             if model == "stock.picking.batch":
                 return [{"id": 99, "name": "B", "state": "in_progress",
-                         "picking_ids": [1], "user_id": [7, "Max"]}]
+                         "picking_ids": [1, 2], "user_id": [7, "Max"]}]
             if model == "stock.picking":
-                return [{"id": 1, "name": "WH/OUT/001"}]
+                return [{"id": 1, "name": "WH/OUT/001"}, {"id": 2, "name": "WH/OUT/002"}]
             return []
 
         odoo.search_read.side_effect = fake_search_read
         from app.services.mobile_workflow import PickerIdentity
-        result = await service.create_batch([1], PickerIdentity(user_id=7))
+        result = await service.create_batch([1, 2], PickerIdentity(user_id=7))
 
         # Batch valide zurueckgegeben - kein Fehler trotz Package-Fehlschlag.
         assert result.get("batch_id") == 99
@@ -362,6 +392,18 @@ class TestCreateBatch:
 
 
 class TestGetBatch:
+    @pytest.mark.anyio
+    async def test_ownerless_batch_is_forbidden(self, service, odoo):
+        odoo.search_read.return_value = [{
+            "id": 44,
+            "name": "BATCH/44",
+            "state": "in_progress",
+            "picking_ids": [1, 2],
+            "user_id": False,
+        }]
+        result = await service.get_batch(44, picker_identity=SimpleNamespace(user_id=7))
+        assert result == {"error": "Kein Zugriff auf diesen Batch.", "forbidden": True}
+
     @pytest.mark.anyio
     async def test_returns_route_sorted_lines_with_box_tags_and_progress(self, service, odoo):
         async def fake_search_read(model, domain, fields, limit=100):
@@ -768,7 +810,7 @@ class TestValidateBatch:
     @pytest.mark.anyio
     async def test_calls_action_done_with_backorder_ctx_and_fires_n8n(self, service, odoo, n8n):
         from app.services.n8n_webhook import N8NEventResult
-        odoo.search_read.return_value = [{"id": 99, "picking_ids": [1, 2]}]
+        odoo.search_read.return_value = [{"id": 99, "picking_ids": [1, 2], "user_id": [7, "Max"]}]
         odoo.call_method.return_value = True
         n8n.fire_event.return_value = N8NEventResult(delivered=True, error=None, correlation_id="c1")
 
@@ -786,7 +828,7 @@ class TestValidateBatch:
 
     @pytest.mark.anyio
     async def test_reports_pending_when_action_done_returns_wizard(self, service, odoo, n8n):
-        odoo.search_read.return_value = [{"id": 99, "picking_ids": [1, 2]}]
+        odoo.search_read.return_value = [{"id": 99, "picking_ids": [1, 2], "user_id": [7, "Max"]}]
         odoo.call_method.return_value = {"res_model": "stock.backorder.confirmation",
                                          "type": "ir.actions.act_window"}
         from app.services.mobile_workflow import PickerIdentity
@@ -800,7 +842,7 @@ class TestValidateBatch:
     async def test_reports_failure_when_action_done_raises(self, service, odoo, n8n):
         from app.services.odoo_client import OdooAPIError
         from app.services.mobile_workflow import PickerIdentity
-        odoo.search_read.return_value = [{"id": 99, "picking_ids": [1, 2]}]
+        odoo.search_read.return_value = [{"id": 99, "picking_ids": [1, 2], "user_id": [7, "Max"]}]
         odoo.call_method.side_effect = OdooAPIError("rpc error")
         result = await service.validate_batch(99, PickerIdentity(user_id=7))
         assert result["success"] is False
