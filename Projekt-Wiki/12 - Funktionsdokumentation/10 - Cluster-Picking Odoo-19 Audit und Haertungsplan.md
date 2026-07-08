@@ -104,3 +104,14 @@ sed -n '1,320p' docs/superpowers/plans/2026-07-08-cluster-picking-odoo19-hardeni
 ```
 
 Bekannter Arbeitsbaum-Hinweis: Vor dieser Dokumentation gab es bereits nicht zugeordnete Aenderungen im Repository, vor allem an `.env.example`, Backend-Konfiguration, n8n und LLM-Dateien. Cluster-Implementierungsdateien wurden im Audit nicht geaendert.
+
+## 9. Umsetzung abgeschlossen am 2026-07-08
+
+- Backend-Regeln: Cluster-Picking laeuft fail-closed, wenn `stock.picking.batch`/`batch_id` nicht verfuegbar ist, erzwingt 2 bis 8 Auftraege, prueft Picker-Ownership, Company, Ausliefertag und Produktueberlappung und weist ownerless Batches ab.
+- Cluster-Suggestions: Vorschlaege werden nach Ausliefertag und primaerer Lagerzone gruppiert, liefern Score, Gruende, Warnungen und Produktueberlappung an die PWA.
+- Put-to-Box: Batch-Erstellung bricht bei fehlender Package-Zuordnung kontrolliert ab; Linienbestaetigung verlangt einen Zielkarton und blockiert ohne `result_package_id`.
+- PWA-Regeln: Auswahl zeigt Kapazitaet, Regel-Chips, Score, Lieferdatum und die Legende `Wagen: separate Kartons je Auftrag`; Einzelauftrag und Ueberkapazitaet sind vor API-Aufruf gesperrt.
+- Kundendaten: Picking- und Cluster-APIs geben Kundenname, Versandadresse, Kundenreferenz, Lieferdatum und Carrier-Kontext weiter.
+- Seed-Daten: Standard-Seed erzeugt Demo-Kunden mit Lieferadressen sowie sechs ausgehende `SO-DEMO-*`-Auftraege mit gemeinsamen Produkten und zwei Lieferterminen fuer realistische Cluster-Vorschlaege.
+- Verifikation: Backend-Zieltests `99 passed`; PWA-Cluster-Playwright `6 passed`; Grep-Pruefung fuer die neuen Fehlercodes und UI-Hinweise erfolgreich.
+- Bekannte Restgrenze: Versandlabel-Druck ist weiterhin nicht im Scope dieser Umsetzung.
