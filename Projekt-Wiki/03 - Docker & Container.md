@@ -12,7 +12,7 @@ created: 2026-06-22
 # Docker & Container
 
 > [!info] Zweck dieser Notiz
-> Diese Notiz erklärt, **was Docker ist**, den Unterschied zwischen **Image und Container**, **warum** das Projekt Container nutzt, und gibt einen Überblick über **alle 10 Compose-Services** des Stacks: 8 Services im normalen Odoo-18-Betrieb plus `odoo-lager-2` und `odoo19-trial` als explizite Profile. Außerdem: wie die Container über das Docker-Netzwerk `picking-net` verbunden sind, welche **persistenten Volumes** existieren und die **wichtigsten Befehle**.
+> Diese Notiz erklärt, **was Docker ist**, den Unterschied zwischen **Image und Container**, **warum** das Projekt Container nutzt, und gibt einen Überblick über **alle 11 Compose-Services** des Stacks: 9 Services im normalen Odoo-18-Betrieb plus `odoo-lager-2` und `odoo19-trial` als explizite Profile. Außerdem: wie die Container über das Docker-Netzwerk `picking-net` verbunden sind, welche **persistenten Volumes** existieren und die **wichtigsten Befehle**.
 > Quelle aller Fakten: `docker-compose.yml`, `infrastructure/caddy/Caddyfile`, `Makefile` (Infrastruktur-Analyse).
 
 Siehe auch: [[00 - Start Hier (Übersichtskarte)]] · [[02 - Architektur & Diagramm erklärt]] · [[04 - Dev-Workflow Code ändern]] · [[10 - Glossar]]
@@ -26,7 +26,7 @@ Siehe auch: [[00 - Start Hier (Übersichtskarte)]] · [[02 - Architektur & Diagr
 > [!note] Analogie: Schiffscontainer
 > Man kann sich Docker wie das **Container-System in der Logistik** vorstellen (passend zum Picking-Thema dieses Projekts): Egal ob Schuhe, Maschinen oder Lebensmittel im Container sind — der Container hat immer dieselbe genormte Form und passt auf jedes Schiff, jeden LKW und jeden Kran. Genauso ist es egal, ob im Docker-Container eine Datenbank, ein Webserver oder eine KI-Anwendung steckt: Der "Hafen" (= der Rechner mit Docker) behandelt alle Container gleich und kann sie starten, stoppen und verbinden.
 
-**Docker Compose** ist die Erweiterung, mit der man **mehrere Container gemeinsam** beschreibt und auf einmal startet. Die zentrale Datei dafür ist `docker-compose.yml`. In diesem Projekt beschreibt sie **10 Services**; `odoo-lager-2` und `odoo19-trial` starten nur explizit über ihre Profile bzw. direkte Service-Auswahl.
+**Docker Compose** ist die Erweiterung, mit der man **mehrere Container gemeinsam** beschreibt und auf einmal startet. Die zentrale Datei dafür ist `docker-compose.yml`. In diesem Projekt beschreibt sie **11 Services**; `odoo-lager-2` und `odoo19-trial` starten nur explizit über ihre Profile bzw. direkte Service-Auswahl.
 
 - Datei: `docker-compose.yml` (im Projekt-Hauptverzeichnis `Mobile Picking und Voice Assistant/`)
 
@@ -76,11 +76,12 @@ Für eine **Bachelorarbeit / ein PoC** ist das besonders wertvoll: Der Aufbau is
 | 3 | **odoo** | Odoo 18 Community — "System of Record" (Lager-/Picking-Daten) | 8069 (intern, via Caddy) | **Build** `./odoo/Dockerfile` | **Kern** | db (healthy) |
 | 4 | **odoo-lager-2** | Zweite Odoo-18-Testinstanz fuer Instanzumschalter | 8070 (Host) | **Build** `./odoo/Dockerfile` | Demo/Test | db (healthy) |
 | 5 | **odoo19-trial** | Odoo-19-Trial fuer Migration und Traceability-Demo | `127.0.0.1:8100` (Host, nur mit Profil) | **Build** `./odoo/Dockerfile` mit `odoo:19.0` | Demo/Test | db (healthy) |
-| 6 | **backend** | FastAPI — Intent-Engine / API (`/api/*`) | 8000 (intern, via Caddy) | **Build** `./backend/Dockerfile` | **Kern** | odoo, whisper, piper |
+| 6 | **backend** | FastAPI — Intent-Engine / API (`/api/*`) | 8000 (intern, via Caddy) | **Build** `./backend/Dockerfile` | **Kern** | odoo, whisper, piper, ollama |
 | 7 | **whisper** | Speech-to-Text (STT), deutsches Modell `small` | 9000 (intern) | Image `onerahmet/openai-whisper-asr-webservice:latest` | **Kern** (Voice) | — |
 | 8 | **piper** | Text-to-Speech (TTS), Deutsch „thorsten-high" | 5500 (intern) | **Build** `./piper/Dockerfile` | **Kern** (Voice) | — |
-| 9 | **n8n** | Workflow-Orchestrierung (`/n8n/*`, Alias `/nn/*`) | 5678 (intern, via Caddy) | Image `docker.n8n.io/n8nio/n8n:2.13.3` | **Kern** (Orchestrierung) | db (healthy) |
-| 10 | **pwa** | Statischer Webserver für die PWA-Oberfläche (Frontend) | 80 (intern) | Image `caddy:2-alpine` | **Kern** (Frontend) | — |
+| 9 | **ollama** | Lokales LLM fuer Quality-Alert-Disposition (`qwen2.5:7b`) | 11434 (intern, kein Host-Port) | Image `ollama/ollama:latest` | **Kern** (Quality-KI, async) | — |
+| 10 | **n8n** | Workflow-Orchestrierung (`/n8n/*`, Alias `/nn/*`) | 5678 (intern, via Caddy) | Image `docker.n8n.io/n8nio/n8n:2.13.3` | **Kern** (Orchestrierung) | db (healthy) |
+| 11 | **pwa** | Statischer Webserver für die PWA-Oberfläche (Frontend) | 80 (intern) | Image `caddy:2-alpine` | **Kern** (Frontend) | — |
 
 > [!warning] Port-Hinweise
 > - **`db` (PostgreSQL)** ist mit `127.0.0.1:5433` **nur lokal** erreichbar, **nicht im LAN** — bewusste Sicherheitsentscheidung. Intern (zwischen Containern) läuft PostgreSQL auf dem Standardport **5432**.
@@ -98,7 +99,7 @@ Für eine **Bachelorarbeit / ein PoC** ist das besonders wertvoll: Der Aufbau is
 > Build `./odoo/Dockerfile`. `depends_on: db (service_healthy)`. Env: DB-Verbindung (`HOST=db`, `PORT=5432`, `USER`, `PASSWORD`). Live/Default-`odoo` und `odoo-lager-2` sind hart auf Odoo 18 gepinnt und mounten `./odoo/addons18` → `/mnt/extra-addons` (ro). Die Odoo-19-Trial-Instanz startet nur ueber Profil `odoo19-trial` und mountet `./odoo/addons` → `/mnt/extra-addons` (ro). Mehr in [[06 - Odoo]].
 
 > [!note] backend (FastAPI)
-> Build `./backend/Dockerfile`. `depends_on: odoo, whisper, piper`. Volumes: `./backend/app` → `/app/app` (ro, Python-Quellcode), `./docs` → `/obsidian` (ro, optionale Projektkontext-Dateien). Start-Command: `uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`.
+> Build `./backend/Dockerfile`. `depends_on: odoo, whisper, piper, ollama`. Volumes: `./backend/app` → `/app/app` (ro, Python-Quellcode), `./docs` → `/obsidian` (ro, optionale Projektkontext-Dateien). Start-Command: `uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`.
 > **Wichtig:** `--reload` aktiviert Hot-Reload — Änderungen in `./backend/app` starten den Dienst automatisch neu, **kein** `docker compose restart` nötig. Details in [[04 - Dev-Workflow Code ändern]] und [[05 - Backend (FastAPI)]].
 
 > [!note] whisper
@@ -106,6 +107,9 @@ Für eine **Bachelorarbeit / ein PoC** ist das besonders wertvoll: Der Aufbau is
 
 > [!note] piper
 > Build `./piper/Dockerfile`. Port 5500 (intern). Deutsche Stimme „thorsten-high". Bei Abhängigkeits-/Dockerfile-Änderung: `docker compose build piper && docker compose up -d`.
+
+> [!note] ollama
+> Image `ollama/ollama:latest`. Kein Host-Port; erreichbar nur im Docker-Netz als `http://ollama:11434`. Persistenz über `ollama_data`. Das Backend nutzt den Service für `POST /api/internal/llm/quality-disposition`, während n8n wegen SSRF-Policy bewusst nur das Backend aufruft. Modell einmalig laden: `docker compose exec ollama ollama pull qwen2.5:7b`.
 
 > [!note] n8n
 > Image `docker.n8n.io/n8nio/n8n:2.13.3`. `depends_on: db (service_healthy)`. Ressourcen-Limits: 2 GB RAM, 1.5 CPUs, 256 PIDs. Nutzt die PostgreSQL-Datenbank `n8n` (im selben Cluster wie Odoo). Wichtige Env: `N8N_ENCRYPTION_KEY` (erforderlich), `N8N_CALLBACK_SECRET` (erforderlich), `N8N_SSRF_ALLOWED_HOSTNAMES=backend`, `N8N_RESTRICT_FILE_ACCESS_TO=/home/node/.n8n-files`, `N8N_CONCURRENCY_PRODUCTION_LIMIT=3`, Execution-Retention max. 168h (nur Fehler + manuelle/Progress-Läufe). Volumes: `n8n_data` (Workflows + Encryption-Keys), `./n8n/workflows` → `/imports` (ro), `./n8n/tmp` → `/home/node/.n8n-files`. Healthcheck: `wget -qO- http://localhost:5678/healthz`. Mehr in [[07 - n8n]].
@@ -122,7 +126,7 @@ Für eine **Bachelorarbeit / ein PoC** ist das besonders wertvoll: Der Aufbau is
 
 Das bedeutet konkret:
 
-- Der **backend**-Container erreicht Odoo unter dem Hostnamen `odoo`, die KI-Dienste unter `whisper` bzw. `piper`.
+- Der **backend**-Container erreicht Odoo unter dem Hostnamen `odoo`, die KI-Dienste unter `whisper`, `piper` und `ollama`.
 - Fuer mehrere Odoo-Instanzen nutzt der Backend-Container außerdem `odoo-lager-2` und, wenn das Profil gestartet ist, `odoo19-trial`.
 - **Caddy** leitet Anfragen intern an `backend:8000`, `n8n:5678` und `pwa:80` weiter — jeweils über den Service-Namen + internen Port.
 - **odoo** und **n8n** sprechen die Datenbank über den Hostnamen `db` (Port `5432`) an.
@@ -139,6 +143,7 @@ caddy   ──/*──────▶ pwa:80
 backend ─────────▶ odoo / odoo-lager-2 / odoo19-trial (Odoo-API)
 backend ─────────▶ whisper:9000 (STT)
 backend ─────────▶ piper:5500   (TTS)
+backend ─────────▶ ollama:11434 (lokales LLM)
 odoo    ─────────▶ db:5432  (PostgreSQL, DB "postgres"/Odoo-DB)
 n8n     ─────────▶ db:5432  (PostgreSQL, DB "n8n")
 ```
@@ -160,6 +165,7 @@ n8n     ─────────▶ db:5432  (PostgreSQL, DB "n8n")
 | **odoo_lager2_data** | Odoo-Filestore der zweiten Odoo-18-Instanz | odoo-lager-2 | Hoch |
 | **odoo19_trial_data** | Odoo-Filestore der Odoo-19-Trial-Instanz | odoo19-trial | Hoch fuer Demo/Migration |
 | **n8n_data** | n8n-Workflows **und Encryption-Keys** | n8n | **Kritisch** — ohne Encryption-Key sind verschlüsselte Credentials unbrauchbar |
+| **ollama_data** | Lokale LLM-Modelle und Ollama-Cache | ollama | Mittel/Hoch — Modell-Download sonst erneut nötig |
 | **caddy_data** / **caddy_config** | Caddy-Laufzeitdaten/-konfiguration | caddy | Niedrig (regenerierbar) |
 
 > [!warning] Reset löscht ALLES
@@ -181,6 +187,9 @@ docker compose --profile second-odoo up -d odoo-lager-2
 
 # Odoo 19 Trial explizit dazu starten
 docker compose --profile odoo19-trial up -d odoo19-trial
+
+# Lokales LLM-Modell einmalig laden
+docker compose exec ollama ollama pull qwen2.5:7b
 
 # Status / laufende Container anzeigen
 docker compose ps
@@ -224,6 +233,6 @@ docker compose up -d backend
 ## Zusammenfassung in einem Satz
 
 > [!info] Merksatz
-> Eine einzige Datei (`docker-compose.yml`) beschreibt **10 Services**, die über das Netzwerk **`picking-net`** per Service-Name miteinander reden; **Caddy** ist die HTTPS-Eingangstür, **persistente Volumes** (`pg_data`, `odoo_data`, `odoo_lager2_data`, `odoo19_trial_data`, `n8n_data`, `caddy_data`/`caddy_config`) bewahren die Daten, und mit `docker compose up -d` steht der normale Kern-Stack reproduzierbar bereit.
+> Eine einzige Datei (`docker-compose.yml`) beschreibt **11 Services**, die über das Netzwerk **`picking-net`** per Service-Name miteinander reden; **Caddy** ist die HTTPS-Eingangstür, **persistente Volumes** (`pg_data`, `odoo_data`, `odoo_lager2_data`, `odoo19_trial_data`, `n8n_data`, `ollama_data`, `caddy_data`/`caddy_config`) bewahren die Daten, und mit `docker compose up -d` steht der normale Kern-Stack reproduzierbar bereit.
 
 **Weiterführend:** [[02 - Architektur & Diagramm erklärt]] · [[04 - Dev-Workflow Code ändern]] · [[05 - Backend (FastAPI)]] · [[06 - Odoo]] · [[07 - n8n]] · [[08 - PWA & Voice-Pfad]] · [[10 - Glossar]]

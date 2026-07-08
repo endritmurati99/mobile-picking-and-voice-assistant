@@ -2,13 +2,13 @@
 title: "Überblick & Datenfluss"
 tags: [funktionsdoku, architektur, odoo]
 status: dokumentiert
-stand: 2026-06-29
+stand: 2026-07-08
 ---
 
 # Überblick & Datenfluss
 
 > [!abstract] Kurzfassung
-> Das System ist ein geschichteter PoC: Eine Vanilla-JS-PWA spricht ausschließlich mit einem FastAPI-Backend, das wiederum Odoo 18 als System of Record über JSON-RPC (`/jsonrpc`) anspricht. Caddy terminiert HTTPS im LAN und routet Pfade auf die Dienste; n8n hängt nur als asynchroner Orchestrator und synchrone Ausnahmeassistenz an FastAPI, niemals im Voice-Hot-Path. Diese Datei beschreibt die Schichten, den Request-Lebenszyklus und die nicht verhandelbaren Invarianten.
+> Das System ist ein geschichteter PoC: Eine Vanilla-JS-PWA spricht ausschließlich mit einem FastAPI-Backend, das wiederum Odoo 18 als Live-System-of-Record und eine getrennte Odoo-19-Trial-Instanz über JSON-RPC (`/jsonrpc`) anspricht. Caddy terminiert HTTPS im LAN und routet Pfade auf die Dienste; n8n hängt nur als asynchroner Orchestrator und synchrone Ausnahmeassistenz an FastAPI, niemals im Voice-Hot-Path. Lokale KI-Dienste (Whisper, Piper, Ollama) werden ausschließlich vom Backend angesprochen. Diese Datei beschreibt die Schichten, den Request-Lebenszyklus und die nicht verhandelbaren Invarianten.
 
 ## 1. Wie es funktioniert
 
@@ -19,7 +19,7 @@ Das System besteht aus klar getrennten Schichten, die jeweils nur mit ihrer Nach
 3. **FastAPI (App-API & Odoo-Adapter)** — die einzige API-Schicht. `app.main:app` registriert die Router unter dem gemeinsamen Prefix `/api` (`backend/app/main.py:22-30`) und ist die einzige Komponente, die Odoo-JSON-RPC, Idempotency und Claims kapselt.
 4. **Odoo 18 Community (System of Record)** — fachliche Datenquelle. FastAPI erreicht es über `odoo_client.py` per JSON-RPC.
 5. **n8n (Orchestrator)** — async Events (Pull/Push via Webhook) und synchrone Ausnahmeassistenz. n8n schreibt fachlich nur über interne FastAPI-Callbacks zurück (`backend/app/routers/n8n_internal.py`), nie direkt in Odoo.
-6. **Whisper (STT) / Piper (TTS)** — lokale Sprachdienste, vom Backend über `WHISPER_URL`/`PIPER_URL` adressiert (`backend/app/config.py:27-28`).
+6. **Whisper (STT) / Piper (TTS) / Ollama (LLM)** — lokale KI-/Sprachdienste, vom Backend über `WHISPER_URL`, `PIPER_URL` und `LLM_ENDPOINT` adressiert (`backend/app/config.py`). Ollama wird nur asynchron für Quality-Alert-Disposition genutzt.
 
 Typischer Request-Lebenszyklus eines fachlichen Writes (Pick-Bestätigung):
 
@@ -94,6 +94,7 @@ Alle Router laufen unter dem Prefix `/api` (`main.py:22-30`). Die hier relevante
 | POST | `/api/pickings/{id}/confirm-line` | Pick-Zeile bestätigen (`pickings.py:272-273`) | wie oben |
 | POST | `/api/internal/n8n/quality-assessment` | n8n-Rückschreibung KI-Bewertung (`n8n_internal.py:546`) | `X-N8N-Callback-Secret`, `Idempotency-Key` |
 | POST | `/api/internal/n8n/replenishment-action` | n8n löst Nachschub aus (`n8n_internal.py:683`) | `X-N8N-Callback-Secret`, `Idempotency-Key` |
+| POST | `/api/internal/llm/quality-disposition` | n8n fragt lokales Ollama-LLM über das Backend an; kein Odoo-Write | `X-N8N-Callback-Secret` |
 
 Querschnitt: Schreib-Header werden über `get_write_request_context` eingelesen (`dependencies.py:106-121`); die Picker-Identität über `get_required_picker_identity` (numerisch, sonst 400/403; `dependencies.py:95-103`). n8n-Callbacks sind über `require_n8n_callback_secret` mit `secrets.compare_digest` abgesichert (`dependencies.py:124-131`). CORS-Origin kommt aus `cors_origins` (`main.py:14-20`, `config.py:30`).
 
@@ -111,6 +112,7 @@ Der einzige API-Layer der PWA ist `pwa/js/api.js`. Kommentar im Kopf: „Einzige
 - **Strukturierte Callback-Events:** n8n-Callbacks loggen ein JSON-Event mit `workflow_name`, `callback_type`, `callback_status` (`applied`/`replay`/`rejected`/`failed`/`aborted`), `correlation_id`, `idempotency_key`, `target_object_*`, `schema_version`, `received_at_backend` und `latency_tracking` (`n8n_internal.py:70-101`).
 - **Shadow-Evaluation-Event:** `quality_shadow_evaluation` mit Heuristik-vs-KI-Vergleich, `confidence_delta`, `ai_latency_ms` etc. (`n8n_internal.py:354-390`).
 - **n8n-Resilienz:** Der ausgehende n8n-Client hat einen Circuit Breaker pro Pfad (`BreakerState`, Schwelle `n8n_circuit_breaker_failures`, Open-Dauer `..._open_seconds`; `n8n_webhook.py:108-110`, `:359-385`). Sync-Replies fallen bei Timeout/Transport-/Contract-Fehler kontrolliert auf eine lokale Fallback-Antwort zurück (`status="fallback"`, `source="fastapi-fallback"`; `n8n_webhook.py:239-256`, `:326-342`).
+- **LLM-Resilienz:** Der interne LLM-Endpunkt gibt bei deaktiviertem Provider, Timeout, Transportfehler oder invalider Modellantwort `llm_ok:false` zurück. n8n übernimmt LLM-Felder nur bei valider Antwort und nutzt sonst die Heuristik.
 - **Fehlerpfade in FastAPI:** `ClaimConflictError` → HTTP 409 (`pickings.py:192-194`); `OdooAPIError` in Callbacks → HTTP 502 mit Detail (`n8n_internal.py:618-635`); unerwartete Exceptions führen zu `abort_idempotent_request`, damit kein „false positive"-Replay zurückbleibt (`pickings.py:312-314`).
 
 Invarianten (aus `CLAUDE.md` und `docs/ARCHITECTURE.md:16-23`): (1) Odoo = System of Record; (2) PWA spricht nur mit FastAPI; (3) n8n ist Orchestrator, nicht im Voice-Hot-Path; (4) HTTPS im LAN ist Pflicht für Kamera/Mikrofon/Service Worker; (5) Touch bleibt Fallback; (6) STT bleibt lokal.
@@ -124,13 +126,14 @@ Invarianten (aus `CLAUDE.md` und `docs/ARCHITECTURE.md:16-23`): (1) Odoo = Syste
 - `backend/app/config.py:4-90` — Settings, Odoo-Profile, n8n-/Whisper-/Piper-URLs, Timeouts, TTLs
 - `backend/app/services/odoo_client.py:43-99` — JSON-RPC, `execute_kw`, `search_read/create/write/call_method`, `OdooAPIError`
 - `backend/app/services/n8n_webhook.py:120-260` — Envelope, `fire_event`, `request_reply`, Circuit Breaker
+- `backend/app/routers/llm.py` / `backend/app/services/llm_client.py` — interner n8n→Backend→Ollama-Pfad fuer Quality-Disposition
 - `backend/app/services/mobile_workflow.py:95-178` — Claim/Heartbeat/Release, Idempotency-Reservierung
 - `backend/app/routers/pickings.py:272-317` — `confirm-line` als kanonischer Write-Lebenszyklus
 - `backend/app/routers/n8n_internal.py:546-680` — n8n-Rückschreibung mit Idempotenz & Telemetrie
 - `backend/app/routers/instances.py:10-14` — sichere Instanzliste fuer die PWA
 - `pwa/js/api.js:5,79-94,190-226` — einziger Backend-Client der PWA, inkl. `X-Odoo-Instance`
 - `pwa/js/app.js:574-624` — PWA-Lagerumschalter
-- `docker-compose.yml:1-216` — Topologie der Dienste (caddy, db, odoo, backend, whisper, piper, n8n, pwa)
+- `docker-compose.yml:1-216` — Topologie der Dienste (caddy, db, odoo, backend, whisper, piper, ollama, n8n, pwa)
 - `infrastructure/caddy/Caddyfile:1-45` — TLS-Terminierung & Pfad-Routing
 - `docs/ARCHITECTURE.md:16-43` — Architekturregeln & Hauptflüsse
 

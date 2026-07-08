@@ -33,6 +33,7 @@ Man kann sich das Backend als **Vermittler ("Adapter") mit Gedächtnis** vorstel
 | **Odoo-Adapter** | Übersetzt App-Anfragen in **JSON-RPC-Aufrufe an Odoo 18** (das "System of Record", also die Wahrheit über Lagerbestand & Aufträge). | `app/services/odoo_client.py` |
 | **Synchroner Voice-Pfad** | Für Sprachanfragen wartet das Backend **live (synchron) auf eine Antwort von n8n** (bis zu 7 s) und liefert sonst eine lokale Notfall-Antwort. | `app/routers/voice.py`, `app/services/n8n_webhook.py` (`request_reply`) |
 | **n8n-Anbindung** | Feuert Ereignisse **raus** an n8n (Webhooks) und nimmt Ergebnisse über `/internal/n8n`-Callbacks **rein**. | `app/services/n8n_webhook.py`, `app/routers/n8n_internal.py` |
+| **Lokaler LLM-Adapter** | Bewertet Quality-Alert-Dispositionen offline über Ollama, wenn n8n den internen LLM-Endpunkt aufruft. Bei Fehlern fällt der Workflow auf die Heuristik zurück. | `app/routers/llm.py`, `app/services/llm_client.py` |
 
 > [!note] "System of Record"
 > Odoo ist die maßgebliche Datenquelle. Das Backend hält **keine eigene Geschäfts-Datenbank** für Pickings/Bestände — es liest und schreibt über JSON-RPC direkt in Odoo. Auch der Idempotenz-Speicher liegt **in Odoo** (Tabelle `picking.assistant.idempotency`), nicht in einer separaten Backend-DB.
@@ -57,6 +58,7 @@ backend/
     │   ├── quality.py                    # Quality Alerts mit Foto-Upload
     │   ├── scan.py                       # Barcode-Validierung
     │   ├── integration.py                # /api/integration/log (deprecated) + n8n-Secret
+    │   ├── llm.py                        # Interner LLM-Endpunkt fuer n8n -> Backend -> Ollama
     │   ├── obsidian.py                   # Obsidian-Suche + Logging
     │   └── n8n_internal.py               # Callbacks von n8n: Quality Assessment, Replenishment
     ├── services/
@@ -68,6 +70,7 @@ backend/
     │   ├── piper_client.py               # Server-side TTS zu lokalem Piper-Container
     │   ├── route_optimizer.py            # Deterministische Routen-Heuristik
     │   ├── quality_shadow_evaluation.py  # Research: Lokale Fallback-Heuristik für Quality
+    │   ├── llm_client.py                 # Lokales Ollama-LLM fuer Quality-Disposition
     │   ├── obsidian_context.py           # Obsidian-Vault-Suche für Kontext
     │   ├── intent_engine.py              # Deterministische Voice-Intent-Erkennung
     │   ├── integration_log.py            # Tägliche Notizen ins Obsidian schreiben
@@ -116,6 +119,7 @@ app.include_router(voice.router, prefix="/api", tags=["voice"])
 app.include_router(scan.router, prefix="/api", tags=["scan"])
 app.include_router(integration.router, prefix="/api", tags=["integration"])
 app.include_router(obsidian.router, prefix="/api", tags=["obsidian"])
+app.include_router(llm.router, prefix="/api")  # /api/internal/llm/*
 app.include_router(n8n_internal.router, prefix="/api")  # Tags für /internal/n8n
 ```
 
@@ -135,6 +139,7 @@ Datei: `backend/app/config.py` — Klasse `Settings` (Pydantic `BaseSettings`). 
 | **Odoo** | `odoo_url`, `odoo_db`, `odoo_user`, `odoo_api_key`, `odoo_password` | — | Verbindung zu Odoo 18 (JSON-RPC). Sowohl API-Key als auch Passwort werden für die Authentifizierung versucht. |
 | **Whisper (STT)** | `whisper_url` | `http://whisper:9000` | Server-seitige Spracherkennung. |
 | **Piper (TTS)** | `piper_url` | `http://piper:5500` | Server-seitige Sprachausgabe. |
+| **Lokales LLM** | `llm_provider`, `llm_endpoint`, `llm_model`, `llm_timeout_ms` | `ollama`, `http://ollama:11434`, `qwen2.5:7b`, `30000` | Offline-Quality-Disposition ueber Ollama; bei deaktiviertem Provider oder Fehler nutzt n8n die Heuristik. |
 | **n8n Basis** | `n8n_webhook_base` | `http://n8n:5678/webhook` | Basis-URL für ausgehende Webhooks. |
 | **n8n Secrets** | `n8n_webhook_secret` | — | Auth-Header für ausgehende Calls. |
 | | `n8n_callback_secret` | — | Prüfwert für eingehende Callbacks (`X-N8N-Callback-Secret`). |
@@ -158,6 +163,7 @@ Datei: `backend/app/dependencies.py`. "DI" heißt: Die Router bekommen ihre Helf
 |----------|-----|---------|
 | `get_odoo_client()` | Singleton (`@lru_cache()`) | Liefert eine `OdooClient`-Instanz. |
 | `get_n8n_client()` | Singleton (`@lru_cache()`) | Liefert einen `N8NWebhookClient`. |
+| `get_llm_client()` | Singleton (`@lru_cache()`) | Liefert einen `LlmClient` fuer Ollama (`LLM_ENDPOINT`, `LLM_MODEL`, Timeout). |
 | `get_picking_service()` | neue Instanz | Braucht `OdooClient` + `N8NWebhookClient`. |
 | `get_mobile_workflow_service()` | neue Instanz | Braucht `OdooClient`. |
 | `get_required_picker_identity(...)` | async | Validiert Header `X-Picker-User-Id` (numerisch), ruft `workflow.resolve_identity()` auf. Gibt `PickerIdentity` zurück **oder wirft 403**. |
@@ -275,6 +281,16 @@ Datei: `backend/app/routers/n8n_internal.py`. Alle Endpunkte benötigen `X-N8N-C
 
 > [!warning] Korrelation erzwungen
 > Jeder Callback prüft den `Idempotency-Key` gegen `correlation_id` im Body. **Mismatch = 409, fehlend = 400.** Strukturierte JSON-Logs nach stdout (`event_type=quality_shadow_evaluation`, `callback_status` ∈ {applied, failed, replay, rejected, aborted}).
+
+### 4.9 llm.py (interner LLM-Endpoint fuer n8n)
+
+Datei: `backend/app/routers/llm.py`.
+
+| Endpoint | HTTP | Zweck | Guard |
+|----------|------|-------|-------|
+| `/internal/llm/quality-disposition` | POST | Quality-Alert-Kontext textbasiert ueber lokales Ollama klassifizieren (`scrap`, `quarantine`, `rework`, `sellable`) | `X-N8N-Callback-Secret` |
+
+Der Endpunkt ist kein PWA-Endpunkt. Er existiert, weil n8n per SSRF-Policy nur den Host `backend` erreichen darf. Ablauf: n8n sendet Alert-Kontext an das Backend, `LlmClient` ruft `POST {LLM_ENDPOINT}/api/chat` mit `format:"json"` und `temperature:0` auf, validiert die Antwort strikt und gibt `llm_ok:true/false` zurück. Bei `llm_ok:false` verwendet der n8n-Workflow weiter die bestehende Keyword-Heuristik.
 
 ---
 

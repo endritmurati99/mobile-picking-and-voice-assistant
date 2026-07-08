@@ -2,13 +2,13 @@
 title: "Qualitätsmeldungen & n8n-Orchestrierung"
 tags: [funktionsdoku, n8n, odoo]
 status: dokumentiert
-stand: 2026-06-26
+stand: 2026-07-08
 ---
 
 # Qualitätsmeldungen & n8n-Orchestrierung
 
 > [!abstract] Kurzfassung
-> Der Picker meldet aus der PWA eine Qualitätsstörung (Beschreibung, optional Fotos, Picking-/Produkt-/Lagerort-Bezug). Das FastAPI-Backend legt dafür über JSON-RPC einen `quality.alert.custom`-Datensatz in Odoo an und stösst anschliessend einen n8n-Workflow als asynchronen Orchestrator an, der die KI-Bewertung übernimmt und das Ergebnis über gesicherte interne Callback-Endpunkte nach Odoo zurückschreibt. Fällt n8n aus, greifen ein Circuit-Breaker und ein lokaler Keyword-Fallback; n8n bleibt damit ausserhalb des kritischen Schreibpfads.
+> Der Picker meldet aus der PWA eine Qualitätsstörung (Beschreibung, optional Fotos, Picking-/Produkt-/Lagerort-Bezug). Das FastAPI-Backend legt dafür über JSON-RPC einen `quality.alert.custom`-Datensatz in Odoo an und stösst anschliessend einen n8n-Workflow als asynchronen Orchestrator an. Der Workflow bewertet zuerst heuristisch, kann die Disposition zusätzlich über ein lokales Ollama-LLM (`qwen2.5:7b`) verfeinern und schreibt das Ergebnis über gesicherte interne Callback-Endpunkte nach Odoo zurück. Fällt n8n oder das LLM aus, greifen lokale Fallbacks; n8n bleibt ausserhalb des kritischen Schreibpfads.
 
 ## 1. Wie es funktioniert
 
@@ -17,10 +17,12 @@ Die Qualitätsmeldung folgt einem **Outbound-Event** (Backend → n8n, fire-and-
 1. Die PWA sendet `POST /api/quality-alerts` als `multipart/form-data` mit `description`, optional `picking_id`, `product_id`, `location_id`, `priority` und beliebig vielen `photos` (`routers/quality.py:164-176`).
 2. Das Backend liest alle Fotos ein, bildet pro Foto einen SHA-256-Fingerprint und baut daraus zusammen mit den Formularfeldern einen Idempotenz-Fingerprint; eine wiederholte Anfrage mit identischem Fingerprint wird als Replay aus dem Cache beantwortet (`routers/quality.py:182-223`).
 3. Nach Identitätsprüfung (`X-Picker-User-Id`/`X-Device-Id` müssen vollständig sein, Picker muss aktiv sein) ruft das Backend in Odoo die Modellmethode `api_create_alert` auf und erhält `alert_id` und `name` zurück (`routers/quality.py:225-264`).
-4. Das Backend feuert das Event `quality-alert-created` an n8n (`routers/quality.py:274-302`). n8n läuft hier als reiner asynchroner Orchestrator und führt die eigentliche KI-Bewertung durch (Provider/Modell ausserhalb des Backends).
-5. **Erfolg:** Wurde das Event zugestellt, setzt das Backend best-effort `ai_evaluation_status = "pending"` und antwortet der PWA mit `{alert_id, name, photo_count, ai_evaluation_status: "pending"}` (`routers/quality.py:342-350`).
-6. **n8n nicht erreichbar:** Konnte das Event nicht zugestellt werden, führt das Backend einen **lokalen Keyword-Fallback** aus (`_apply_local_quality_fallback`, `routers/quality.py:125-161`), schreibt eine vollständige `ai_*`-Bewertung mit `ai_provider="backend-local-fallback"` und `ai_evaluation_status="completed"` und antwortet mit `ai_fallback: true`. Schlägt selbst der Fallback fehl, wird `ai_evaluation_status="failed"` gesetzt und HTTP 502 zurückgegeben (`routers/quality.py:304-340`).
-7. n8n schreibt das KI-Ergebnis später asynchron über die internen Callback-Endpunkte (`/api/internal/n8n/...`) zurück. Das Backend persistiert die `ai_*`-Felder in Odoo, postet eine Chatter-Notiz und protokolliert ein strukturiertes Callback-Event (`routers/n8n_internal.py:546-680`).
+4. Das Backend feuert das Event `quality-alert-created` an n8n (`routers/quality.py:274-302`). n8n läuft hier als reiner asynchroner Orchestrator.
+5. n8n erstellt zunächst eine deterministische Heuristik-Bewertung im `Assess Alert`-Node. Danach ruft der Workflow optional den internen Backend-Endpunkt `POST /api/internal/llm/quality-disposition` auf. Das Backend spricht mit Ollama und gibt `llm_ok` plus Disposition/Confidence/Summary zurück.
+6. Ist die LLM-Antwort valide, übernimmt der `Decide Provider`-Node die LLM-Felder (`ai_provider="ollama-local"`). Ist sie invalide oder fällt der LLM-Pfad aus, bleibt die Heuristik das Ergebnis.
+7. **Erfolg:** Wurde das Event zugestellt, setzt das Backend best-effort `ai_evaluation_status = "pending"` und antwortet der PWA mit `{alert_id, name, photo_count, ai_evaluation_status: "pending"}` (`routers/quality.py:342-350`).
+8. **n8n nicht erreichbar:** Konnte das Event nicht zugestellt werden, führt das Backend einen **lokalen Keyword-Fallback** aus (`_apply_local_quality_fallback`, `routers/quality.py:125-161`), schreibt eine vollständige `ai_*`-Bewertung mit `ai_provider="backend-local-fallback"` und `ai_evaluation_status="completed"` und antwortet mit `ai_fallback: true`. Schlägt selbst der Fallback fehl, wird `ai_evaluation_status="failed"` gesetzt und HTTP 502 zurückgegeben (`routers/quality.py:304-340`).
+9. n8n schreibt das KI-Ergebnis später asynchron über die internen Callback-Endpunkte (`/api/internal/n8n/...`) zurück. Das Backend persistiert die `ai_*`-Felder in Odoo, postet eine Chatter-Notiz und protokolliert ein strukturiertes Callback-Event (`routers/n8n_internal.py:546-680`).
 
 ```mermaid
 sequenceDiagram
@@ -38,7 +40,9 @@ sequenceDiagram
         n8n-->>FastAPI: HTTP 2xx (ack)
         FastAPI->>Odoo: write ai_evaluation_status="pending"
         FastAPI-->>PWA: {alert_id, name, ai_evaluation_status:"pending"}
-        Note over n8n: KI-Bewertung asynchron
+        Note over n8n: Heuristik + optional lokales LLM
+        n8n->>FastAPI: POST /api/internal/llm/quality-disposition
+        FastAPI-->>n8n: llm_ok true/false
         n8n->>FastAPI: POST /api/internal/n8n/quality-assessment (X-N8N-Callback-Secret)
         FastAPI->>Odoo: write ai_* + message_post (Chatter)
         FastAPI-->>n8n: {status:"applied"}
@@ -60,6 +64,8 @@ Der gesamte Odoo-Zugriff läuft ausschliesslich über den `OdooClient` (JSON-RPC
 - **`execute_kw("stock.picking", "api_create_replenishment_transfer", [...])`** — Nachschub-Callback aus dem `shortage-reported`-Flow (`routers/n8n_internal.py:751-765`).
 
 **Fehlerbehandlung:** `OdooAPIError` wird in den Endpunkten gefangen und auf HTTP 502 (`f"Odoo-Fehler: {exc.message}"`) abgebildet; die Idempotenz-Reservation wird über `_finalize_error` mit dem Fehler abgeschlossen, damit ein Replay denselben Fehler liefert (`routers/quality.py:254-258`, `routers/n8n_internal.py:479-496`). Chatter- und Aktivitäts-Aufrufe sind bewusst **best-effort** (`_post_chatter_note_best_effort`, `_create_activity_best_effort`): Sie loggen nur eine Warnung und brechen den Hauptpfad nicht ab (`routers/n8n_internal.py:205-248`). Odoo bleibt damit System of Record; n8n liegt nicht im kritischen Schreibpfad.
+
+Der LLM-Pfad kommuniziert **nicht** mit Odoo. Er ist eine reine Entscheidungshilfe fuer n8n: `routers/llm.py` validiert das Callback-Secret, `LlmClient` ruft `POST {LLM_ENDPOINT}/api/chat` mit JSON-Format-Zwang auf und normalisiert die Antwort. Nur der spätere `quality-assessment`-Callback schreibt nach Odoo.
 
 ## 3. Was genau zugegriffen wird (Odoo-Zugriff)
 
@@ -85,6 +91,7 @@ Der gesamte Odoo-Zugriff läuft ausschliesslich über den `OdooClient` (JSON-RPC
 | POST | `/api/internal/n8n/quality-assessment-failed` | KI-Bewertung als `failed` markieren + Aktivität | `X-N8N-Callback-Secret`, `Idempotency-Key` (`routers/n8n_internal.py:849-855`) |
 | POST | `/api/internal/n8n/replenishment-action` | Nachschubauftrag aus `shortage-reported` anlegen | `X-N8N-Callback-Secret`, `Idempotency-Key` (`routers/n8n_internal.py:683-689`) |
 | POST | `/api/internal/n8n/manual-review-activity` | Manual-Review-Notiz + Aktivität am Picking | `X-N8N-Callback-Secret`, `Idempotency-Key` (`routers/n8n_internal.py:1000-1006`) |
+| POST | `/api/internal/llm/quality-disposition` | Interner n8n-Aufruf an das lokale Ollama-LLM; kein Odoo-Write, reine Dispositionsempfehlung | `X-N8N-Callback-Secret`; Body `QualityDispositionRequest` |
 
 Alle Callback-Endpunkte tragen `Depends(require_n8n_callback_secret)`: ist kein Secret konfiguriert, antwortet das Backend mit HTTP 503; bei falschem Secret mit HTTP 403. Der Vergleich läuft konstantzeitig über `secrets.compare_digest` (`dependencies.py:80-90`). Zusätzlich ist ein `Idempotency-Key` Pflicht; weicht `correlation_id` vom Key ab, wird mit HTTP 409 abgelehnt (`routers/n8n_internal.py:119-151`).
 
@@ -109,6 +116,8 @@ Die Qualitätsmeldung wird in `pwa/js/app.js` aus dem Detail-/Problemdialog ausg
 
 **Degraded-Pfade (Best-Effort):** Wird `quality-alert-created` nicht zugestellt, greift der lokale Keyword-Fallback (`routers/quality.py:304-322`). Bei `pick-confirmed`/`batch-confirmed` bleibt die Buchung in Odoo gültig; nur der n8n-Folgeprozess wird als `integration_status="degraded"` markiert und ein Erfolgs-Telemetrie-Event emittiert, damit der Confirm im Nenner zählt (`services/picking_service.py:741-759`, `services/cluster_service.py:576-580`). Schlägt `shortage-reported` fehl, wird die Voice-Antwort um einen Hinweis ergänzt und `fallback_reason="shortage_dispatch_failed"` gesetzt (`routers/voice.py:465-477`).
 
+**Lokaler LLM-Fallback:** `LlmClient` erzwingt JSON-Ausgabe, akzeptiert nur die Taxonomie `scrap`, `quarantine`, `rework`, `sellable`, klemmt `confidence` auf 0..1 und liefert bei jedem Fehler `ok=False`. Der n8n-Workflow übernimmt LLM-Felder nur bei `llm_ok=true`; ansonsten bleibt die Heuristik unverändert. Dadurch kann Ollama langsam oder nicht verfügbar sein, ohne den Quality-Alert-Hauptpfad zu brechen.
+
 **Strukturierte Callback-Telemetrie:** Jeder interne Callback loggt ein JSON-Event über `_log_callback_event` mit `workflow_name`, `callback_type`, `callback_status` (`applied`/`rejected`/`replay`/`failed`/`aborted`), `correlation_id`, `idempotency_key`, `target_object_type/id`, `execution_id`, `schema_version`, `received_at_backend`, `legacy_payload` und `latency_tracking` (`routers/n8n_internal.py:70-101`).
 
 **Shadow-AI (Research-only):** Der Endpunkt `quality-assessment-ai` lädt den Alert, klassifiziert ihn lokal mit einer gewichteten Keyword-Heuristik über die Kategorien `damage`/`shortage`/`wrong_item`/`unclear` (`quality_shadow_evaluation.py:92-152`, inkl. Negations-Erkennung und Umlaut-Normalisierung) und loggt ein Vergleichs-Event `quality_shadow_evaluation` mit `heuristic_category` vs. `ai_category`, `match`, `confidence_delta` und `ai_latency_ms` (`routers/n8n_internal.py:354-390`). Dieser Pfad **verändert keine Geschäftsdaten in Odoo**; er dient nur dem Soll-Ist-Vergleich Heuristik gegen KI.
@@ -119,6 +128,8 @@ Die Qualitätsmeldung wird in `pwa/js/app.js` aus dem Detail-/Problemdialog ausg
 
 - `backend/app/routers/quality.py:164-350` — `POST /quality-alerts`, Idempotenz, `api_create_alert`, Outbound-Event, lokaler Fallback
 - `backend/app/routers/quality.py:69-161` — Keyword-Heuristik + `_apply_local_quality_fallback`
+- `backend/app/routers/llm.py` — interner n8n-Endpunkt `/api/internal/llm/quality-disposition`
+- `backend/app/services/llm_client.py` — Ollama-Client, JSON-Zwang, Dispositionstaxonomie und Fehler-Fallback
 - `backend/app/services/n8n_webhook.py:97-118` — Pfad-Overrides, Timeouts, Breaker-Parameter
 - `backend/app/services/n8n_webhook.py:120-161` — `fire_event` (fire-and-forget)
 - `backend/app/services/n8n_webhook.py:207-215`, `:359-385` — Circuit-Breaker (offen/halb-offen/reset)
@@ -132,6 +143,7 @@ Die Qualitätsmeldung wird in `pwa/js/app.js` aus dem Detail-/Problemdialog ausg
 - `backend/app/config.py:16-26` — Webhook-Basis, Pfade, Secrets, Timeouts, Breaker-Defaults
 - `backend/app/models/n8n.py:84-148` — Callback-Pydantic-Modelle + `N8NCommandResponse`
 - `backend/app/services/picking_service.py:719-759`, `backend/app/services/cluster_service.py:571-582` — `pick-confirmed` / `batch-confirmed`-Events
+- `n8n/workflows/quality-alert-created.json` — `Call Local LLM`, `Merge LLM Result`, `Decide Provider`, `Write Assessment`
 
 ## Verwandt
 

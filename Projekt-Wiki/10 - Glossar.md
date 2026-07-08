@@ -27,7 +27,7 @@ Verwandte Notizen: [[00 - Start Hier (Übersichtskarte)]] · [[02 - Architektur 
 | [API / Schnittstelle](#api--schnittstelle) | Definierter Zugang zu einer Software | FastAPI-Backend unter `/api/*` |
 | [Callback](#callback) | Rückruf eines Systems an ein anderes | n8n → `/api/internal/n8n/*` |
 | [Caddy → siehe Reverse Proxy](#reverse-proxy-caddy) | HTTPS-Eingangstür | `infrastructure/caddy/Caddyfile` |
-| [Container](#container) | Isoliert laufendes Programmpaket | Alle 10 Dienste |
+| [Container](#container) | Isoliert laufendes Programmpaket | Alle 11 Compose-Services |
 | [Docker](#docker) | Werkzeug zum Bau/Betrieb von Containern | `docker-compose.yml` |
 | [ERP / Odoo](#erp--odoo) | Warenwirtschaftssystem | Odoo 18 Community |
 | [FastAPI](#fastapi) | Python-Web-Framework | `backend/app/main.py` |
@@ -37,6 +37,7 @@ Verwandte Notizen: [[00 - Start Hier (Übersichtskarte)]] · [[02 - Architektur 
 | [Image](#image) | Bauplan/Vorlage für Container | `backend/Dockerfile` |
 | [Intent-Engine](#intent-engine) | Absichtserkennung aus Text | `intent_engine.py` |
 | [JSON-RPC](#json-rpc) | Methodenaufruf über JSON | `odoo_client.py` |
+| [LLM / Ollama](#llm--ollama) | Lokales Sprachmodell fuer Quality-Disposition | `llm_client.py`, `ollama` |
 | [Orchestrator](#orchestrator) | Dirigent für Abläufe | n8n |
 | [picking-net](#picking-net) | Internes Docker-Netzwerk | `docker-compose.yml` |
 | [PWA](#pwa-progressive-web-app) | Web-App wie native App | `pwa/` |
@@ -66,7 +67,7 @@ Ein **Callback** ist ein „Rückruf": Statt auf eine Antwort zu warten, ruft da
 
 ## Container
 
-Ein **Container** ist ein leichtgewichtiges, isoliert laufendes Paket aus einem Programm und allem, was es zum Laufen braucht (Bibliotheken, Konfiguration). Man kann ihn sich wie eine standardisierte Versandbox vorstellen: Innen ist alles fertig eingerichtet, außen passt sie auf jedes „Schiff" (jeden Rechner). In diesem Projekt läuft jeder Dienst in seinem eigenen Container – insgesamt zehn (u. a. `caddy`, `db`, `odoo`, `backend`, `whisper`, `piper`, `n8n`, `pwa`), definiert in `docker-compose.yml`.
+Ein **Container** ist ein leichtgewichtiges, isoliert laufendes Paket aus einem Programm und allem, was es zum Laufen braucht (Bibliotheken, Konfiguration). Man kann ihn sich wie eine standardisierte Versandbox vorstellen: Innen ist alles fertig eingerichtet, außen passt sie auf jedes „Schiff" (jeden Rechner). In diesem Projekt läuft jeder Dienst in seinem eigenen Container – aktuell 11 Compose-Services (u. a. `caddy`, `db`, `odoo`, `backend`, `whisper`, `piper`, `ollama`, `n8n`, `pwa` sowie optionale Odoo-Profile), definiert in `docker-compose.yml`.
 
 ## Docker
 
@@ -130,9 +131,16 @@ Die **Intent-Engine** ist die Komponente, die aus gesprochenem/getipptem Text di
 > [!note] Abgrenzung zu REST
 > [REST](#rest) denkt in *Ressourcen* (URLs wie `/pickings/123`), JSON-RPC denkt in *Methodenaufrufen* (`execute_kw(model, method, args)`). Im Projekt findet man beides: REST zwischen PWA und Backend, JSON-RPC zwischen Backend und Odoo.
 
+## LLM / Ollama
+
+Ein **LLM** (Large Language Model) ist ein Sprachmodell, das Text analysiert und strukturiert antworten kann. **Ollama** ist hier der lokale Laufzeitdienst für ein solches Modell; er läuft als eigener Container (`ollama/ollama:latest`) ohne Host-Port im Docker-Netz und wird vom Backend unter `http://ollama:11434` angesprochen. Im aktuellen Stand nutzt das Projekt Ollama für die asynchrone Quality-Alert-Disposition: n8n ruft `POST /api/internal/llm/quality-disposition`, das Backend ruft Ollama, validiert JSON strikt und liefert `llm_ok` zurück.
+
+> [!info] Abgrenzung
+> Dieses lokale LLM liegt **nicht** im Voice-Hot-Path und ersetzt keine Odoo-Entscheidung. Bei Fehlern bleibt die bestehende n8n-Heuristik aktiv; die spätere Vision-/Bild-KI ist weiterhin ein eigener Forschungs-/Folgeschritt.
+
 ## Orchestrator
 
-Ein **Orchestrator** ist der „Dirigent", der mehrere Schritte und Systeme zu einem Gesamtablauf zusammenführt – er macht die Arbeit nicht selbst, sondern koordiniert, wer wann was tut. In diesem Projekt ist **n8n** der Orchestrator: Es nimmt Events vom Backend entgegen (z. B. `quality-alert-created`, `shortage-reported`), verarbeitet sie (KI-Bewertung, Nachschublogik) und ruft per [Callback](#callback) zurück. n8n läuft als eigener Container (`docker.n8n.io/n8nio/n8n:2.13.3`).
+Ein **Orchestrator** ist der „Dirigent", der mehrere Schritte und Systeme zu einem Gesamtablauf zusammenführt – er macht die Arbeit nicht selbst, sondern koordiniert, wer wann was tut. In diesem Projekt ist **n8n** der Orchestrator: Es nimmt Events vom Backend entgegen (z. B. `quality-alert-created`, `shortage-reported`), verarbeitet sie (KI-/Heuristik-Bewertung, Nachschublogik) und ruft per [Callback](#callback) zurück. Für die lokale LLM-Quality-Disposition ruft n8n bewusst das Backend auf, nicht direkt Ollama. n8n läuft als eigener Container (`docker.n8n.io/n8nio/n8n:2.13.3`).
 
 > [!warning] Architektur-Invariante
 > n8n liegt **nicht im Voice-Hot-Path**: Spracherkennung ([Whisper](#stt-whisper)) und Absichtserkennung ([Intent-Engine](#intent-engine)) laufen lokal im Backend. n8n wird beim Voice-Pfad nur **optional und synchron** über `voice-exception-query` befragt (Timeout, danach lokaler Fallback). Fällt n8n aus, antwortet das Backend selbst. Siehe [[07 - n8n]] und [[08 - PWA & Voice-Pfad]].
@@ -219,6 +227,7 @@ Ein **Webhook** ist eine umgekehrte Schnittstelle: Statt dass man regelmäßig n
 > - **[Caddy](#reverse-proxy-caddy)** ist die HTTPS-Eingangstür (**[HTTPS/mkcert](#https--mkcert)**) und verteilt: `/api/*` → **[FastAPI](#fastapi)**, `/*` → **[PWA](#pwa-progressive-web-app)**, `/n8n/*` → **[Orchestrator](#orchestrator)**.
 > - Die **[PWA](#pwa-progressive-web-app)** spricht per **[REST](#rest)** nur mit **[FastAPI](#fastapi)**; FastAPI spricht per **[JSON-RPC](#json-rpc)** mit **[Odoo](#erp--odoo)** (dem **[System of Record](#system-of-record)**).
 > - Voice-Pfad: Audio → **[STT/Whisper](#stt-whisper)** → **[Intent-Engine](#intent-engine)** → Antwort als Text → **[TTS/Piper](#tts-piper)**.
+> - Quality-KI-Pfad: **[n8n](#orchestrator)** → **[FastAPI](#fastapi)** → **[LLM/Ollama](#llm--ollama)**; bei Fehler bleibt die Heuristik aktiv.
 > - **[Webhooks](#webhook)** schicken Events an **[n8n](#orchestrator)**; n8n meldet Ergebnisse per **[Callback](#callback)** zurück; **[Idempotenz](#idempotenz)** verhindert Doppelwirkungen; **[Hot-Reload](#hot-reload)** beschleunigt die Entwicklung.
 
 ---
@@ -227,7 +236,7 @@ Ein **Webhook** ist eine umgekehrte Schnittstelle: Statt dass man regelmäßig n
 
 Diese Notiz fasst Begriffe zusammen, deren Belege in den projektinternen Analysen liegen:
 
-- **Backend (FastAPI):** `backend/app/main.py`, `config.py`, `dependencies.py`, `services/odoo_client.py`, `services/n8n_webhook.py`, `services/whisper_client.py`, `services/piper_client.py`, `services/intent_engine.py`, `services/mobile_workflow.py`, `routers/n8n_internal.py`.
+- **Backend (FastAPI):** `backend/app/main.py`, `config.py`, `dependencies.py`, `services/odoo_client.py`, `services/n8n_webhook.py`, `services/whisper_client.py`, `services/piper_client.py`, `services/llm_client.py`, `services/intent_engine.py`, `services/mobile_workflow.py`, `routers/n8n_internal.py`, `routers/llm.py`.
 - **Infrastruktur:** `docker-compose.yml`, `infrastructure/caddy/Caddyfile`, `infrastructure/caddy/Caddyfile.pwa`, `infrastructure/scripts/setup-certs.sh`, `Makefile`.
 - **n8n-Workflows:** `n8n/workflows/{pick-confirmed,quality-alert-created,shortage-reported,voice-exception-query,error-trigger}.json`.
 

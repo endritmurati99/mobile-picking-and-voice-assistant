@@ -32,25 +32,28 @@ Alle Bausteine sind **eigenständige Docker-Container** im selben virtuellen Net
 ## Die Leserfrage zuerst: "Ist das sinnvoll? Sind das wirklich alles einzelne Container?"
 
 > [!info] Kurze Antwort: **Ja.**
-> Es sind **10 einzelne Container** im Docker-Netz `picking-net`. Jeder hat **genau eine Aufgabe**. Das ist bewusst so gewählt und gilt als sinnvolle, gängige Praxis ("eine Verantwortlichkeit pro Container"). Vorteile:
+> Es sind **11 einzelne Compose-Services** im Docker-Netz `picking-net` bzw. als explizite Odoo-Profile. Jeder hat **genau eine Aufgabe**. Das ist bewusst so gewählt und gilt als sinnvolle, gängige Praxis ("eine Verantwortlichkeit pro Container"). Vorteile:
 > - **Isolierung:** Stürzt ein Container ab (z. B. `piper` TTS), laufen die anderen weiter.
 > - **Austauschbarkeit:** Man kann einen Baustein einzeln neu bauen/aktualisieren, ohne den Rest anzufassen (z. B. nur `docker compose build backend`).
 > - **Klarheit:** Pfeilrichtung im Diagramm = Aufrufrichtung. Man sieht sofort, wer von wem abhängt.
 >
-> **Quelle:** Die 10 Container und das Netzwerk `picking-net` (bridge-driver) sind in `docker-compose.yml` definiert (Projektpfad: `Mobile Picking und Voice Assistant/docker-compose.yml`).
+> **Quelle:** Die 11 Services und das Netzwerk `picking-net` (bridge-driver) sind in `docker-compose.yml` definiert (Projektpfad: `Mobile Picking und Voice Assistant/docker-compose.yml`).
 
-Die 10 Container im Überblick (faktisch aus `docker-compose.yml`):
+Die 11 Services im Überblick (faktisch aus `docker-compose.yml`):
 
 | # | Container | Aufgabe (genau eine) | Port (intern) | Build vs. Image |
 |---|-----------|----------------------|---------------|-----------------|
 | 1 | `caddy` | Reverse Proxy / Verteiler (HTTPS-Eingang) | 443, 80 | Image (`caddy:2-alpine`) |
 | 2 | `db` | PostgreSQL 16 Datenbank | 5433 (nur lokal) | Image (`postgres:16-alpine`) |
 | 3 | `odoo` | Warenwirtschaft / System of Record (Odoo 18) | 8069 | Build (`./odoo/Dockerfile`) |
-| 4 | `backend` | FastAPI – Intent-Engine & API-Logik | 8000 | Build (`./backend/Dockerfile`) |
-| 5 | `whisper` | Spracherkennung STT (Deutsch, Modell `small`) | 9000 | Image |
-| 6 | `piper` | Sprachausgabe TTS (Deutsch „thorsten-high") | 5500 | Build (`./piper/Dockerfile`) |
-| 7 | `n8n` | Workflow-Orchestrator | 5678 | Image (`n8n:2.13.3`) |
-| 8 | `pwa` | Statischer Webserver für die PWA (Frontend) | 80 (intern) | Image (`caddy:2-alpine`) |
+| 4 | `odoo-lager-2` | Zweite Odoo-18-Testinstanz fuer Instanzumschalter | 8070 | Build (`./odoo/Dockerfile`) |
+| 5 | `odoo19-trial` | Odoo-19-Trial fuer Migration und Traceability-Demo | 8100 | Build (`./odoo/Dockerfile` mit Odoo 19) |
+| 6 | `backend` | FastAPI – Intent-Engine, API-Logik, Odoo-/LLM-Adapter | 8000 | Build (`./backend/Dockerfile`) |
+| 7 | `whisper` | Spracherkennung STT (Deutsch, Modell `small`) | 9000 | Image |
+| 8 | `piper` | Sprachausgabe TTS (Deutsch „thorsten-high") | 5500 | Build (`./piper/Dockerfile`) |
+| 9 | `ollama` | Lokales LLM fuer Quality-Alert-Disposition | 11434 | Image (`ollama/ollama:latest`) |
+| 10 | `n8n` | Workflow-Orchestrator | 5678 | Image (`n8n:2.13.3`) |
+| 11 | `pwa` | Statischer Webserver für die PWA (Frontend) | 80 (intern) | Image (`caddy:2-alpine`) |
 
 > [!note] Warum taucht Caddy "zweimal" auf?
 > Es gibt zwei Caddy-Container mit unterschiedlichen Rollen: `caddy` (Nr. 1) ist der **Haupt-Verteiler** am Eingang (Port 443/80). `pwa` (Nr. 8) ist ein **zweiter, kleiner Caddy**, der nur die statischen Frontend-Dateien ausliefert. Der Haupt-Caddy leitet den Frontend-Verkehr intern an den PWA-Caddy weiter (`reverse_proxy pwa:80`). Das sind zwei getrennte Container mit je einer Aufgabe — kein Widerspruch zur Single-Responsibility-Regel.
@@ -113,7 +116,7 @@ Der **`pwa`-Container** ist ein schlanker Caddy (`caddy:2-alpine`), der die stat
 Der **`backend`-Container** ist die zentrale API (FastAPI). Caddy leitet alles unter `/api/*` hierher (`reverse_proxy backend:8000`). Das Backend ist der einzige Baustein, der mit fast allen anderen redet: Odoo, Whisper, Piper und n8n.
 
 - **Pfeil:** Caddy (Zweig 2, `/api/*`) **→** Backend.
-- **Build:** `./backend/Dockerfile`. **Hängt ab von:** `odoo`, `whisper`, `piper`.
+- **Build:** `./backend/Dockerfile`. **Hängt ab von:** `odoo`, `whisper`, `piper`, `ollama`.
 - **Hot-Reload:** Läuft mit `uvicorn ... --reload`. Code-Änderungen unter `./backend/app` triggern automatisch einen Neustart — **kein** `docker compose restart` nötig.
 
 > [!note] Mehr Details zum Backend
@@ -156,16 +159,16 @@ Dies ist die wichtigste Beziehung im Diagramm und die einzige, die in **beide Ri
 
 ---
 
-## Baustein 5: n8n → OpenAI (extern)
+## Baustein 5: lokale Quality-KI über Backend → Ollama
 
-Vom **`n8n`-Container** geht ein Pfeil **nach außen** zu **OpenAI** (externe API). n8n ruft also einen externen Dienst auf, um z. B. Qualitäts-Fotos per Vision-Modell zu bewerten.
+Der aktuelle Quality-Alert-Workflow nutzt fuer die textbasierte Disposition ein **lokales LLM**. Wegen der n8n-SSRF-Policy ruft n8n **nicht direkt** Ollama auf, sondern den internen Backend-Endpunkt `POST /api/internal/llm/quality-disposition`. Das Backend spricht danach mit dem Ollama-Container (`http://ollama:11434/api/chat`). Gibt das Modell keine valide Antwort, nutzt n8n weiter die eingebaute Heuristik.
 
-- **Pfeil:** n8n **→** OpenAI (extern, verlässt das Docker-Netz `picking-net`).
-- **Richtung:** n8n ist der Aufrufer, OpenAI der externe Dienstleister.
-- **Sicherheit (faktisch in `docker-compose.yml`):** n8n ist per `N8N_SSRF_ALLOWED_HOSTNAMES: backend` und `N8N_RESTRICT_FILE_ACCESS_TO` eingeschränkt — interne SSRF-Aufrufe sind auf den `backend`-Host begrenzt.
+- **Pfeil 1:** n8n **→** Backend (`/api/internal/llm/quality-disposition`), abgesichert mit `X-N8N-Callback-Secret`.
+- **Pfeil 2:** Backend **→** Ollama (`/api/chat`, Modell `qwen2.5:7b`).
+- **Sicherheit:** n8n bleibt auf Host `backend` beschränkt (`N8N_SSRF_ALLOWED_HOSTNAMES=backend`); Ollama hat keinen Host-Port und ist nur im Docker-Netz erreichbar.
 
-> [!info] Annahme zur Kanten-Beschriftung
-> Das Diagramm zeigt einen Pfeil `n8n → OpenAI`. Welches konkrete OpenAI-Modell genutzt wird, ist im Workflow-JSON konfiguriert; die Callback-Verträge erlauben `ai_provider`-Werte wie `openai-vision` (Feld `ai_provider`/`ai_model` im Callback `quality-assessment`). Die genaue Modell-ID ist **konfigurationsabhängig** und hier als Annahme markiert.
+> [!note] Abgrenzung zur Vision-Idee
+> Die lokale **Bild-/Vision-KI** bleibt eine geplante bzw. recherchierte Erweiterung. Implementiert ist aktuell die textbasierte Quality-Disposition mit lokalem Ollama und Heuristik-Fallback.
 
 ---
 
@@ -197,6 +200,7 @@ Diese Container gehören zum Netz `picking-net`, sind aber Hilfsdienste:
 |-----------|-------|--------------|--------|
 | `whisper` | STT (Sprache → Text), Deutsch, Modell `small` | Backend **→** Whisper (`http://whisper:9000/asr`) | `backend/app/services/whisper_client.py` |
 | `piper` | TTS (Text → Sprache), Deutsch | Backend **→** Piper (`http://piper:5500/synthesize`) | `backend/app/services/piper_client.py` |
+| `ollama` | Lokales LLM fuer Quality-Disposition | Backend **→** Ollama (`http://ollama:11434/api/chat`) | `backend/app/services/llm_client.py` |
 
 > [!note] Whisper-Fallback und Piper-Fallback
 > - **Whisper** liefert bei Fehler einen leeren String `""` zurück (Timeout 60 s).
@@ -210,10 +214,6 @@ Diese Container gehören zum Netz `picking-net`, sind aber Hilfsdienste:
 > Ein Pfeil von **A → B** bedeutet: **A ist der Aufrufer, B wird aufgerufen.** A hängt von B ab.
 
 ```text
-                          (extern)
-                          OpenAI
-                            ▲
-                            │ (n8n ruft OpenAI)
         ┌───────────────────────────────────────────┐
         │                  picking-net               │
         │                                            │
@@ -227,6 +227,7 @@ Diese Container gehören zum Netz `picking-net`, sind aber Hilfsdienste:
         │                              │              │  │
         │        Backend ──► Whisper (STT)            │  │
         │        Backend ──► Piper  (TTS)             │  │
+        │        Backend ──► Ollama (LLM)             │  │
         │                              │              │  │
         │             Odoo ──► PostgreSQL ◄── n8n     │  │
         │                                             │  │
@@ -243,7 +244,7 @@ Diese Container gehören zum Netz `picking-net`, sind aber Hilfsdienste:
 | Caddy → :8069 | `/odoo` ist ein **Redirect** auf den Odoo-Port (kein Proxy) |
 | Backend ↔ n8n | **Bidirektional:** Webhook raus, Callback rein |
 | Backend → Whisper / Piper | Backend ruft STT/TTS auf |
-| n8n → OpenAI | n8n ruft die externe AI-API |
+| n8n → Backend → Ollama | n8n fragt lokale Quality-Disposition ueber Backend an; Backend ruft Ollama |
 | Odoo → PostgreSQL | Odoo nutzt die DB (Cluster-DB) |
 | n8n → PostgreSQL | n8n nutzt dieselbe DB-Instanz (eigene DB `n8n`) |
 | n8n → tunnel | Cloudflare-Tunnel exponiert n8n nach außen |
@@ -263,10 +264,11 @@ Diese Container gehören zum Netz `picking-net`, sind aber Hilfsdienste:
 - **Webhook raus (Backend → n8n):** `backend/app/services/n8n_webhook.py` (`N8NWebhookClient`)
 - **Callback rein (n8n → Backend):** `backend/app/routers/n8n_internal.py` (`/api/internal/n8n/...`)
 - **Voice-Pfad / lokaler Fallback:** `backend/app/routers/voice.py`
+- **Lokales LLM:** `backend/app/routers/llm.py`, `backend/app/services/llm_client.py`, `n8n/workflows/quality-alert-created.json`
 - **Odoo-Modell der AI-Bewertung:** `quality.alert.custom` (Felder u. a. `ai_disposition`, `ai_confidence`, `ai_evaluation_status`)
 
 > [!warning] Als Annahme markiert (nicht hart belegt)
-> - Die konkrete **OpenAI-Modell-ID** (z. B. `gpt-4-vision`) ist konfigurationsabhängig im n8n-Workflow-JSON. Im Diagramm steht nur "OpenAI (extern)". Beleg ist lediglich das Callback-Feld `ai_provider`/`ai_model` mit möglichem Wert `openai-vision`.
+> - Die echte **Vision-/Bild-KI** ist noch kein produktiver Bestandteil des Quality-Alert-Pfads; dokumentiert ist nur der lokale Text-LLM-Baustein.
 > - Der **`pick-confirmed`**-Webhook ist im Code vorhanden, wird laut Infra-Analyse aber "möglicherweise nicht aktiv" gefeuert — die genaue Aktivierung hängt von der Workflow-Registrierung in n8n ab.
 
 ---

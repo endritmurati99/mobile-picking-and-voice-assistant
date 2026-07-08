@@ -15,6 +15,9 @@ created: 2026-06-22
 
 # Lokale Bild-KI-Qualitätsprüfung (Design & Recherche)
 
+> [!note] Stand 2026-07-08
+> Ein erster lokaler KI-Baustein ist inzwischen implementiert: Quality Alerts koennen textbasiert ueber ein lokales Ollama-LLM (`qwen2.5:7b`) disponiert werden. Das laeuft ueber n8n → Backend → Ollama und faellt bei Fehlern auf die bestehende Heuristik zurueck. Diese Seite bleibt trotzdem **in-research**, weil die hier beschriebene Vision-/Bild-KI fuer Produktfoto, Defekterkennung und Referenzbildvergleich noch nicht umgesetzt ist.
+
 > [!abstract] Idee in einem Satz
 > Ein **lokales Bild-KI-Modell** (via Ollama) prüft beim Kommissionieren das **Produktfoto** —
 > ob es das erwartete Produkt ist (z. B. „rosa brick 2x2") und ob es in Ordnung/unbeschädigt ist —,
@@ -77,7 +80,7 @@ Kombiniert mit [[Barcode als Seriennummer-Bestätigung]] und [[Karton- und Behae
 > - **n8n-getriggert (Invariante 3/4):** Die Bildanalyse ist **async** und läuft über n8n, **nicht** im Voice-Hot-Path.
 > - **Odoo bleibt System of Record:** das Ergebnis wird über den bestehenden Backend-Callback-Pfad (`/internal/n8n/*`) nach Odoo geschrieben.
 
-Im Architekturbild ([[02 - Architektur & Diagramm erklärt]]) ersetzt/ergänzt ein **lokaler `ollama`-Container** den heutigen externen `OpenAI`-Knoten. Datenfluss:
+Im Architekturbild ([[02 - Architektur & Diagramm erklärt]]) ist inzwischen ein **lokaler `ollama`-Container** als Text-LLM-Baustein dokumentiert. Fuer die hier beschriebene Vision-Erweiterung waere der geplante Datenfluss:
 
 ```
 PWA (Foto) -> Backend -> n8n (Webhook) -> Ollama Vision (lokal) -> n8n -> Backend-Callback -> Odoo

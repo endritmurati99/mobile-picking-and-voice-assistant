@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     whisper_url: str = "http://whisper:9000"
     piper_url: str = "http://piper:5500"
 
+    # Lokales LLM (Ollama) fuer die KI-Qualitaetsbewertung. Laeuft offline auf dem
+    # Lab-PC; kein Cloud-Zugriff noetig. Faellt bei Ausfall auf die n8n-Heuristik zurueck.
+    llm_provider: str = "ollama"
+    llm_endpoint: str = "http://ollama:11434"
+    llm_model: str = "qwen2.5:7b"
+    llm_timeout_ms: int = 30000
+    openai_api_key: str = ""
+
     n8n_webhook_base: str = "http://n8n:5678/webhook"
     n8n_webhook_path_quality_alert_created: str = "quality-alert-created"
     n8n_webhook_path_voice_exception_query: str = "voice-exception-query"

@@ -182,7 +182,7 @@ odoo/addons/quality_alert_custom/
 | `ai_photo_analysis` | Text | Fotoanalyse-Ergebnis |
 | `ai_recommended_action` | Text | Empfohlene Aktion, `tracking=True` |
 | `ai_last_analyzed_at` | Datetime | Analysiert am, `tracking=True` |
-| `ai_provider` | Char | Provider (z. B. Claude, OpenAI) |
+| `ai_provider` | Char | Provider (z. B. `backend-local-fallback`, `ollama-local`, Claude/OpenAI in alternativen Setups) |
 | `ai_model` | Char | Modell-ID |
 | `ai_evaluation_status` | Selection | `[pending, completed, failed]`, `tracking=True` |
 | `ai_failure_reason` | Char | Fehlergrund (bei `failed`) |

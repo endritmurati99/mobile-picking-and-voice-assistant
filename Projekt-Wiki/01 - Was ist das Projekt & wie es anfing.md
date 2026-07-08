@@ -31,9 +31,9 @@ Das Projekt ist ein **Proof of Concept (PoC) im Rahmen einer Bachelorarbeit** mi
 | Art | Bachelorarbeit-PoC |
 | Forschungsmethode | Design Science Research |
 | Betrieb | Lokal im LAN (kein Cloud-Hosting) |
-| Zeitraum | März–Juni 2026 |
+| Zeitraum | März–Juli 2026 |
 | Projektstart | 2026-03-22 (Initial Commit) |
-| Stand dieser Notiz | Juni 2026 |
+| Stand dieser Notiz | Juli 2026 |
 
 ---
 
@@ -55,7 +55,7 @@ Im Lager-Picking (Kommissionierung) holt ein Mitarbeiter Artikel von Lagerplätz
 ## 3. Die Lösung in einem Satz
 
 > [!tip] Kernidee
-> Eine **offline-fähige mobile Web-App (PWA)**, mit der ein Lagerarbeiter Picking-Aufträge **per Touch, Barcode-Scan oder deutscher Sprachsteuerung** abarbeitet — angebunden an **Odoo 18** als Datenquelle, mit lokaler Spracherkennung (Whisper) und Sprachausgabe (Piper), wobei komplexere Ausnahmefälle asynchron über **n8n** assistiert werden.
+> Eine **offline-fähige mobile Web-App (PWA)**, mit der ein Lagerarbeiter Picking-Aufträge **per Touch, Barcode-Scan oder deutscher Sprachsteuerung** abarbeitet — angebunden an **Odoo 18** als Live-Datenquelle plus eine getrennte **Odoo-19-Trial-Instanz** für Migration/Traceability-Demo, mit lokaler Spracherkennung (Whisper), lokaler Sprachausgabe (Piper) und lokaler Quality-Disposition über Ollama, wobei komplexere Ausnahmefälle asynchron über **n8n** assistiert werden.
 
 ---
 
@@ -99,7 +99,7 @@ Das Projekt wuchs in nachvollziehbaren Phasen. Jede Phase entspricht einem Bünd
 | **6 — TTS & Intent-Expansion** | 23. April | Sprachausgabe | Piper-TTS-Service (thorsten-high), Browser-TTS-Fallback, 60+ neue Aliases, `confirm_all`-Befehl, Login-Begrüßung, Audio-Tuning |
 
 > [!note] Begleitend zu den Phasen: Welle A
-> Parallel entstand die **Welle A — Quality-Alert-KI-Bewertung**: im Repo umgesetzt, aber noch **nicht live** (Addon-Upgrade in der Live-DB steht aus). Sie ergänzt Odoo-Felder wie `ai_evaluation_status`, `ai_failure_reason`, `ai_enhanced_description`, `ai_photo_analysis` und einen UI-Tab "Systembewertung". **Nicht** Teil von Welle A: keine Mobile-Diktierfunktion, kein Draft-Enhancement, keine echte Vision-Pipeline, kein OpenAI-Zwang.
+> Parallel entstand die **Welle A — Quality-Alert-KI-Bewertung**: Quality Alerts werden in Odoo angelegt, n8n bewertet sie asynchron und schreibt `ai_*`-Felder kontrolliert zurück. Seit Juli kann der Workflow zusätzlich ein lokales Ollama-LLM über das Backend befragen; bei Fehlern bleibt die Heuristik aktiv. **Nicht** Teil von Welle A: keine Mobile-Diktierfunktion, kein Draft-Enhancement, keine echte Vision-Pipeline, kein Cloud-Zwang.
 
 ---
 

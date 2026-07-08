@@ -55,8 +55,52 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 2,
       "position": [
-        900,
-        280
+        1480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "http://backend:8000/api/internal/llm/quality-disposition",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 35000
+        },
+        "headerParametersJson": "={{ JSON.stringify({ \"X-N8N-Callback-Secret\": $env.N8N_CALLBACK_SECRET, \"Idempotency-Key\": $json.correlation_id }) }}",
+        "bodyParametersJson": "={{ JSON.stringify((function(){ var w = $('Webhook').item.json; var input = w.body || w; var p = input.payload || {}; return { correlation_id: input.correlation_id, alert_id: p.alert_id, description: String(p.description || ''), priority: String(p.priority || (input.picking_context && input.picking_context.priority) || '0'), photo_count: Number(p.photo_count || 0), product_id: p.product_id || null, location_id: p.location_id || null }; })()) }}"
+      },
+      "name": "Call Local LLM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [
+        760,
+        460
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "mergeByPosition"
+      },
+      "name": "Merge LLM Result",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1000,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const it = items[0] && items[0].json ? items[0].json : {};\nconst VALID = ['scrap', 'quarantine', 'rework', 'sellable'];\nconst ok = it.llm_ok === true && VALID.indexOf(String(it.llm_disposition)) !== -1 && typeof it.llm_confidence === 'number' && it.llm_confidence >= 0 && it.llm_confidence <= 1 && typeof it.llm_summary === 'string' && it.llm_summary.trim().length > 0;\nif (ok) {\n  it.ai_disposition = it.llm_disposition;\n  it.ai_confidence = Math.round(it.llm_confidence * 100) / 100;\n  it.ai_summary = it.llm_summary;\n  if (it.llm_recommended_action) it.ai_recommended_action = it.llm_recommended_action;\n  it.ai_provider = it.llm_provider || 'ollama-local';\n  it.ai_model = it.llm_model || 'qwen2.5:7b';\n}\nreturn [{ json: it }];"
+      },
+      "name": "Decide Provider",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1240,
+        300
       ]
     }
   ],
@@ -78,6 +122,44 @@
       ]
     },
     "Assess Alert": {
+      "main": [
+        [
+          {
+            "node": "Merge LLM Result",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Call Local LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Local LLM": {
+      "main": [
+        [
+          {
+            "node": "Merge LLM Result",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge LLM Result": {
+      "main": [
+        [
+          {
+            "node": "Decide Provider",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide Provider": {
       "main": [
         [
           {

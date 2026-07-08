@@ -6,7 +6,7 @@ tags:
   - bachelorarbeit
   - mobile-picking
 status: dokumentiert
-stand: 2026-07-04
+stand: 2026-07-08
 ---
 
 # Funktionsdokumentation — Map of Content
@@ -35,7 +35,7 @@ Zusätzlich enthält jede Seite (soweit relevant) die betroffenen **FastAPI-Endp
 | 04 | [[04 - Empfängerkarton-Bestätigung (Put-to-Box)]] | Scan-oder-Tippen des richtigen Ziel-Kartons pro Position, serverseitige Prüfung gegen `result_package_id`, Verwechslungsschutz (falscher Karton → kein Write). |
 | 05 | [[05 - Seriennummer-Bestätigung]] | Pflicht-Erfassung/Validierung der konkreten Seriennummer beim Pick, Schreiben von `lot_id` für `tracking=serial`, Telemetrie `serial_confirm`. |
 | 06 | [[06 - Sprachassistent (STT, Intent, TTS)]] | Voice-Pfad: Whisper (STT) → Intent-Engine (Keyword-Matching) → Piper (TTS), mit Touch als Pflicht-Fallback und lokalem STT (kein Cloud-Hot-Path). |
-| 07 | [[07 - Qualitätsmeldungen & n8n-Orchestrierung]] | Quality Alert + Foto anlegen, asynchrone KI-Bewertung über n8n, Circuit Breaker, Shadow-Evaluation und kontrollierte Rückschreibung der `ai_*`-Felder. |
+| 07 | [[07 - Qualitätsmeldungen & n8n-Orchestrierung]] | Quality Alert + Foto anlegen, asynchrone Bewertung über n8n, optional lokales Ollama-LLM mit Heuristik-Fallback, Circuit Breaker, Shadow-Evaluation und kontrollierte Rückschreibung der `ai_*`-Felder. |
 | 08 | [[08 - Odoo-Instanz-Switching (Multi-Mandant)]] | Laufzeitwechsel zwischen Odoo-Profilen/Lagern per PWA-Umschalter und Header `X-Odoo-Instance`, inklusive PoC-Grenzen fuer n8n. |
 | 09 | [[09 - Odoo-19-Trial und Traceability-Demo]] | Aktueller Stand der Odoo-19-Trial-Migration, Demo-Schalter fuer BOM-Komponenten/Endprodukte, Odoo-Orte, Verifikation und naechste Schritte. |
 

@@ -12,6 +12,7 @@ from app.services.mobile_workflow import (
     WriteRequestContext,
 )
 from app.services.cluster_service import ClusterService
+from app.services.llm_client import LlmClient
 from app.services.n8n_webhook import N8NWebhookClient
 from app.services.odoo_client import OdooClient
 from app.services.picking_service import PickingService
@@ -46,6 +47,15 @@ def get_odoo_client() -> OdooClient:
 @lru_cache()
 def get_n8n_client() -> N8NWebhookClient:
     return N8NWebhookClient()
+
+
+@lru_cache()
+def get_llm_client() -> LlmClient:
+    return LlmClient(
+        endpoint=settings.llm_endpoint,
+        model=settings.llm_model,
+        timeout_ms=settings.llm_timeout_ms,
+    )
 
 
 def resolve_instance(

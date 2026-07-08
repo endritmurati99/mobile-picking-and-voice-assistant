@@ -85,6 +85,28 @@ Fachliche Mindestdaten fuer einen echten Live-Test:
 - Am erwarteten Lagerplatz muss verfuegbarer Bestand (`stock.quant`) vorhanden sein.
 - Es muss mindestens einen aktiven internen Picker-Benutzer geben.
 
+### 7c. Lokales KI-Modell fuer die Qualitaetsbewertung (offline)
+
+Die KI-Bewertung der Quality Alerts laeuft ueber ein lokales Sprachmodell (Ollama)
+auf dem Lab-PC — ohne Internet. Der n8n-Workflow `quality-alert-created` ruft dazu
+den Backend-Endpoint `POST /api/internal/llm/quality-disposition` auf; das Backend
+spricht mit dem Ollama-Container. Faellt das Modell aus (Timeout, ungueltige Antwort),
+nutzt der Workflow automatisch die eingebaute Heuristik als Fallback.
+
+Der Ollama-Container startet mit dem Stack. Modell einmalig laden:
+
+```bash
+docker compose up -d ollama
+docker compose exec ollama ollama pull qwen2.5:7b
+```
+
+Regeln:
+
+- Konfiguration ueber `.env`: `LLM_PROVIDER`, `LLM_ENDPOINT`, `LLM_MODEL`, `LLM_TIMEOUT_MS`.
+- n8n erreicht Ollama **nicht** direkt (SSRF-Policy erlaubt nur `backend`); der Aufruf laeuft bewusst ueber das Backend.
+- CPU-only genuegt (i7-4790, 32 GB RAM). Die Bewertung ist asynchron; Latenz ist unkritisch.
+- Zum Abschalten des lokalen Modells `LLM_PROVIDER` auf einen anderen Wert setzen (z. B. `disabled`) — dann bewertet nur die Heuristik.
+
 ### 8. Seed-Daten laden
 ```bash
 python infrastructure/scripts/seed-odoo.py \

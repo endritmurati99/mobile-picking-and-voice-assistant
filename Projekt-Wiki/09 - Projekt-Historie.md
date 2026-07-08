@@ -8,7 +8,7 @@ tags:
   - chronologie
   - git
 created: 2026-06-22
-stand: 2026-07-04
+stand: 2026-07-08
 ---
 
 # Projekt-Historie
@@ -21,6 +21,24 @@ stand: 2026-07-04
 > Stell dir das Projekt wie den Bau eines Hauses vor: Zuerst das Fundament (Phase 0), dann die tragenden Wände gegen Erdbeben (Phase 1 = Transaktionshärtung), dann die Inneneinrichtung und Bedienung (Voice & UI), schließlich Feinschliff und Barrierefreiheit. Die "Wellen" und "Hotfixes" sind nachträgliche Reparaturen und Anbauten, die während des Bewohnens nötig wurden.
 
 Schwesternotizen für Details: [[00 - Start Hier (Übersichtskarte)]] · [[01 - Was ist das Projekt & wie es anfing]] · [[02 - Architektur & Diagramm erklärt]] · [[05 - Backend (FastAPI)]] · [[06 - Odoo]] · [[07 - n8n]] · [[08 - PWA & Voice-Pfad]] · [[10 - Glossar]]
+
+## Update 2026-07-08 — lokale Quality-LLM-Bewertung und Wiki-Aktualisierung
+
+Am 2026-07-08 wurde der Quality-Alert-Pfad um einen lokalen, offline faehigen LLM-Baustein erweitert:
+
+- Ein neuer Docker-Service `ollama` laeuft im internen `picking-net` ohne Host-Port.
+- Das Backend besitzt den internen Endpunkt `POST /api/internal/llm/quality-disposition`.
+- n8n ruft wegen `N8N_SSRF_ALLOWED_HOSTNAMES=backend` nicht direkt Ollama auf, sondern das Backend.
+- `LlmClient` ruft Ollama (`/api/chat`) mit `format:"json"` und `temperature:0` auf.
+- Die erlaubte Dispositionstaxonomie ist `scrap`, `quarantine`, `rework`, `sellable`.
+- Der n8n-Workflow `quality-alert-created` besitzt nun die Stationen `Call Local LLM`, `Merge LLM Result` und `Decide Provider`.
+- Nur valide LLM-Antworten ueberschreiben die Heuristik; bei Timeout, Fehler oder ungueltigem JSON bleibt die Heuristik aktiv.
+- Konfiguration erfolgt ueber `LLM_PROVIDER`, `LLM_ENDPOINT`, `LLM_MODEL`, `LLM_TIMEOUT_MS`.
+- Neue Tests decken LLM-Client und LLM-Route ab (`backend/tests/test_llm_client.py`, `backend/tests/test_llm_routes.py`).
+
+Wichtig fuer die Bachelorarbeit: Das ist **keine** produktive Vision-/Bild-KI. Es ist ein lokaler Text-LLM-Baustein fuer die Quality-Disposition. Die Bild-KI fuer Defekterkennung/Referenzbildvergleich bleibt im Forschungs-/Folgeschritt.
+
+Die Projekt-Wiki-Seiten wurden auf diesen Stand nachgezogen: Architektur, Docker, Backend, n8n, Glossar und die Funktionsdokumentation fuer Qualitaetsmeldungen.
 
 ## Update 2026-07-04 — Odoo-19-Trial, BOM-Traceability und Demo-Schalter
 
@@ -353,7 +371,7 @@ Der sichtbare Odoo-Hauptblock heißt **`Systembewertung`** und zeigt nur: `ai_ev
 - Erweiterung des Datenmodells um `ai_enhanced_description` und `ai_photo_analysis` (beide optional, mit klarer Semantik: bereinigter Text *ohne neue Fakten* bzw. reiner Bildbefund *ohne Empfehlung*).
 - Erweiterung des internen Writeback-Vertrags `quality-assessment`.
 - KI-Chatter als **Klartext** (nicht mehr als HTML-Fragment).
-- Heuristik-Fallback wird beibehalten (kein OpenAI-Zwang).
+- Heuristik-Fallback wird beibehalten (kein Cloud-Zwang).
 
 **Der vollständige Welle-A-Fluss** (`docs/ARCHITECTURE.md`):
 
@@ -433,6 +451,7 @@ Der sichtbare Odoo-Hauptblock heißt **`Systembewertung`** und zeigt nur: `ai_ev
 > - **Phase 0–6:** abgeschlossen und im Repo dokumentiert; Phase 7 (Deployment-/Betriebsvorbereitung) ist als Doku- und Infrastrukturstrang vorhanden.
 > - **Odoo-19-Trial:** getrennte Trial-DB `masterfischer_o19_trial`, Traceability-Demo mit BOM-Komponentenfokus und neun Modi.
 > - **Live-Stand:** Odoo 18 bleibt Default/Live; Odoo 19 ist noch kein produktiver Cutover.
+> - **Lokale KI:** Quality-Alert-Disposition kann ueber den Backend-LLM-Endpunkt lokal mit Ollama bewertet werden; Heuristik bleibt Fallback.
 > - **Dokumentation:** `ARCHITECTURE.md`, `DECISIONS.md`, `N8N_CONTRACT_FREEZE_V1.md`, `PHASE_1_TRANSACTION_HARDENING.md`, `QUALITY_ALERT_AI_FIELDS.md`, `SESSION_2026-03-31_UI_HARDENING.md`, `VOICE_COMMANDS.md`.
 > - **Verifikation:** Python-Tests (`make test`), Workflow-Vertragsprüfung (`make verify-workflows`), Playwright-E2E + Visual-Diff + Axe-A11y.
 > - **Nächste Schritte:** Demo-Screenshots/Evaluation sichern, Odoo-19-Cutover nur mit Backup-/Restore-Test und Modulupdate-Abnahme vorbereiten, n8n-Instanzbewusstsein final klären.

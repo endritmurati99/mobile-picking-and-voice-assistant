@@ -141,6 +141,37 @@ class ManualReviewActivityRequest(N8NCallbackMetadata):
     execution_url: str | None = None
 
 
+class QualityDispositionRequest(BaseModel):
+    """Anfrage von n8n an das Backend, um die Disposition lokal per LLM zu bewerten."""
+    model_config = ConfigDict(extra="ignore")
+
+    correlation_id: str | None = None
+    alert_id: int
+    description: str = ""
+    priority: str = "0"
+    photo_count: int = 0
+    product_id: int | None = None
+    location_id: int | None = None
+
+    @field_validator("priority", mode="before")
+    @classmethod
+    def coerce_priority(cls, value) -> str:
+        if value is None:
+            return "0"
+        return str(value)
+
+
+class QualityDispositionResponse(BaseModel):
+    """Antwort an n8n. Bei llm_ok=False nutzt der Workflow die Heuristik als Fallback."""
+    llm_ok: bool
+    llm_disposition: str | None = None
+    llm_confidence: float | None = None
+    llm_summary: str | None = None
+    llm_recommended_action: str | None = None
+    llm_model: str
+    llm_provider: str
+
+
 class N8NCommandResponse(BaseModel):
     status: str
     correlation_id: str

@@ -126,6 +126,7 @@ services:
       - odoo
       - whisper
       - piper
+      - ollama
     environment:
       ODOO_URL: http://odoo:8069
       ODOO_DB: ${ODOO_DB:-picking}
@@ -135,6 +136,10 @@ services:
       ODOO_INSTANCES_JSON: ${ODOO_INSTANCES_JSON:-}
       WHISPER_URL: http://whisper:9000
       PIPER_URL: http://piper:5500
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      LLM_ENDPOINT: ${LLM_ENDPOINT:-http://ollama:11434}
+      LLM_MODEL: ${LLM_MODEL:-qwen2.5:7b}
+      LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-30000}
       N8N_WEBHOOK_BASE: http://n8n:5678/webhook
       N8N_WEBHOOK_PATH_QUALITY_ALERT_CREATED: ${N8N_WEBHOOK_PATH_QUALITY_ALERT_CREATED:-quality-alert-created}
       N8N_WEBHOOK_PATH_VOICE_EXCEPTION_QUERY: ${N8N_WEBHOOK_PATH_VOICE_EXCEPTION_QUERY:-voice-exception-query}
@@ -173,6 +178,19 @@ services:
       context: ./piper
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      - picking-net
+
+  # ── Ollama (lokales LLM fuer KI-Qualitaetsbewertung, CPU-only) ─
+  # Laeuft offline auf dem Lab-PC. Nur im Docker-Netz erreichbar (kein Host-Port).
+  # Modell nach dem ersten Start laden: docker compose exec ollama ollama pull qwen2.5:7b
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment:
+      OLLAMA_KEEP_ALIVE: 24h
+    volumes:
+      - ollama_data:/root/.ollama
     networks:
       - picking-net
 
@@ -270,6 +288,7 @@ volumes:
   caddy_data:
   caddy_config:
   n8n_data:
+  ollama_data:
 
 
 networks:
