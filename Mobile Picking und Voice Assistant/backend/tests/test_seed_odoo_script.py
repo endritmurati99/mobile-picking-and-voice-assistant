@@ -32,3 +32,26 @@ def test_execute_argument_normalizer_keeps_create_values_positional():
 
     assert args == [{"name": "Regal A-01", "barcode": "LOC-A01"}]
     assert kwargs == {}
+
+
+def test_demo_customer_payload_contains_shipping_address():
+    seed_odoo = load_seed_module()
+
+    customers = seed_odoo.build_demo_customers()
+
+    assert customers[0]["name"]
+    assert customers[0]["street"]
+    assert customers[0]["zip"]
+    assert customers[0]["city"]
+    assert customers[0]["email"]
+
+
+def test_demo_order_plan_has_product_overlap_and_delivery_dates():
+    seed_odoo = load_seed_module()
+
+    plan = seed_odoo.build_demo_customer_order_plan()
+    dates = {order["delivery_date"] for order in plan}
+    product_sets = [set(order["products"]) for order in plan[:4]]
+
+    assert len(dates) >= 2
+    assert set.intersection(*product_sets)

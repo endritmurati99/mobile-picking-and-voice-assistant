@@ -39,6 +39,107 @@ def _normalize_execute_args(args, kwargs):
     return normalized_args, normalized_kwargs
 
 
+def build_demo_customers():
+    return [
+        {
+            "name": "ACME Demo GmbH",
+            "street": "Musterstrasse 12",
+            "zip": "48149",
+            "city": "Muenster",
+            "country_code": "DE",
+            "email": "logistik@acme-demo.example",
+            "phone": "+49 251 000001",
+        },
+        {
+            "name": "Meyer Spielwaren KG",
+            "street": "Hafenweg 7",
+            "zip": "48155",
+            "city": "Muenster",
+            "country_code": "DE",
+            "email": "wareneingang@meyer-demo.example",
+            "phone": "+49 251 000002",
+        },
+        {
+            "name": "Fischer Techniklabor AG",
+            "street": "Industriestrasse 4",
+            "zip": "72178",
+            "city": "Waldachtal",
+            "country_code": "DE",
+            "email": "lab@fischer-demo.example",
+            "phone": "+49 7443 000003",
+        },
+        {
+            "name": "FH Demo Logistik",
+            "street": "Leonardo-Campus 10",
+            "zip": "48149",
+            "city": "Muenster",
+            "country_code": "DE",
+            "email": "laborlogistik@fh-demo.example",
+            "phone": "+49 251 000004",
+        },
+    ]
+
+
+def build_demo_customer_order_plan():
+    return [
+        {
+            "origin": "SO-DEMO-001",
+            "customer_index": 0,
+            "delivery_date": "2026-07-09",
+            "zone": "Links",
+            "products": ["301121", "343721", "4166960"],
+        },
+        {
+            "origin": "SO-DEMO-002",
+            "customer_index": 1,
+            "delivery_date": "2026-07-09",
+            "zone": "Links",
+            "products": ["301121", "343724", "4166960"],
+        },
+        {
+            "origin": "SO-DEMO-003",
+            "customer_index": 2,
+            "delivery_date": "2026-07-09",
+            "zone": "Links",
+            "products": ["301121", "343701", "4166960"],
+        },
+        {
+            "origin": "SO-DEMO-004",
+            "customer_index": 3,
+            "delivery_date": "2026-07-09",
+            "zone": "Links",
+            "products": ["301121", "343721", "4166960"],
+        },
+        {
+            "origin": "SO-DEMO-005",
+            "customer_index": 0,
+            "delivery_date": "2026-07-10",
+            "zone": "Rechts",
+            "products": ["4216758", "4250172"],
+        },
+        {
+            "origin": "SO-DEMO-006",
+            "customer_index": 1,
+            "delivery_date": "2026-07-10",
+            "zone": "Rechts",
+            "products": ["4216758", "4185178"],
+        },
+    ]
+
+
+def build_demo_cluster_products():
+    return [
+        {"name": "Demo Klemmbaustein 2x4 rot", "barcode": "301121", "default_code": "301121"},
+        {"name": "Demo Achse 4M", "barcode": "343721", "default_code": "343721"},
+        {"name": "Demo Verbinder blau", "barcode": "4166960", "default_code": "4166960"},
+        {"name": "Demo Achse 6M", "barcode": "343724", "default_code": "343724"},
+        {"name": "Demo Platte 2x6", "barcode": "343701", "default_code": "343701"},
+        {"name": "Demo Technikrahmen rechts", "barcode": "4216758", "default_code": "4216758"},
+        {"name": "Demo Zahnrad 20Z", "barcode": "4250172", "default_code": "4250172"},
+        {"name": "Demo Winkelverbinder", "barcode": "4185178", "default_code": "4185178"},
+    ]
+
+
 def main():
     parser = argparse.ArgumentParser(description="Odoo Seed-Daten")
     parser.add_argument("--url", default="http://localhost:8069")
@@ -130,6 +231,44 @@ def main():
             except Exception as exc:
                 print(f"  [WARN] Demo-Benutzer {name} konnte nicht erstellt werden: {exc}")
 
+    def ensure_demo_customers():
+        print("\nDemo-Kunden...")
+        customers = build_demo_customers()
+        country_codes = sorted({customer["country_code"] for customer in customers})
+        countries = execute(
+            "res.country",
+            "search_read",
+            [("code", "in", country_codes)],
+            fields=["id", "code"],
+            limit=len(country_codes),
+        )
+        country_by_code = {country["code"]: country["id"] for country in countries}
+
+        partner_ids = {}
+        for index, customer in enumerate(customers):
+            vals = dict(customer)
+            country_code = vals.pop("country_code", "")
+            country_id = country_by_code.get(country_code)
+            if country_id:
+                vals["country_id"] = country_id
+
+            existing = execute(
+                "res.partner",
+                "search_read",
+                [("email", "=", vals["email"])],
+                fields=["id", "name"],
+                limit=1,
+            )
+            if existing:
+                partner_id = existing[0]["id"]
+                execute("res.partner", "write", [partner_id], vals)
+                print(f"  [=] aktualisiert: {vals['name']} (ID: {partner_id})")
+            else:
+                partner_id = execute("res.partner", "create", vals)
+                print(f"  [OK] erstellt: {vals['name']} (ID: {partner_id})")
+            partner_ids[index] = partner_id
+        return partner_ids
+
     if args.lego_seed:
         seed_lego(execute)
         return
@@ -191,6 +330,7 @@ def main():
         {"name": "Gewindestange M8", "barcode": "7622210100528", "default_code": "ROD-M8"},
         {"name": "Sechskantschraube M6", "barcode": "4006381334013", "default_code": "SCR-M6"},
         {"name": "Federscheibe M10", "barcode": "4006381334020", "default_code": "SPR-M10"},
+        *build_demo_cluster_products(),
     ]
 
     prod_ids = {}
@@ -207,11 +347,24 @@ def main():
             {"type": "consu", "is_storable": True, "tracking": "none"},
         )
         prod_ids[prod["barcode"]] = pid
+        prod_ids[prod["default_code"]] = pid
         status = "[OK] erstellt" if created else "[=] existiert"
         print(f"  {status}: {prod['name']} (ID: {pid})")
+    product_names = {prod["default_code"]: prod["name"] for prod in products_data}
 
     # ── Bestand einbuchen ────────────────────────────────────
     print("\nBestaende einbuchen...")
+
+    demo_product_locations = {
+        "301121": "LOC-A01",
+        "343721": "LOC-A02",
+        "4166960": "LOC-A02",
+        "343724": "LOC-A02",
+        "343701": "LOC-A02",
+        "4216758": "LOC-B01",
+        "4250172": "LOC-B02",
+        "4185178": "LOC-B02",
+    }
 
     stock_quants = [
         (prod_ids["4006381333931"], loc_ids["LOC-A01"], 100),
@@ -222,6 +375,10 @@ def main():
         (prod_ids["4006381334013"], loc_ids["LOC-C02"], 80),
         (prod_ids["4006381334020"], loc_ids["LOC-D01"], 60),
     ]
+    stock_quants.extend(
+        (prod_ids[code], loc_ids[location_barcode], 80)
+        for code, location_barcode in demo_product_locations.items()
+    )
 
     for product_id, location_id, qty in stock_quants:
         try:
@@ -243,19 +400,21 @@ def main():
         except Exception as e:
             print(f"  [WARN] Bestand-Einbuchung uebersprungen: {e}")
 
+    demo_partner_ids = ensure_demo_customers()
+
     # ── Picking-Typ ermitteln ────────────────────────────────
     print("\nPickings...")
 
     pick_type = execute(
         "stock.picking.type", "search_read",
-        [("code", "=", "internal")],
+        [("code", "=", "outgoing")],
         fields=["id", "default_location_src_id", "default_location_dest_id"],
         limit=1,
     )
     if not pick_type:
         pick_type = execute(
             "stock.picking.type", "search_read",
-            [("code", "=", "outgoing")],
+            [("code", "=", "internal")],
             fields=["id", "default_location_src_id", "default_location_dest_id"],
             limit=1,
         )
@@ -267,7 +426,8 @@ def main():
         src = pt["default_location_src_id"][0] if pt["default_location_src_id"] else parent_id
         dest = pt["default_location_dest_id"][0] if pt["default_location_dest_id"] else loc_ids["LOC-C01"]
 
-        def make_picking(moves, priority="0", scheduled_date=None):
+        def make_picking(moves, priority="0", scheduled_date=None, partner_id=None,
+                         origin=None, date_deadline=None):
             vals = {
                 "picking_type_id": pt["id"],
                 "location_id": src,
@@ -286,10 +446,41 @@ def main():
             }
             if scheduled_date:
                 vals["scheduled_date"] = scheduled_date
+            if date_deadline:
+                vals["date_deadline"] = date_deadline
+            if partner_id:
+                vals["partner_id"] = partner_id
+            if origin:
+                vals["origin"] = origin
             pid = execute("stock.picking", "create", vals)
             execute("stock.picking", "action_confirm", [pid])
             execute("stock.picking", "action_assign", [pid])
             return pid
+
+        print("\nCluster-Demo-Auftraege...")
+        for order in build_demo_customer_order_plan():
+            moves = [
+                {
+                    "name": product_names[code],
+                    "product_id": prod_ids[code],
+                    "qty": 4,
+                    "loc_src": loc_ids[demo_product_locations[code]],
+                }
+                for code in order["products"]
+            ]
+            partner_id = demo_partner_ids.get(order["customer_index"])
+            pick_id = make_picking(
+                moves=moves,
+                priority="0",
+                scheduled_date=order["delivery_date"],
+                date_deadline=order["delivery_date"],
+                partner_id=partner_id,
+                origin=order["origin"],
+            )
+            print(
+                f"  [OK] {order['origin']} - {order['zone']}, "
+                f"Lieferdatum {order['delivery_date']} (ID: {pick_id})"
+            )
 
         # 1. Normal, heute
         p1 = make_picking(
