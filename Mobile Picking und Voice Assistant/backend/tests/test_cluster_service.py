@@ -83,8 +83,10 @@ class TestSuggestBatches:
                 ]
             if model == "stock.move.line":
                 return [
-                    {"id": 10, "picking_id": [1, "WH/OUT/001"], "location_id": [5, "WH/Stock/Links/E1-P1"]},
-                    {"id": 11, "picking_id": [2, "WH/OUT/002"], "location_id": [6, "WH/Stock/Links/E1-P2"]},
+                    {"id": 10, "picking_id": [1, "WH/OUT/001"], "location_id": [5, "WH/Stock/Links/E1-P1"],
+                     "product_id": [100, "SKU-A"]},
+                    {"id": 11, "picking_id": [2, "WH/OUT/002"], "location_id": [6, "WH/Stock/Links/E1-P2"],
+                     "product_id": [100, "SKU-A"]},
                 ]
             raise AssertionError(model)
 
@@ -101,6 +103,34 @@ class TestSuggestBatches:
     async def test_returns_empty_when_no_open_pickings(self, service, odoo):
         odoo.search_read.return_value = []
         assert await service.suggest_batches() == []
+
+    @pytest.mark.anyio
+    async def test_suggest_batches_returns_reasons_and_score(self, service, odoo):
+        async def fake_search_read(model, domain, fields, limit=100):
+            if model == "stock.picking":
+                return [
+                    {"id": 1, "name": "OUT/1", "batch_id": False, "company_id": [1, "A"],
+                     "scheduled_date": "2026-07-09 08:00:00", "partner_id": [50, "ACME GmbH"]},
+                    {"id": 2, "name": "OUT/2", "batch_id": False, "company_id": [1, "A"],
+                     "scheduled_date": "2026-07-09 10:00:00", "partner_id": [51, "Meyer KG"]},
+                ]
+            if model == "stock.move.line":
+                return [
+                    {"id": 10, "picking_id": [1, "OUT/1"], "location_id": [5, "WH/Stock/Links/A1"],
+                     "product_id": [100, "SKU-A"]},
+                    {"id": 11, "picking_id": [1, "OUT/1"], "location_id": [6, "WH/Stock/Links/A2"],
+                     "product_id": [101, "SKU-B"]},
+                    {"id": 20, "picking_id": [2, "OUT/2"], "location_id": [7, "WH/Stock/Links/A3"],
+                     "product_id": [100, "SKU-A"]},
+                ]
+            raise AssertionError(model)
+
+        odoo.search_read.side_effect = fake_search_read
+        result = await service.suggest_batches(picker_identity=SimpleNamespace(user_id=7))
+        assert result[0]["delivery_date"] == "2026-07-09"
+        assert result[0]["product_overlap_count"] == 1
+        assert result[0]["score"] > 0
+        assert any("Ausliefertag" in reason for reason in result[0]["reasons"])
 
     @pytest.mark.anyio
     async def test_suggestions_fail_closed_when_picking_batch_field_is_missing(self, service, odoo, caplog):
@@ -159,7 +189,14 @@ class TestCreateBatch:
             if model == "stock.picking":
                 return [{"id": 1, "name": "WH/OUT/001", "company_id": [1, "MyCo"]},
                         {"id": 2, "name": "WH/OUT/002", "company_id": [1, "MyCo"]}]
-            if model in ("stock.move.line", "stock.move", "product.product"):
+            if model == "stock.move.line":
+                return [
+                    {"id": 100, "picking_id": [1, "WH/OUT/001"],
+                     "product_id": [100, "SKU-A"], "location_id": [5, "WH/Stock/Links/A1"]},
+                    {"id": 200, "picking_id": [2, "WH/OUT/002"],
+                     "product_id": [100, "SKU-A"], "location_id": [6, "WH/Stock/Links/A2"]},
+                ]
+            if model in ("stock.move", "product.product"):
                 return []
             raise AssertionError(model)
 
@@ -193,6 +230,66 @@ class TestCreateBatch:
         assert result["code"] == "stock_picking_batch_unavailable"
 
     @pytest.mark.anyio
+    async def test_create_batch_rejects_mixed_company(self, service, odoo):
+        odoo.search_read.side_effect = [
+            [
+                {"id": 1, "name": "OUT/1", "company_id": [1, "A"],
+                 "scheduled_date": "2026-07-09 08:00:00", "batch_id": False},
+                {"id": 2, "name": "OUT/2", "company_id": [2, "B"],
+                 "scheduled_date": "2026-07-09 08:00:00", "batch_id": False},
+            ],
+            [
+                {"id": 10, "picking_id": [1, "OUT/1"], "location_id": [5, "WH/Stock/Links/A1"],
+                 "product_id": [100, "SKU-A"]},
+                {"id": 20, "picking_id": [2, "OUT/2"], "location_id": [6, "WH/Stock/Links/A2"],
+                 "product_id": [100, "SKU-A"]},
+            ],
+        ]
+        result = await service.create_batch([1, 2], picker_identity=SimpleNamespace(user_id=7))
+        assert result["success"] is False
+        assert result["code"] == "mixed_company"
+
+    @pytest.mark.anyio
+    async def test_create_batch_rejects_mixed_delivery_date(self, service, odoo):
+        odoo.search_read.side_effect = [
+            [
+                {"id": 1, "name": "OUT/1", "company_id": [1, "A"],
+                 "scheduled_date": "2026-07-09 08:00:00", "batch_id": False},
+                {"id": 2, "name": "OUT/2", "company_id": [1, "A"],
+                 "scheduled_date": "2026-07-10 08:00:00", "batch_id": False},
+            ],
+            [
+                {"id": 10, "picking_id": [1, "OUT/1"], "location_id": [5, "WH/Stock/Links/A1"],
+                 "product_id": [100, "SKU-A"]},
+                {"id": 20, "picking_id": [2, "OUT/2"], "location_id": [6, "WH/Stock/Links/A2"],
+                 "product_id": [100, "SKU-A"]},
+            ],
+        ]
+        result = await service.create_batch([1, 2], picker_identity=SimpleNamespace(user_id=7))
+        assert result["success"] is False
+        assert result["code"] == "mixed_delivery_date"
+
+    @pytest.mark.anyio
+    async def test_create_batch_rejects_without_product_overlap(self, service, odoo):
+        odoo.search_read.side_effect = [
+            [
+                {"id": 1, "name": "OUT/1", "company_id": [1, "A"],
+                 "scheduled_date": "2026-07-09 08:00:00", "batch_id": False},
+                {"id": 2, "name": "OUT/2", "company_id": [1, "A"],
+                 "scheduled_date": "2026-07-09 10:00:00", "batch_id": False},
+            ],
+            [
+                {"id": 10, "picking_id": [1, "OUT/1"], "location_id": [5, "WH/Stock/Links/A1"],
+                 "product_id": [100, "SKU-A"]},
+                {"id": 20, "picking_id": [2, "OUT/2"], "location_id": [6, "WH/Stock/Links/A2"],
+                 "product_id": [101, "SKU-B"]},
+            ],
+        ]
+        result = await service.create_batch([1, 2], picker_identity=SimpleNamespace(user_id=7))
+        assert result["success"] is False
+        assert result["code"] == "no_product_overlap"
+
+    @pytest.mark.anyio
     async def test_scopes_picking_ids_to_assigned_unbatched(self, service, odoo):
         # #3: search_read scopt auf assigned + ohne Batch; vals nutzt nur erlaubte IDs.
         odoo.create.return_value = 99
@@ -205,12 +302,20 @@ class TestCreateBatch:
             if model == "stock.picking.batch":
                 return [{"id": 99, "name": "B", "state": "in_progress",
                          "picking_ids": [1, 3], "user_id": [7, "Max"]}]
+            if model == "stock.move.line":
+                return [
+                    {"id": 100, "picking_id": [1, "WH/OUT/001"],
+                     "product_id": [100, "SKU-A"], "location_id": [5, "WH/Stock/Links/A1"]},
+                    {"id": 300, "picking_id": [3, "WH/OUT/003"],
+                     "product_id": [100, "SKU-A"], "location_id": [6, "WH/Stock/Links/A2"]},
+                ]
             return []
 
         odoo.search_read.side_effect = fake_search_read
         from app.services.mobile_workflow import PickerIdentity
         await service.create_batch([1, 2, 3], PickerIdentity(user_id=7))
-        vals = odoo.create.call_args.args[1]
+        batch_create = [c for c in odoo.create.call_args_list if c.args[0] == "stock.picking.batch"][0]
+        vals = batch_create.args[1]
         assert vals["picking_ids"] == [(6, 0, [1, 3])]
         # Scoped-Domain muss state + batch_id enthalten.
         scoped = [c for c in odoo.search_read.call_args_list
@@ -237,6 +342,13 @@ class TestCreateBatch:
             if model == "stock.picking":
                 return [{"id": 1, "company_id": [1, "MyCo"]},
                         {"id": 2, "company_id": [1, "MyCo"]}]
+            if model == "stock.move.line":
+                return [
+                    {"id": 100, "picking_id": [1, "WH/OUT/001"],
+                     "product_id": [100, "SKU-A"], "location_id": [5, "WH/Stock/Links/A1"]},
+                    {"id": 200, "picking_id": [2, "WH/OUT/002"],
+                     "product_id": [100, "SKU-A"], "location_id": [6, "WH/Stock/Links/A2"]},
+                ]
             return []
 
         odoo.search_read.side_effect = fake_search_read
@@ -275,9 +387,12 @@ class TestCreateBatch:
                         {"id": 2, "name": "WH/OUT/002", "company_id": [1, "MyCo"]}]
             if model == "stock.move.line" and any(
                     isinstance(c, tuple) and c[0] == "picking_id" and c[1] == "in" for c in domain):
-                return [{"id": 100, "picking_id": [1, "WH/OUT/001"]},
-                        {"id": 101, "picking_id": [1, "WH/OUT/001"]},
-                        {"id": 200, "picking_id": [2, "WH/OUT/002"]}]
+                return [{"id": 100, "picking_id": [1, "WH/OUT/001"],
+                         "product_id": [100, "SKU-A"], "location_id": [5, "WH/Stock/Links/A1"]},
+                        {"id": 101, "picking_id": [1, "WH/OUT/001"],
+                         "product_id": [100, "SKU-A"], "location_id": [5, "WH/Stock/Links/A1"]},
+                        {"id": 200, "picking_id": [2, "WH/OUT/002"],
+                         "product_id": [100, "SKU-A"], "location_id": [6, "WH/Stock/Links/A2"]}]
             if model == "stock.picking.batch":
                 return [{"id": 99, "name": "B", "state": "in_progress",
                          "picking_ids": [1, 2], "user_id": [7, "Max"]}]
@@ -317,7 +432,7 @@ class TestCreateBatch:
                 return 99
             if model == PACKAGE_MODEL_ODOO19:
                 assert "package_use" not in vals
-                assert vals["name"] == "CLUSTER-B1/WH/OUT/001"
+                assert vals["name"] in {"CLUSTER-B1/WH/OUT/001", "CLUSTER-B2/WH/OUT/002"}
                 return 1700
             raise AssertionError(model)
 
@@ -331,8 +446,10 @@ class TestCreateBatch:
                 return [{"model": PACKAGE_MODEL_ODOO19}]
             if model == "stock.move.line" and any(
                     isinstance(c, tuple) and c[0] == "picking_id" and c[1] == "in" for c in domain):
-                return [{"id": 100, "picking_id": [1, "WH/OUT/001"]},
-                        {"id": 200, "picking_id": [2, "WH/OUT/002"]}]
+                return [{"id": 100, "picking_id": [1, "WH/OUT/001"],
+                         "product_id": [100, "SKU-A"], "location_id": [5, "WH/Stock/Links/A1"]},
+                        {"id": 200, "picking_id": [2, "WH/OUT/002"],
+                         "product_id": [100, "SKU-A"], "location_id": [6, "WH/Stock/Links/A2"]}]
             if model == "stock.picking.batch":
                 return [{"id": 99, "name": "B", "state": "in_progress",
                          "picking_ids": [1, 2], "user_id": [7, "Max"]}]
@@ -369,8 +486,10 @@ class TestCreateBatch:
                         {"id": 2, "name": "WH/OUT/002", "company_id": [1, "MyCo"]}]
             if model == "stock.move.line" and any(
                     isinstance(c, tuple) and c[0] == "picking_id" and c[1] == "in" for c in domain):
-                return [{"id": 100, "picking_id": [1, "WH/OUT/001"]},
-                        {"id": 200, "picking_id": [2, "WH/OUT/002"]}]
+                return [{"id": 100, "picking_id": [1, "WH/OUT/001"],
+                         "product_id": [100, "SKU-A"], "location_id": [5, "WH/Stock/Links/A1"]},
+                        {"id": 200, "picking_id": [2, "WH/OUT/002"],
+                         "product_id": [100, "SKU-A"], "location_id": [6, "WH/Stock/Links/A2"]}]
             if model == "stock.picking.batch":
                 return [{"id": 99, "name": "B", "state": "in_progress",
                          "picking_ids": [1, 2], "user_id": [7, "Max"]}]

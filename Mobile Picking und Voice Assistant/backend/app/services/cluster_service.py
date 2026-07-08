@@ -103,6 +103,26 @@ def _zone_of(location: str) -> str:
     return parts[-1] if parts else "Unbekannt"
 
 
+def _many2one_id(value: Any) -> int | None:
+    if isinstance(value, (list, tuple)) and value:
+        candidate = value[0]
+        return candidate if isinstance(candidate, int) and not isinstance(candidate, bool) else None
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return None
+
+
+def _many2one_name(value: Any) -> str:
+    if isinstance(value, (list, tuple)) and len(value) > 1:
+        return str(value[1] or "").strip()
+    return ""
+
+
+def _date_key(value: Any) -> str:
+    raw = str(value or "").strip()
+    return raw[:10] if len(raw) >= 10 else ""
+
+
 def _clean_product_name(display_name: str) -> str:
     """Odoo-'[ref] '-Prefix aus dem Produktnamen entfernen."""
     return re.sub(r"^\[.*?\]\s*", "", display_name or "")
@@ -123,6 +143,98 @@ def _is_missing_batch_field_error(exc: OdooAPIError) -> bool:
     )
 
 
+def _cluster_candidates_from_pickings(
+    pickings: list[dict[str, Any]],
+    lines: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    lines_by_picking: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for line in lines:
+        picking_id = _many2one_id(line.get("picking_id"))
+        if picking_id is not None:
+            lines_by_picking[picking_id].append(line)
+
+    candidates: list[dict[str, Any]] = []
+    for picking in pickings:
+        picking_id = int(picking["id"])
+        picking_lines = lines_by_picking.get(picking_id, [])
+        first_location = ""
+        product_ids: set[int] = set()
+        for line in picking_lines:
+            if not first_location:
+                first_location = _many2one_name(line.get("location_id"))
+            product_id = _many2one_id(line.get("product_id"))
+            if product_id is not None:
+                product_ids.add(product_id)
+        candidates.append({
+            "id": picking_id,
+            "name": picking.get("name") or "",
+            "company_id": _many2one_id(picking.get("company_id")),
+            "delivery_date": _date_key(picking.get("date_deadline") or picking.get("scheduled_date")),
+            "partner_name": _many2one_name(picking.get("partner_id")),
+            "primary_zone": _zone_of(first_location),
+            "product_ids": sorted(product_ids),
+            "line_count": len(picking_lines),
+        })
+    return candidates
+
+
+def build_cluster_rule_report(candidates: list[dict[str, Any]]) -> dict[str, Any]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    reasons: list[str] = []
+
+    capacity = validate_cluster_capacity([c["id"] for c in candidates])
+    if not capacity["ok"]:
+        errors.append(capacity["code"])
+
+    companies = {c.get("company_id") for c in candidates if c.get("company_id") is not None}
+    if len(companies) > 1:
+        errors.append("mixed_company")
+
+    delivery_dates = {c.get("delivery_date") for c in candidates if c.get("delivery_date")}
+    if len(delivery_dates) > 1:
+        errors.append("mixed_delivery_date")
+
+    product_sets = [set(c.get("product_ids", [])) for c in candidates]
+    overlap = set.intersection(*product_sets) if product_sets and all(product_sets) else set()
+    if len(candidates) > 1 and not overlap:
+        errors.append("no_product_overlap")
+
+    zones = [c.get("primary_zone") for c in candidates if c.get("primary_zone")]
+    if len(set(zones)) == 1 and zones:
+        reasons.append(f"Zone {zones[0]}")
+    if delivery_dates:
+        reasons.append(f"Ausliefertag {sorted(delivery_dates)[0]}")
+    if overlap:
+        reasons.append(f"{len(overlap)} gemeinsame Produkte")
+
+    score = 0
+    if not errors:
+        score += 40
+    if delivery_dates:
+        score += 20
+    if zones and len(set(zones)) == 1:
+        score += 20
+    score += min(20, len(overlap) * 5)
+
+    count = len(candidates)
+    if CLUSTER_MIN_ORDERS <= count < CLUSTER_RECOMMENDED_MIN_ORDERS:
+        warnings.append(
+            f"{count} Auftraege sind gueltig, empfohlen sind "
+            f"{CLUSTER_RECOMMENDED_MIN_ORDERS}-{CLUSTER_MAX_ORDERS}."
+        )
+
+    return {
+        "eligible": not errors,
+        "errors": errors,
+        "warnings": warnings,
+        "reasons": reasons,
+        "score": min(score, 100),
+        "product_overlap_count": len(overlap),
+        "delivery_date": sorted(delivery_dates)[0] if len(delivery_dates) == 1 else "",
+    }
+
+
 class ClusterService:
     def __init__(self, odoo, n8n):
         self._odoo = odoo
@@ -136,7 +248,7 @@ class ClusterService:
                 pickings = await self._odoo.search_read(
                     "stock.picking",
                     [("state", "=", "assigned"), ("batch_id", "=", False)],
-                    ["name", "batch_id"],
+                    ["name", "batch_id", "company_id", "scheduled_date", "date_deadline", "partner_id"],
                     limit=100,
                 )
             except OdooAPIError as exc:
@@ -155,7 +267,7 @@ class ClusterService:
             lines = await self._odoo.search_read(
                 "stock.move.line",
                 [("picking_id", "in", picking_ids)],
-                ["picking_id", "location_id"],
+                ["picking_id", "location_id", "product_id"],
                 limit=max(500, len(picking_ids) * 20),
             )
         except OdooAPIError as exc:
@@ -163,34 +275,37 @@ class ClusterService:
             logger.error("suggest_batches: Odoo-Abfrage fehlgeschlagen: %s", exc)
             raise
 
-        groups: dict[str, dict[str, Any]] = defaultdict(
-            lambda: {"picking_ids": set(), "line_count": 0}
+        candidates = _cluster_candidates_from_pickings(pickings, lines)
+        groups: dict[tuple[str, str], dict[str, Any]] = defaultdict(
+            lambda: {"candidates": [], "line_count": 0}
         )
-        # Zone je Picking aus seiner ersten Move-Line ableiten (stabil).
-        zone_by_picking: dict[int, str] = {}
-        for line in lines:
-            picking_id = line["picking_id"][0] if line.get("picking_id") else None
-            if picking_id is None:
-                continue
-            zone = _zone_of(line["location_id"][1] if line.get("location_id") else "")
-            zone_by_picking.setdefault(picking_id, zone)
-            target_zone = zone_by_picking[picking_id]
-            groups[target_zone]["picking_ids"].add(picking_id)
-            groups[target_zone]["line_count"] += 1
+        for candidate in candidates:
+            key = (candidate.get("delivery_date") or "", candidate.get("primary_zone") or "Unbekannt")
+            groups[key]["candidates"].append(candidate)
+            groups[key]["line_count"] += candidate.get("line_count", 0)
 
         result = []
-        for zone, data in groups.items():
-            pids = sorted(data["picking_ids"])
+        for (_delivery_date, zone), data in groups.items():
+            grouped_candidates = data["candidates"]
+            report = build_cluster_rule_report(grouped_candidates)
+            if not report["eligible"]:
+                continue
+            pids = sorted(candidate["id"] for candidate in grouped_candidates)
             result.append(
                 {
                     "zone": zone,
+                    "delivery_date": report["delivery_date"],
                     "picking_ids": pids,
                     "order_count": len(pids),
                     "line_count": data["line_count"],
                     "picking_names": [name_by_id[p] for p in pids],
+                    "score": report["score"],
+                    "reasons": report["reasons"],
+                    "warnings": report["warnings"],
+                    "product_overlap_count": report["product_overlap_count"],
                 }
             )
-        result.sort(key=lambda g: (-g["order_count"], g["zone"]))
+        result.sort(key=lambda g: (-g["score"], -g["order_count"], g["zone"]))
         return result
 
     async def create_batch(self, picking_ids, picker_identity=None) -> dict[str, Any]:
@@ -214,7 +329,7 @@ class ClusterService:
             allowed = await self._odoo.search_read(
                 "stock.picking",
                 [("id", "in", ids), ("state", "=", "assigned"), ("batch_id", "=", False)],
-                ["id", "company_id"],
+                ["id", "name", "company_id", "scheduled_date", "date_deadline", "partner_id", "batch_id"],
                 limit=len(ids),
             )
         except OdooAPIError as exc:
@@ -239,6 +354,32 @@ class ClusterService:
                 "error": allowed_capacity["message"],
                 "message": allowed_capacity["message"],
                 "code": allowed_capacity["code"],
+            }
+        allowed_ids = allowed_capacity["picking_ids"]
+
+        candidate_lines = await self._odoo.search_read(
+            "stock.move.line",
+            [("picking_id", "in", allowed_ids)],
+            ["picking_id", "location_id", "product_id"],
+            limit=max(500, len(allowed_ids) * 20),
+        )
+        candidates = _cluster_candidates_from_pickings(allowed, candidate_lines)
+        report = build_cluster_rule_report(candidates)
+        if not report["eligible"]:
+            code = report["errors"][0]
+            messages = {
+                "mixed_company": "Cluster darf keine Pickings aus mehreren Companies enthalten.",
+                "mixed_delivery_date": "Cluster-Pickings brauchen denselben Ausliefertag.",
+                "no_product_overlap": "Cluster braucht Produktueberlappung zwischen den Auftraegen.",
+                "cluster_capacity": f"Cluster braucht mindestens {CLUSTER_MIN_ORDERS} Auftraege.",
+            }
+            message = messages.get(code, "Cluster-Auswahl ist fachlich nicht gueltig.")
+            return {
+                "success": False,
+                "error": message,
+                "message": message,
+                "code": code,
+                "eligibility": report,
             }
 
         company_id = None
