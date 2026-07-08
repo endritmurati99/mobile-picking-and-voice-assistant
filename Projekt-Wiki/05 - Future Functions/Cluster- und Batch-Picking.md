@@ -11,6 +11,12 @@ created: 2026-06-22
 implemented: 2026-06-24
 ---
 
+> [!warning] Audit 2026-07-08: fachliche Odoo-19-Haertung offen
+> Die Clusterfunktion ist technisch implementiert, aber fuer die Odoo-19-/Fischer-Argumentation fehlen noch harte Batch-Regeln:
+> Wagenkapazitaet, Ausliefertag/Zeitfenster, Produktueberlappung, Picker-Scope, ownerless fail-closed,
+> required Put-to-Box und realistische Kunden-/Versanddaten. Neuer Arbeitsstand:
+> [[10 - Cluster-Picking Odoo-19 Audit und Haertungsplan]].
+
 > [!success] Umgesetzt & in `main` (2026-06-24)
 > Feature ist implementiert, multi-agent-reviewt, live gegen echtes Odoo (`masterfischer`) verifiziert
 > und per Fast-Forward nach `main` gemergt (HEAD `dd72b9e`). Tests: 146 Backend + 5 e2e grün.

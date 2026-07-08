@@ -10,6 +10,10 @@ stand: 2026-07-04
 > [!abstract] Kurzfassung
 > Cluster-/Batch-Picking bündelt mehrere offene Kommissionieraufträge (`stock.picking`) in einem echten Odoo-`stock.picking.batch` und führt sie als einen einzigen route-sortierten Rundgang aus. Jeder Auftrag erhält eine logische Box (Nummer + Farbe) und ein echtes, wiederverwendbares Ziel-Package (`stock.package` in Odoo 19, `stock.quant.package` in Odoo 18), in das beim Abschluss physisch eingelagert wird. Die Sammelliste mergt alle Move-Lines, sortiert sie nach Laufweg, bestätigt Positionen einzeln ohne Sofort-Validierung und schließt den gesamten Batch erst gesammelt via `action_done` ab.
 
+> [!warning] Audit 2026-07-08
+> Der technische Flow funktioniert, aber die fachliche Clusterbildung ist noch zu schwach abgesichert. Es fehlen harte Kapazitaet, Delivery-Window-/Produktueberlappungsregeln, Picker-Scope bei Vorschlaegen/Erstellung, ownerless fail-closed, required Put-to-Box und realistische Versanddaten.
+> Details und naechster Plan: [[10 - Cluster-Picking Odoo-19 Audit und Haertungsplan]].
+
 ## 1. Wie es funktioniert
 
 Das Cluster-Picking ist ein eigener Workflow neben dem Einzel-Picking. `picking_service.py` bleibt unberührt; nur die Route-Sortierung wird über `build_route_plan` wiederverwendet (`cluster_service.py:10`, `:25`, `:63`).
