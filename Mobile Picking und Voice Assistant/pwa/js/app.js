@@ -3384,6 +3384,15 @@ function formatClusterQty(value) {
     return Number.isInteger(num) ? String(num) : num.toFixed(2).replace(/\.?0+$/, '');
 }
 
+function resolveClusterPackageToken(line, boxes = []) {
+    if (line?.package_name) return String(line.package_name);
+    if (line?.package_id != null) return String(line.package_id);
+    const box = (boxes || []).find((item) => Number(item.picking_id) === Number(line?.picking_id));
+    if (box?.package_name) return String(box.package_name);
+    if (box?.package_id != null) return String(box.package_id);
+    return '';
+}
+
 // Nur sichere Farbwerte in inline-styles zulassen (CSS-Injection-Schutz):
 // Hex-Farben oder var(--token). Alles andere faellt auf den Primaerton zurueck.
 function safeColor(value) {
@@ -3680,13 +3689,16 @@ async function handleClusterConfirm(batch, line, btn) {
     // Empfaengerkarton-Bestaetigung zuerst (Put-to-Box / Verwechslungsschutz, Akzeptanz #3+#4):
     // Hat die Position einen Ziel-Karton, muss der Picker den RICHTIGEN bestaetigen
     // (Tippen oder Scannen) - falscher Karton -> Inline-Warnung; Abbruch -> kein Confirm.
-    let scannedPackage = '';
-    if (line.package_id || line.package_name) {
-        scannedPackage = await askCartonConfirm(line, batch.boxes);
-        if (!scannedPackage) {
-            reenableBtn();
-            return;
-        }
+    const packageToken = resolveClusterPackageToken(line, batch.boxes);
+    if (!packageToken) {
+        showToast('Zielkarton fehlt. Batch bitte neu laden oder neu bilden.', 'error');
+        reenableBtn();
+        return;
+    }
+    const scannedPackage = await askCartonConfirm({ ...line, package_name: packageToken }, batch.boxes);
+    if (!scannedPackage) {
+        reenableBtn();
+        return;
     }
 
     let serialNumber = '';

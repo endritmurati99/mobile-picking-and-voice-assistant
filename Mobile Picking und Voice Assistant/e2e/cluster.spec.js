@@ -3,7 +3,7 @@ const { mockPwaApi } = require('./helpers/pwa-api');
 
 // Stateful Cluster-API-Mock: getBatch spiegelt die picked-Flags wider, die
 // confirm-line setzt, damit der Fortschritt im Rundgang real hochzaehlt.
-async function mockClusterApi(page) {
+async function mockClusterApi(page, options = {}) {
   const lines = [
     {
       id: 5001, picking_id: 1001, picking_name: 'WH/INT/00007',
@@ -24,6 +24,9 @@ async function mockClusterApi(page) {
       voice_instruction_short: 'A-12. 1 Stueck. Motorblock.',
     },
   ];
+  if (options.missingFirstPackage) {
+    delete lines[0].package_name;
+  }
   const confirmRequests = [];
   let validated = false;
 
@@ -35,7 +38,10 @@ async function mockClusterApi(page) {
       state: validated ? 'done' : 'in_progress',
       picker: 'Lena Lager',
       boxes: [
-        { picking_id: 1001, picking_name: 'WH/INT/00007', box_index: 1, box_color: '#A299FF', package_name: 'CLUSTER-B1/WH/INT/00007' },
+        {
+          picking_id: 1001, picking_name: 'WH/INT/00007', box_index: 1, box_color: '#A299FF',
+          ...(options.missingFirstPackage ? {} : { package_name: 'CLUSTER-B1/WH/INT/00007' }),
+        },
         { picking_id: 1002, picking_name: 'WH/INT/00008', box_index: 2, box_color: '#FF8A7E', package_name: 'CLUSTER-B2/WH/INT/00008' },
       ],
       lines: JSON.parse(JSON.stringify(lines)),
@@ -205,4 +211,17 @@ test('Cluster-Karton: falscher Karton warnt und blockiert, richtiger geht durch'
   const reqs = cluster.getConfirmRequests();
   expect(reqs).toHaveLength(1);
   expect(reqs[0]).toMatchObject({ move_line_id: 5001, scanned_package: 'CLUSTER-B1/WH/INT/00007' });
+});
+
+test('Cluster-Karton: fehlender Zielkarton blockiert Confirm', async ({ page }) => {
+  await mockPwaApi(page);
+  const cluster = await mockClusterApi(page, { missingFirstPackage: true });
+
+  await enterCluster(page);
+  await page.getByRole('button', { name: 'Übernehmen' }).first().click();
+  await page.locator('[data-cluster-confirm]').click();
+
+  await page.locator('[data-stop-confirm="5001"]').click();
+  await expect(page.getByText(/Zielkarton fehlt/i)).toBeVisible();
+  expect(cluster.getConfirmRequests()).toHaveLength(0);
 });

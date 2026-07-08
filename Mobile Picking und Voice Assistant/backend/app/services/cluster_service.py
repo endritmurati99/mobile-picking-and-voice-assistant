@@ -402,6 +402,23 @@ class ClusterService:
             return {"error": f"Batch-Anlage fehlgeschlagen: {exc}"}
 
         try:
+            await self._assign_packages(allowed_ids)
+        except Exception as exc:
+            logger.error("create_batch: Package-Zuweisung fehlgeschlagen (batch %s): %s",
+                         batch_id, exc)
+            try:
+                await self._odoo.call_method("stock.picking.batch", "action_cancel", [batch_id])
+            except OdooAPIError as cancel_exc:
+                logger.error("create_batch: action_cancel nach Package-Fehler fehlgeschlagen "
+                             "(batch %s): %s", batch_id, cancel_exc)
+            return {
+                "success": False,
+                "error": "Zielkartons konnten nicht angelegt werden.",
+                "message": "Zielkartons konnten nicht angelegt werden.",
+                "code": "package_assignment_failed",
+            }
+
+        try:
             await self._odoo.call_method("stock.picking.batch", "action_confirm", [batch_id])
         except OdooAPIError as exc:
             logger.error("create_batch: action_confirm fehlgeschlagen (batch %s): %s",
@@ -414,16 +431,6 @@ class ClusterService:
                 logger.error("create_batch: kompensierendes action_cancel fehlgeschlagen "
                              "(batch %s): %s", batch_id, cancel_exc)
             return {"error": f"Batch-Bestaetigung fehlgeschlagen: {exc}"}
-
-        # Ziel-Packages je Picking anlegen (Box N <-> Order N <-> 1 Package) und als
-        # result_package_id auf die Move-Lines schreiben. Best-effort: ein Package-Glitch
-        # darf den (bereits bestaetigten) Batch nie zerstoeren - daher hier KEIN
-        # action_cancel und KEIN raise, nur loggen und weitermachen.
-        try:
-            await self._assign_packages(allowed_ids)
-        except Exception as exc:  # noqa: BLE001 - best-effort: bestaetigter Batch muss ueberleben
-            logger.error("create_batch: Package-Zuweisung fehlgeschlagen (batch %s): %s",
-                         batch_id, exc)
 
         return await self.get_batch(batch_id, picker_identity=picker_identity)
 
@@ -729,6 +736,17 @@ class ClusterService:
         expected_pkg = line.get("result_package_id")
         expected_pkg_id = expected_pkg[0] if expected_pkg else None
         expected_pkg_name = expected_pkg[1] if expected_pkg else None
+        if expected_pkg_id is None:
+            self._emit_cluster_confirm(
+                False, batch_id, picking_id, move_line_id, product_id, False, t0,
+                carton_ok=False)
+            return {
+                "success": False,
+                "carton_required": True,
+                "missing_package": True,
+                "message": "Cluster-Position hat keinen Zielkarton. Batch bitte neu bilden.",
+                "progress": None,
+            }
         if expected_pkg_id is not None:
             scanned_carton = (scanned_package or "").strip()
             if not scanned_carton:
