@@ -791,24 +791,23 @@ class ClusterService:
                 "message": "Cluster-Position hat keinen Zielkarton. Batch bitte neu bilden.",
                 "progress": None,
             }
-        if expected_pkg_id is not None:
-            scanned_carton = (scanned_package or "").strip()
-            if not scanned_carton:
-                self._emit_cluster_confirm(
-                    False, batch_id, picking_id, move_line_id, product_id, False, t0,
-                    carton_ok=False)
-                return {"success": False, "carton_required": True,
-                        "expected_package_name": expected_pkg_name,
-                        "message": f"Bitte Empfängerkarton bestätigen: {expected_pkg_name}",
-                        "progress": None}
-            if not self._carton_matches(scanned_carton, expected_pkg_id, expected_pkg_name):
-                self._emit_cluster_confirm(
-                    False, batch_id, picking_id, move_line_id, product_id, False, t0,
-                    carton_ok=False)
-                return {"success": False, "wrong_package": True,
-                        "expected_package_name": expected_pkg_name,
-                        "message": f"Falscher Karton! Erwartet: {expected_pkg_name}",
-                        "progress": None}
+        scanned_carton = (scanned_package or "").strip()
+        if not scanned_carton:
+            self._emit_cluster_confirm(
+                False, batch_id, picking_id, move_line_id, product_id, False, t0,
+                carton_ok=False)
+            return {"success": False, "carton_required": True,
+                    "expected_package_name": expected_pkg_name,
+                    "message": f"Bitte Empfängerkarton bestätigen: {expected_pkg_name}",
+                    "progress": None}
+        if not self._carton_matches(scanned_carton, expected_pkg_id, expected_pkg_name):
+            self._emit_cluster_confirm(
+                False, batch_id, picking_id, move_line_id, product_id, False, t0,
+                carton_ok=False)
+            return {"success": False, "wrong_package": True,
+                    "expected_package_name": expected_pkg_name,
+                    "message": f"Falscher Karton! Erwartet: {expected_pkg_name}",
+                    "progress": None}
 
         qty = quantity if quantity > 0 else line.get("quantity", 1.0)
         line_values: dict[str, Any] = {"quantity": qty, "picked": True}

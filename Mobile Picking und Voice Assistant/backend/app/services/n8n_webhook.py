@@ -160,25 +160,6 @@ class N8NWebhookClient:
                 error=self._format_event_error(exc),
             )
 
-    async def fire(
-        self,
-        path: str,
-        data: dict[str, Any],
-        *,
-        picker: dict[str, Any] | None = None,
-        device_id: str | None = None,
-        picking_context: dict[str, Any] | None = None,
-        correlation_id: str | None = None,
-    ) -> N8NEventResult:
-        return await self.fire_event(
-            path,
-            data,
-            picker=picker,
-            device_id=device_id,
-            picking_context=picking_context,
-            correlation_id=correlation_id,
-        )
-
     async def request_reply(
         self,
         path: str,
