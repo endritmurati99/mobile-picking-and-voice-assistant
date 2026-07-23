@@ -11,6 +11,7 @@
       },
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
+      "webhookId": "16913f73-5ab3-46e4-89e3-93c86688b756",
       "typeVersion": 2,
       "position": [
         240,
@@ -81,7 +82,7 @@
     },
     {
       "parameters": {
-        "mode": "mergeByPosition"
+        "mode": "combineByPosition"
       },
       "name": "Merge LLM Result",
       "type": "n8n-nodes-base.merge",
