@@ -59,3 +59,6 @@ n8n/tmp/
 # Generated load-test and local priority artifacts
 infrastructure/scripts/load-test-results.json
 picking.priority
+
+# Graphify cache
+graphify-out/
