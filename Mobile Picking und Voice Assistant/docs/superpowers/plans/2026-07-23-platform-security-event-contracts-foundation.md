@@ -175,7 +175,7 @@ PWA + Voice + Cluster integration gates ----------------------> later production
   different module-global settings object.
 - Produces: `Principal`, `SessionTokenHint`, `PickerSessionLoginRequest`, `PrincipalResponse`, `PickerSessionResponse`, `CsrfResponse`, `validate_runtime_security(candidate: Settings) -> None`, `decode_secret_b64(name: str, value: str) -> bytes`.
 
-- [ ] **Step 1: Write failing auth-model and production-guard tests**
+- [x] **Step 1: Write failing auth-model and production-guard tests**
 
 ```python
 # backend/tests/test_auth_models.py
@@ -251,7 +251,7 @@ def test_secure_production_settings_pass():
     validate_runtime_security(secure_settings())
 ```
 
-- [ ] **Step 2: Run the focused test and confirm the red state**
+- [x] **Step 2: Run the focused test and confirm the red state**
 
 Run:
 
@@ -263,7 +263,7 @@ PYTHONPATH=.deps python3 -m pytest -p pytest_asyncio \
 
 Expected: collection fails because `app.models.auth` and `validate_runtime_security` do not exist.
 
-- [ ] **Step 3: Add strict auth types and settings validation**
+- [x] **Step 3: Add strict auth types and settings validation**
 
 Create these concrete types:
 
@@ -469,7 +469,7 @@ database names and instance JSON and assert the returned registries do not share
 profiles. Add a production case containing only `o19-a`/`o19-b` and require exactly
 those names with no implicit `local`.
 
-- [ ] **Step 4: Run the focused tests and inspect the diff**
+- [x] **Step 4: Run the focused tests and inspect the diff**
 
 Run:
 
@@ -482,7 +482,7 @@ git diff --check
 
 Expected: all selected tests pass; `git diff --check` prints nothing.
 
-- [ ] **Step 5: Commit the configuration contract**
+- [x] **Step 5: Commit the configuration contract**
 
 ```bash
 git add \
@@ -1091,7 +1091,7 @@ git commit -m "feat(events): freeze v2 envelopes and HMAC contract"
   `load_registry(path: Path) -> WorkflowRegistry`, CLI commands `managed-files`,
   `activation-order`, `test-only-files`, and `credential-bindings`.
 
-- [ ] **Step 1: Write failing registry validation tests**
+- [x] **Step 1: Write failing registry validation tests**
 
 ```python
 # infrastructure/tests/test_workflow_registry.py
@@ -1143,7 +1143,7 @@ def test_v2_requires_native_header_and_hmac_gate(tmp_path):
         load_registry(path, workflow_root=ROOT / "n8n/workflows")
 ```
 
-- [ ] **Step 2: Run the test and confirm the registry is absent**
+- [x] **Step 2: Run the test and confirm the registry is absent**
 
 Run:
 
@@ -1153,7 +1153,7 @@ PYTHONPATH=. python3 -m pytest infrastructure/tests/test_workflow_registry.py -q
 
 Expected: collection fails because `workflow_registry.py` does not exist.
 
-- [ ] **Step 3: Create the sole registry and strict loader**
+- [x] **Step 3: Create the sole registry and strict loader**
 
 Use this top-level schema and list all eight existing workflow files exactly once:
 
@@ -1449,7 +1449,7 @@ Add a CLI that prints JSON arrays for the four specified commands and exits nonz
 on validation failure. The importer will call the CLI instead of maintaining its own
 file list.
 
-- [ ] **Step 4: Run loader tests and current workflow verification**
+- [x] **Step 4: Run loader tests and current workflow verification**
 
 Run:
 
@@ -1461,7 +1461,7 @@ python3 infrastructure/scripts/verify-workflows.py
 
 Expected: tests pass; CLI prints the four managed files in activation order; the existing v1 verifier still passes.
 
-- [ ] **Step 5: Commit the central registry**
+- [x] **Step 5: Commit the central registry**
 
 ```bash
 git add \
