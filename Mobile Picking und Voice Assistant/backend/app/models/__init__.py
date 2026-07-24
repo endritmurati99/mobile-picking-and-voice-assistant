@@ -6,6 +6,23 @@ from app.models.auth import (
     PrincipalResponse,
     SessionTokenHint,
 )
+from app.models.events import (
+    CallbackApplyResponse,
+    CallbackEnvelopeV2,
+    EventAcceptanceRequest,
+    EventAcceptanceResponse,
+    EventActor,
+    EventAggregate,
+    EventEnvelopeV2,
+    EventSource,
+    serialize_event_envelope,
+)
+from app.models.webhook_security import (
+    HmacKey,
+    HmacKeyring,
+    SignedHeaders,
+    VerifiedSignature,
+)
 from app.models.n8n import (
     N8NCommandResponse,
     QualityAssessmentAIRequest,
