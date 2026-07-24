@@ -124,6 +124,8 @@ class EventAcceptanceResponse(StrictModel):
 class CallbackApplyResponse(StrictModel):
     status: Literal["applied", "replayed", "ignored_stale"]
     job_id: UUID
+    # ge=0 (not ge=1 like CallbackEnvelopeV2.sequence): this reflects the last
+    # applied sequence, and 0 is a valid "nothing applied yet" starting state.
     sequence: int = Field(ge=0)
 
 

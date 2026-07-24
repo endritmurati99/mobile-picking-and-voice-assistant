@@ -1,10 +1,10 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
 class HmacKey:
     key_id: str
-    secret: bytes
+    secret: bytes = field(repr=False)
 
     def __post_init__(self) -> None:
         if not self.key_id or len(self.secret) < 32:

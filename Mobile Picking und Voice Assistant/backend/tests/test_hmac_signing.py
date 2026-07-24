@@ -84,6 +84,15 @@ def test_verifier_accepts_starlette_lowercase_header_mapping():
     assert verified.key_id == "active"
 
 
+def test_hmac_key_repr_does_not_leak_secret():
+    secret = b"super-secret-value-that-must-not-leak-32b"
+    key = HmacKey("b2n-test", secret)
+    representation = repr(key)
+    assert secret.decode("ascii") not in representation
+    assert str(secret) not in representation
+    assert "secret" not in representation
+
+
 @pytest.mark.parametrize(
     ("target", "generation", "query"),
     [
