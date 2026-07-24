@@ -2,7 +2,7 @@
 import pytest
 
 from app import config
-from app.config import OdooProfile, get_instance_registry
+from app.config import OdooProfile, Settings, get_instance_registry
 
 
 @pytest.fixture(autouse=True)
@@ -78,3 +78,41 @@ def test_odoo19_named_profile_must_not_target_live_database(monkeypatch):
 
     with pytest.raises(ValueError, match="masterfischer_o19_trial"):
         get_instance_registry()
+
+
+def test_registries_from_different_settings_do_not_share_profiles():
+    first = Settings(
+        odoo_db="picking-a",
+        odoo_instances_json='{"extra-a": {"url": "https://a:8069", "db": "db-a"}}',
+    )
+    second = Settings(
+        odoo_db="picking-b",
+        odoo_instances_json='{"extra-b": {"url": "https://b:8069", "db": "db-b"}}',
+    )
+
+    registry_a = get_instance_registry(first)
+    registry_b = get_instance_registry(second)
+
+    assert registry_a["local"].db == "picking-a"
+    assert registry_b["local"].db == "picking-b"
+    assert set(registry_a) == {"local", "extra-a"}
+    assert set(registry_b) == {"local", "extra-b"}
+    assert "extra-a" not in registry_b
+    assert "extra-b" not in registry_a
+
+
+def test_production_with_authoritative_json_has_no_implicit_local():
+    candidate = Settings(
+        runtime_profile="production",
+        odoo_instances_json=(
+            '{"o19-a": {"url": "https://o19-a:8069", "db": "o19-a-db", '
+            '"api_key": "key-a"}, '
+            '"o19-b": {"url": "https://o19-b:8069", "db": "o19-b-db", '
+            '"api_key": "key-b"}}'
+        ),
+    )
+
+    registry = get_instance_registry(candidate)
+
+    assert set(registry) == {"o19-a", "o19-b"}
+    assert "local" not in registry
