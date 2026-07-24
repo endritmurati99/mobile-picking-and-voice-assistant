@@ -3,7 +3,7 @@ from functools import lru_cache
 import secrets
 import threading
 
-from fastapi import Depends, Header, HTTPException, Query
+from fastapi import Depends, Header, HTTPException, Query, Request
 
 from app.services.mobile_workflow import (
     InvalidPickerIdentityError,
@@ -11,12 +11,14 @@ from app.services.mobile_workflow import (
     PickerIdentity,
     WriteRequestContext,
 )
+from app.services.auth_sessions import AuthenticationFailed, SessionService
 from app.services.cluster_service import ClusterService
 from app.services.llm_client import LlmClient
 from app.services.n8n_webhook import N8NWebhookClient
 from app.services.odoo_client import OdooClient
 from app.services.picking_service import PickingService
-from app.config import settings, get_instance_registry
+from app.config import settings, decode_secret_b64, get_instance_registry
+from app.models.auth import Principal
 
 
 # Per-Profil-Client-Cache: je Odoo-Instanz EIN langlebiger Client
@@ -91,6 +93,46 @@ def get_mobile_workflow_service(
     odoo: OdooClient = Depends(get_request_odoo_client),
 ) -> MobileWorkflowService:
     return MobileWorkflowService(odoo)
+
+
+@lru_cache()
+def get_session_service() -> SessionService:
+    """Ein gecachter SessionService fuer alle Instanzen (analog zu `_get_cached_client`).
+
+    Nutzt niemals ein anderes globales Settings-Objekt als `app.config.settings` und
+    baut den Odoo-Client je Instanz ueber `_get_cached_client` (ein langlebiger Client
+    pro Odoo-Profil).
+    """
+    return SessionService(
+        client_factory=_get_cached_client,
+        instance_names=set(get_instance_registry().keys()),
+        throttle_secret=decode_secret_b64(
+            "SESSION_THROTTLE_HMAC_SECRET_B64", settings.session_throttle_hmac_secret_b64
+        ),
+        allowed_origins=set(
+            item.strip() for item in settings.pwa_origins.split(",") if item.strip()
+        ),
+        session_seconds=settings.session_max_age_seconds,
+        revalidate_seconds=settings.session_role_revalidate_seconds,
+    )
+
+
+async def get_current_principal(
+    request: Request,
+    service: SessionService = Depends(get_session_service),
+) -> Principal:
+    """Browser-Autoritaet kommt ausschliesslich aus dem `pwr_session`-Cookie.
+
+    `X-Picker-User-Id`/`X-Device-Id`/`X-Odoo-Instance` sind hier nie autoritativ.
+    Bei einem fehlenden oder ungueltigen Token wird kein Server-Zustand veraendert.
+    """
+    token = request.cookies.get(settings.session_cookie_name)
+    if not token:
+        raise HTTPException(status_code=401, detail="Ungueltige oder abgelaufene Sitzung.")
+    try:
+        return await service.resolve_principal(token)
+    except AuthenticationFailed as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
 def _parse_picker_user_id(picker_user_id: str | None) -> int:

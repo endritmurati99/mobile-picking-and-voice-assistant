@@ -47,3 +47,26 @@ class TestSessionAndThrottle(IntegrationCase):
         state = throttle.api_record_login_result("mina", "a" * 64, True)
         self.assertTrue(state["allowed"])
         self.assertEqual(state["failure_count"], 0)
+
+    def test_csrf_hash_is_compared_inside_odoo(self):
+        model = self.env["picking.assistant.session"].with_user(self.api_user)
+        expires_at = fields.Datetime.now() + timedelta(hours=8)
+        model.api_create_session(
+            "4ddb2442-e58a-47fe-9a6f-1ec1d779ef88",
+            "0" * 64,
+            "1" * 64,
+            self.picker.id,
+            "device-42",
+            ["picker"],
+            fields.Datetime.to_string(expires_at),
+        )
+        self.assertTrue(
+            model.api_validate_csrf(
+                "4ddb2442-e58a-47fe-9a6f-1ec1d779ef88", "1" * 64
+            )
+        )
+        self.assertFalse(
+            model.api_validate_csrf(
+                "4ddb2442-e58a-47fe-9a6f-1ec1d779ef88", "2" * 64
+            )
+        )

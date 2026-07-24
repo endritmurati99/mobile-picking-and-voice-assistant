@@ -122,6 +122,21 @@ class PickingAssistantSession(models.Model):
         return session._api_payload()
 
     @api.model
+    def api_validate_csrf(self, session_id, candidate_hash):
+        import secrets
+
+        self.env["picking.assistant.api.mixin"]._require_api_service()
+        session = self.sudo().search(
+            [("session_id", "=", session_id), ("revoked_at", "=", False)],
+            limit=1,
+        )
+        return bool(
+            session
+            and session.expires_at > fields.Datetime.now()
+            and secrets.compare_digest(session.csrf_hash, candidate_hash)
+        )
+
+    @api.model
     def api_revoke_session(self, session_id):
         self.env["picking.assistant.api.mixin"]._require_api_service()
         sessions = self.sudo().search(

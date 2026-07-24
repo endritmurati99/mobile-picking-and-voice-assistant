@@ -61,6 +61,15 @@ class OdooClient:
             raise OdooAPIError(result["error"])
         return result.get("result")
 
+    async def authenticate_credentials(self, login: str, password: str) -> int | None:
+        """Prueft Picker-Anmeldedaten, ohne den gecachten Service-uid/secret zu veraendern."""
+        uid = await self._json_rpc(
+            "common",
+            "authenticate",
+            [self._db, login, password, {"interactive": True}],
+        )
+        return int(uid) if uid else None
+
     async def authenticate(self) -> int:
         for secret in self._auth_secrets():
             uid = await self._json_rpc(
