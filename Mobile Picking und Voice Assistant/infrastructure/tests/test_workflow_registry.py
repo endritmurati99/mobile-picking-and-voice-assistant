@@ -20,9 +20,17 @@ def test_repository_registry_has_every_workflow_once():
     )
 
 
-def test_duplicate_path_and_unknown_credential_fail(tmp_path):
+def test_duplicate_webhook_path_fails(tmp_path):
     source = json.loads((ROOT / "n8n/workflow-registry.json").read_text())
     source["workflows"][1]["webhook_paths"] = source["workflows"][0]["webhook_paths"]
+    path = tmp_path / "registry.json"
+    path.write_text(json.dumps(source), encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate webhook path"):
+        load_registry(path, workflow_root=ROOT / "n8n/workflows")
+
+
+def test_unknown_logical_credential_fails(tmp_path):
+    source = json.loads((ROOT / "n8n/workflow-registry.json").read_text())
     source["workflows"][1]["credential_bindings"] = [
         {
             "node": "Gate",
@@ -32,7 +40,20 @@ def test_duplicate_path_and_unknown_credential_fail(tmp_path):
     ]
     path = tmp_path / "registry.json"
     path.write_text(json.dumps(source), encoding="utf-8")
-    with pytest.raises(ValueError, match="duplicate webhook path|unknown logical credential"):
+    with pytest.raises(ValueError, match="unknown logical credential"):
+        load_registry(path, workflow_root=ROOT / "n8n/workflows")
+
+
+def test_test_only_invariant_enforced(tmp_path):
+    source = json.loads((ROOT / "n8n/workflow-registry.json").read_text())
+    source["workflows"][0]["generation"] = "v2"
+    source["workflows"][0]["authentication"] = "native_header_hmac"
+    source["workflows"][0]["managed"] = True
+    source["workflows"][0]["production_activation"] = True
+    source["workflows"][0]["test_only"] = True
+    path = tmp_path / "registry.json"
+    path.write_text(json.dumps(source), encoding="utf-8")
+    with pytest.raises(ValueError, match="test_only requires managed non-production v2"):
         load_registry(path, workflow_root=ROOT / "n8n/workflows")
 
 
