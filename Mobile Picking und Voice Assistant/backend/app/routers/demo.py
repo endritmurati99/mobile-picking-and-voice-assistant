@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.config import get_instance_registry, settings
-from app.dependencies import get_request_odoo_client, get_required_picker_identity, resolve_instance
+from app.dependencies import get_demo_odoo_client, get_required_picker_identity, resolve_instance
 from app.services.mobile_workflow import PickerIdentity
 from app.services.demo_traceability import DEMO_MODES, DemoTraceabilityService
 from app.services.odoo_client import OdooAPIError, OdooClient
@@ -40,7 +40,7 @@ def _demo_guard(instance: str) -> tuple[bool, str]:
 @router.get("/traceability")
 async def get_traceability_demo(
     instance: str = Depends(resolve_instance),
-    odoo: OdooClient = Depends(get_request_odoo_client),
+    odoo: OdooClient = Depends(get_demo_odoo_client),
 ):
     allowed, reason = _demo_guard(instance)
     if not allowed:
@@ -60,7 +60,7 @@ async def get_traceability_demo(
 async def set_traceability_demo(
     body: TraceabilityModeRequest,
     instance: str = Depends(resolve_instance),
-    odoo: OdooClient = Depends(get_request_odoo_client),
+    odoo: OdooClient = Depends(get_demo_odoo_client),
     _identity: PickerIdentity = Depends(get_required_picker_identity),
 ):
     allowed, reason = _demo_guard(instance)

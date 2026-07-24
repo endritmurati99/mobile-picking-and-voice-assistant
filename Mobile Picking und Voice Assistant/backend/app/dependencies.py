@@ -1,6 +1,7 @@
 """Dependency Injection fuer FastAPI."""
 from collections.abc import Callable
 from functools import lru_cache
+import inspect
 import logging
 import secrets
 import threading
@@ -8,6 +9,7 @@ import threading
 from fastapi import Depends, Header, HTTPException, Query, Request
 
 from app.services.mobile_workflow import (
+    InvalidPickerIdentityError,
     MobileWorkflowService,
     PickerIdentity,
     WriteRequestContext,
@@ -130,39 +132,201 @@ def get_request_odoo_client(
     return _get_cached_client(principal.odoo_instance)
 
 
+def get_demo_odoo_client(instance: str = Depends(resolve_instance)) -> OdooClient:
+    """Odoo-Client fuer die anonymen Demo-Traceability-Endpunkte.
+
+    Diese Endpunkte pruefen ihre eigene Autorisierung ueber
+    `demo_traceability_enabled`/die DB-Allowlist (siehe `app/routers/demo.py`) und
+    sind bewusst nicht Principal-gebunden -- genau der Fall, den `resolve_instance`
+    in seinem eigenen Docstring als Ausnahme benennt.
+    """
+    return _get_cached_client(instance)
+
+
+def _grace_mode_active() -> bool:
+    """Grace-Mode ist nur ausserhalb von `production` UND nur mit dem expliziten
+    Feature-Flag aktiv. `validate_runtime_security` verbietet das Flag in
+    production zusaetzlich fail-closed -- diese Funktion ist die zweite,
+    redundante Absicherung direkt an der Nutzungsstelle.
+    """
+    return settings.runtime_profile != "production" and settings.mobile_header_grace_mode
+
+
+def _resolve_session_service(request: Request) -> SessionService:
+    """Wie `Depends(get_session_service)`, aber nur bei tatsaechlichem Bedarf
+    aufgerufen (siehe `_resolve_principal_or_none_for_grace`): ein anonymer
+    Grace-Mode-Request ohne Session-Cookie soll keinen echten `SessionService`
+    konstruieren (der in Tests ohne konfiguriertes
+    `SESSION_THROTTLE_HMAC_SECRET_B64` fehlschlagen wuerde) -- als `Depends`-
+    Parameter waere `get_session_service` dagegen fuer jede Anfrage eager
+    aufgeloest worden, auch wenn der Request nie ein Cookie mitbringt.
+    """
+    override = request.app.dependency_overrides.get(get_session_service)
+    if override is not None:
+        return override()
+    return get_session_service()
+
+
+async def _resolve_principal_or_none_for_grace(request: Request) -> Principal | None:
+    """Best-effort Principal-Aufloesung fuer die grace-mode-faehigen Abhaengigkeiten
+    (`get_required_picker_identity`, `get_write_request_context`,
+    `get_request_odoo_client_or_grace`).
+
+    Ehrt einen expliziten Test-Override auf `get_current_principal` (der bekannte
+    Seam aus `test_auth_dependencies.py`), da diese Abhaengigkeiten selbst keinen
+    `Depends(get_current_principal)`-Parameter deklarieren koennen -- ein fehlendes
+    oder ungueltiges Cookie ist hier (anders als bei `get_current_principal`) kein
+    fataler Fehler, sondern der Ausloeser fuer den Legacy-Header-Fallback. Ohne
+    Override und ohne Cookie liefert diese Funktion `None` (nie eine Exception),
+    damit der Aufrufer auf `resolve_legacy_header_identity()` zurueckfallen kann.
+    """
+    override = request.app.dependency_overrides.get(get_current_principal)
+    if override is not None:
+        sig = inspect.signature(override)
+        kwargs: dict = {}
+        if "request" in sig.parameters:
+            kwargs["request"] = request
+        if "service" in sig.parameters:
+            kwargs["service"] = _resolve_session_service(request)
+        result = override(**kwargs)
+        if inspect.isawaitable(result):
+            result = await result
+        return result
+
+    token = request.cookies.get(settings.session_cookie_name)
+    if not token:
+        return None
+    sessions = _resolve_session_service(request)
+    try:
+        return await sessions.resolve_principal(token)
+    except AuthenticationFailed:
+        return None
+
+
+async def get_request_odoo_client_or_grace(
+    request: Request,
+    x_odoo_instance: str | None = Header(default=None, alias="X-Odoo-Instance"),
+    instance: str | None = Query(default=None),
+) -> OdooClient:
+    """Odoo-Client fuer die mobilen/Sprach-/Qualitaets-Workflows: mit Session
+    ausschliesslich ueber die Principal-Instanz aufgeloest, genau wie
+    `get_request_odoo_client`. Ohne Session faellt dieser Getter -- nur wenn
+    Grace-Mode aktiv ist (nie in production) -- auf `X-Odoo-Instance`/`instance`
+    (Default `local`) zurueck, statt sofort 401 zu werfen.
+
+    `get_request_odoo_client` selbst bleibt davon unberuehrt und bedient
+    weiterhin ausschliesslich strikt Principal-gebundene Routen (z. B.
+    `/api/products/{id}/image`, siehe `test_instance_routing.py`).
+
+    Ehrt zusaetzlich einen expliziten Test-Override auf `get_request_odoo_client`
+    (der in bestehenden Routen-Tests uebliche Seam, um einen Fake-Client statt
+    eines echten HTTP-Clients einzuschleusen) -- so bleiben Tests, die diesen
+    Namen ueberschreiben, unabhaengig davon funktionsfaehig, ob eine Route ihren
+    Odoo-Client ueber `get_request_odoo_client` oder `get_request_odoo_client_or_grace`
+    bezieht.
+    """
+    override = request.app.dependency_overrides.get(get_request_odoo_client)
+    if override is not None:
+        sig = inspect.signature(override)
+        kwargs: dict = {}
+        if "request" in sig.parameters:
+            kwargs["request"] = request
+        result = override(**kwargs)
+        if inspect.isawaitable(result):
+            result = await result
+        return result
+
+    principal = await _resolve_principal_or_none_for_grace(request)
+    if principal is not None:
+        return _get_cached_client(principal.odoo_instance)
+    if not _grace_mode_active():
+        raise HTTPException(status_code=401, detail="Ungueltige oder abgelaufene Sitzung.")
+    name = (x_odoo_instance or instance or "local").strip().lower()
+    if name not in get_instance_registry():
+        raise HTTPException(status_code=400, detail=f"Unbekannte Odoo-Instanz: {name}")
+    return _get_cached_client(name)
+
+
 def get_picking_service(
-    odoo: OdooClient = Depends(get_request_odoo_client),
+    odoo: OdooClient = Depends(get_request_odoo_client_or_grace),
     n8n: N8NWebhookClient = Depends(get_n8n_client),
 ) -> PickingService:
     return PickingService(odoo, n8n)
 
 
 def get_cluster_service(
-    odoo: OdooClient = Depends(get_request_odoo_client),
+    odoo: OdooClient = Depends(get_request_odoo_client_or_grace),
     n8n: N8NWebhookClient = Depends(get_n8n_client),
 ) -> ClusterService:
     return ClusterService(odoo, n8n)
 
 
 def get_mobile_workflow_service(
-    odoo: OdooClient = Depends(get_request_odoo_client),
+    odoo: OdooClient = Depends(get_request_odoo_client_or_grace),
 ) -> MobileWorkflowService:
     return MobileWorkflowService(odoo)
 
 
-def get_required_picker_identity(
-    principal: Principal = Depends(get_current_principal),
+def resolve_legacy_header_identity(
+    picker_user_id: str | None = Header(default=None, alias="X-Picker-User-Id"),
+    device_id: str | None = Header(default=None, alias="X-Device-Id"),
+    x_odoo_instance: str | None = Header(default=None, alias="X-Odoo-Instance"),
+) -> PickerIdentity | None:
+    """Legacy-Header-Identitaet -- NUR fuer Entwicklungs-Grace-Mode, NIE als
+    Dependency einer sicheren Route verwendet.
+
+    Laeuft ausschliesslich, wenn `runtime_profile != "production"` UND
+    `mobile_header_grace_mode` aktiv ist (in production ist Grace-Mode durch
+    `validate_runtime_security` bereits fail-closed verboten). Loggt hoechstens
+    eine Warnung pro Aufruf, niemals die Header-Werte selbst.
+    """
+    if not _grace_mode_active():
+        return None
+    if picker_user_id is None and device_id is None and x_odoo_instance is None:
+        return None
+    logger.warning(
+        "Legacy X-Picker-User-Id/X-Device-Id/X-Odoo-Instance headers accepted under "
+        "dev grace mode; these headers carry no authority in secure/production mode."
+    )
+    user_id: int | None = None
+    if picker_user_id is not None:
+        try:
+            user_id = int(picker_user_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="X-Picker-User-Id muss numerisch sein.") from exc
+    return PickerIdentity(user_id=user_id, device_id=device_id, odoo_instance=x_odoo_instance)
+
+
+async def get_required_picker_identity(
+    request: Request,
+    workflow: MobileWorkflowService = Depends(get_mobile_workflow_service),
+    legacy_identity: PickerIdentity | None = Depends(resolve_legacy_header_identity),
 ) -> PickerIdentity:
     """Picker-Identitaet direkt aus dem Principal -- keine Odoo-Rueckfrage noetig,
     da die Session bereits gegen Odoo validiert wurde (siehe SessionService).
+
+    Nur wenn keine Session vorhanden ist UND Grace-Mode aktiv ist (nie in
+    production, siehe `_grace_mode_active`), faellt diese Abhaengigkeit auf die
+    Legacy-Header via `resolve_legacy_header_identity()` zurueck und validiert
+    sie -- wie vor Task 7 -- gegen Odoo (`workflow.resolve_identity`).
     """
-    return PickerIdentity(
-        user_id=principal.picker_user_id,
-        device_id=principal.device_id,
-        picker_name=principal.picker_name,
-        odoo_instance=principal.odoo_instance,
-        roles=principal.roles,
-    )
+    principal = await _resolve_principal_or_none_for_grace(request)
+    if principal is not None:
+        return PickerIdentity(
+            user_id=principal.picker_user_id,
+            device_id=principal.device_id,
+            picker_name=principal.picker_name,
+            odoo_instance=principal.odoo_instance,
+            roles=principal.roles,
+        )
+    if not _grace_mode_active():
+        raise HTTPException(status_code=401, detail="Ungueltige oder abgelaufene Sitzung.")
+    if legacy_identity is None:
+        raise HTTPException(status_code=400, detail="X-Picker-User-Id ist erforderlich.")
+    try:
+        return await workflow.resolve_identity(legacy_identity)
+    except InvalidPickerIdentityError as exc:
+        raise HTTPException(status_code=403, detail="Unbekannter oder inaktiver Picker.") from exc
 
 
 async def require_browser_csrf(
@@ -182,24 +346,48 @@ async def require_browser_csrf(
 
 
 async def get_write_request_context(
+    request: Request,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
-    principal: Principal = Depends(get_current_principal),
-    _csrf: None = Depends(require_browser_csrf),
+    x_csrf_token: str | None = Header(default=None, alias="X-CSRF-Token"),
+    legacy_identity: PickerIdentity | None = Depends(resolve_legacy_header_identity),
 ) -> WriteRequestContext:
-    """Schreibkontext fuer Browser-Mutationen: Identitaet kommt ausschliesslich
-    aus dem Principal, jede Mutation erfordert ein gueltiges CSRF-Token und
-    einen erlaubten Origin (siehe `require_browser_csrf`).
+    """Schreibkontext fuer Browser-Mutationen: mit Session kommt die Identitaet
+    ausschliesslich aus dem Principal, jede Mutation erfordert dann ein gueltiges
+    CSRF-Token und einen erlaubten Origin (siehe `require_browser_csrf`).
+
+    Ohne Session faellt dieser Kontext -- nur wenn Grace-Mode aktiv ist (nie in
+    production) -- auf die Legacy-Header via `resolve_legacy_header_identity()`
+    zurueck; Service-zu-Service-Aufrufe erfordern in diesem Fall keine CSRF/
+    Origin-Pruefung (die gab es fuer Legacy-Header-Clients nie).
     """
+    principal = await _resolve_principal_or_none_for_grace(request)
+    if principal is not None:
+        sessions = _resolve_session_service(request)
+        try:
+            await sessions.validate_csrf(
+                principal,
+                x_csrf_token,
+                request.headers.get("Origin"),
+            )
+        except CsrfFailed as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        return WriteRequestContext(
+            idempotency_key=idempotency_key,
+            identity=PickerIdentity(
+                user_id=principal.picker_user_id,
+                device_id=principal.device_id,
+                picker_name=principal.picker_name,
+                odoo_instance=principal.odoo_instance,
+                roles=principal.roles,
+            ),
+            principal_scope=f"user:{principal.picker_user_id}",
+        )
+    if not _grace_mode_active():
+        raise HTTPException(status_code=401, detail="Ungueltige oder abgelaufene Sitzung.")
     return WriteRequestContext(
         idempotency_key=idempotency_key,
-        identity=PickerIdentity(
-            user_id=principal.picker_user_id,
-            device_id=principal.device_id,
-            picker_name=principal.picker_name,
-            odoo_instance=principal.odoo_instance,
-            roles=principal.roles,
-        ),
-        principal_scope=f"user:{principal.picker_user_id}",
+        identity=legacy_identity or PickerIdentity(),
+        principal_scope=None,
     )
 
 
@@ -236,35 +424,6 @@ def require_roles(*required: str) -> Callable:
         return principal
 
     return dependency
-
-
-def resolve_legacy_header_identity(
-    picker_user_id: str | None = Header(default=None, alias="X-Picker-User-Id"),
-    device_id: str | None = Header(default=None, alias="X-Device-Id"),
-) -> PickerIdentity | None:
-    """Legacy-Header-Identitaet -- NUR fuer Entwicklungs-Grace-Mode, NIE als
-    Dependency einer sicheren Route verwendet.
-
-    Laeuft ausschliesslich, wenn `runtime_profile != "production"` UND
-    `mobile_header_grace_mode` aktiv ist (in production ist Grace-Mode durch
-    `validate_runtime_security` bereits fail-closed verboten). Loggt hoechstens
-    eine Warnung pro Aufruf, niemals die Header-Werte selbst.
-    """
-    if settings.runtime_profile == "production" or not settings.mobile_header_grace_mode:
-        return None
-    if picker_user_id is None and device_id is None:
-        return None
-    logger.warning(
-        "Legacy X-Picker-User-Id/X-Device-Id headers accepted under dev grace mode; "
-        "these headers carry no authority in secure/production mode."
-    )
-    user_id: int | None = None
-    if picker_user_id is not None:
-        try:
-            user_id = int(picker_user_id)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail="X-Picker-User-Id muss numerisch sein.") from exc
-    return PickerIdentity(user_id=user_id, device_id=device_id)
 
 
 def require_n8n_callback_secret(

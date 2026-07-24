@@ -11,7 +11,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
-from app.dependencies import get_mobile_workflow_service, get_n8n_client, get_odoo_client, get_request_odoo_client, get_write_request_context
+from app.dependencies import get_mobile_workflow_service, get_n8n_client, get_odoo_client, get_request_odoo_client_or_grace, get_write_request_context
 from app.services.mobile_workflow import (
     IdempotencyReservation,
     InvalidPickerIdentityError,
@@ -170,7 +170,7 @@ async def create_quality_alert(
     priority: str = Form("0"),
     photos: List[UploadFile] = File(default=[]),
     context: WriteRequestContext = Depends(get_write_request_context),
-    odoo: OdooClient = Depends(get_request_odoo_client),
+    odoo: OdooClient = Depends(get_request_odoo_client_or_grace),
     n8n: N8NWebhookClient = Depends(get_n8n_client),
     workflow: MobileWorkflowService = Depends(get_mobile_workflow_service),
 ):
