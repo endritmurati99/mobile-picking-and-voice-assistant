@@ -89,9 +89,16 @@ def request_source_ip(request: Request, trusted_peers: set[str]) -> str:
     peer = _canonical_peer(request.client.host)
     if peer not in trusted_peers:
         return peer
+    # The Caddyfile uses a bare `reverse_proxy backend:8000` with no
+    # trusted_proxies/header-overwrite config, so Caddy only APPENDS the
+    # real client IP to any client-supplied X-Forwarded-For value; it never
+    # strips attacker-controlled entries. Trusting the LEFT-most segment
+    # would let an attacker rotate fake IPs to bucket-hop past the
+    # per-source-IP login throttle, so we must take the RIGHT-most segment
+    # instead -- that is always the one Caddy itself appended.
     forwarded = request.headers.get("X-Forwarded-For", "")
-    first = forwarded.split(",", 1)[0].strip()
-    return _canonical_peer(first) if first else peer
+    last = forwarded.rsplit(",", 1)[-1].strip()
+    return _canonical_peer(last) if last else peer
 
 
 def source_ip_key(source_ip: str, secret: bytes) -> str:
