@@ -2,6 +2,9 @@ import json
 from datetime import timedelta
 
 from odoo import api, fields, models
+from odoo.exceptions import ValidationError
+
+MAX_SESSION_SECONDS = 28800  # 8h, defense-in-depth cap on session lifetime
 
 
 class PickingAssistantSession(models.Model):
@@ -58,6 +61,10 @@ class PickingAssistantSession(models.Model):
         expires_at,
     ):
         self.env["picking.assistant.api.mixin"]._require_api_service()
+        created_at = fields.Datetime.now()
+        expires_at_dt = fields.Datetime.to_datetime(expires_at)
+        if (expires_at_dt - created_at) > timedelta(seconds=MAX_SESSION_SECONDS):
+            raise ValidationError("Session lifetime may not exceed 8 hours.")
         session = self.sudo().create(
             {
                 "session_id": session_id,
@@ -66,7 +73,8 @@ class PickingAssistantSession(models.Model):
                 "user_id": int(user_id),
                 "device_id": device_id,
                 "roles_json": json.dumps(sorted(set(roles))),
-                "expires_at": expires_at,
+                "created_at": created_at,
+                "expires_at": expires_at_dt,
             }
         )
         return session._api_payload()
