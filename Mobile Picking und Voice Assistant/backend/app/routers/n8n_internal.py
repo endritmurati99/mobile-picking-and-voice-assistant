@@ -10,9 +10,9 @@ import re
 from fastapi import APIRouter, Depends, Header, HTTPException
 
 from app.dependencies import (
+    get_legacy_n8n_write_context,
     get_mobile_workflow_service,
     get_odoo_client,
-    get_write_request_context,
     require_n8n_callback_secret,
 )
 from app.models.n8n import (
@@ -412,7 +412,7 @@ async def quality_assessment_ai_callback(
     body: QualityAssessmentAIRequest,
     workflow: MobileWorkflowService = Depends(get_mobile_workflow_service),
     odoo: OdooClient = Depends(get_odoo_client),
-    context: WriteRequestContext = Depends(get_write_request_context),
+    context: WriteRequestContext = Depends(get_legacy_n8n_write_context),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     workflow_name = "quality-alert-ai-evaluation"
@@ -428,7 +428,11 @@ async def quality_assessment_ai_callback(
         target_object_id=target_object_id,
     )
 
-    callback_context = WriteRequestContext(idempotency_key=idempotency_key, identity=context.identity)
+    callback_context = WriteRequestContext(
+        idempotency_key=idempotency_key,
+        identity=context.identity,
+        principal_scope=context.principal_scope,
+    )
     fingerprint = workflow.build_request_fingerprint(body.model_dump(mode="json"))
     reservation = await workflow.begin_idempotent_request(
         "n8n.quality-assessment-ai",
@@ -548,7 +552,7 @@ async def quality_assessment_callback(
     body: QualityAssessmentCallbackRequest,
     workflow: MobileWorkflowService = Depends(get_mobile_workflow_service),
     odoo: OdooClient = Depends(get_odoo_client),
-    context: WriteRequestContext = Depends(get_write_request_context),
+    context: WriteRequestContext = Depends(get_legacy_n8n_write_context),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     workflow_name = "quality-alert-created"
@@ -564,7 +568,11 @@ async def quality_assessment_callback(
         target_object_id=target_object_id,
     )
 
-    callback_context = WriteRequestContext(idempotency_key=idempotency_key, identity=context.identity)
+    callback_context = WriteRequestContext(
+        idempotency_key=idempotency_key,
+        identity=context.identity,
+        principal_scope=context.principal_scope,
+    )
     fingerprint = workflow.build_request_fingerprint(body.model_dump(mode="json"))
     reservation = await workflow.begin_idempotent_request(
         "n8n.quality-assessment",
@@ -685,7 +693,7 @@ async def replenishment_action_callback(
     body: ReplenishmentActionRequest,
     workflow: MobileWorkflowService = Depends(get_mobile_workflow_service),
     odoo: OdooClient = Depends(get_odoo_client),
-    context: WriteRequestContext = Depends(get_write_request_context),
+    context: WriteRequestContext = Depends(get_legacy_n8n_write_context),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     workflow_name = "shortage-reported"
@@ -701,7 +709,11 @@ async def replenishment_action_callback(
         target_object_id=target_object_id,
     )
 
-    callback_context = WriteRequestContext(idempotency_key=idempotency_key, identity=context.identity)
+    callback_context = WriteRequestContext(
+        idempotency_key=idempotency_key,
+        identity=context.identity,
+        principal_scope=context.principal_scope,
+    )
     fingerprint = workflow.build_request_fingerprint(body.model_dump(mode="json"))
     reservation = await workflow.begin_idempotent_request(
         "n8n.replenishment-action",
@@ -851,7 +863,7 @@ async def quality_assessment_failed_callback(
     body: QualityAssessmentFailedRequest,
     workflow: MobileWorkflowService = Depends(get_mobile_workflow_service),
     odoo: OdooClient = Depends(get_odoo_client),
-    context: WriteRequestContext = Depends(get_write_request_context),
+    context: WriteRequestContext = Depends(get_legacy_n8n_write_context),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     workflow_name = "error-trigger"
@@ -869,7 +881,11 @@ async def quality_assessment_failed_callback(
     corr = _resolve_correlation_id(body, idempotency_key)
     legacy_payload = not bool(body.schema_version)
     latency_tracking = _dump_latency_tracking(body)
-    callback_context = WriteRequestContext(idempotency_key=idempotency_key, identity=context.identity)
+    callback_context = WriteRequestContext(
+        idempotency_key=idempotency_key,
+        identity=context.identity,
+        principal_scope=context.principal_scope,
+    )
     fingerprint = workflow.build_request_fingerprint(body.model_dump(mode="json"))
     reservation = await workflow.begin_idempotent_request(
         "n8n.quality-assessment-failed",
@@ -1002,7 +1018,7 @@ async def manual_review_activity_callback(
     body: ManualReviewActivityRequest,
     workflow: MobileWorkflowService = Depends(get_mobile_workflow_service),
     odoo: OdooClient = Depends(get_odoo_client),
-    context: WriteRequestContext = Depends(get_write_request_context),
+    context: WriteRequestContext = Depends(get_legacy_n8n_write_context),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     workflow_name = "error-trigger"
@@ -1020,7 +1036,11 @@ async def manual_review_activity_callback(
     corr = _resolve_correlation_id(body, idempotency_key)
     legacy_payload = not bool(body.schema_version)
     latency_tracking = _dump_latency_tracking(body)
-    callback_context = WriteRequestContext(idempotency_key=idempotency_key, identity=context.identity)
+    callback_context = WriteRequestContext(
+        idempotency_key=idempotency_key,
+        identity=context.identity,
+        principal_scope=context.principal_scope,
+    )
     fingerprint = workflow.build_request_fingerprint(body.model_dump(mode="json"))
     reservation = await workflow.begin_idempotent_request(
         "n8n.manual-review-activity",

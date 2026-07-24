@@ -11,6 +11,8 @@ class PickerIdentity:
     user_id: int | None = None
     device_id: str | None = None
     picker_name: str | None = None
+    odoo_instance: str | None = None
+    roles: frozenset[str] = field(default_factory=frozenset)
 
     @property
     def is_complete(self) -> bool:
@@ -21,6 +23,7 @@ class PickerIdentity:
 class WriteRequestContext:
     idempotency_key: str | None = None
     identity: PickerIdentity = field(default_factory=PickerIdentity)
+    principal_scope: str | None = None
 
 
 @dataclass(frozen=True)

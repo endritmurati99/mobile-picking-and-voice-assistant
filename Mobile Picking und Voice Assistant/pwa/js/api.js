@@ -172,51 +172,116 @@ export function createIdempotencyKey(scope, parts = [], { unique = false } = {})
     return keyParts.join(':');
 }
 
-function getWriteHeaders(idempotencyKey) {
-    const headers = getReadHeaders();
-    const deviceId = getDeviceId();
-    if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
-    if (deviceId) headers['X-Device-Id'] = deviceId;
-    return headers;
+const CSRF_STORAGE_KEY = 'picking-assistant-csrf';
+
+export function getCsrfToken() {
+    try {
+        return globalThis.sessionStorage?.getItem(CSRF_STORAGE_KEY) ?? null;
+    } catch {
+        return null;
+    }
+}
+
+export function setCsrfToken(token) {
+    try {
+        if (token) {
+            globalThis.sessionStorage?.setItem(CSRF_STORAGE_KEY, token);
+        } else {
+            globalThis.sessionStorage?.removeItem(CSRF_STORAGE_KEY);
+        }
+    } catch {
+        // Session remains server-authoritative when storage is unavailable.
+    }
+}
+
+function clearSessionClientState() {
+    setCsrfToken(null);
+    clearActivePicker();
 }
 
 function getReadHeaders() {
+    return {};
+}
+
+function getWriteHeaders(idempotencyKey) {
     const headers = {};
-    const picker = getActivePicker();
-    if (picker?.id) headers['X-Picker-User-Id'] = String(picker.id);
+    if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+    const csrfToken = getCsrfToken();
+    if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
     return headers;
 }
 
 async function request(method, path, body = null, options = {}) {
     const headers = { ...(options.headers || {}) };
-    const activeInstance = getActiveInstance();
-    if (activeInstance !== 'local') {
-        headers['X-Odoo-Instance'] = activeInstance;
-    }
     const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
-    if (body && !isFormData) {
-        headers['Content-Type'] = 'application/json';
-    }
+    if (body && !isFormData) headers['Content-Type'] = 'application/json';
 
     const opts = {
         method,
         headers,
+        credentials: 'same-origin',
         cache: options.cache || 'no-store',
         keepalive: options.keepalive || false,
         signal: options.signal,
     };
-
-    if (body) {
-        opts.body = isFormData ? body : JSON.stringify(body);
-    }
+    if (body) opts.body = isFormData ? body : JSON.stringify(body);
 
     const resp = await fetch(`${API_BASE}${path}`, opts);
     if (!resp.ok) {
+        if (resp.status === 401) clearSessionClientState();
         const err = await resp.json().catch(() => ({ detail: resp.statusText }));
         throw new ApiError(resp.status, err.detail ?? err);
     }
     if (resp.status === 204) return null;
     return resp.json();
+}
+
+export async function loginPickerSession({ login, password, odoo_instance }, options = {}) {
+    const result = await request('POST', '/auth/picker-session', {
+        login,
+        password,
+        device_id: getDeviceId(),
+        odoo_instance: normalizeInstanceName(odoo_instance),
+    }, { signal: options.signal });
+    setCsrfToken(result.csrf_token);
+    setActivePicker({
+        id: result.principal.picker_user_id,
+        name: result.principal.picker_name,
+    });
+    setActiveInstance(result.principal.odoo_instance);
+    return result;
+}
+
+export async function getCurrentSession(options = {}) {
+    const principal = await request('GET', '/auth/me', null, {
+        signal: options.signal,
+    });
+    setActivePicker({
+        id: principal.picker_user_id,
+        name: principal.picker_name,
+    });
+    setActiveInstance(principal.odoo_instance);
+    return principal;
+}
+
+export async function rotateCsrfToken(options = {}) {
+    const result = await request('POST', '/auth/csrf', null, {
+        signal: options.signal,
+    });
+    setCsrfToken(result.csrf_token);
+    return result.csrf_token;
+}
+
+export async function logoutPickerSession(options = {}) {
+    try {
+        return await request('POST', '/auth/logout', null, {
+            headers: getWriteHeaders(),
+            keepalive: options.keepalive || false,
+            signal: options.signal,
+        });
+    } finally {
+        clearSessionClientState();
+    }
 }
 
 export async function getPickers(options = {}) {

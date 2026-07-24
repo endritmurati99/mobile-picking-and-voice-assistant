@@ -4,11 +4,13 @@ import assert from 'node:assert/strict';
 import {
     assistVoice,
     clearActivePicker,
+    confirmLine,
     getActiveInstance,
     getCachedPickers,
     getInstances,
     getPickings,
     getTraceabilityDemo,
+    loginPickerSession,
     recognizeVoice,
     setActivePicker,
     setActiveInstance,
@@ -49,7 +51,7 @@ test('recognizeVoice sends the UI context as additive form fields', async () => 
     assert.equal(capturedBody.get('audio').name, 'recording.webm');
 });
 
-test('assistVoice sends a JSON payload with picker headers', async () => {
+test('assistVoice sends a JSON payload without authority headers', async () => {
     const originalFetch = global.fetch;
     let capturedHeaders = null;
     let capturedBody = null;
@@ -84,7 +86,8 @@ test('assistVoice sends a JSON payload with picker headers', async () => {
     }
 
     assert.equal(capturedHeaders['Content-Type'], 'application/json');
-    assert.equal(capturedHeaders['X-Picker-User-Id'], '7');
+    assert.equal(capturedHeaders['X-Picker-User-Id'], undefined);
+    assert.equal(capturedHeaders['X-Device-Id'], undefined);
     assert.deepEqual(JSON.parse(capturedBody), {
         text: 'Was baue ich hier?',
         intent: 'unknown',
@@ -93,28 +96,100 @@ test('assistVoice sends a JSON payload with picker headers', async () => {
     });
 });
 
-test('getPickings sends the active picker id as read header', async () => {
+test('authenticated reads send cookie credentials and no authority headers', async () => {
     const originalFetch = global.fetch;
-    let capturedHeaders = null;
-
+    let captured = null;
     global.fetch = async (_url, options) => {
-        capturedHeaders = options.headers;
+        captured = options;
+        return { ok: true, status: 200, json: async () => [] };
+    };
+    try {
+        setActivePicker({ id: 18, name: 'Max Picker' });
+        setActiveInstance('logilab');
+        await getPickings();
+        assert.equal(captured.credentials, 'same-origin');
+        assert.equal(captured.headers['X-Picker-User-Id'], undefined);
+        assert.equal(captured.headers['X-Device-Id'], undefined);
+        assert.equal(captured.headers['X-Odoo-Instance'], undefined);
+    } finally {
+        clearActivePicker();
+        setActiveInstance('local');
+        global.fetch = originalFetch;
+    }
+});
+
+test('mutation uses csrf from sessionStorage and stable idempotency only', async () => {
+    const originalFetch = global.fetch;
+    const originalSessionStorage = global.sessionStorage;
+    const store = new Map([['picking-assistant-csrf', 'csrf-1']]);
+    global.sessionStorage = {
+        getItem: key => store.get(key) ?? null,
+        setItem: (key, value) => store.set(key, value),
+        removeItem: key => store.delete(key),
+    };
+    let captured = null;
+    global.fetch = async (_url, options) => {
+        captured = options;
+        return { ok: true, status: 200, json: async () => ({ success: true }) };
+    };
+    try {
+        await confirmLine(4, { move_line_id: 9, quantity: 1 }, {
+            idempotencyKey: 'confirm:4:9',
+        });
+        assert.equal(captured.headers['X-CSRF-Token'], 'csrf-1');
+        assert.equal(captured.headers['Idempotency-Key'], 'confirm:4:9');
+        assert.equal(captured.headers['X-Device-Id'], undefined);
+    } finally {
+        global.fetch = originalFetch;
+        global.sessionStorage = originalSessionStorage;
+    }
+});
+
+test('login sends device and selected instance then stores csrf in sessionStorage', async () => {
+    const originalFetch = global.fetch;
+    const originalSessionStorage = global.sessionStorage;
+    const store = new Map();
+    global.sessionStorage = {
+        getItem: key => store.get(key) ?? null,
+        setItem: (key, value) => store.set(key, value),
+        removeItem: key => store.delete(key),
+    };
+    let requestBody;
+    global.fetch = async (_url, options) => {
+        requestBody = JSON.parse(options.body);
         return {
             ok: true,
             status: 200,
-            json: async () => ([]),
+            json: async () => ({
+                principal: {
+                    picker_user_id: 7,
+                    picker_name: 'Mina Muster',
+                    device_id: requestBody.device_id,
+                    odoo_instance: 'o19',
+                    roles: ['picker'],
+                    session_id: '4ddb2442-e58a-47fe-9a6f-1ec1d779ef88',
+                    expires_at: '2026-07-23T20:00:00Z',
+                },
+                csrf_token: 'csrf-login',
+            }),
         };
     };
-
     try {
-        setActivePicker({ id: 18, name: 'Max Picker' });
-        await getPickings();
+        const session = await loginPickerSession({
+            login: 'mina',
+            password: 'secret',
+            odoo_instance: 'o19',
+        });
+        assert.equal(requestBody.login, 'mina');
+        assert.equal(requestBody.odoo_instance, 'o19');
+        assert.ok(requestBody.device_id);
+        assert.equal(requestBody.picker_user_id, undefined);
+        assert.equal(store.get('picking-assistant-csrf'), 'csrf-login');
+        assert.equal(session.principal.picker_user_id, 7);
     } finally {
-        clearActivePicker();
         global.fetch = originalFetch;
+        global.sessionStorage = originalSessionStorage;
     }
-
-    assert.equal(capturedHeaders['X-Picker-User-Id'], '18');
 });
 
 test('picker catalog cache round-trips through localStorage', () => {
@@ -140,7 +215,11 @@ test('picker catalog cache round-trips through localStorage', () => {
     }
 });
 
-test('request adds X-Odoo-Instance only when a non-local instance is active', async () => {
+test('getActiveInstance/setActiveInstance remain a pre-login selection preference only', async () => {
+    // `request()` no longer injects `X-Odoo-Instance` -- the header carries no
+    // authority once a session exists. `setActiveInstance`/`getActiveInstance`
+    // still round-trip through localStorage so the login screen can preselect
+    // an instance before a Principal exists.
     const originalFetch = global.fetch;
     const originalStorage = global.localStorage;
     const store = new Map();
@@ -161,19 +240,15 @@ test('request adds X-Odoo-Instance only when a non-local instance is active', as
     };
 
     try {
-        await getPickings();
         assert.equal(getActiveInstance(), 'local');
-        assert.equal(capturedHeaders['X-Odoo-Instance'], undefined);
 
         setActiveInstance('LogiLab');
-        await getPickings();
         assert.equal(getActiveInstance(), 'logilab');
-        assert.equal(capturedHeaders['X-Odoo-Instance'], 'logilab');
+        await getPickings();
+        assert.equal(capturedHeaders['X-Odoo-Instance'], undefined);
 
         setActiveInstance('local');
-        await getPickings();
         assert.equal(getActiveInstance(), 'local');
-        assert.equal(capturedHeaders['X-Odoo-Instance'], undefined);
     } finally {
         global.fetch = originalFetch;
         global.localStorage = originalStorage;
@@ -201,7 +276,7 @@ test('getInstances requests GET /instances', async () => {
     }
 });
 
-test('traceability demo endpoints include instance, picker, and idempotency headers', async () => {
+test('traceability demo endpoints send cookie credentials and idempotency without authority headers', async () => {
     const originalFetch = global.fetch;
     const originalStorage = global.localStorage;
     const store = new Map();
@@ -230,14 +305,15 @@ test('traceability demo endpoints include instance, picker, and idempotency head
 
         assert.equal(calls[0].url, '/api/demo/traceability');
         assert.equal(calls[0].options.method, 'GET');
-        assert.equal(calls[0].options.headers['X-Picker-User-Id'], '23');
-        assert.equal(calls[0].options.headers['X-Odoo-Instance'], 'o19-trial');
+        assert.equal(calls[0].options.credentials, 'same-origin');
+        assert.equal(calls[0].options.headers['X-Picker-User-Id'], undefined);
+        assert.equal(calls[0].options.headers['X-Odoo-Instance'], undefined);
 
         assert.equal(calls[1].url, '/api/demo/traceability');
         assert.equal(calls[1].options.method, 'POST');
         assert.equal(calls[1].options.headers['Idempotency-Key'], 'demo-key');
-        assert.equal(calls[1].options.headers['X-Picker-User-Id'], '23');
-        assert.equal(calls[1].options.headers['X-Odoo-Instance'], 'o19-trial');
+        assert.equal(calls[1].options.headers['X-Picker-User-Id'], undefined);
+        assert.equal(calls[1].options.headers['X-Odoo-Instance'], undefined);
         assert.deepEqual(JSON.parse(calls[1].options.body), { mode: 'none' });
     } finally {
         clearActivePicker();

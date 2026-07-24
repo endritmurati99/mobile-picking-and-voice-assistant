@@ -691,6 +691,317 @@ def test_manual_review_activity_requires_idempotency_key(monkeypatch):
     workflow.begin_idempotent_request.assert_not_awaited()
 
 
+# --- Task 7: legacy n8n write context is service-scoped, never browser-authoritative ---
+#
+# All five callback routes below now depend on `get_legacy_n8n_write_context`
+# instead of the browser-only `get_write_request_context`. They keep the
+# existing `require_n8n_callback_secret` guard and never gain cookies, Origin,
+# or CSRF requirements. Every successful call must reach the fake Odoo/workflow
+# service with `principal_scope == "service:n8n-v1"`; every call missing the
+# callback secret must be rejected with 403 before any service call.
+
+
+def test_quality_assessment_ai_callback_uses_service_principal_scope(monkeypatch):
+    monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
+    workflow = _workflow_mock()
+    odoo = MagicMock()
+    odoo.search_read = AsyncMock(
+        return_value=[
+            {
+                "id": 42,
+                "name": "QA/0042",
+                "description": "Artikel beschaedigt.",
+                "priority": "0",
+                "photo_count": 0,
+                "product_id": [7, "Brick 2x2"],
+                "location_id": [15, "WH/Stock/A-01"],
+            }
+        ]
+    )
+    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_odoo_client] = lambda: odoo
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/internal/n8n/quality-assessment-ai",
+                json={
+                    "schema_version": "v1",
+                    "execution_id": "exec-scope-1",
+                    "latency_tracking": {
+                        "started_at": "2026-03-31T11:00:00Z",
+                        "total_duration_ms": 100,
+                        "stages": {"callback_ms": 5},
+                    },
+                    "correlation_id": "corr-scope-1",
+                    "alert_id": 42,
+                    "category": "damage",
+                    "confidence": 0.81,
+                    "reason": "Beschreibung spricht klar fuer einen Verpackungsschaden.",
+                    "model": "gpt-4o-mini",
+                },
+                headers={
+                    "X-N8N-Callback-Secret": "top-secret",
+                    "Idempotency-Key": "corr-scope-1",
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    context = workflow.begin_idempotent_request.call_args[0][1]
+    assert context.principal_scope == "service:n8n-v1"
+
+
+def test_quality_assessment_ai_callback_rejects_missing_secret_before_service_call(monkeypatch):
+    monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
+    workflow = _workflow_mock()
+    odoo = MagicMock()
+    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_odoo_client] = lambda: odoo
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/internal/n8n/quality-assessment-ai",
+                json={
+                    "schema_version": "v1",
+                    "execution_id": "exec-scope-2",
+                    "correlation_id": "corr-scope-2",
+                    "alert_id": 42,
+                    "category": "damage",
+                    "confidence": 0.81,
+                    "reason": "Beschreibung spricht klar fuer einen Verpackungsschaden.",
+                    "model": "gpt-4o-mini",
+                },
+                headers={"Idempotency-Key": "corr-scope-2"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    workflow.begin_idempotent_request.assert_not_awaited()
+    odoo.search_read.assert_not_called()
+
+
+def test_quality_assessment_callback_uses_service_principal_scope(monkeypatch):
+    monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
+    workflow = _workflow_mock()
+    odoo = MagicMock()
+    odoo.write = AsyncMock(return_value=True)
+    odoo.execute_kw = AsyncMock(return_value=True)
+    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_odoo_client] = lambda: odoo
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/internal/n8n/quality-assessment",
+                json={
+                    "correlation_id": "corr-scope-3",
+                    "alert_id": 42,
+                    "ai_disposition": "scrap",
+                    "ai_confidence": 0.93,
+                    "ai_summary": "Totalschaden.",
+                },
+                headers={
+                    "X-N8N-Callback-Secret": "top-secret",
+                    "Idempotency-Key": "corr-scope-3",
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    context = workflow.begin_idempotent_request.call_args[0][1]
+    assert context.principal_scope == "service:n8n-v1"
+
+
+def test_quality_assessment_callback_rejects_missing_secret_before_service_call(monkeypatch):
+    monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
+    workflow = _workflow_mock()
+    odoo = MagicMock()
+    odoo.write = AsyncMock(return_value=True)
+    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_odoo_client] = lambda: odoo
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/internal/n8n/quality-assessment",
+                json={
+                    "correlation_id": "corr-scope-4",
+                    "alert_id": 42,
+                    "ai_disposition": "scrap",
+                    "ai_confidence": 0.93,
+                },
+                headers={"Idempotency-Key": "corr-scope-4"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    workflow.begin_idempotent_request.assert_not_awaited()
+    odoo.write.assert_not_awaited()
+
+
+def test_replenishment_callback_uses_service_principal_scope(monkeypatch):
+    monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
+    workflow = _workflow_mock()
+    odoo = MagicMock()
+    odoo.execute_kw = AsyncMock(
+        return_value={
+            "success": True,
+            "replenishment_name": "INT/0007",
+            "replenishment_picking_id": 71,
+        }
+    )
+    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_odoo_client] = lambda: odoo
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/internal/n8n/replenishment-action",
+                json={
+                    "correlation_id": "corr-scope-5",
+                    "picking_id": 44,
+                    "product_id": 5,
+                    "location_id": 9,
+                    "recommended_location_id": 12,
+                    "reason": "Alternative Lagerplaetze gefunden.",
+                },
+                headers={
+                    "X-N8N-Callback-Secret": "top-secret",
+                    "Idempotency-Key": "corr-scope-5",
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    context = workflow.begin_idempotent_request.call_args[0][1]
+    assert context.principal_scope == "service:n8n-v1"
+
+
+def test_replenishment_callback_rejects_missing_secret_before_service_call(monkeypatch):
+    monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
+    workflow = _workflow_mock()
+    odoo = MagicMock()
+    odoo.execute_kw = AsyncMock()
+    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_odoo_client] = lambda: odoo
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/internal/n8n/replenishment-action",
+                json={
+                    "correlation_id": "corr-scope-6",
+                    "picking_id": 44,
+                    "product_id": 5,
+                    "location_id": 9,
+                    "recommended_location_id": 12,
+                    "reason": "Alternative Lagerplaetze gefunden.",
+                },
+                headers={"Idempotency-Key": "corr-scope-6"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    workflow.begin_idempotent_request.assert_not_awaited()
+    odoo.execute_kw.assert_not_awaited()
+
+
+def test_quality_assessment_failed_uses_service_principal_scope(monkeypatch):
+    monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
+    workflow = _workflow_mock()
+    odoo = MagicMock()
+    odoo.write = AsyncMock(return_value=True)
+    odoo.execute_kw = AsyncMock(side_effect=[True, [91], 1])
+    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_odoo_client] = lambda: odoo
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/internal/n8n/quality-assessment-failed",
+                json={
+                    "alert_id": 42,
+                    "correlation_id": "corr-scope-7",
+                    "failure_reason": "Workflow timeout",
+                },
+                headers={
+                    "X-N8N-Callback-Secret": "top-secret",
+                    "Idempotency-Key": "corr-scope-7",
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    context = workflow.begin_idempotent_request.call_args[0][1]
+    assert context.principal_scope == "service:n8n-v1"
+
+
+def test_manual_review_activity_uses_service_principal_scope(monkeypatch):
+    monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
+    workflow = _workflow_mock()
+    odoo = MagicMock()
+    odoo.execute_kw = AsyncMock(return_value=[1])
+    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_odoo_client] = lambda: odoo
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/internal/n8n/manual-review-activity",
+                json={
+                    "picking_id": 10,
+                    "correlation_id": "corr-scope-8",
+                    "reason": "Shortage workflow failed",
+                },
+                headers={
+                    "X-N8N-Callback-Secret": "top-secret",
+                    "Idempotency-Key": "corr-scope-8",
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    context = workflow.begin_idempotent_request.call_args[0][1]
+    assert context.principal_scope == "service:n8n-v1"
+
+
+def test_manual_review_activity_rejects_missing_secret_before_service_call(monkeypatch):
+    monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
+    workflow = _workflow_mock()
+    odoo = MagicMock()
+    odoo.execute_kw = AsyncMock()
+    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_odoo_client] = lambda: odoo
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/internal/n8n/manual-review-activity",
+                json={
+                    "picking_id": 10,
+                    "correlation_id": "corr-scope-9",
+                    "reason": "Shortage workflow failed",
+                },
+                headers={"Idempotency-Key": "corr-scope-9"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    workflow.begin_idempotent_request.assert_not_awaited()
+    odoo.execute_kw.assert_not_awaited()
+
+
 def test_manual_review_activity_replay_returns_cached_response_without_duplicate_write(monkeypatch):
     monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
     workflow = _workflow_mock()
