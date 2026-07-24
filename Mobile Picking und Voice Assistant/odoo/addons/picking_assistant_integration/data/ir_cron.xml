@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Odoo 19 folded ir.cron into ir.actions.server via _inherits and dropped
+         the numbercall/doall fields; only name/model_id/state/code plus the
+         interval fields remain settable here (verified against the
+         odoo19-trial runtime). -->
+    <record id="ir_cron_gc_expired_throttle" model="ir.cron">
+        <field name="name">Picking Assistant: purge expired login throttle rows</field>
+        <field name="model_id" ref="model_picking_assistant_auth_throttle"/>
+        <field name="state">code</field>
+        <field name="code">model._gc_expired_throttle()</field>
+        <field name="interval_number">10</field>
+        <field name="interval_type">minutes</field>
+        <field name="active">True</field>
+    </record>
+
+    <record id="ir_cron_gc_expired_sessions" model="ir.cron">
+        <field name="name">Picking Assistant: purge expired/revoked sessions</field>
+        <field name="model_id" ref="model_picking_assistant_session"/>
+        <field name="state">code</field>
+        <field name="code">model._gc_expired_sessions()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="active">True</field>
+    </record>
+</odoo>
