@@ -1,8 +1,10 @@
 """Tests for the deterministic voice intent engine."""
 
 from app.services.intent_engine import (
+    EXTERNAL_INTENT_LABELS,
     PickingContext,
     VoiceSurface,
+    finalize_external_intent,
     normalize_text,
     recognize_intent,
 )
@@ -247,3 +249,43 @@ class TestIntentRecognition:
         assert recognize_intent("mach ein foto", PickingContext.AWAITING_COMMAND).action == "photo"
         assert recognize_intent("alle anzeigen", PickingContext.AWAITING_COMMAND).action == "filter_normal"
         assert recognize_intent("was ist offen", PickingContext.AWAITING_COMMAND).action == "status"
+
+
+class TestFinalizeExternalIntent:
+    def _finalize(self, action, confidence, text, **kw):
+        params = dict(
+            raw_text=text,
+            normalized_text=normalize_text(text),
+            surface=VoiceSurface.DETAIL,
+            remaining_line_count=1,
+            active_line_present=True,
+        )
+        params.update(kw)
+        return finalize_external_intent(action, confidence, **params)
+
+    def test_unknown_label_becomes_unknown(self):
+        assert self._finalize("teleport", 0.9, "beam mich hoch").action == "unknown"
+
+    def test_write_confidence_is_clamped(self):
+        intent = self._finalize("confirm", 0.99, "jawohl bitte")
+        assert intent.action == "confirm"
+        assert intent.confidence <= 0.85
+
+    def test_non_write_confidence_not_clamped(self):
+        intent = self._finalize("next", 0.95, "geh weiter")
+        assert intent.action == "next"
+        assert intent.confidence == 0.95
+
+    def test_negation_downgrades_llm_confirm(self):
+        assert self._finalize("confirm", 0.99, "nicht ok").action == "problem"
+
+    def test_surface_gating_applies(self):
+        intent = self._finalize(
+            "confirm", 0.99, "jawohl",
+            surface=VoiceSurface.LIST, active_line_present=False,
+        )
+        assert intent.action == "unknown"
+
+    def test_labels_cover_the_engine_actions(self):
+        assert "confirm" in EXTERNAL_INTENT_LABELS
+        assert "whats_next" in EXTERNAL_INTENT_LABELS

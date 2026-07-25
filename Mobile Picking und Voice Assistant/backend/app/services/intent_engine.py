@@ -653,6 +653,55 @@ def _apply_negation_guard(intent: Intent, normalized_text: str) -> Intent:
     return intent
 
 
+# Labels an externally-produced classifier (LLM) may return. Mirrors the safe
+# action vocabulary of the deterministic engine.
+EXTERNAL_INTENT_LABELS = frozenset({
+    "confirm", "confirm_all", "next", "previous", "next_order", "problem",
+    "photo", "pause", "done", "whats_next", "where", "how_many_left",
+    "status", "repeat", "help",
+})
+
+# An LLM-derived write intent is capped below the frontend direct-book threshold
+# (0.90), so it can never book directly -- it always triggers a read-back.
+LLM_WRITE_CONFIDENCE_CAP = 0.85
+
+
+def finalize_external_intent(
+    action: str,
+    confidence: float,
+    *,
+    raw_text: str,
+    normalized_text: str,
+    surface: VoiceSurface,
+    remaining_line_count: int,
+    active_line_present: bool,
+) -> Intent:
+    """Run an externally produced (LLM) label through the same safeguards as a
+    deterministic match: reject unknown labels, clamp write confidence so writes
+    always read-back downstream, apply the negation guard, then surface gating.
+    """
+    if action not in EXTERNAL_INTENT_LABELS:
+        return _unknown_intent(raw_text, normalized_text)
+    conf = max(0.0, min(1.0, float(confidence)))
+    if action in WRITE_ACTIONS:
+        conf = min(conf, LLM_WRITE_CONFIDENCE_CAP)
+    intent = Intent(
+        action=action,
+        value=None,
+        confidence=conf,
+        raw_text=raw_text,
+        normalized_text=normalized_text,
+        match_strategy="llm",
+    )
+    intent = _apply_negation_guard(intent, normalized_text)
+    return _resolve_with_context(
+        intent,
+        surface=surface,
+        remaining_line_count=remaining_line_count,
+        active_line_present=active_line_present,
+    )
+
+
 def _extract_number(text: str) -> int | None:
     digits = re.findall(r"\d+", text)
     if digits:
