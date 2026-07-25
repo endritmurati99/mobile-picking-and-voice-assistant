@@ -18,9 +18,11 @@ from app.services.intent_engine import (
     FUZZY_SINGLE_THRESHOLD,
     PickingContext,
     VoiceSurface,
+    finalize_external_intent,
     recognize_intent,
     recognize_intent_from_segments,
 )
+from app.services.voice_intent_classifier import get_classifier
 from app.services.mobile_workflow import WriteRequestContext
 from app.services.n8n_webhook import N8NReply, N8NWebhookClient, coerce_event_result
 from app.services.odoo_client import OdooClient
@@ -286,6 +288,25 @@ async def recognize_speech(
         )
         if seg.confidence > intent.confidence:
             intent = seg
+
+    # LLM fallback: only when the deterministic engine is still unsure. The LLM
+    # label is run through the same guards (negation, surface gating, write
+    # confidence clamp) as a deterministic match. Any failure keeps the
+    # deterministic result, so a slow/absent model never breaks voice.
+    if intent.action == "unknown" or intent.confidence < FUZZY_SINGLE_THRESHOLD:
+        llm = await get_classifier().classify(text)
+        if llm.ok and llm.intent is not None:
+            candidate = finalize_external_intent(
+                llm.intent,
+                llm.confidence or 0.0,
+                raw_text=text,
+                normalized_text=intent.normalized_text or text,
+                surface=ui_surface,
+                remaining_line_count=remaining_line_count,
+                active_line_present=active_line_present,
+            )
+            if candidate.action != "unknown" and candidate.confidence > intent.confidence:
+                intent = candidate
 
     # Recovery-dialog: backend signals PWA to ask user for confirmation when
     # confidence is in the fuzzy range [FUZZY_PHRASE_THRESHOLD, FUZZY_SINGLE_THRESHOLD).
