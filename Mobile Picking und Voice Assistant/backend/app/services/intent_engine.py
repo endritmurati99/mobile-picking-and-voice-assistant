@@ -57,7 +57,6 @@ GERMAN_NUMBERS = {
 }
 
 NEGATION_TERMS = ("nicht", "kein", "keine", "keinen", "falsch", "nein", "nie")
-CONFIRM_NEGATABLE_TERMS = ("stimmt", "richtig", "passt")
 
 PRIORITY_ORDER = (
     "problem",
@@ -411,25 +410,10 @@ def recognize_intent(
                 match_strategy="exact",
             )
 
-    if _contains_negated_confirmation(normalized_text):
-        return _resolve_with_context(
-            Intent(
-                action="problem",
-                value=None,
-                confidence=EXACT_MATCH_CONFIDENCE,
-                raw_text=text,
-                normalized_text=normalized_text,
-                match_strategy="regex",
-            ),
-            surface=surface,
-            remaining_line_count=remaining_line_count,
-            active_line_present=active_line_present,
-        )
-
     exact_match = _match_exact(text, normalized_text)
     if exact_match is not None:
         return _resolve_with_context(
-            exact_match,
+            _apply_negation_guard(exact_match, normalized_text),
             surface=surface,
             remaining_line_count=remaining_line_count,
             active_line_present=active_line_present,
@@ -438,7 +422,7 @@ def recognize_intent(
     regex_match = _match_regex(text, normalized_text)
     if regex_match is not None:
         return _resolve_with_context(
-            regex_match,
+            _apply_negation_guard(regex_match, normalized_text),
             surface=surface,
             remaining_line_count=remaining_line_count,
             active_line_present=active_line_present,
@@ -447,7 +431,7 @@ def recognize_intent(
     fuzzy_match = _match_fuzzy(text, normalized_text)
     if fuzzy_match is not None:
         return _resolve_with_context(
-            fuzzy_match,
+            _apply_negation_guard(fuzzy_match, normalized_text),
             surface=surface,
             remaining_line_count=remaining_line_count,
             active_line_present=active_line_present,
@@ -601,11 +585,30 @@ def _unknown_intent(raw_text: str, normalized_text: str) -> Intent:
     )
 
 
-def _contains_negated_confirmation(normalized_text: str) -> bool:
-    has_negation = any(term in normalized_text.split() for term in NEGATION_TERMS)
-    if not has_negation:
-        return False
-    return any(term in normalized_text for term in CONFIRM_NEGATABLE_TERMS)
+WRITE_ACTIONS = frozenset({"confirm", "confirm_all"})
+
+
+def _has_negation(normalized_text: str) -> bool:
+    return any(term in normalized_text.split() for term in NEGATION_TERMS)
+
+
+def _apply_negation_guard(intent: Intent, normalized_text: str) -> Intent:
+    """A negation anywhere in the utterance cancels a booking intent.
+
+    Prevents "nicht ok"/"nicht gut" (not covered by the problem regex) from
+    matching the confirm regex and silently booking. Downgrades to a problem
+    report instead of confirming.
+    """
+    if intent.action in WRITE_ACTIONS and _has_negation(normalized_text):
+        return Intent(
+            action="problem",
+            value=None,
+            confidence=EXACT_MATCH_CONFIDENCE,
+            raw_text=intent.raw_text,
+            normalized_text=normalized_text,
+            match_strategy="negation",
+        )
+    return intent
 
 
 def _extract_number(text: str) -> int | None:

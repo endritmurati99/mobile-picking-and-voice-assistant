@@ -52,6 +52,27 @@ class TestIntentRecognition:
             assert intent.action == "problem"
             assert intent.confidence >= 0.95
 
+    def test_negated_ok_and_gut_never_confirm(self):
+        # Regression: "nicht ok"/"nicht gut" are NOT in the problem regex, so they
+        # used to fall through to the confirm regex and book @ 0.95.
+        for text in ("nicht ok", "nicht gut", "nicht bestaetigen", "kein ok"):
+            intent = recognize_intent(
+                text,
+                PickingContext.AWAITING_COMMAND,
+                surface=VoiceSurface.DETAIL,
+                active_line_present=True,
+            )
+            assert intent.action not in {"confirm", "confirm_all"}, text
+
+    def test_plain_confirmation_still_confirms(self):
+        intent = recognize_intent(
+            "ok",
+            PickingContext.AWAITING_COMMAND,
+            surface=VoiceSurface.DETAIL,
+            active_line_present=True,
+        )
+        assert intent.action == "confirm"
+
     def test_short_confirm_words_only_work_in_detail_with_active_line(self):
         detail_intent = recognize_intent(
             "ja",
