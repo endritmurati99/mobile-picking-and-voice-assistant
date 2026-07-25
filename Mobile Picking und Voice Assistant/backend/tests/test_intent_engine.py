@@ -85,6 +85,36 @@ class TestIntentRecognition:
             )
             assert intent.action != "confirm", text
 
+    def test_query_intents_recognized(self):
+        cases = [
+            ("was jetzt", "whats_next"),
+            ("was muss ich picken", "whats_next"),
+            ("wo", "where"),
+            ("welches regal", "where"),
+            ("wie viele noch", "how_many_left"),
+        ]
+        for text, expected in cases:
+            intent = recognize_intent(
+                text,
+                PickingContext.AWAITING_COMMAND,
+                surface=VoiceSurface.DETAIL,
+                remaining_line_count=3,
+                active_line_present=True,
+            )
+            assert intent.action == expected, f"{text} -> {intent.action}"
+
+    def test_query_intents_are_read_only(self):
+        # Never a write intent, so they can never book.
+        for text in ("was jetzt", "wo", "wie viele noch"):
+            intent = recognize_intent(
+                text,
+                PickingContext.AWAITING_COMMAND,
+                surface=VoiceSurface.DETAIL,
+                remaining_line_count=3,
+                active_line_present=True,
+            )
+            assert intent.action not in {"confirm", "confirm_all"}, text
+
     def test_short_confirm_words_only_work_in_detail_with_active_line(self):
         detail_intent = recognize_intent(
             "ja",

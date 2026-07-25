@@ -71,6 +71,9 @@ PRIORITY_ORDER = (
     "stock_query",
     "filter_high",
     "filter_normal",
+    "how_many_left",
+    "whats_next",
+    "where",
     "status",
     "repeat",
     "help",
@@ -290,6 +293,28 @@ ALIASES = {
         "was steht an",
         "was ist offen",
     ),
+    "whats_next": (
+        "was jetzt",
+        "was nun",
+        "was muss ich picken",
+        "was muss ich holen",
+        "was als naechstes",
+        "naechste position bitte",
+        "was ist dran",
+    ),
+    "where": (
+        "wo",
+        "wohin",
+        "welcher platz",
+        "welches fach",
+        "welches regal",
+    ),
+    "how_many_left": (
+        "wie viele noch",
+        "wie viel noch",
+        "wieviele offen",
+        "wie viele offen",
+    ),
 }
 
 REGEX_PATTERNS = {
@@ -366,6 +391,18 @@ REGEX_PATTERNS = {
     "status": (
         r"\b(wie viele|status|ubersicht|anzahl)\b",
         r"\b(offen|auftrage|was steht an|was ist offen|uberblick)\b",
+    ),
+    "whats_next": (
+        r"\b(was jetzt|was nun|was als naechstes|was ist dran)\b",
+        r"\bwas muss ich (picken|holen|nehmen)\b",
+    ),
+    "where": (
+        r"\b(wo|wohin)\b",
+        r"\b(welches (fach|regal)|welcher platz)\b",
+    ),
+    "how_many_left": (
+        r"\bwie ?viele? (noch|offen)\b",
+        r"\bwie ?viel noch\b",
     ),
 }
 
@@ -563,6 +600,16 @@ def _resolve_with_context(
 
     if intent.action == "done":
         if remaining_line_count <= 0 and not active_line_present:
+            return intent
+        return _unknown_intent(intent.raw_text, intent.normalized_text)
+
+    if intent.action in {"whats_next", "where"}:
+        if surface == VoiceSurface.DETAIL and active_line_present:
+            return intent
+        return _unknown_intent(intent.raw_text, intent.normalized_text)
+
+    if intent.action == "how_many_left":
+        if surface == VoiceSurface.DETAIL:
             return intent
         return _unknown_intent(intent.raw_text, intent.normalized_text)
 
