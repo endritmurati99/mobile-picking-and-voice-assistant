@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-    VOICE_AUTOMATION_THRESHOLD,
+    VOICE_ACT_THRESHOLD,
+    VOICE_CONFIRM_DIRECT_THRESHOLD,
     VOICE_UNCERTAIN_THRESHOLD,
     buildVoiceAssistPayload,
     buildVoiceRequestContext,
@@ -85,11 +86,6 @@ test('buildVoiceAssistPayload reuses the active line and derived surface', () =>
 
 test('classifyVoiceResult gates low confidence results', () => {
     assert.deepEqual(
-        classifyVoiceResult({ intent: 'confirm', confidence: VOICE_AUTOMATION_THRESHOLD }),
-        { kind: 'recognized', canHandle: true, promptText: null },
-    );
-
-    assert.deepEqual(
         classifyVoiceResult({ intent: 'confirm', confidence: 0.6 }),
         {
             kind: 'uncertain',
@@ -102,6 +98,30 @@ test('classifyVoiceResult gates low confidence results', () => {
         classifyVoiceResult({ intent: 'unknown', confidence: VOICE_UNCERTAIN_THRESHOLD }),
         { kind: 'unknown', canHandle: false, promptText: null },
     );
+});
+
+test('confirm_all always needs read-back even at high confidence', () => {
+    const c = classifyVoiceResult({ intent: 'confirm_all', confidence: 0.99 });
+    assert.equal(c.kind, 'readback');
+    assert.equal(c.canHandle, false);
+});
+
+test('single confirm books directly at/above direct threshold', () => {
+    const c = classifyVoiceResult({ intent: 'confirm', confidence: VOICE_CONFIRM_DIRECT_THRESHOLD });
+    assert.equal(c.kind, 'recognized');
+    assert.equal(c.canHandle, true);
+});
+
+test('single confirm in mid band needs read-back', () => {
+    const c = classifyVoiceResult({ intent: 'confirm', confidence: 0.80 });
+    assert.equal(c.kind, 'readback');
+    assert.equal(c.canHandle, false);
+});
+
+test('non-write intent acts from the act threshold (no dead band)', () => {
+    const c = classifyVoiceResult({ intent: 'next', confidence: VOICE_ACT_THRESHOLD });
+    assert.equal(c.kind, 'recognized');
+    assert.equal(c.canHandle, true);
 });
 
 test('getVoiceStatusPresentation exposes the intended labels', () => {
