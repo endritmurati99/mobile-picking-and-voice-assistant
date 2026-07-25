@@ -5,6 +5,7 @@ import {
     VOICE_ACT_THRESHOLD,
     VOICE_CONFIRM_DIRECT_THRESHOLD,
     VOICE_UNCERTAIN_THRESHOLD,
+    buildReadbackPrompt,
     buildSpeechPrompt,
     buildVoiceAssistPayload,
     buildVoiceRequestContext,
@@ -145,6 +146,16 @@ test('voice_instruction_short wins when present', () => {
 
 test('formatLocationForSpeech prefers a clean zone label', () => {
     assert.equal(formatLocationForSpeech({ location_src_zone: 'Regal 3' }), 'Regal 3');
+});
+
+test('single confirm read-back names the product', () => {
+    const p = buildReadbackPrompt('confirm', { line: { product_short_name: 'Pink Brick' }, remainingCount: 5 });
+    assert.equal(p, 'Pink Brick, richtig?');
+});
+
+test('confirm_all read-back names the count', () => {
+    const p = buildReadbackPrompt('confirm_all', { line: null, remainingCount: 12 });
+    assert.equal(p, '12 Positionen buchen?');
 });
 
 test('getVoiceStatusPresentation exposes the intended labels', () => {

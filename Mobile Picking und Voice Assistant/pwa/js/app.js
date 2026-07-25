@@ -2459,6 +2459,11 @@ async function handleConfirmAll(picking, lines, startIndex) {
     renderResponsiveCurrentLine();
 }
 
+// A write intent recognized below its direct threshold is held here until the
+// next affirmative confirms it, so a single misrecognition never books.
+let pendingWriteConfirm = null; // { intent, expiresAt }
+const READBACK_TTL_MS = 8000;
+
 async function handleVoiceIntent(result) {
     const classification = classifyVoiceResult(result);
     if (classification.kind === 'error') {
@@ -2467,11 +2472,31 @@ async function handleVoiceIntent(result) {
     }
 
     const { currentPicking, currentLineIndex } = getState();
+    const lines = currentPicking?.move_lines || [];
+    const line = lines[currentLineIndex];
 
     if (result?.text) {
         const intentLabel = result.intent !== 'unknown' ? ` -> ${result.intent}` : ' -> nicht erkannt';
         showToast(`"${result.text}"${intentLabel}`, result.intent !== 'unknown' ? 'info' : 'warning');
     }
+
+    // Resolve a pending read-back: an affirmative now runs the held booking.
+    if (pendingWriteConfirm && Date.now() < pendingWriteConfirm.expiresAt
+        && (result.intent === 'confirm' || result.intent === 'confirm_all')
+        && classification.kind !== 'unknown') {
+        const toRun = pendingWriteConfirm.intent;
+        pendingWriteConfirm = null;
+        updateVoiceStatusIndicator('recognized', { temporary: true });
+        if (toRun === 'confirm_all') {
+            await triggerConfirmAll();
+        } else if (line) {
+            await handleScan(line.product_barcode || '');
+            speak('Gebucht.');
+        }
+        return;
+    }
+    // Any other utterance cancels a pending read-back.
+    pendingWriteConfirm = null;
 
     if (classification.kind === 'unknown') {
         if (await maybeHandleVoiceAssist(result, currentPicking, currentLineIndex)) return;
@@ -2486,20 +2511,43 @@ async function handleVoiceIntent(result) {
         return;
     }
 
+    if (classification.kind === 'readback') {
+        pendingWriteConfirm = { intent: result.intent, expiresAt: Date.now() + READBACK_TTL_MS };
+        const prompt = buildReadbackPrompt(result.intent, {
+            line,
+            remainingCount: Math.max(lines.length - currentLineIndex, 0),
+        });
+        updateVoiceStatusIndicator('recognized', { temporary: true });
+        showToast(prompt, 'info');
+        speak(prompt);
+        return;
+    }
+
     updateVoiceStatusIndicator('recognized', { temporary: true });
 
     if (await maybeHandleVoiceAssist(result, currentPicking, currentLineIndex)) return;
-
-    const lines = currentPicking?.move_lines || [];
-    const line = lines[currentLineIndex];
 
     switch (result.intent) {
         case 'confirm_all':
             await triggerConfirmAll();
             break;
         case 'confirm':
-            if (line) await handleScan(line.product_barcode || '');
+            if (line) {
+                await handleScan(line.product_barcode || '');
+                speak('Gebucht.');
+            }
             break;
+        case 'whats_next':
+            if (line) speak(buildSpeechPrompt(line));
+            break;
+        case 'where':
+            if (line) speak(formatLocationForSpeech(line) || 'Kein Ort hinterlegt.');
+            break;
+        case 'how_many_left': {
+            const remaining = Math.max(lines.length - currentLineIndex - 1, 0);
+            speak(`Noch ${remaining}.`);
+            break;
+        }
         case 'next_order':
             await openNextOrderFromVoice();
             break;

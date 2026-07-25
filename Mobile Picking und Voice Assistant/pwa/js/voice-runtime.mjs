@@ -85,6 +85,14 @@ export function buildSpeechPrompt(line) {
     return [product, qty, loc].filter(Boolean).join(', ');
 }
 
+export function buildReadbackPrompt(intent, { line, remainingCount } = {}) {
+    if (intent === 'confirm_all') {
+        return `${remainingCount ?? 0} Positionen buchen?`;
+    }
+    const product = line?.ui_display || line?.product_short_name || line?.product_name || 'Position';
+    return `${product}, richtig?`;
+}
+
 export function classifyVoiceResult(result) {
     const confidence = Number(result?.confidence ?? 0);
     const intent = result?.intent;
