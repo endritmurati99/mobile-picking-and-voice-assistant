@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     llm_endpoint: str = "http://ollama:11434"
     llm_model: str = "qwen2.5:7b"
     llm_timeout_ms: int = 30000
+    # Kleines, schnelles Modell nur fuer den Voice-Intent-Fallback (nicht Qualitaet).
+    llm_voice_model: str = "qwen2.5:1.5b"
+    llm_voice_timeout_ms: int = 4000
     openai_api_key: str = ""
 
     n8n_webhook_base: str = "http://n8n:5678/webhook"
