@@ -126,10 +126,6 @@ ALIASES = {
         "perfekt",
         "super",
         "alles gut",
-        "fine",
-        "yep",
-        "yes",
-        "mhm",
         "paket erledigt",
         "paket fertig",
         "karton erledigt",
@@ -308,7 +304,6 @@ REGEX_PATTERNS = {
         r"\b(bestaetigt|bestaetige|bestaetigen|ja|ok|okay|check)\b",
         r"\b(jep|jup|jo|joa|jupp|klar|gut|passt|stimmt|richtig|genau|jawohl|sicher)\b",
         r"\b(alles klar|geht klar|in ordnung|perfekt|super|alles gut)\b",
-        r"\b(fine|yep|yes|mhm)\b",
         r"\b(paket|karton|position|artikel)\s+(erledigt|fertig)\b",
     ),
     "next_order": (

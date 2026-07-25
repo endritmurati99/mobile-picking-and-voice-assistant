@@ -73,6 +73,18 @@ class TestIntentRecognition:
         )
         assert intent.action == "confirm"
 
+    def test_english_words_do_not_confirm(self):
+        # "eine" mis-transcribes to "fine"; English confirm aliases polluted
+        # German matching. They must not book.
+        for text in ("fine", "yes", "yep"):
+            intent = recognize_intent(
+                text,
+                PickingContext.AWAITING_COMMAND,
+                surface=VoiceSurface.DETAIL,
+                active_line_present=True,
+            )
+            assert intent.action != "confirm", text
+
     def test_short_confirm_words_only_work_in_detail_with_active_line(self):
         detail_intent = recognize_intent(
             "ja",
