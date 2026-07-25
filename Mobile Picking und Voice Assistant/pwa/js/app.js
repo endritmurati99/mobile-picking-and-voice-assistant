@@ -2465,6 +2465,15 @@ let pendingWriteConfirm = null; // { intent, expiresAt }
 const READBACK_TTL_MS = 8000;
 
 async function handleVoiceIntent(result) {
+    // STT returned nothing (Whisper down, or a hallucination dropped upstream):
+    // give audible + visible feedback instead of a silent drop.
+    if (!result || (!result.text && (result.intent === 'unknown' || result.intent === 'error'))) {
+        updateVoiceStatusIndicator('uncertain', { temporary: true });
+        showToast('Nicht verstanden, bitte nochmal.', 'warning');
+        speak('Nicht verstanden, bitte nochmal.');
+        return;
+    }
+
     const classification = classifyVoiceResult(result);
     if (classification.kind === 'error') {
         updateVoiceStatusIndicator('uncertain', { temporary: true });
