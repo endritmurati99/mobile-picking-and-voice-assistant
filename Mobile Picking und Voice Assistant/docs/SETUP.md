@@ -107,6 +107,23 @@ Regeln:
 - CPU-only genuegt (i7-4790, 32 GB RAM). Die Bewertung ist asynchron; Latenz ist unkritisch.
 - Zum Abschalten des lokalen Modells `LLM_PROVIDER` auf einen anderen Wert setzen (z. B. `disabled`) — dann bewertet nur die Heuristik.
 
+### 7d. Voice-Intent-Fallback (optional, klein und schnell)
+
+Der Voice-Assistent erkennt haeufige Kommandos deterministisch (Regex/Fuzzy).
+Nur unklare, frei formulierte Aeusserungen gehen an ein **kleines** lokales
+Modell, das sie einem bekannten Befehl zuordnet. Einmalig laden:
+
+```bash
+docker compose exec ollama ollama pull qwen2.5:1.5b
+```
+
+Regeln:
+
+- Konfiguration ueber `.env`: `LLM_VOICE_MODEL` (Default `qwen2.5:1.5b`), `LLM_VOICE_TIMEOUT_MS` (Default `4000`). Endpoint wird von `LLM_ENDPOINT` mitbenutzt.
+- Ohne das Modell faellt der Classifier **fail-closed** aus: Voice funktioniert weiter rein deterministisch, nur ohne LLM-Auffangnetz.
+- Schreib-Kommandos (bestaetigen/buchen) vom LLM werden immer als Rueckfrage (Read-back) behandelt, nie direkt gebucht.
+- Ein kleineres Modell (`qwen2.5:0.5b`) geht auch — per `LLM_VOICE_MODEL` tauschbar, Geschwindigkeit vs. Trefferquote live abwaegen.
+
 ### 8. Seed-Daten laden
 ```bash
 python infrastructure/scripts/seed-odoo.py \
