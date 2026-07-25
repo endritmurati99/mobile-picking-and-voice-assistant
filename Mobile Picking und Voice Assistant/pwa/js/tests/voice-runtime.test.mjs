@@ -5,9 +5,11 @@ import {
     VOICE_ACT_THRESHOLD,
     VOICE_CONFIRM_DIRECT_THRESHOLD,
     VOICE_UNCERTAIN_THRESHOLD,
+    buildSpeechPrompt,
     buildVoiceAssistPayload,
     buildVoiceRequestContext,
     classifyVoiceResult,
+    formatLocationForSpeech,
     getVoiceStatusPresentation,
 } from '../voice-runtime.mjs';
 
@@ -122,6 +124,27 @@ test('non-write intent acts from the act threshold (no dead band)', () => {
     const c = classifyVoiceResult({ intent: 'next', confidence: VOICE_ACT_THRESHOLD });
     assert.equal(c.kind, 'recognized');
     assert.equal(c.canHandle, true);
+});
+
+test('speech prompt is product, qty, short location', () => {
+    const line = { product_short_name: 'Pink Brick', quantity_demand: 2, location_src_zone: 'Regal 3' };
+    assert.equal(buildSpeechPrompt(line), 'Pink Brick, 2 Stück, Regal 3');
+});
+
+test('location never spells out a raw fach code digit by digit', () => {
+    const line = { product_short_name: 'Pink Brick', quantity_demand: 1, location_src: 'WH/Stock/A3-8848' };
+    const spoken = buildSpeechPrompt(line);
+    assert.ok(!/8 8 4 8/.test(spoken), spoken);
+    assert.ok(!/A 3 8848/.test(spoken), spoken);
+});
+
+test('voice_instruction_short wins when present', () => {
+    const line = { voice_instruction_short: 'Pink Brick holen', product_short_name: 'x', location_src_zone: 'Regal 3' };
+    assert.equal(buildSpeechPrompt(line), 'Pink Brick holen');
+});
+
+test('formatLocationForSpeech prefers a clean zone label', () => {
+    assert.equal(formatLocationForSpeech({ location_src_zone: 'Regal 3' }), 'Regal 3');
 });
 
 test('getVoiceStatusPresentation exposes the intended labels', () => {

@@ -64,9 +64,11 @@ import {
     setVoiceStatusListener,
 } from './voice.js';
 import {
+    buildSpeechPrompt,
     buildVoiceAssistPayload,
     buildVoiceRequestContext,
     classifyVoiceResult,
+    formatLocationForSpeech,
     getVoiceStatusPresentation,
 } from './voice-runtime.mjs';
 import { createFileInput } from './camera.js';
@@ -81,13 +83,6 @@ const DEFAULT_THEME_COLOR = '#F6F8FC';
 const HIGH_CONTRAST_THEME_COLOR = '#FFFFFF';
 const LIFECYCLE_REFRESH_DEBOUNCE_MS = 900;
 const lineStockCache = new Map();
-
-function formatLocationForSpeech(locationPath) {
-    if (!locationPath) return '';
-    const segments = String(locationPath).split('/').filter(Boolean);
-    const relevant = segments.length ? segments[segments.length - 1] : String(locationPath);
-    return relevant.replace(/-/g, ' ').replace(/([A-Za-z])(\d)/g, '$1 $2');
-}
 
 function formatLocationForDisplay(locationPath, shortCode = '', zone = '') {
     if (shortCode || zone) return [zone, shortCode].filter(Boolean).join(' / ');
@@ -278,12 +273,9 @@ function getLineQuantityLabel(line) {
 }
 
 function getLineSpeechPrompt(line) {
-    if (!line) return '';
-    if (line.voice_instruction_short) return line.voice_instruction_short;
-    const locationShort = line.location_src_short || formatLocationForSpeech(line.location_src);
-    const product = getLineDisplayName(line);
-    const parts = [locationShort, `${formatQuantity(line.quantity_demand)} Stück`, product].filter(Boolean);
-    return parts.join(', ');
+    // Concise, natural speech: product, qty, short location. Never spells out a
+    // raw fach code. See buildSpeechPrompt in voice-runtime.mjs.
+    return buildSpeechPrompt(line);
 }
 
 function renderRouteHint(picking, currentLineIndex) {

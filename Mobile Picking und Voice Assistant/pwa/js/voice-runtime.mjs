@@ -65,6 +65,26 @@ export function buildVoiceAssistPayload({ result, view, currentPicking, currentL
     };
 }
 
+export function formatLocationForSpeech(line) {
+    // A human zone/short label ("Regal 3"), never a spelled-out fach code.
+    // A token with a 3+ digit run is a raw code, not speakable — skip it.
+    const zone = line?.location_src_zone;
+    const short = line?.location_src_short;
+    if (zone && !/\d{3,}/.test(zone)) return zone;
+    if (short && !/\d{3,}/.test(short)) return short;
+    // Only a raw code available: drop the location rather than read digits.
+    return '';
+}
+
+export function buildSpeechPrompt(line) {
+    if (!line) return '';
+    if (line.voice_instruction_short) return line.voice_instruction_short;
+    const product = line.ui_display || line.product_short_name || line.product_name || 'Produkt';
+    const qty = line.quantity_demand != null ? `${line.quantity_demand} Stück` : '';
+    const loc = formatLocationForSpeech(line);
+    return [product, qty, loc].filter(Boolean).join(', ');
+}
+
 export function classifyVoiceResult(result) {
     const confidence = Number(result?.confidence ?? 0);
     const intent = result?.intent;
