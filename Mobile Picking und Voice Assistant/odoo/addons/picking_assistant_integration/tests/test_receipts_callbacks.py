@@ -1,5 +1,8 @@
+from unittest.mock import patch
+
 from odoo.exceptions import ValidationError
 
+from ..models.receipts import PickingAssistantWebhookNonce
 from .common import IntegrationCase
 
 
@@ -93,6 +96,49 @@ class TestReceiptsAndCallbacks(IntegrationCase):
         self.assertFalse(
             self.env["picking.assistant.webhook.nonce"].search_count([])
         )
+
+    def test_acceptance_revalidates_outbox_under_lock(self):
+        """readonly=True does not stop privileged ORM writes, so the
+        acceptance decision must re-check the outbox from the row under
+        lock. Simulate a concurrent privileged fingerprint change landing
+        between the early lock-free check and the outbox lock (the nonce
+        reservation sits exactly in that window)."""
+        receipts = self.env["picking.assistant.event.receipt"].with_user(
+            self.api_user
+        )
+        real_reserve = PickingAssistantWebhookNonce._reserve
+        outbox_id = self.outbox.id
+
+        def reserve_then_tamper(model_self, direction, key_id, nonce,
+                                event_id=False):
+            record = real_reserve(
+                model_self, direction, key_id, nonce, event_id=event_id
+            )
+            model_self.env.cr.execute(
+                "UPDATE picking_assistant_outbox "
+                "SET payload_fingerprint = %s WHERE id = %s",
+                ("f" * 64, outbox_id),
+            )
+            return record
+
+        with patch.object(
+            PickingAssistantWebhookNonce, "_reserve", reserve_then_tamper
+        ):
+            with self.assertRaises(ValidationError):
+                receipts.api_accept_event(
+                    self.outbox.event_id,
+                    self.job.job_id,
+                    "a" * 64,
+                    "b2n-test",
+                    "123e4567-e89b-42d3-a456-426614174050",
+                    1,
+                    "n2b-test",
+                    "123e4567-e89b-42d3-a456-426614174051",
+                )
+        stored = self.env["picking.assistant.event.receipt"].search(
+            [("event_id", "=", self.outbox.event_id)]
+        )
+        self.assertFalse(stored.processing_lease_token)
 
     def test_callback_replay_and_stale_sequence_have_no_second_effect(self):
         receipts = self.env["picking.assistant.event.receipt"].with_user(

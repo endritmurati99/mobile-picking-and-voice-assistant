@@ -147,9 +147,11 @@ class PickingAssistantEventReceipt(models.Model):
         jobs = self.env["picking.assistant.integration.job"].sudo()
         # 2. resolve identifiers WITHOUT locks, then acquire locks in the
         # global job -> receipt -> outbox order (multi-table FOR UPDATE OF
-        # implies no portable acquisition order). The outbox columns read
-        # below (payload_fingerprint, linkage) are create-once immutable and
-        # this path never writes the outbox, so it takes no outbox lock.
+        # implies no portable acquisition order). The fingerprint/linkage
+        # check below is a lock-free early reject so mismatches fail before
+        # any nonce write; the authoritative recheck happens under the
+        # outbox lock further down (readonly=True fields are not enforced
+        # against privileged ORM writes, so the early read can go stale).
         outboxes.flush_model()
         jobs.flush_model()
         self.env.cr.execute(
@@ -208,6 +210,25 @@ class PickingAssistantEventReceipt(models.Model):
                 receipt = self._lock_existing(event_id)
         else:
             receipt.write({"last_received_at": now})
+        # 6b. third lock in the global job -> receipt -> outbox order, then
+        # revalidate the outbox from the row under lock: a concurrent
+        # privileged write may have changed linkage or fingerprint since the
+        # lock-free early check, and the acceptance decision rests on them.
+        outboxes.flush_model()
+        self.env.cr.execute(
+            "SELECT id FROM picking_assistant_outbox "
+            "WHERE id = %s FOR UPDATE",
+            (outbox.id,),
+        )
+        if not self.env.cr.fetchone():
+            raise ValidationError("Unknown outbox event.")
+        outbox.invalidate_recordset()
+        if (
+            outbox.event_id != event_id
+            or outbox.job_record_id.id != job.id
+            or outbox.payload_fingerprint != payload_fingerprint
+        ):
+            raise ValidationError("Outbox event changed during acceptance.")
         # 7. deduplicate active processing and completed receipts.
         lease_active = (
             receipt.state == "processing"
