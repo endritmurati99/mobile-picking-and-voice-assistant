@@ -157,6 +157,105 @@ async def test_unregistered_event_is_nacked_without_transport_call():
 
 
 @pytest.mark.asyncio
+async def test_ack_failure_after_successful_delivery_never_nacks_or_aborts():
+    """HTTP 200 then ack raises: the delivered row must NOT be marked failed
+    (no nack, no backoff, no dead-letter path) and its sibling rows must
+    still be processed."""
+
+    class AckExplodingOdoo(FakeOdoo):
+        def __init__(self):
+            super().__init__()
+            self.pending = [
+                dict(EVENT),
+                dict(
+                    EVENT,
+                    event_id="b4ff5ca2-4546-4ea4-8e6c-b75bc003ca33",
+                ),
+            ]
+            self.lease_served = False
+
+        async def execute_kw(self, model, method, args, kwargs=None):
+            if method == "api_lease_due":
+                if self.lease_served:
+                    return []
+                self.lease_served = True
+                rows, self.pending = self.pending, []
+                return rows
+            if method == "api_ack_delivery":
+                raise RuntimeError("Outbox lease is not owned by this worker.")
+            return await super().execute_kw(model, method, args, kwargs)
+
+    odoo = AckExplodingOdoo()
+    transport = FakeTransport(accepted=True)
+    dispatcher = make_dispatcher(odoo, transport)
+    stats = await dispatcher.run_once("o19")
+    assert len(transport.calls) == 2  # sibling row was not aborted
+    assert stats.leased == 2
+    assert stats.delivered == 2  # both HTTP deliveries succeeded
+    assert stats.ack_failed == 2
+    assert odoo.nacked == []  # a delivered event is never marked failed
+    assert odoo.acked == []
+
+
+@pytest.mark.asyncio
+async def test_exhausted_lease_budget_leaves_remaining_rows_untouched():
+    """When the safe work budget of the lease window is used up, no NEW
+    delivery may start: remaining rows are neither delivered, acked, nor
+    nacked — their lease simply expires and a later cycle re-leases them."""
+
+    class TwoRowOdoo(FakeOdoo):
+        def __init__(self):
+            super().__init__()
+            self.pending = [
+                dict(EVENT),
+                dict(
+                    EVENT,
+                    event_id="b4ff5ca2-4546-4ea4-8e6c-b75bc003ca33",
+                ),
+            ]
+            self.lease_served = False
+
+        async def execute_kw(self, model, method, args, kwargs=None):
+            if method == "api_lease_due":
+                if self.lease_served:
+                    return []
+                self.lease_served = True
+                rows, self.pending = self.pending, []
+                return rows
+            return await super().execute_kw(model, method, args, kwargs)
+
+    # Clock: 0.0 at budget start, 0.0 before row 1, 1000.0 before row 2.
+    ticks = iter([0.0, 0.0, 1000.0])
+    last = [0.0]
+
+    def fake_monotonic():
+        try:
+            last[0] = next(ticks)
+        except StopIteration:
+            pass
+        return last[0]
+
+    odoo = TwoRowOdoo()
+    transport = FakeTransport(accepted=True)
+    dispatcher = OutboxDispatcher(
+        client_factory=lambda _name: odoo,
+        instance_names=("o19",),
+        transport=transport,
+        targets=TARGETS,
+        worker_id="worker-a",
+        lease_seconds=60,
+        now_monotonic=fake_monotonic,
+    )
+    stats = await dispatcher.run_once("o19")
+    assert len(transport.calls) == 1
+    assert [ack[0] for ack in odoo.acked] == [EVENT["event_id"]]
+    assert odoo.nacked == []
+    assert stats.leased == 2
+    assert stats.delivered == 1
+    assert stats.skipped == 1
+
+
+@pytest.mark.asyncio
 async def test_run_loop_stops_promptly_on_stop_event():
     odoo = FakeOdoo()
     dispatcher = make_dispatcher(odoo, FakeTransport())
