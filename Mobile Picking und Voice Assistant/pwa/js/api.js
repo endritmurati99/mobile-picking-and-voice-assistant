@@ -199,12 +199,24 @@ function clearSessionClientState() {
     clearActivePicker();
 }
 
+function getLegacyIdentityHeaders() {
+    // Dev-Grace-Mode: ohne Session-Cookie identifiziert das Backend den Picker
+    // ueber diese Header (resolve_legacy_header_identity). Mit gueltiger Session
+    // ignoriert das Backend sie — der Principal gewinnt immer.
+    const headers = {};
+    if (activePicker) headers['X-Picker-User-Id'] = String(activePicker.id);
+    headers['X-Device-Id'] = getDeviceId();
+    const instance = getActiveInstance();
+    if (instance && instance !== 'local') headers['X-Odoo-Instance'] = instance;
+    return headers;
+}
+
 function getReadHeaders() {
-    return {};
+    return getLegacyIdentityHeaders();
 }
 
 function getWriteHeaders(idempotencyKey) {
-    const headers = {};
+    const headers = getLegacyIdentityHeaders();
     if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
     const csrfToken = getCsrfToken();
     if (csrfToken) headers['X-CSRF-Token'] = csrfToken;

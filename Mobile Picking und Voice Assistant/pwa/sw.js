@@ -1,4 +1,4 @@
-const CACHE_NAME = 'picking-v11';
+const CACHE_NAME = 'picking-v13';
 const PRECACHE = [
     '/',
     '/index.html',

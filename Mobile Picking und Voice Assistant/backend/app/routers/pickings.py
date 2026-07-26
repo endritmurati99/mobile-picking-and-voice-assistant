@@ -11,7 +11,7 @@ from app.dependencies import (
     get_mobile_workflow_service,
     get_odoo_client,
     get_picking_service,
-    get_request_odoo_client,
+    get_request_odoo_client_or_grace,
     get_required_picker_identity,
     get_write_request_context,
 )
@@ -110,9 +110,14 @@ async def list_pickers(workflow=Depends(get_mobile_workflow_service)):
 async def get_product_image(
     product_id: int,
     size: int = Query(default=256, ge=128, le=1920),
-    odoo: OdooClient = Depends(get_request_odoo_client),
+    odoo: OdooClient = Depends(get_request_odoo_client_or_grace),
 ):
-    """Produktbild in passender Groesse aus Odoo als Binary."""
+    """Produktbild in passender Groesse aus Odoo als Binary.
+
+    Grace-Client statt striktem Principal-Client: `<img src>`-Requests koennen
+    keine Custom-Header setzen und laufen im Dev-Grace-Mode sonst in 401.
+    In production ist Grace-Mode fail-closed verboten, dort gilt weiterhin
+    ausschliesslich die Session."""
     resolved_size, requested_field = next(
         ((candidate_size, field) for candidate_size, field in IMAGE_VARIANTS if size <= candidate_size),
         IMAGE_VARIANTS[-1],
