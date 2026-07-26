@@ -97,6 +97,26 @@ def _require_job_match(result: Any, job_id) -> Any:
     return result
 
 
+def _require_bool(result: Any, key: str) -> bool:
+    """`process` entscheidet, ob n8n den Job tatsaechlich ausfuehrt. Deshalb
+    kein `bool(...)`-Cast: ein truthy String (z. B. "false") duerfte sonst
+    stillschweigend zu `True` werden."""
+    value = _required(result, key)
+    if not isinstance(value, bool):
+        raise HTTPException(status_code=409, detail="Unexpected receipt result.")
+    return value
+
+
+def _receipt_response(model, **values):
+    """Baut die Antwort BEIDER Routen. Eine schemawidrige Odoo-Antwort ist ein
+    Konflikt, kein 500 -- und weil beide Routen durch diese Funktion gehen,
+    kann die Absicherung nicht in einer Route fehlen."""
+    try:
+        return model(**values)
+    except ValidationError as exc:
+        raise HTTPException(status_code=409, detail="Unexpected receipt result.") from exc
+
+
 @router.post("/events/accept", response_model=EventAcceptanceResponse)
 async def accept_event(
     verified: VerifiedInternalRequest = Depends(verify_n8n_to_backend_request),
@@ -124,10 +144,11 @@ async def accept_event(
     except OdooAPIError as exc:
         raise HTTPException(status_code=409, detail="Event acceptance conflict.") from exc
     _require_job_match(result, body.job_id)
-    return EventAcceptanceResponse(
+    return _receipt_response(
+        EventAcceptanceResponse,
         accepted=True,
         event_id=body.event_id,
-        process=bool(_required(result, "process")),
+        process=_require_bool(result, "process"),
         processing_lease_token=result.get("processing_lease_token") or None,
     )
 
@@ -159,11 +180,9 @@ async def apply_callback(
     # `api_apply_callback` liefert zusaetzlich `callback_id` und `job_state`,
     # und `CallbackApplyResponse` ist ein StrictModel (`extra=forbid`). Ein
     # unbekannter `status` ist ein Konflikt, kein 500.
-    try:
-        return CallbackApplyResponse(
-            status=_required(result, "status"),
-            job_id=_required(result, "job_id"),
-            sequence=_required(result, "sequence"),
-        )
-    except ValidationError as exc:
-        raise HTTPException(status_code=409, detail="Unexpected receipt result.") from exc
+    return _receipt_response(
+        CallbackApplyResponse,
+        status=_required(result, "status"),
+        job_id=_required(result, "job_id"),
+        sequence=_required(result, "sequence"),
+    )

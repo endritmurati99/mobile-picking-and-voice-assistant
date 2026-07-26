@@ -514,7 +514,18 @@ def get_n8n_to_backend_keyring() -> HmacKeyring:
     # app.state.runtime. Bis dahin wird der Keyring pro Request aus
     # `app.config.settings` gebaut -- absichtlich NICHT gecacht, damit eine
     # Key-Rotation keinen Prozess-Neustart braucht.
-    return build_n8n_to_backend_keyring(settings)
+    try:
+        return build_n8n_to_backend_keyring(settings)
+    except ValueError as exc:
+        # Fehlendes/ungueltiges Secret => 503, exakt wie
+        # `require_n8n_callback_secret` fuer den Legacy-Pfad. Es gibt keinen
+        # Fallback-Key: ohne Konfiguration ist die Route geschlossen. Der Grund
+        # bleibt im Log, nicht in der Antwort.
+        logger.error("n8n-to-backend HMAC keyring is not configured: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail="n8n-to-backend signing keys sind nicht konfiguriert.",
+        ) from exc
 
 
 async def verify_n8n_to_backend_request(
