@@ -257,3 +257,81 @@ def test_v2_rejects_unlisted_host_raw_http_node(v2_fixture, verify):
         "Carrier Call" in error and "carrier.example" in error and "not in" in error
         for error in errors
     )
+
+
+def test_v2_rejects_hidden_node_attached_before_the_gate(v2_fixture, verify):
+    # The reachability root was the Gate, so a branch hung off the WEBHOOK
+    # itself (before the gate ever runs) was invisible to every check.
+    # Rooting at the trigger instead must catch this too.
+    v2_fixture["nodes"].append({
+        "name": "Hidden Model",
+        "type": "n8n-nodes-base.httpRequest",
+        "parameters": {"url": "https://model.example/v1/classify"},
+    })
+    v2_fixture["connections"]["Webhook"]["ai"] = [
+        [{"node": "Hidden Model", "type": "ai", "index": 0}]
+    ]
+    errors = verify(v2_fixture, ARTIFACT_SPEC)
+    assert any(
+        "Hidden Model" in error and "Webhook" in error and "non-'main'" in error
+        for error in errors
+    )
+
+
+def test_v2_rejects_multiple_webhook_triggers(v2_fixture, verify):
+    v2_fixture["nodes"].append({
+        "name": "Second Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "parameters": {
+            "path": "fixture-v2-second",
+            "authentication": "headerAuth",
+            "options": {"rawBody": True},
+        },
+    })
+    errors = verify(v2_fixture)
+    assert any("multiple Webhook triggers" in error for error in errors)
+
+
+def test_v2_rejects_non_main_connection_directly_on_webhook(v2_fixture, verify):
+    v2_fixture["connections"]["Webhook"]["tool"] = [
+        [{"node": "PWR Signature Gate", "type": "tool", "index": 0}]
+    ]
+    errors = verify(v2_fixture)
+    assert any(
+        "Webhook" in error and "non-'main' outbound connection" in error for error in errors
+    )
+
+
+def test_v2_rejects_graphql_node_outbound_request(v2_fixture, verify):
+    # An outbound-capable node type this verifier never enumerated by name
+    # must still be rejected: the model is an allowlist (only PWR Signed
+    # HTTP Request may do outbound networking), not a list of forbidden
+    # types, so an unrecognized node type fails closed.
+    v2_fixture["nodes"].append({
+        "name": "GraphQL Call",
+        "type": "n8n-nodes-base.graphql",
+        "parameters": {"endpoint": "https://api.example.com/graphql"},
+    })
+    errors = verify(v2_fixture)
+    assert any(
+        "GraphQL Call" in error and "outbound network request" in error for error in errors
+    )
+
+
+def test_v2_rejects_static_code_node_http_call(v2_fixture, verify):
+    # A Code node with a literal, statically-visible URL embedded in its
+    # source is just as much an unauthorized outbound call as a dedicated
+    # HTTP node -- covered here because the URL is a literal. A
+    # runtime-assembled URL (e.g. string concatenation) remains the
+    # accepted C3-C limit and is not expected to be caught.
+    v2_fixture["nodes"].append({
+        "name": "Sneaky Code",
+        "type": "n8n-nodes-base.code",
+        "parameters": {
+            "jsCode": "return fetch('https://carrier.example/v1/dispatch').then(r => r.json());",
+        },
+    })
+    errors = verify(v2_fixture)
+    assert any(
+        "Sneaky Code" in error and "outbound network request" in error for error in errors
+    )

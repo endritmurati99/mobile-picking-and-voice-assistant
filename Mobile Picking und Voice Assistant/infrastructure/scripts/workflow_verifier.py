@@ -734,10 +734,27 @@ ARTIFACT_OR_BASE64_TOKEN_RE = re.compile(
 # binary/artifact blob living directly in item JSON, even without one of the
 # named tokens above.
 BASE64_BLOB_RE = re.compile(r"[A-Za-z0-9+/]{200,}={0,2}")
+# Node types allowed to perform outbound networking at all in a v2
+# workflow. This is deliberately an ALLOWLIST, not a list of forbidden
+# types: a node type nobody thought of (a new n8n node, a community node,
+# "n8n-nodes-base.graphql", ...) must fail closed by not being on this
+# list, rather than sailing through unexamined because it wasn't in a
+# hand-maintained forbidden-types set.
+OUTBOUND_ALLOWED_TYPES = SIGNED_HTTP_TYPES
+# A generic, node-type-agnostic signal that a node embeds an absolute URL
+# literally in its parameters (including inside Code/Function node source
+# text) -- used to catch any non-allowlisted node type making an outbound
+# call, regardless of what that node type is called.
+ABSOLUTE_URL_RE = re.compile(r"\b[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s'\"\\]+")
+
+
+def _webhook_nodes(nodes: list[dict]) -> list[dict]:
+    return [node for node in nodes if node.get("type") == WEBHOOK_TYPE]
 
 
 def _webhook_node(nodes: list[dict]) -> dict | None:
-    return next((node for node in nodes if node.get("type") == WEBHOOK_TYPE), None)
+    matches = _webhook_nodes(nodes)
+    return matches[0] if matches else None
 
 
 def _gate_node(nodes: list[dict]) -> dict | None:
@@ -889,27 +906,37 @@ def _combined_text_blob(nodes_by_name: dict[str, dict], names: set[str]) -> str:
 def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[str]:
     """Verify the v2-generation invariants for a single workflow.
 
-    Enforces: authentication/rawBody on the Webhook trigger; PWR Signature
-    Gate being the mandatory first node after the Webhook; the rejection
+    Enforces: exactly one Webhook trigger, with authentication/rawBody set,
+    no non-'main' outbound connection on the trigger itself, and PWR
+    Signature Gate being the mandatory first node after it; the rejection
     output only ever reaching "Respond to Webhook"; the very first node
     reached after the Signature Gate's accepted output must itself be a
     PWR Signed HTTP Request (no model/carrier/Odoo/callback/business node
-    may run before acceptance completes); raw httpRequest nodes never being
-    used for internal targets (PWR Signed HTTP Request required instead);
-    PWR Signed HTTP Request targets being static (non-expression) relative
-    paths registered either as an exact callback path or matching a
-    registered {field} artifact-path template segment-by-segment; a
-    concrete resolved host that is present in allowed_target_hosts; direct
-    Odoo targets being rejected; bodyMode=literalUtf8 being restricted to
-    test_only=true specs; event/callback nodes referencing event_id,
-    odoo_instance, and at least one delivery/lease/idempotency field; a
-    Quality workflow never claiming image analysis from photo_count alone;
-    Code/Set ("Edit Fields") nodes never embedding artifact or base64
-    content directly in item JSON; every node reachable from the Signature
-    Gate through ANY connection namespace (main, ai, tool, ...) -- not just
-    "main" -- must be on the ordinary main execution path; and every raw
-    HTTP Request node's resolved host must be in allowed_target_hosts, with
-    no third "unlisted host" case left unrejected.
+    may run before acceptance completes); every node reachable from the
+    Webhook trigger through ANY connection namespace (main, ai, tool, ...)
+    -- not just "main" -- must be on the ordinary main execution path,
+    rooted at the trigger itself so a pre-Gate branch is just as visible
+    as a post-Gate one; PWR Signed HTTP Request targets being static
+    (non-expression) relative paths registered either as an exact callback
+    path or matching a registered {field} artifact-path template segment-
+    by-segment; a concrete resolved host present in allowed_target_hosts;
+    bodyMode=literalUtf8 being restricted to test_only=true specs; event/
+    callback nodes referencing event_id, odoo_instance, and at least one
+    delivery/lease/idempotency field; a Quality workflow never claiming
+    image analysis from photo_count alone; Code/Set ("Edit Fields") nodes
+    never embedding artifact or base64 content directly in item JSON; and
+    outbound networking being ALLOWLISTED to PWR Signed HTTP Request nodes
+    only -- every other node is scanned for an embedded absolute URL and
+    rejected if one is found, regardless of the node's type.
+
+    STRUCTURAL PRINCIPLE -- allowlist, not denylist: every place this
+    module enumerates what is FORBIDDEN instead of what is PERMITTED is a
+    place a node type nobody thought of gets in for free (this bit the
+    verifier twice: reachability rooted at the wrong node, and an outbound
+    check that only recognized n8n-nodes-base.httpRequest by name). Where
+    practical, checks here are written as allowlists of what's permitted
+    (OUTBOUND_ALLOWED_TYPES, SIGNED_HTTP_TYPES, the "main"-only path from
+    the trigger) with everything else rejected, not the reverse.
 
     KNOWN, ACCEPTED LIMITS (do not mistake this for a data-flow analyzer):
     this module does static JSON/text substring matching, nothing more.
@@ -924,7 +951,9 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
       - Content assembled at runtime rather than written as a literal in
         node parameters (e.g. `['art','ifact','_data'].join('')`, or any
         string built from an expression) is invisible to a text scan that
-        only ever sees the literal JSON the workflow file contains.
+        only ever sees the literal JSON the workflow file contains. This
+        also covers a dynamically-built outbound URL: the outbound
+        allowlist check below only catches a LITERAL absolute URL string.
     """
     errors: list[str] = []
     nodes = workflow.get("nodes") or []
@@ -932,10 +961,21 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
     file_name = spec.get("file") or workflow.get("name", "<unknown>")
     by_name = {node.get("name"): node for node in nodes}
 
-    webhook = _webhook_node(nodes)
-    if webhook is None:
+    webhooks = _webhook_nodes(nodes)
+    webhook: dict | None = None
+    if not webhooks:
         errors.append(f"{file_name}: v2 workflow has no Webhook trigger")
     else:
+        if len(webhooks) > 1:
+            names = sorted(node.get("name") for node in webhooks)
+            errors.append(
+                f"{file_name}: multiple Webhook triggers found ({', '.join(names)}); "
+                "exactly one is required"
+            )
+        # Best-effort: still run the remaining per-webhook and reachability
+        # checks against the first one, so a misconfigured extra trigger
+        # doesn't also suppress every other finding.
+        webhook = webhooks[0]
         params = webhook.get("parameters") or {}
         if params.get("authentication") != "headerAuth":
             errors.append(
@@ -944,6 +984,22 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
         if not (params.get("options") or {}).get("rawBody"):
             errors.append(
                 f"{file_name}: Webhook '{webhook.get('name')}' must set options.rawBody=true"
+            )
+
+        # The trigger itself may not have any non-"main" outbound
+        # connection -- e.g. an "ai" edge straight off the Webhook -- this
+        # is rejected outright regardless of where it leads.
+        webhook_connection_block = connections.get(webhook.get("name")) or {}
+        non_main_webhook_namespaces = sorted(
+            key
+            for key, edges in webhook_connection_block.items()
+            if key != "main" and edges
+        )
+        if non_main_webhook_namespaces:
+            errors.append(
+                f"{file_name}: Webhook '{webhook.get('name')}' has non-'main' outbound "
+                f"connection(s) ({', '.join(non_main_webhook_namespaces)}); the trigger "
+                "must only use its main output"
             )
 
     gate = _gate_node(nodes)
@@ -986,25 +1042,47 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
                 "callback, or other business node may run first"
             )
 
-        # Nothing reachable from the gate may hide behind a non-"main"
-        # connection namespace (e.g. an "ai" sub-node wired straight off
-        # the gate): diff the every-namespace reachable set against the
-        # main-only one to find any such node.
-        all_reachable_from_gate = _reachable_node_names(connections, [gate.get("name")])
-        main_only_reachable_from_gate = _reachable_node_names_main_only(
-            connections, [gate.get("name")]
+    if webhook is not None:
+        # Rooted at the TRIGGER, not the gate: a hidden branch attached
+        # before the gate (Webhook.ai -> Hidden Model) is exactly as
+        # illegitimate as one attached after it (Gate.ai -> Hidden Model),
+        # and both -- plus any deeper transitive hidden branch anywhere in
+        # the graph -- are caught by one reachability diff rooted at the
+        # single entry point every request actually goes through.
+        all_reachable_from_webhook = _reachable_node_names(connections, [webhook.get("name")])
+        main_only_reachable_from_webhook = _reachable_node_names_main_only(
+            connections, [webhook.get("name")]
         )
-        hidden_from_gate = sorted(
+        hidden_nodes = sorted(
             name
-            for name in (all_reachable_from_gate - main_only_reachable_from_gate)
+            for name in (all_reachable_from_webhook - main_only_reachable_from_webhook)
             if name in by_name
         )
-        if hidden_from_gate:
+        if hidden_nodes:
             errors.append(
-                f"{file_name}: node(s) {hidden_from_gate} are reachable from the "
-                "Signature Gate only through a non-'main' connection namespace "
-                "(e.g. 'ai'/'tool'); every node the gate can reach must be on the "
+                f"{file_name}: node(s) {hidden_nodes} are reachable from the Webhook "
+                "trigger only through a non-'main' connection namespace (e.g. "
+                "'ai'/'tool'); every node reachable from the trigger must be on the "
                 "ordinary main execution path so it is visible to verification"
+            )
+
+    # Outbound networking is ALLOWLISTED to PWR Signed HTTP Request nodes.
+    # Everything else in the workflow is scanned for an embedded absolute
+    # URL literal and rejected if found -- this is deliberately type-
+    # agnostic (no enumeration of "forbidden" node types) so a node type
+    # nobody thought of (a GraphQL node, a community node, ...) fails
+    # closed instead of sailing through because it wasn't HTTP_REQUEST_TYPE.
+    for node in nodes:
+        node_type = node.get("type")
+        if node_type in OUTBOUND_ALLOWED_TYPES or node_type == HTTP_REQUEST_TYPE:
+            continue
+        blob = _node_text_blob(node)
+        url_match = ABSOLUTE_URL_RE.search(blob)
+        if url_match:
+            errors.append(
+                f"{file_name}: node '{node.get('name')}' ({node_type}) appears to make "
+                f"an outbound network request to '{url_match.group(0)}'; only PWR Signed "
+                "HTTP Request nodes may perform outbound networking in a v2 workflow"
             )
 
     allowed_hosts = set(spec.get("allowed_target_hosts") or [])
