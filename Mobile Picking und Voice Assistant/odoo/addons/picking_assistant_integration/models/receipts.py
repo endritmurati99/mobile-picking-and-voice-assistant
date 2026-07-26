@@ -1,0 +1,471 @@
+import json
+import secrets
+from datetime import timedelta
+
+from psycopg2 import IntegrityError
+
+from odoo import api, fields, models
+from odoo.exceptions import ValidationError
+
+from .integration_job import TERMINAL_STATES
+
+# Replay-window retention for webhook nonces. The spec floor is 600 seconds;
+# keep the stored window strictly above it.
+MIN_NONCE_RETENTION_SECONDS = 600
+NONCE_RETENTION_SECONDS = 900
+assert NONCE_RETENTION_SECONDS >= MIN_NONCE_RETENTION_SECONDS
+
+PROCESSING_LEASE_SECONDS = 300  # five-minute processing lease
+CALLBACK_STATUSES = {
+    "running",
+    "succeeded",
+    "review_required",
+    "failed",
+    "retry_scheduled",
+}
+NONCE_DIRECTIONS = ("backend_to_n8n", "n8n_to_backend")
+
+
+class PickingAssistantWebhookNonce(models.Model):
+    _name = "picking.assistant.webhook.nonce"
+    _description = "Picking Assistant Webhook Nonce"
+
+    direction = fields.Selection(
+        [("backend_to_n8n", "Backend to n8n"), ("n8n_to_backend", "n8n to Backend")],
+        required=True,
+        index=True,
+    )
+    key_id = fields.Char(required=True, index=True)
+    nonce = fields.Char(required=True, index=True)
+    event_id = fields.Char(index=True)
+    received_at = fields.Datetime(required=True, default=fields.Datetime.now)
+    expires_at = fields.Datetime(required=True, index=True)
+
+    _nonce_unique = models.Constraint(
+        "UNIQUE(direction, key_id, nonce)", "Webhook nonce must be unique."
+    )
+
+    @api.model
+    def _reserve(self, direction, key_id, nonce, event_id=False):
+        """Reserve a (direction, key_id, nonce) triple. A collision is never a
+        deduplicated success: the race is contained in a savepoint and every
+        reuse raises ValidationError."""
+        if direction not in NONCE_DIRECTIONS:
+            raise ValidationError("Unknown nonce direction.")
+        if not key_id or not nonce:
+            raise ValidationError("Nonce key and value are required.")
+        now = fields.Datetime.now()
+        try:
+            with self.env.cr.savepoint():
+                record = self.sudo().create(
+                    {
+                        "direction": direction,
+                        "key_id": key_id,
+                        "nonce": nonce,
+                        "event_id": event_id or False,
+                        "received_at": now,
+                        "expires_at": now
+                        + timedelta(seconds=NONCE_RETENTION_SECONDS),
+                    }
+                )
+                record.flush_recordset()
+            return record
+        except IntegrityError:
+            # Re-read only to classify the conflict, then always reject.
+            self.env.cr.execute(
+                "SELECT id FROM picking_assistant_webhook_nonce "
+                "WHERE direction = %s AND key_id = %s AND nonce = %s",
+                (direction, key_id, nonce),
+            )
+            raise ValidationError("Webhook nonce replay.")
+
+    @api.model
+    def api_reserve_request_nonce(self, direction, key_id, nonce, event_id=False):
+        self.env["picking.assistant.api.mixin"]._require_api_service()
+        record = self._reserve(direction, key_id, nonce, event_id=event_id)
+        return {
+            "reserved": True,
+            "expires_at": fields.Datetime.to_string(record.expires_at),
+        }
+
+
+class PickingAssistantEventReceipt(models.Model):
+    _name = "picking.assistant.event.receipt"
+    _description = "Picking Assistant Event Receipt"
+
+    event_id = fields.Char(required=True, index=True)
+    job_record_id = fields.Many2one(
+        "picking.assistant.integration.job", required=True, ondelete="cascade"
+    )
+    payload_fingerprint = fields.Char(required=True)
+    delivery_generation = fields.Integer(required=True)
+    state = fields.Selection(
+        [
+            ("accepted", "Accepted"),
+            ("processing", "Processing"),
+            ("completed", "Completed"),
+            ("retryable", "Retryable"),
+        ],
+        required=True,
+    )
+    processing_lease_token = fields.Char()
+    processing_lease_expires_at = fields.Datetime(index=True)
+    first_received_at = fields.Datetime(required=True, default=fields.Datetime.now)
+    last_received_at = fields.Datetime(required=True, default=fields.Datetime.now)
+
+    _event_receipt_unique = models.Constraint(
+        "UNIQUE(event_id)", "Event receipt must be unique."
+    )
+
+    def _lock_existing(self, event_id):
+        self.sudo().flush_model()
+        self.env.cr.execute(
+            "SELECT id FROM picking_assistant_event_receipt "
+            "WHERE event_id = %s FOR UPDATE",
+            (event_id,),
+        )
+        row = self.env.cr.fetchone()
+        return self.sudo().browse(row[0]) if row else self.sudo().browse()
+
+    @api.model
+    def api_accept_event(
+        self,
+        event_id,
+        job_id,
+        payload_fingerprint,
+        ingress_key_id,
+        ingress_nonce,
+        delivery_generation,
+        acceptance_key_id,
+        acceptance_nonce,
+    ):
+        self.env["picking.assistant.api.mixin"]._require_api_service()
+        outboxes = self.env["picking.assistant.outbox"].sudo()
+        jobs = self.env["picking.assistant.integration.job"].sudo()
+        # 2. load and lock the outbox and job rows.
+        outboxes.flush_model()
+        jobs.flush_model()
+        self.env.cr.execute(
+            "SELECT o.id, o.job_record_id"
+            "  FROM picking_assistant_outbox o"
+            "  JOIN picking_assistant_integration_job j"
+            "    ON j.id = o.job_record_id"
+            " WHERE o.event_id = %s"
+            "   FOR UPDATE OF o, j",
+            (event_id,),
+        )
+        row = self.env.cr.fetchone()
+        if not row:
+            raise ValidationError("Unknown outbox event.")
+        outbox = outboxes.browse(row[0])
+        job = jobs.browse(row[1])
+        # 3. reject before any create/write when a supplied value differs.
+        if job.job_id != job_id:
+            raise ValidationError("Job ID mismatch.")
+        if outbox.payload_fingerprint != payload_fingerprint:
+            raise ValidationError("Payload fingerprint mismatch.")
+        if int(delivery_generation) != job.delivery_generation:
+            raise ValidationError("Delivery generation mismatch.")
+        nonces = self.env["picking.assistant.webhook.nonce"]
+        # 4. reserve the n8n -> backend acceptance nonce.
+        nonces._reserve(
+            "n8n_to_backend", acceptance_key_id, acceptance_nonce, event_id=event_id
+        )
+        # 5. reserve the backend -> n8n ingress nonce; every reuse is rejected.
+        nonces._reserve(
+            "backend_to_n8n", ingress_key_id, ingress_nonce, event_id=event_id
+        )
+        now = fields.Datetime.now()
+        # 6. create or lock the event receipt.
+        receipt = self._lock_existing(event_id)
+        if not receipt:
+            try:
+                with self.env.cr.savepoint():
+                    receipt = self.sudo().create(
+                        {
+                            "event_id": event_id,
+                            "job_record_id": job.id,
+                            "payload_fingerprint": payload_fingerprint,
+                            "delivery_generation": job.delivery_generation,
+                            "state": "accepted",
+                            "first_received_at": now,
+                            "last_received_at": now,
+                        }
+                    )
+                    receipt.flush_recordset()
+            except IntegrityError:
+                receipt = self._lock_existing(event_id)
+        else:
+            receipt.write({"last_received_at": now})
+        # 7. deduplicate active processing and completed receipts.
+        lease_active = (
+            receipt.state == "processing"
+            and receipt.processing_lease_expires_at
+            and receipt.processing_lease_expires_at > now
+        )
+        if lease_active or receipt.state == "completed":
+            return {
+                "accepted": True,
+                "event_id": event_id,
+                "job_id": job.job_id,
+                "process": False,
+                "processing_lease_token": False,
+            }
+        # 8. hand out a fresh five-minute processing lease.
+        token = secrets.token_urlsafe(32)
+        lease_expires = now + timedelta(seconds=PROCESSING_LEASE_SECONDS)
+        receipt.write(
+            {
+                "state": "processing",
+                "processing_lease_token": token,
+                "processing_lease_expires_at": lease_expires,
+                "delivery_generation": job.delivery_generation,
+                "last_received_at": now,
+            }
+        )
+        job_values = {
+            "processing_lease_token": token,
+            "processing_lease_expires_at": lease_expires,
+        }
+        if int(delivery_generation) > 1:
+            job_values["attempt"] = job.attempt + 1
+        job.write(job_values)
+        return {
+            "accepted": True,
+            "event_id": event_id,
+            "job_id": job.job_id,
+            "process": True,
+            "processing_lease_token": token,
+        }
+
+
+class PickingAssistantCallbackReceipt(models.Model):
+    _name = "picking.assistant.callback.receipt"
+    _description = "Picking Assistant Callback Receipt"
+
+    callback_id = fields.Char(required=True, index=True)
+    source_event_id = fields.Char(required=True, index=True)
+    job_record_id = fields.Many2one(
+        "picking.assistant.integration.job", required=True, ondelete="cascade"
+    )
+    sequence = fields.Integer(required=True)
+    fingerprint = fields.Char(required=True)
+    response_status = fields.Integer(required=True)
+    response_body = fields.Text(required=True)
+    received_at = fields.Datetime(required=True, default=fields.Datetime.now)
+
+    _callback_id_unique = models.Constraint(
+        "UNIQUE(callback_id)", "Callback ID must be unique."
+    )
+    _job_sequence_unique = models.Constraint(
+        "UNIQUE(job_record_id, sequence)", "Job callback sequence must be unique."
+    )
+
+    def _store_response(self, job, callback_id, source_event_id, sequence,
+                        fingerprint, response):
+        """Persist the deterministic response in the same transaction as the
+        job change. A (job, sequence) collision means sequence reuse."""
+        try:
+            with self.env.cr.savepoint():
+                record = self.sudo().create(
+                    {
+                        "callback_id": callback_id,
+                        "source_event_id": source_event_id,
+                        "job_record_id": job.id,
+                        "sequence": int(sequence),
+                        "fingerprint": fingerprint,
+                        "response_status": 200,
+                        "response_body": json.dumps(response, sort_keys=True),
+                    }
+                )
+                record.flush_recordset()
+            return record
+        except IntegrityError:
+            existing = self.sudo().search(
+                [("callback_id", "=", callback_id)], limit=1
+            )
+            if existing and existing.fingerprint == fingerprint:
+                return existing
+            raise ValidationError("Callback sequence conflict.")
+
+    @api.model
+    def api_apply_callback(self, callback, callback_fingerprint, key_id, nonce):
+        self.env["picking.assistant.api.mixin"]._require_api_service()
+        if not isinstance(callback, dict):
+            raise ValidationError("Callback must be an object.")
+        callback_id = callback.get("callback_id")
+        source_event_id = callback.get("source_event_id")
+        job_id = callback.get("job_id")
+        status = callback.get("status")
+        if not callback_id or not source_event_id or not job_id:
+            raise ValidationError("Callback identifiers are required.")
+        if status not in CALLBACK_STATUSES:
+            raise ValidationError("Unknown callback status.")
+        try:
+            sequence = int(callback.get("sequence"))
+            generation = int(callback.get("delivery_generation"))
+        except (TypeError, ValueError):
+            raise ValidationError("Callback sequence and generation must be integers.")
+        result = callback.get("result") or {}
+        error = callback.get("error") or {}
+        metrics = callback.get("metrics") or {}
+
+        # Reserve the callback nonce, then lock job and event receipt.
+        self.env["picking.assistant.webhook.nonce"]._reserve(
+            "n8n_to_backend", key_id, nonce, event_id=source_event_id
+        )
+        jobs = self.env["picking.assistant.integration.job"].sudo()
+        receipts = self.env["picking.assistant.event.receipt"].sudo()
+        jobs.flush_model()
+        receipts.flush_model()
+        self.sudo().flush_model()
+        self.env.cr.execute(
+            "SELECT id FROM picking_assistant_integration_job "
+            "WHERE job_id = %s FOR UPDATE",
+            (job_id,),
+        )
+        row = self.env.cr.fetchone()
+        if not row:
+            raise ValidationError("Unknown job.")
+        job = jobs.browse(row[0])
+        self.env.cr.execute(
+            "SELECT id FROM picking_assistant_event_receipt "
+            "WHERE event_id = %s FOR UPDATE",
+            (source_event_id,),
+        )
+        row = self.env.cr.fetchone()
+        if not row:
+            raise ValidationError("Unknown event receipt.")
+        receipt = receipts.browse(row[0])
+        if receipt.job_record_id.id != job.id:
+            raise ValidationError("Callback event does not belong to this job.")
+
+        # Same callback ID: replay returns the stored response, a different
+        # fingerprint is a conflict.
+        existing = self.sudo().search([("callback_id", "=", callback_id)], limit=1)
+        if existing:
+            if existing.fingerprint != callback_fingerprint:
+                raise ValidationError("Callback fingerprint conflict.")
+            return json.loads(existing.response_body)
+
+        # Generation and lease token must match the locked job/receipt.
+        if generation != job.delivery_generation:
+            raise ValidationError("Delivery generation mismatch.")
+        supplied_token = callback.get("processing_lease_token") or ""
+        if (
+            receipt.state != "processing"
+            or not receipt.processing_lease_token
+            or not secrets.compare_digest(
+                receipt.processing_lease_token, supplied_token
+            )
+        ):
+            raise ValidationError("Processing lease mismatch.")
+
+        now = fields.Datetime.now()
+        if sequence == job.sequence:
+            raise ValidationError("Callback sequence conflict.")
+        if sequence < job.sequence:
+            response = {
+                "status": "ignored_stale",
+                "callback_id": callback_id,
+                "job_id": job.job_id,
+                "sequence": sequence,
+                "job_state": job.state,
+            }
+            self._store_response(
+                job, callback_id, source_event_id, sequence,
+                callback_fingerprint, response,
+            )
+            return response
+
+        if job.state in TERMINAL_STATES:
+            raise ValidationError("Job is terminal and cannot reopen.")
+        if status == "running":
+            if job.state in ("queued", "retry_scheduled"):
+                job._transition(
+                    "running",
+                    sequence=sequence,
+                    result=result,
+                    error=error,
+                    metrics=metrics,
+                )
+            else:  # already running: accept the higher sequence
+                job.write({"sequence": sequence})
+            lease_expires = now + timedelta(seconds=PROCESSING_LEASE_SECONDS)
+            receipt.write(
+                {
+                    "processing_lease_expires_at": lease_expires,
+                    "last_received_at": now,
+                }
+            )
+            job.write({"processing_lease_expires_at": lease_expires})
+        elif status in TERMINAL_STATES:
+            if job.state in ("queued", "retry_scheduled"):
+                job._transition("running", sequence=sequence)
+            job._transition(
+                status,
+                sequence=sequence,
+                result=result,
+                error=error,
+                metrics=metrics,
+            )
+            job.write({"processing_lease_token": False})
+            receipt.write(
+                {
+                    "state": "completed",
+                    "processing_lease_token": False,
+                    "processing_lease_expires_at": False,
+                    "last_received_at": now,
+                }
+            )
+        else:  # retry_scheduled
+            if job.state == "queued":
+                job._transition("running", sequence=sequence)
+            job._transition(
+                "retry_scheduled",
+                sequence=sequence,
+                result=result,
+                error=error,
+                metrics=metrics,
+            )
+            job.write(
+                {
+                    "delivery_generation": job.delivery_generation + 1,
+                    "processing_lease_token": False,
+                    "processing_lease_expires_at": False,
+                }
+            )
+            receipt.write(
+                {
+                    "state": "retryable",
+                    "processing_lease_token": False,
+                    "processing_lease_expires_at": False,
+                    "delivery_generation": job.delivery_generation,
+                    "last_received_at": now,
+                }
+            )
+            outbox = self.env["picking.assistant.outbox"].sudo().search(
+                [("event_id", "=", source_event_id)], limit=1
+            )
+            if outbox:
+                # Same event returns to pending with unchanged envelope_text.
+                outbox.write(
+                    {
+                        "state": "pending",
+                        "next_attempt_at": now,
+                        "lease_owner": False,
+                        "lease_expires_at": False,
+                    }
+                )
+        response = {
+            "status": "applied",
+            "callback_id": callback_id,
+            "job_id": job.job_id,
+            "sequence": sequence,
+            "job_state": job.state,
+        }
+        self._store_response(
+            job, callback_id, source_event_id, sequence,
+            callback_fingerprint, response,
+        )
+        return response

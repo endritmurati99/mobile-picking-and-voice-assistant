@@ -23,4 +23,34 @@
         <field name="interval_type">days</field>
         <field name="active">True</field>
     </record>
+
+    <record id="ir_cron_recover_stalled_jobs" model="ir.cron">
+        <field name="name">Picking Assistant: recover stalled integration jobs</field>
+        <field name="model_id" ref="model_picking_assistant_integration_job"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_recover_stalled_jobs()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">minutes</field>
+        <field name="active">True</field>
+    </record>
+
+    <record id="ir_cron_cleanup_ephemeral" model="ir.cron">
+        <field name="name">Picking Assistant: purge expired nonces, throttles, sessions</field>
+        <field name="model_id" ref="model_picking_assistant_integration_job"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_cleanup_ephemeral()</field>
+        <field name="interval_number">10</field>
+        <field name="interval_type">minutes</field>
+        <field name="active">True</field>
+    </record>
+
+    <record id="ir_cron_cleanup_audit" model="ir.cron">
+        <field name="name">Picking Assistant: enforce audit retention windows</field>
+        <field name="model_id" ref="model_picking_assistant_integration_job"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_cleanup_audit()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="active">True</field>
+    </record>
 </odoo>
