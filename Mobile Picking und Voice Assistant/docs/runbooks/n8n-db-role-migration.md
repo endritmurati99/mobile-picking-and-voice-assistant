@@ -42,17 +42,15 @@ full backup → apply → verify → rollback cycle against the clone:
 bash infrastructure/scripts/clone-postgres-volume.sh create \
   <production_volume_name> pwr_migration_rehearsal_data /path/to/manifest-dir
 
-# Required gate: the override YAML cannot itself verify the volume it is
-# given is the disposable clone and not the live source, so run this
-# check explicitly before ever starting the override with a given
-# PWR_DB_MIGRATION_VOLUME value:
-bash infrastructure/scripts/clone-postgres-volume.sh assert-target \
-  /path/to/manifest-dir pwr_migration_rehearsal_data
-
-PWR_DB_MIGRATION_VOLUME=pwr_migration_rehearsal_data \
-  docker compose -p pwr_dbrole_rehearsal \
-  -f docker-compose.yml -f infrastructure/docker-compose.db-migration.yml \
-  up -d db
+# Required entry point: the override YAML cannot itself verify the
+# volume it is given is the disposable clone and not the live source
+# (or a volume merely renamed/recreated to look like it), so never run
+# `docker compose ... up` against docker-compose.db-migration.yml
+# directly. Always go through this wrapper, which runs the assert-target
+# guard (name AND identity-token check) and only then starts the
+# override:
+bash infrastructure/scripts/clone-postgres-volume.sh compose-up \
+  /path/to/manifest-dir pwr_migration_rehearsal_data pwr_dbrole_rehearsal
 ```
 
 Run the migration commands below against the `pwr_dbrole_rehearsal`
@@ -209,3 +207,47 @@ dump, and ACL reports — treat the directory as sensitive and keep its
   these scripts were written (no `wave1-odoo19-handoff` branch existed
   yet). Every script takes `ODOO_DB_NAME` as a required input and fails
   closed rather than guessing it.
+
+## Verification limits
+
+`infrastructure/tests/test_db_role_scripts.py` proves what it can
+without a real PostgreSQL cluster: `bash -n` syntax validity; that
+every mode fails closed on a missing `ODOO_DB_NAME`; that
+`init-db-roles.sh` refuses to run under any `POSTGRES_USER` other than
+`pwr_db_admin`; and, via subprocess tests against stubbed `psql`/
+`docker` binaries on `PATH`, that a real `apply` run's actual SQL
+invocations (not just the script text) create `odoo_app`/`n8n_app` as
+`NOSUPERUSER NOCREATEDB NOCREATEROLE`, create `pwr_db_admin` itself,
+substitute the legacy role name only through psql's quoted-identifier
+form, and emit the `PUBLIC` CONNECT/TEMPORARY and schema revokes for
+both databases. It also proves `clone-postgres-volume.sh`'s `delete`
+and `assert-target` refuse the recorded source volume, and that
+`assert-target` requires the recorded identity token to be present
+inside the target volume's data.
+
+What these tests **cannot** prove, because the stubbed `psql` never
+runs real SQL against a real server:
+
+- That the generated SQL is syntactically valid PostgreSQL and executes
+  without error (only `bash -n` is checked; the SQL text itself is
+  exercised but not compiled by a real server).
+- That the isolation verifier's six checks actually pass against a real
+  cluster: the stub answers a fixed set of expected query shapes and
+  simulates the two negative-check connection failures by pattern
+  match, not by real `pg_hba.conf`/role-membership enforcement.
+- That `pg_dump`/`pg_dumpall`/`pg_restore` produce restorable output, or
+  that `REASSIGN OWNED`/`ALTER DEFAULT PRIVILEGES` behave as intended
+  against a database with real, non-trivial object ownership.
+- That the offline volume clone (`tar` through a throwaway container),
+  the SHA-256 manifest comparison, and the identity-token file survive
+  a real PostgreSQL data directory's size and permission bits.
+- Anything about performance, timing, or behavior under concurrent
+  access (e.g. another connection open on `n8n` when `apply` reassigns
+  ownership).
+
+These gaps are exactly what the **required live rehearsal** (see
+"Rehearse first, on a disposable clone" above) exists to close before
+Task 15 runs `apply` against the real production volume. Do not treat
+a green test run as evidence the migration works against a live
+cluster — treat it as evidence the scripts are internally consistent
+and fail closed on the inputs tests can control.

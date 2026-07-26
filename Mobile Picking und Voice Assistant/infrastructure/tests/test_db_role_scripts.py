@@ -362,6 +362,13 @@ def test_clone_assert_target_refuses_source_and_requires_recorded_copy(tmp_path)
               echo "$name"
               exit 0
             fi
+            if [ "$1" = "run" ]; then
+              # Simulate reading the identity marker file back out of the
+              # (stubbed) copy volume: always return the token the test
+              # recorded, regardless of which volume was mounted.
+              echo "TESTTOKEN123"
+              exit 0
+            fi
             exit 0
             """
         ),
@@ -370,7 +377,10 @@ def test_clone_assert_target_refuses_source_and_requires_recorded_copy(tmp_path)
     manifest_dir = tmp_path / "manifest"
     manifest_dir.mkdir(mode=0o700)
     (manifest_dir / "clone.manifest").write_text(
-        "source_volume=prod_pg_data\ncopy_volume=pwr_migration_copy\ncreated_utc=2026-01-01T00:00:00Z\n"
+        "source_volume=prod_pg_data\n"
+        "copy_volume=pwr_migration_copy\n"
+        "copy_identity_token=TESTTOKEN123\n"
+        "created_utc=2026-01-01T00:00:00Z\n"
     )
 
     refused = subprocess.run(
@@ -403,3 +413,58 @@ def test_clone_assert_target_refuses_source_and_requires_recorded_copy(tmp_path)
         timeout=10,
     )
     assert accepted.returncode == 0
+
+
+def test_clone_compose_up_refuses_source_before_ever_calling_compose(tmp_path):
+    # compose-up must run assert-target first and never reach `docker
+    # compose ... up` when the guard refuses. The stub logs every
+    # invocation so we can assert `compose` never appears in the log.
+    env, bin_dir = _env_with_bin(tmp_path)
+    docker_log = tmp_path / "docker_calls.log"
+    _make_executable(
+        bin_dir / "docker",
+        textwrap.dedent(
+            f"""\
+            printf '%s\\n' "$*" >> "{docker_log}"
+            if [ "$1" = "volume" ] && [ "$2" = "inspect" ]; then
+              shift 2
+              echo "$1"
+              exit 0
+            fi
+            if [ "$1" = "run" ]; then
+              echo "TESTTOKEN123"
+              exit 0
+            fi
+            exit 0
+            """
+        ),
+    )
+
+    manifest_dir = tmp_path / "manifest"
+    manifest_dir.mkdir(mode=0o700)
+    (manifest_dir / "clone.manifest").write_text(
+        "source_volume=prod_pg_data\n"
+        "copy_volume=pwr_migration_copy\n"
+        "copy_identity_token=TESTTOKEN123\n"
+        "created_utc=2026-01-01T00:00:00Z\n"
+    )
+
+    refused = subprocess.run(
+        [
+            "bash",
+            str(SCRIPTS / "clone-postgres-volume.sh"),
+            "compose-up",
+            str(manifest_dir),
+            "prod_pg_data",
+            "pwr_dbrole_test",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert refused.returncode != 0
+    assert "refus" in refused.stderr.lower()
+
+    log_contents = docker_log.read_text() if docker_log.exists() else ""
+    assert "compose" not in log_contents
