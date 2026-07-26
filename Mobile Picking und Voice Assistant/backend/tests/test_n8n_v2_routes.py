@@ -584,6 +584,57 @@ def test_incomplete_odoo_result_fails_closed_with_409(signed_env, target):
     assert response.status_code == 409
 
 
+@BOTH_TARGETS
+def test_ill_typed_odoo_result_fails_closed_with_409(signed_env, target):
+    """Beide Routen muessen eine schemawidrige Odoo-Antwort als 409 abweisen --
+    nicht eine als 409 und die andere als 500."""
+    signed_env["o19-a"].response = (
+        {**CALLBACK_APPLIED, "sequence": "not-an-int"}
+        if target == CALLBACK_TARGET
+        else {**ACCEPT_PROCESS, "processing_lease_token": 12345}
+    )
+    body = body_for(target)
+    response = TestClient(app).post(
+        target, content=body, headers=signed_headers(body, target)
+    )
+    assert response.status_code == 409
+
+
+@BOTH_TARGETS
+def test_non_dict_odoo_result_fails_closed_with_409(signed_env, target):
+    signed_env["o19-a"].response = False
+    body = body_for(target)
+    response = TestClient(app).post(
+        target, content=body, headers=signed_headers(body, target)
+    )
+    assert response.status_code == 409
+
+
+def test_non_boolean_process_flag_fails_closed_with_409(signed_env):
+    """`process` steuert, ob n8n den Job wirklich ausfuehrt. Ein truthy String
+    aus Odoo darf nicht stillschweigend zu `True` werden."""
+    signed_env["o19-a"].response = {**ACCEPT_PROCESS, "process": "false"}
+    body = body_for(ACCEPT_TARGET)
+    response = TestClient(app).post(
+        ACCEPT_TARGET, content=body, headers=signed_headers(body, ACCEPT_TARGET)
+    )
+    assert response.status_code == 409
+
+
+@BOTH_TARGETS
+def test_unconfigured_keyring_fails_closed_with_503(signed_env, target):
+    """Ohne konfiguriertes n8n->Backend-Secret gibt es keinen Pfad zu einem
+    Default-Key: die Route antwortet 503 und ruft Odoo nicht auf (gleiches
+    Verhalten wie `require_n8n_callback_secret` fuer den Legacy-Pfad)."""
+    app.dependency_overrides.pop(get_n8n_to_backend_keyring, None)
+    body = body_for(target)
+    response = TestClient(app).post(
+        target, content=body, headers=signed_headers(body, target)
+    )
+    assert response.status_code == 503
+    assert no_odoo_calls(signed_env)
+
+
 def test_v2_router_has_no_browser_or_legacy_dependencies():
     """Regressionsgitter: keine der v2-Routen darf an Session-, CSRF-,
     Grace-Mode- oder Legacy-Secret-Abhaengigkeiten haengen."""
