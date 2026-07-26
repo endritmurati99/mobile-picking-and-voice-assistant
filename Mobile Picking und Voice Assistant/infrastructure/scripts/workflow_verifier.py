@@ -754,6 +754,36 @@ def _first_output_targets(connections: dict, source_name: str | None, output_ind
 
 
 def _reachable_node_names(connections: dict, start_names: list[str]) -> set[str]:
+    """Forward reachability across EVERY connection namespace (main, ai,
+    tool, memory, or any other n8n connection type), not just "main". A
+    node wired through a non-"main" namespace (e.g. an AI sub-node
+    attached via "ai") runs at execution time exactly like a "main"-wired
+    node; a reachability check that only looked at "main" would be
+    completely blind to it.
+    """
+    seen: set[str] = set()
+    queue = list(start_names)
+    while queue:
+        name = queue.pop()
+        if name in seen or not name:
+            continue
+        seen.add(name)
+        for connection_type_edges in (connections.get(name) or {}).values():
+            for output_edges in connection_type_edges or []:
+                for edge in output_edges or []:
+                    target = edge.get("node")
+                    if target and target not in seen:
+                        queue.append(target)
+    return seen
+
+
+def _reachable_node_names_main_only(connections: dict, start_names: list[str]) -> set[str]:
+    """Forward reachability restricted to the "main" execution namespace --
+    the legitimate, visible control-flow path. Used only to diff against
+    _reachable_node_names' every-namespace result, to surface any node
+    that is reachable ONLY through a non-"main" namespace and therefore
+    invisible to the ordinary "first node after X" checks.
+    """
     seen: set[str] = set()
     queue = list(start_names)
     while queue:
@@ -770,13 +800,17 @@ def _reachable_node_names(connections: dict, start_names: list[str]) -> set[str]
 
 
 def _reverse_adjacency(connections: dict) -> dict[str, set[str]]:
+    """Reverse adjacency across every connection namespace -- see
+    _reachable_node_names for why "main"-only would miss real edges.
+    """
     reverse: dict[str, set[str]] = {}
     for source_name, source_edges in connections.items():
-        for output_edges in (source_edges or {}).get("main") or []:
-            for edge in output_edges or []:
-                target = edge.get("node")
-                if target:
-                    reverse.setdefault(target, set()).add(source_name)
+        for connection_type_edges in (source_edges or {}).values():
+            for output_edges in connection_type_edges or []:
+                for edge in output_edges or []:
+                    target = edge.get("node")
+                    if target:
+                        reverse.setdefault(target, set()).add(source_name)
     return reverse
 
 
@@ -870,8 +904,27 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
     test_only=true specs; event/callback nodes referencing event_id,
     odoo_instance, and at least one delivery/lease/idempotency field; a
     Quality workflow never claiming image analysis from photo_count alone;
-    and Code/Set ("Edit Fields") nodes never embedding artifact or base64
-    content directly in item JSON.
+    Code/Set ("Edit Fields") nodes never embedding artifact or base64
+    content directly in item JSON; every node reachable from the Signature
+    Gate through ANY connection namespace (main, ai, tool, ...) -- not just
+    "main" -- must be on the ordinary main execution path; and every raw
+    HTTP Request node's resolved host must be in allowed_target_hosts, with
+    no third "unlisted host" case left unrejected.
+
+    KNOWN, ACCEPTED LIMITS (do not mistake this for a data-flow analyzer):
+    this module does static JSON/text substring matching, nothing more.
+    Two classes of bypass are known and explicitly out of scope until a
+    real fix is possible (a JS AST pass over Code-node bodies, or
+    verification against a live, executing workflow -- neither exists yet,
+    and no v2 workflow exists in the registry until Task 15 lands the
+    smoke workflow):
+      - Renamed/case-varied field names (e.g. "photoCount" instead of
+        "photo_count", or "eventId" instead of "event_id") silently dodge
+        every regex-based token check in this module.
+      - Content assembled at runtime rather than written as a literal in
+        node parameters (e.g. `['art','ifact','_data'].join('')`, or any
+        string built from an expression) is invisible to a text scan that
+        only ever sees the literal JSON the workflow file contains.
     """
     errors: list[str] = []
     nodes = workflow.get("nodes") or []
@@ -933,6 +986,27 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
                 "callback, or other business node may run first"
             )
 
+        # Nothing reachable from the gate may hide behind a non-"main"
+        # connection namespace (e.g. an "ai" sub-node wired straight off
+        # the gate): diff the every-namespace reachable set against the
+        # main-only one to find any such node.
+        all_reachable_from_gate = _reachable_node_names(connections, [gate.get("name")])
+        main_only_reachable_from_gate = _reachable_node_names_main_only(
+            connections, [gate.get("name")]
+        )
+        hidden_from_gate = sorted(
+            name
+            for name in (all_reachable_from_gate - main_only_reachable_from_gate)
+            if name in by_name
+        )
+        if hidden_from_gate:
+            errors.append(
+                f"{file_name}: node(s) {hidden_from_gate} are reachable from the "
+                "Signature Gate only through a non-'main' connection namespace "
+                "(e.g. 'ai'/'tool'); every node the gate can reach must be on the "
+                "ordinary main execution path so it is visible to verification"
+            )
+
     allowed_hosts = set(spec.get("allowed_target_hosts") or [])
     for node in nodes:
         if node.get("type") != HTTP_REQUEST_TYPE:
@@ -948,6 +1022,18 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
             errors.append(
                 f"{file_name}: node '{node.get('name')}' uses a raw HTTP Request node for "
                 f"internal target '{url}'; use PWR Signed HTTP Request instead"
+            )
+        else:
+            # Every other raw HTTP Request node -- whether its host could
+            # not be resolved at all, or resolved to a host that simply
+            # isn't in allowed_target_hosts -- must be rejected outright.
+            # There is no host a v2 workflow may reach through a raw HTTP
+            # Request node that isn't already covered by one of the two
+            # branches above.
+            errors.append(
+                f"{file_name}: node '{node.get('name')}' makes an outbound HTTP request "
+                f"to '{url}' whose resolved host is not in allowed_target_hosts "
+                f"{sorted(allowed_hosts)}"
             )
 
     for node in nodes:

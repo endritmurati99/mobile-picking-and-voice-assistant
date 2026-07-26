@@ -223,3 +223,37 @@ def test_v2_rejects_base64_content_in_code_node_item_json(v2_fixture, verify):
     })
     errors = verify(v2_fixture)
     assert any("artifact or base64" in error for error in errors)
+
+
+def test_v2_rejects_hidden_node_via_non_main_namespace(v2_fixture, verify):
+    # A model node hung directly off the Signature Gate through the "ai"
+    # connection namespace instead of "main" -- completely invisible to any
+    # reachability check that only ever looks at "main".
+    v2_fixture["nodes"].append({
+        "name": "Hidden Model",
+        "type": "n8n-nodes-base.httpRequest",
+        "parameters": {"url": "https://model.example/v1/classify"},
+    })
+    v2_fixture["connections"]["PWR Signature Gate"]["ai"] = [
+        [{"node": "Hidden Model", "type": "ai", "index": 0}]
+    ]
+    errors = verify(v2_fixture, ARTIFACT_SPEC)
+    assert any(
+        "Hidden Model" in error and "non-'main'" in error for error in errors
+    )
+
+
+def test_v2_rejects_unlisted_host_raw_http_node(v2_fixture, verify):
+    # A raw HTTP Request node pointing at a host that is neither the
+    # allowed internal "backend" host nor Odoo -- an unlisted external
+    # host must be rejected outright, not silently ignored.
+    v2_fixture["nodes"].append({
+        "name": "Carrier Call",
+        "type": "n8n-nodes-base.httpRequest",
+        "parameters": {"url": "https://carrier.example/v1/dispatch"},
+    })
+    errors = verify(v2_fixture)
+    assert any(
+        "Carrier Call" in error and "carrier.example" in error and "not in" in error
+        for error in errors
+    )
