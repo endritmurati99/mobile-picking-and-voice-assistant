@@ -158,6 +158,12 @@ class TestWatchdogAndAuditCleanup(IntegrationCase):
         self.assertEqual(outbox.state, "pending")
         self.assertEqual(outbox.envelope_text, '{"schema_version":"v2"}')
 
+    def test_watchdog_transition_rejects_terminal_job(self):
+        job, _outbox = self._enqueue("7")
+        job.write({"state": "succeeded"})
+        with self.assertRaises(ValidationError):
+            job._watchdog_retry_scheduled()
+
     def test_audit_cleanup_deletes_old_unheld_records(self):
         job, outbox = self._enqueue("6")
         old = fields.Datetime.now() - timedelta(days=100)

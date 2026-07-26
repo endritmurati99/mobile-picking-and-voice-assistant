@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from odoo import fields
+from odoo.exceptions import ValidationError
 
 from .common import IntegrationCase
 
@@ -52,3 +53,41 @@ class TestJobOutboxTransaction(IntegrationCase):
         )
         self.assertEqual(failed["attempt_count"], 1)
         self.assertEqual(failed["retry_after_seconds"], 10)
+
+    def test_expired_lease_holder_cannot_ack_or_nack(self):
+        self._enqueue("1")
+        model = self.env["picking.assistant.outbox"].with_user(self.api_user)
+        leased = model.api_lease_due("worker-a", limit=1, lease_seconds=60)
+        event_id = leased[0]["event_id"]
+        outbox = self.env["picking.assistant.outbox"].search(
+            [("event_id", "=", event_id)]
+        )
+        outbox.write(
+            {"lease_expires_at": fields.Datetime.now() - timedelta(seconds=1)}
+        )
+        with self.assertRaises(ValidationError):
+            model.api_ack_delivery(event_id, "worker-a", event_id)
+        with self.assertRaises(ValidationError):
+            model.api_nack_delivery(event_id, "worker-a", "timeout", "too late")
+        self.assertEqual(outbox.state, "leased")
+        self.assertFalse(outbox.delivered_at)
+
+    def test_stale_owner_cannot_overwrite_newer_lease(self):
+        self._enqueue("1")
+        model = self.env["picking.assistant.outbox"].with_user(self.api_user)
+        first = model.api_lease_due("worker-a", limit=1, lease_seconds=60)
+        event_id = first[0]["event_id"]
+        outbox = self.env["picking.assistant.outbox"].search(
+            [("event_id", "=", event_id)]
+        )
+        outbox.write(
+            {"lease_expires_at": fields.Datetime.now() - timedelta(seconds=1)}
+        )
+        second = model.api_lease_due("worker-b", limit=1, lease_seconds=60)
+        self.assertEqual(second[0]["event_id"], event_id)
+        with self.assertRaises(ValidationError):
+            model.api_ack_delivery(event_id, "worker-a", event_id)
+        with self.assertRaises(ValidationError):
+            model.api_nack_delivery(event_id, "worker-a", "timeout", "stale owner")
+        self.assertEqual(outbox.lease_owner, "worker-b")
+        self.assertEqual(outbox.state, "leased")

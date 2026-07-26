@@ -170,6 +170,26 @@ class PickingAssistantIntegrationJob(models.Model):
             values["processing_lease_expires_at"] = False
         self.write(values)
 
+    def _watchdog_retry_scheduled(self):
+        """Validated watchdog recovery edge. A processing lease can expire
+        before the first callback, so queued (not only running) jobs must be
+        recoverable; TRANSITIONS has no queued -> retry_scheduled edge, hence
+        this dedicated, explicitly validated transition instead of a raw
+        state write."""
+        self.ensure_one()
+        if self.state not in ("queued", "running"):
+            raise ValidationError(
+                f"Illegal watchdog recovery from {self.state}."
+            )
+        self.write(
+            {
+                "state": "retry_scheduled",
+                "delivery_generation": self.delivery_generation + 1,
+                "processing_lease_token": False,
+                "processing_lease_expires_at": False,
+            }
+        )
+
     # ------------------------------------------------------------------
     # Crons
     # ------------------------------------------------------------------
@@ -193,42 +213,69 @@ class PickingAssistantIntegrationJob(models.Model):
         receipts.flush_model()
         self.sudo().flush_model()
         outboxes.flush_model()
+        # Candidate scan without locks; each candidate is then locked in the
+        # SAME order api_apply_callback uses (job first, then receipt) to
+        # avoid lock-order inversion, and re-validated under the lock.
         self.env.cr.execute(
-            "SELECT id FROM picking_assistant_event_receipt "
+            "SELECT id, job_record_id FROM picking_assistant_event_receipt "
             "WHERE state = 'processing' AND processing_lease_expires_at <= %s "
-            "ORDER BY processing_lease_expires_at, id "
-            "FOR UPDATE SKIP LOCKED LIMIT %s",
+            "ORDER BY processing_lease_expires_at, id LIMIT %s",
             (now, max(1, int(limit))),
         )
-        ids = [row[0] for row in self.env.cr.fetchall()]
+        candidates = self.env.cr.fetchall()
         recovered = 0
-        for receipt in receipts.browse(ids):
-            job = receipt.job_record_id.sudo()
-            receipt.write(
-                {
-                    "state": "retryable",
-                    "processing_lease_token": False,
-                    "processing_lease_expires_at": False,
-                }
+        for receipt_id, job_record_id in candidates:
+            self.env.cr.execute(
+                "SELECT id FROM picking_assistant_integration_job "
+                "WHERE id = %s FOR UPDATE SKIP LOCKED",
+                (job_record_id,),
             )
-            values = {
-                "delivery_generation": job.delivery_generation + 1,
-                "processing_lease_token": False,
-                "processing_lease_expires_at": False,
-            }
+            if not self.env.cr.fetchone():
+                continue
+            self.env.cr.execute(
+                "SELECT id FROM picking_assistant_event_receipt "
+                "WHERE id = %s AND state = 'processing' "
+                "AND processing_lease_expires_at <= %s "
+                "FOR UPDATE SKIP LOCKED",
+                (receipt_id, now),
+            )
+            if not self.env.cr.fetchone():
+                continue
+            receipt = receipts.browse(receipt_id)
+            job = self.sudo().browse(job_record_id)
+            receipt.invalidate_recordset()
+            job.invalidate_recordset()
             if job.state in ("queued", "running"):
-                values["state"] = "retry_scheduled"
-            job.write(values)
-            outbox = outboxes.search(
-                [("event_id", "=", receipt.event_id)], limit=1
-            )
-            if outbox:
-                outbox.write(
+                job._watchdog_retry_scheduled()
+                receipt.write(
                     {
-                        "state": "pending",
-                        "next_attempt_at": now,
-                        "lease_owner": False,
-                        "lease_expires_at": False,
+                        "state": "retryable",
+                        "processing_lease_token": False,
+                        "processing_lease_expires_at": False,
+                    }
+                )
+                outbox = outboxes.search(
+                    [("event_id", "=", receipt.event_id)], limit=1
+                )
+                if outbox:
+                    outbox.write(
+                        {
+                            "state": "pending",
+                            "next_attempt_at": now,
+                            "lease_owner": False,
+                            "lease_expires_at": False,
+                        }
+                    )
+            else:
+                # Job already terminal/retry_scheduled: only release the
+                # stale receipt lease, never touch generation or outbox.
+                receipt.write(
+                    {
+                        "state": "completed"
+                        if job.state in TERMINAL_STATES
+                        else "retryable",
+                        "processing_lease_token": False,
+                        "processing_lease_expires_at": False,
                     }
                 )
             recovered += 1

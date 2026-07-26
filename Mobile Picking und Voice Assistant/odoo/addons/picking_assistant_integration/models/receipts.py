@@ -71,13 +71,16 @@ class PickingAssistantWebhookNonce(models.Model):
                 record.flush_recordset()
             return record
         except IntegrityError:
-            # Re-read only to classify the conflict, then always reject.
+            # Re-read only to classify the conflict: a replay is rejected,
+            # anything else (unrelated constraint failure) is re-raised.
             self.env.cr.execute(
                 "SELECT id FROM picking_assistant_webhook_nonce "
                 "WHERE direction = %s AND key_id = %s AND nonce = %s",
                 (direction, key_id, nonce),
             )
-            raise ValidationError("Webhook nonce replay.")
+            if self.env.cr.fetchone():
+                raise ValidationError("Webhook nonce replay.")
+            raise
 
     @api.model
     def api_reserve_request_nonce(self, direction, key_id, nonce, event_id=False):
@@ -263,8 +266,10 @@ class PickingAssistantCallbackReceipt(models.Model):
 
     def _store_response(self, job, callback_id, source_event_id, sequence,
                         fingerprint, response):
-        """Persist the deterministic response in the same transaction as the
-        job change. A (job, sequence) collision means sequence reuse."""
+        """Persist the deterministic response for the no-mutation
+        (ignored_stale) path. A (job, sequence) collision means sequence
+        reuse; applied callbacks store inside the mutation savepoint in
+        api_apply_callback instead."""
         try:
             with self.env.cr.savepoint():
                 record = self.sudo().create(
@@ -281,6 +286,7 @@ class PickingAssistantCallbackReceipt(models.Model):
                 record.flush_recordset()
             return record
         except IntegrityError:
+            self.env.invalidate_all()
             existing = self.sudo().search(
                 [("callback_id", "=", callback_id)], limit=1
             )
@@ -380,92 +386,120 @@ class PickingAssistantCallbackReceipt(models.Model):
 
         if job.state in TERMINAL_STATES:
             raise ValidationError("Job is terminal and cannot reopen.")
-        if status == "running":
-            if job.state in ("queued", "retry_scheduled"):
-                job._transition(
-                    "running",
-                    sequence=sequence,
-                    result=result,
-                    error=error,
-                    metrics=metrics,
-                )
-            else:  # already running: accept the higher sequence
-                job.write({"sequence": sequence})
-            lease_expires = now + timedelta(seconds=PROCESSING_LEASE_SECONDS)
-            receipt.write(
-                {
-                    "processing_lease_expires_at": lease_expires,
-                    "last_received_at": now,
+        # The job mutation and the callback receipt insert share ONE
+        # savepoint: if a concurrent callback wins the unique callback-id /
+        # (job, sequence) race, the loser's job change rolls back with it
+        # instead of surviving next to the winner's stored response.
+        try:
+            with self.env.cr.savepoint():
+                if status == "running":
+                    if job.state in ("queued", "retry_scheduled"):
+                        job._transition(
+                            "running",
+                            sequence=sequence,
+                            result=result,
+                            error=error,
+                            metrics=metrics,
+                        )
+                    else:  # already running: accept the higher sequence
+                        job.write({"sequence": sequence})
+                    lease_expires = now + timedelta(
+                        seconds=PROCESSING_LEASE_SECONDS
+                    )
+                    receipt.write(
+                        {
+                            "processing_lease_expires_at": lease_expires,
+                            "last_received_at": now,
+                        }
+                    )
+                    job.write({"processing_lease_expires_at": lease_expires})
+                elif status in TERMINAL_STATES:
+                    if job.state in ("queued", "retry_scheduled"):
+                        job._transition("running", sequence=sequence)
+                    job._transition(
+                        status,
+                        sequence=sequence,
+                        result=result,
+                        error=error,
+                        metrics=metrics,
+                    )
+                    job.write({"processing_lease_token": False})
+                    receipt.write(
+                        {
+                            "state": "completed",
+                            "processing_lease_token": False,
+                            "processing_lease_expires_at": False,
+                            "last_received_at": now,
+                        }
+                    )
+                else:  # retry_scheduled
+                    if job.state == "queued":
+                        job._transition("running", sequence=sequence)
+                    job._transition(
+                        "retry_scheduled",
+                        sequence=sequence,
+                        result=result,
+                        error=error,
+                        metrics=metrics,
+                    )
+                    job.write(
+                        {
+                            "delivery_generation": job.delivery_generation + 1,
+                            "processing_lease_token": False,
+                            "processing_lease_expires_at": False,
+                        }
+                    )
+                    receipt.write(
+                        {
+                            "state": "retryable",
+                            "processing_lease_token": False,
+                            "processing_lease_expires_at": False,
+                            "delivery_generation": job.delivery_generation,
+                            "last_received_at": now,
+                        }
+                    )
+                    outbox = self.env["picking.assistant.outbox"].sudo().search(
+                        [("event_id", "=", source_event_id)], limit=1
+                    )
+                    if outbox:
+                        # Same event returns to pending, envelope unchanged.
+                        outbox.write(
+                            {
+                                "state": "pending",
+                                "next_attempt_at": now,
+                                "lease_owner": False,
+                                "lease_expires_at": False,
+                            }
+                        )
+                response = {
+                    "status": "applied",
+                    "callback_id": callback_id,
+                    "job_id": job.job_id,
+                    "sequence": sequence,
+                    "job_state": job.state,
                 }
-            )
-            job.write({"processing_lease_expires_at": lease_expires})
-        elif status in TERMINAL_STATES:
-            if job.state in ("queued", "retry_scheduled"):
-                job._transition("running", sequence=sequence)
-            job._transition(
-                status,
-                sequence=sequence,
-                result=result,
-                error=error,
-                metrics=metrics,
-            )
-            job.write({"processing_lease_token": False})
-            receipt.write(
-                {
-                    "state": "completed",
-                    "processing_lease_token": False,
-                    "processing_lease_expires_at": False,
-                    "last_received_at": now,
-                }
-            )
-        else:  # retry_scheduled
-            if job.state == "queued":
-                job._transition("running", sequence=sequence)
-            job._transition(
-                "retry_scheduled",
-                sequence=sequence,
-                result=result,
-                error=error,
-                metrics=metrics,
-            )
-            job.write(
-                {
-                    "delivery_generation": job.delivery_generation + 1,
-                    "processing_lease_token": False,
-                    "processing_lease_expires_at": False,
-                }
-            )
-            receipt.write(
-                {
-                    "state": "retryable",
-                    "processing_lease_token": False,
-                    "processing_lease_expires_at": False,
-                    "delivery_generation": job.delivery_generation,
-                    "last_received_at": now,
-                }
-            )
-            outbox = self.env["picking.assistant.outbox"].sudo().search(
-                [("event_id", "=", source_event_id)], limit=1
-            )
-            if outbox:
-                # Same event returns to pending with unchanged envelope_text.
-                outbox.write(
+                record = self.sudo().create(
                     {
-                        "state": "pending",
-                        "next_attempt_at": now,
-                        "lease_owner": False,
-                        "lease_expires_at": False,
+                        "callback_id": callback_id,
+                        "source_event_id": source_event_id,
+                        "job_record_id": job.id,
+                        "sequence": sequence,
+                        "fingerprint": callback_fingerprint,
+                        "response_status": 200,
+                        "response_body": json.dumps(response, sort_keys=True),
                     }
                 )
-        response = {
-            "status": "applied",
-            "callback_id": callback_id,
-            "job_id": job.job_id,
-            "sequence": sequence,
-            "job_state": job.state,
-        }
-        self._store_response(
-            job, callback_id, source_event_id, sequence,
-            callback_fingerprint, response,
-        )
+                record.flush_recordset()
+        except IntegrityError:
+            # Loser of the identity race: the savepoint rolled the job
+            # mutation back. Drop rolled-back cache, then classify.
+            self.env.invalidate_all()
+            existing = self.sudo().search(
+                [("callback_id", "=", callback_id)], limit=1
+            )
+            if existing:
+                if existing.fingerprint != callback_fingerprint:
+                    raise ValidationError("Callback fingerprint conflict.")
+                return json.loads(existing.response_body)
+            raise ValidationError("Callback sequence conflict.")
         return response

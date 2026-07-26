@@ -97,11 +97,27 @@ class PickingAssistantOutbox(models.Model):
         ]
 
     def _owned_lease(self, event_id, worker_id):
-        record = self.sudo().search([("event_id", "=", event_id)], limit=1)
+        """Lock the outbox row, then verify ownership AND that the lease is
+        still live. Checking without the lock (or without expiry) would let an
+        expired or superseded worker overwrite a newer worker's lease."""
+        self.sudo().flush_model()
+        self.env.cr.execute(
+            "SELECT id FROM picking_assistant_outbox "
+            "WHERE event_id = %s FOR UPDATE",
+            (event_id,),
+        )
+        row = self.env.cr.fetchone()
+        if not row:
+            raise ValidationError("Outbox lease is not owned by this worker.")
+        record = self.sudo().browse(row[0])
+        # Ownership may have changed between our cache read and the lock.
+        record.invalidate_recordset()
+        now = fields.Datetime.now()
         if (
-            not record
-            or record.state != "leased"
+            record.state != "leased"
             or record.lease_owner != worker_id
+            or not record.lease_expires_at
+            or record.lease_expires_at <= now
         ):
             raise ValidationError("Outbox lease is not owned by this worker.")
         return record
