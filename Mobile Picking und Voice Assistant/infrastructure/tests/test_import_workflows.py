@@ -314,14 +314,17 @@ def test_activate_test_verifies_before_publishing(docker_harness):
     )
     assert result.returncode == 0, result.stderr
 
+    # Exact sequence with counts, not just set-membership: a set-membership
+    # check ("only these kinds may appear") cannot notice a DUPLICATE of an
+    # otherwise-allowed operation -- a second publish, a second
+    # credential_verify, an extra healthcheck poll -- since duplicates
+    # don't add anything new to the set. Every legitimate call in this
+    # scenario happens exactly once, in exactly this order.
     ops = docker_harness["log_ops"]()
-    assert ops.index("credential_verify") < ops.index("publish"), (
-        "credential verification must be logged before any publish call"
+    assert ops == ["credential_verify", "healthcheck", "export_all", "publish"], (
+        f"expected exactly one credential_verify, healthcheck, export_all, then "
+        f"publish, in that order and no more; got {ops}"
     )
-    # The forbidden set for this scenario: only the four allowed kinds may
-    # ever appear, never unpublish/restart/unknown.
-    assert set(ops) <= {"credential_verify", "healthcheck", "export_all", "publish"}
-    assert "unpublish" not in ops and "restart" not in ops
 
     manifest_file = docker_harness["backup_dir"] / "activate-test-run-harness-1.json"
     assert manifest_file.exists()
@@ -349,6 +352,8 @@ def test_deactivate_test_restores_and_removes_manifest(docker_harness):
         allowed_ops=ACTIVATE_TEST_ALLOWED_OPS,
     )
     assert activate_result.returncode == 0, activate_result.stderr
+    # Exact sequence, not just membership, on the activation leg too.
+    assert docker_harness["log_ops"]() == ["credential_verify", "healthcheck", "export_all", "publish"]
     ops_after_activate = len(docker_harness["log_ops"]())
 
     # previous_active was False, so exactly one "unpublish" is legitimate
@@ -375,6 +380,8 @@ def test_deactivate_test_refuses_mismatched_file_without_touching_docker(docker_
         allowed_ops=ACTIVATE_TEST_ALLOWED_OPS,
     )
     assert activate_result.returncode == 0, activate_result.stderr
+    # Exact sequence, not just membership, on the activation leg too.
+    assert docker_harness["log_ops"]() == ["credential_verify", "healthcheck", "export_all", "publish"]
 
     before_lines = len(docker_harness["log_lines"]())
 
