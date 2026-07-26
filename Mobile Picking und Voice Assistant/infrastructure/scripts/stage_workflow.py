@@ -24,10 +24,21 @@ def stage_workflow(
     source: dict,
     *,
     bindings: list[dict],
-    credential_index: dict[tuple[str, str], dict | None],
+    credential_index: dict[tuple[str, str], list[dict]],
     existing_workflow_id: str | None,
     error_workflow_id: str | None,
 ) -> dict:
+    """Stage a workflow for import.
+
+    ``credential_index`` maps (logical_name, credential_type) to the list of
+    *candidate* credentials found for that key -- mirroring how the Node
+    credential resolver (indexCredentials) represents candidates, rather
+    than a single pre-resolved value. stage_workflow performs its own
+    "exactly one" check here, so it fails closed both when a binding has no
+    matching credential at all AND when it finds more than one candidate
+    and cannot disambiguate -- it never trusts an upstream caller to have
+    already deduplicated.
+    """
     staged = deepcopy(source)
     staged["id"] = existing_workflow_id or staged.get("id") or uuid4().hex
     staged["active"] = False
@@ -40,16 +51,13 @@ def stage_workflow(
             binding["logical_name"],
             binding["credential_type"],
         )
-        credential = credential_index.get(lookup)
-        if not credential:
-            # Fails closed both when no credential was found at all, and
-            # when credential resolution upstream found more than one
-            # candidate for this (logical_name, credential_type) and could
-            # not disambiguate -- both cases are represented here as an
-            # absent/None entry, and both must refuse to stage the workflow.
+        candidates = credential_index.get(lookup) or []
+        if len(candidates) != 1:
             raise ValueError(
-                f"expected exactly one credential for {binding['logical_name']}"
+                f"expected exactly one credential for {binding['logical_name']}, "
+                f"found {len(candidates)}"
             )
+        credential = candidates[0]
         node.setdefault("credentials", {})[binding["credential_type"]] = {
             "id": credential["id"],
             "name": credential["name"],
@@ -135,17 +143,28 @@ def build_restoration_manifest(
     }
 
 
-def restore_from_manifest(manifest: dict[str, Any], *, run_id: str) -> bool:
+def restore_from_manifest(
+    manifest: dict[str, Any], *, run_id: str, file_name: str | None = None
+) -> bool:
     """Validate a deactivate-test restoration manifest and return the
     ``active`` state that must be restored.
 
     A missing or mismatched run_id is a hard failure: it means the caller
     is not the same live-smoke run that performed the activation, so we
-    refuse to guess and restore nothing.
+    refuse to guess and restore nothing. A caller-supplied file_name that
+    does not match the manifest's own file is likewise a hard failure: it
+    means the operator asked to restore a different workflow than the one
+    this manifest actually activated, so we refuse rather than restoring
+    the wrong workflow under the right RUN_ID.
     """
     if not run_id or manifest.get("run_id") != run_id:
         raise ActivationError(
             "deactivate-test refused: run_id does not match the restoration manifest"
+        )
+    if file_name is not None and manifest.get("file") != file_name:
+        raise ActivationError(
+            f"deactivate-test refused: requested file '{file_name}' does not match "
+            f"the restoration manifest's file '{manifest.get('file')}'"
         )
     return bool(manifest.get("previous_active"))
 
@@ -190,8 +209,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     restore = subparsers.add_parser(
         "restore-from-manifest",
-        help="Read {manifest, run_id} JSON on stdin; print 'true'/'false' for "
-        "the active state to restore, or exit 1 on a run_id mismatch.",
+        help="Read {manifest, run_id, file_name} JSON on stdin; print "
+        "'true'/'false' for the active state to restore, or exit 1 on a "
+        "run_id or file_name mismatch.",
     )
     restore.set_defaults(command="restore-from-manifest")
 
@@ -205,10 +225,14 @@ def main(argv: list[str] | None = None) -> int:
         payload = _read_json_stdin()
         if args.command == "stage":
             # Wire format for credential_index: a list of
-            # {"logical_name", "credential_type", "credential"} rows, since
-            # JSON object keys cannot carry the (name, type) tuple directly.
-            credential_index: dict[tuple[str, str], dict | None] = {
-                (row["logical_name"], row["credential_type"]): row.get("credential")
+            # {"logical_name", "credential_type", "credentials"} rows (JSON
+            # object keys cannot carry the (name, type) tuple directly).
+            # "credentials" is itself a list of every candidate found for
+            # that key, so a real duplicate (more than one candidate) is
+            # representable and stage_workflow's own "exactly one" check
+            # actually has something to reject.
+            credential_index: dict[tuple[str, str], list[dict]] = {
+                (row["logical_name"], row["credential_type"]): row.get("credentials") or []
                 for row in payload["credential_index"]
             }
             result = stage_workflow(
@@ -235,7 +259,9 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(build_restoration_manifest(**payload)))
         elif args.command == "restore-from-manifest":
             active = restore_from_manifest(
-                payload["manifest"], run_id=payload.get("run_id")
+                payload["manifest"],
+                run_id=payload.get("run_id"),
+                file_name=payload.get("file_name"),
             )
             print("true" if active else "false")
         else:  # pragma: no cover - argparse enforces valid choices

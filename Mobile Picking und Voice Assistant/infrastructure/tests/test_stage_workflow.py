@@ -25,11 +25,11 @@ def test_injects_ids_only_into_staged_copy(tmp_path):
         source,
         bindings=bindings,
         credential_index={
-            ("pwr.v2.inbound-header", "httpHeaderAuth"): {
+            ("pwr.v2.inbound-header", "httpHeaderAuth"): [{
                 "id": "credential-id",
                 "name": "pwr.v2.inbound-header",
                 "type": "httpHeaderAuth",
-            }
+            }]
         },
         existing_workflow_id="workflow-id",
         error_workflow_id=None,
@@ -60,11 +60,11 @@ def test_missing_credential_fails_closed():
 
 
 def test_duplicate_credential_fails_closed():
-    # A duplicate match is represented upstream as more than one candidate
-    # for the same (logical_name, credential_type) key; the credential index
-    # passed into stage_workflow is expected to already be resolved to at
-    # most one entry per key, so a duplicate must fail exactly like a
-    # missing credential -- fail closed, never guess which one to use.
+    # A real duplicate: two distinct candidates were found upstream for the
+    # exact same (logical_name, credential_type) key. stage_workflow must
+    # refuse this exactly like a missing credential -- fail closed, never
+    # guess which one to use. This drives the actual "more than one
+    # candidate" branch, not a stand-in sentinel value.
     with pytest.raises(ValueError, match="exactly one credential"):
         stage_workflow(
             {"name": "x", "nodes": [{"name": "Webhook"}]},
@@ -74,7 +74,10 @@ def test_duplicate_credential_fails_closed():
                 "logical_name": "pwr.v2.inbound-header",
             }],
             credential_index={
-                ("pwr.v2.inbound-header", "httpHeaderAuth"): None,
+                ("pwr.v2.inbound-header", "httpHeaderAuth"): [
+                    {"id": "candidate-a", "name": "pwr.v2.inbound-header"},
+                    {"id": "candidate-b", "name": "pwr.v2.inbound-header"},
+                ],
             },
             existing_workflow_id=None,
             error_workflow_id=None,
