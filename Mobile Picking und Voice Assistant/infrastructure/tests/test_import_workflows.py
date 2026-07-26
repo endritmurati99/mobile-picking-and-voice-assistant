@@ -153,25 +153,37 @@ def test_import_workflows_script_has_valid_syntax():
 # ---------------------------------------------------------------------------
 
 FAKE_DOCKER_SCRIPT = r"""#!/usr/bin/env bash
+# Every invocation is classified into an operation kind, logged as
+# "kind|full argv" (so tests can assert on the *kind*, not fragile
+# substring matching on the whole command line), and then checked against
+# DOCKER_MOCK_ALLOWED_OPS -- a comma-separated allowlist the test sets for
+# the exact scenario under test. Any operation kind not on that allowlist
+# is a hard failure (not merely unlogged), so an unauthorized or duplicate
+# operation on a success path aborts the run instead of silently passing.
 set -euo pipefail
-echo "$*" >> "$DOCKER_MOCK_LOG"
 args="$*"
 case "$args" in
-  *"sh -lc"*"wget -qO-"*)
-    exit 0
-    ;;
-  *"sh -lc"*"export:workflow --all"*)
-    cat "$DOCKER_MOCK_STATE_DIR/export-all.json"
-    ;;
-  *"node "*"verify"*)
-    cat "$DOCKER_MOCK_STATE_DIR/credential-metadata.json"
-    ;;
-  *"publish:workflow"*|*"unpublish:workflow"*)
-    exit 0
-    ;;
-  *"restart n8n"*)
-    exit 0
-    ;;
+  *"unpublish:workflow"*) op="unpublish" ;;
+  *"publish:workflow"*) op="publish" ;;
+  *"sh -lc"*"wget -qO-"*) op="healthcheck" ;;
+  *"sh -lc"*"export:workflow --all"*) op="export_all" ;;
+  *"node "*"verify"*) op="credential_verify" ;;
+  *"restart n8n"*) op="restart" ;;
+  *) op="unknown" ;;
+esac
+echo "$op|$args" >> "$DOCKER_MOCK_LOG"
+
+allowed=",${DOCKER_MOCK_ALLOWED_OPS:-},"
+if [[ "$allowed" != *",$op,"* ]]; then
+  echo "FORBIDDEN fake docker op '$op' (allowed: ${DOCKER_MOCK_ALLOWED_OPS:-<none>}): $args" >&2
+  exit 1
+fi
+
+case "$op" in
+  healthcheck) exit 0 ;;
+  export_all) cat "$DOCKER_MOCK_STATE_DIR/export-all.json" ;;
+  credential_verify) cat "$DOCKER_MOCK_STATE_DIR/credential-metadata.json" ;;
+  publish|unpublish|restart) exit 0 ;;
   *)
     echo "unhandled fake docker invocation: $args" >&2
     exit 1
@@ -257,11 +269,19 @@ def docker_harness(tmp_path):
     env["DOCKER_MOCK_LOG"] = str(docker_log)
     env["DOCKER_MOCK_STATE_DIR"] = str(state_dir)
 
-    def run(*args):
+    def run(*args, allowed_ops=""):
+        # allowed_ops is the exact, explicit set of docker operation kinds
+        # legitimate for THIS call in THIS scenario (e.g.
+        # "credential_verify,healthcheck,export_all,publish"). Anything
+        # else the script tries to do through "docker" is a hard failure,
+        # not silently accepted -- this is what lets the assertions below
+        # check the forbidden set, not only the expected one.
         script = ROOT / "infrastructure/scripts/import-workflows.sh"
+        call_env = dict(env)
+        call_env["DOCKER_MOCK_ALLOWED_OPS"] = allowed_ops
         return subprocess.run(
             ["bash", str(script), *args],
-            env=env, cwd=str(ROOT), capture_output=True, text=True, timeout=30,
+            env=call_env, cwd=str(ROOT), capture_output=True, text=True, timeout=30,
         )
 
     def log_lines():
@@ -269,19 +289,39 @@ def docker_harness(tmp_path):
             line for line in docker_log.read_text(encoding="utf-8").splitlines() if line
         ]
 
-    return {"run": run, "log_lines": log_lines, "backup_dir": backup_dir}
+    def log_ops():
+        return [line.split("|", 1)[0] for line in log_lines()]
+
+    return {
+        "run": run,
+        "log_lines": log_lines,
+        "log_ops": log_ops,
+        "backup_dir": backup_dir,
+    }
+
+
+# The exact, explicit operation set legitimate for a successful
+# activate-test call: credential verification, the healthcheck poll, one
+# state export, and exactly one publish. Nothing else -- in particular
+# neither "unpublish" nor "restart" -- may ever appear on this path.
+ACTIVATE_TEST_ALLOWED_OPS = "credential_verify,healthcheck,export_all,publish"
 
 
 def test_activate_test_verifies_before_publishing(docker_harness):
-    result = docker_harness["run"]("activate-test", str(docker_harness["backup_dir"]), "smoke-test.json", "run-harness-1")
+    result = docker_harness["run"](
+        "activate-test", str(docker_harness["backup_dir"]), "smoke-test.json", "run-harness-1",
+        allowed_ops=ACTIVATE_TEST_ALLOWED_OPS,
+    )
     assert result.returncode == 0, result.stderr
 
-    lines = docker_harness["log_lines"]()
-    verify_index = next(i for i, line in enumerate(lines) if "verify" in line and "node " in line)
-    publish_index = next(i for i, line in enumerate(lines) if "publish:workflow" in line and "unpublish" not in line)
-    assert verify_index < publish_index, (
-        "credential verification must be logged before any publish:workflow call"
+    ops = docker_harness["log_ops"]()
+    assert ops.index("credential_verify") < ops.index("publish"), (
+        "credential verification must be logged before any publish call"
     )
+    # The forbidden set for this scenario: only the four allowed kinds may
+    # ever appear, never unpublish/restart/unknown.
+    assert set(ops) <= {"credential_verify", "healthcheck", "export_all", "publish"}
+    assert "unpublish" not in ops and "restart" not in ops
 
     manifest_file = docker_harness["backup_dir"] / "activate-test-run-harness-1.json"
     assert manifest_file.exists()
@@ -292,8 +332,12 @@ def test_activate_test_verifies_before_publishing(docker_harness):
 
 
 def test_activate_test_refuses_unregistered_file_without_touching_docker(docker_harness):
+    # allowed_ops="" (nothing at all): if the script tried any docker
+    # operation here, the fake docker itself would hard-fail it, backstopping
+    # the assertion that the log stays completely empty.
     result = docker_harness["run"](
-        "activate-test", str(docker_harness["backup_dir"]), "not-a-real-workflow.json", "run-harness-2"
+        "activate-test", str(docker_harness["backup_dir"]), "not-a-real-workflow.json", "run-harness-2",
+        allowed_ops="",
     )
     assert result.returncode != 0
     assert docker_harness["log_lines"]() == []
@@ -301,34 +345,45 @@ def test_activate_test_refuses_unregistered_file_without_touching_docker(docker_
 
 def test_deactivate_test_restores_and_removes_manifest(docker_harness):
     activate_result = docker_harness["run"](
-        "activate-test", str(docker_harness["backup_dir"]), "smoke-test.json", "run-harness-3"
+        "activate-test", str(docker_harness["backup_dir"]), "smoke-test.json", "run-harness-3",
+        allowed_ops=ACTIVATE_TEST_ALLOWED_OPS,
     )
     assert activate_result.returncode == 0, activate_result.stderr
+    ops_after_activate = len(docker_harness["log_ops"]())
 
+    # previous_active was False, so exactly one "unpublish" is legitimate
+    # here -- nothing else. In particular no re-verification and no
+    # "publish" (that would mean it restored to the wrong state).
     deactivate_result = docker_harness["run"](
-        "deactivate-test", str(docker_harness["backup_dir"]), "smoke-test.json", "run-harness-3"
+        "deactivate-test", str(docker_harness["backup_dir"]), "smoke-test.json", "run-harness-3",
+        allowed_ops="unpublish",
     )
     assert deactivate_result.returncode == 0, deactivate_result.stderr
 
     manifest_file = docker_harness["backup_dir"] / "activate-test-run-harness-3.json"
     assert not manifest_file.exists(), "manifest must be removed after a successful deactivate-test"
 
-    lines = docker_harness["log_lines"]()
-    assert any("unpublish:workflow" in line for line in lines), (
-        "previous_active was False, so deactivate-test must unpublish"
+    new_ops = docker_harness["log_ops"]()[ops_after_activate:]
+    assert new_ops == ["unpublish"], (
+        f"deactivate-test must do exactly one unpublish and nothing else, got {new_ops}"
     )
 
 
 def test_deactivate_test_refuses_mismatched_file_without_touching_docker(docker_harness):
     activate_result = docker_harness["run"](
-        "activate-test", str(docker_harness["backup_dir"]), "smoke-test.json", "run-harness-4"
+        "activate-test", str(docker_harness["backup_dir"]), "smoke-test.json", "run-harness-4",
+        allowed_ops=ACTIVATE_TEST_ALLOWED_OPS,
     )
     assert activate_result.returncode == 0, activate_result.stderr
 
     before_lines = len(docker_harness["log_lines"]())
 
+    # allowed_ops="": a file/RUN_ID mismatch must be refused before ANY
+    # docker call -- publish, unpublish, or otherwise. If the script tried
+    # one anyway, the fake docker would hard-fail it.
     deactivate_result = docker_harness["run"](
-        "deactivate-test", str(docker_harness["backup_dir"]), "a-different-file.json", "run-harness-4"
+        "deactivate-test", str(docker_harness["backup_dir"]), "a-different-file.json", "run-harness-4",
+        allowed_ops="",
     )
     assert deactivate_result.returncode != 0
 
