@@ -11,7 +11,10 @@ MODE="${1:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 COMPOSE_FILE="${COMPOSE_FILE:-$ROOT_DIR/docker-compose.yml}"
-WORKFLOW_DIR="$ROOT_DIR/n8n/workflows"
+WORKFLOW_DIR="${WORKFLOW_DIR:-$ROOT_DIR/n8n/workflows}"
+# Overridable so tests can point at a synthetic registry/workflow-dir pair
+# without touching the real one; the real script always uses the default.
+REGISTRY_PATH="${REGISTRY_PATH:-$ROOT_DIR/n8n/workflow-registry.json}"
 BACKUP_ROOT="$ROOT_DIR/n8n/backups"
 TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/n8n-import.XXXXXX")"
 REGISTRY_PY="$SCRIPT_DIR/workflow_registry.py"
@@ -53,7 +56,7 @@ EOF
 }
 
 registry_query() {
-  python "$REGISTRY_PY" "$@"
+  python "$REGISTRY_PY" --registry "$REGISTRY_PATH" "$@"
 }
 
 managed_files() {
@@ -73,16 +76,8 @@ credential_bindings_json() {
   registry_query credential-bindings "$file_name"
 }
 
-workflow_name_for_file() {
-  local file_name="$1"
-  python - "$ROOT_DIR/n8n/workflows/$file_name" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], encoding="utf-8") as handle:
-    data = json.load(handle)
-print(data.get("name") or "")
-PY
+error_trigger_file() {
+  registry_query error-trigger-file | python -c 'import json,sys; print(json.load(sys.stdin))'
 }
 
 stage_py() {
@@ -161,7 +156,7 @@ TARGETS = {}
 for file_name in """$(managed_files)""".splitlines():
     if not file_name:
         continue
-    TARGETS[file_name] = "$ROOT_DIR/n8n/workflows/" + file_name
+    TARGETS[file_name] = "$WORKFLOW_DIR/" + file_name
 
 names_by_file = {}
 for file_name, path in TARGETS.items():
@@ -482,18 +477,28 @@ import_workflows() {
   build_credential_index_json >"$credential_metadata_file"
   chmod 600 "$credential_metadata_file"
 
+  # Resolved from the registry (the single managed authentication=
+  # error_trigger_v1 workflow), never a hardcoded filename; fails closed if
+  # the registry does not have exactly one such entry.
+  local error_trigger
+  error_trigger="$(error_trigger_file)"
+  if [[ -z "$error_trigger" ]]; then
+    echo "ERROR: could not resolve the managed error-trigger workflow from the registry" >&2
+    exit 1
+  fi
+
   echo ""
-  echo "=== Importing error workflow ==="
-  stage_workflow_file "error-trigger.json" "$backup_dir/original-state.json" "" \
-    "$credential_metadata_file" "$TMP_ROOT/staged/error-trigger.json"
-  import_staged_workflow "$TMP_ROOT/staged/error-trigger.json"
+  echo "=== Importing error workflow ($error_trigger) ==="
+  stage_workflow_file "$error_trigger" "$backup_dir/original-state.json" "" \
+    "$credential_metadata_file" "$TMP_ROOT/staged/$error_trigger"
+  import_staged_workflow "$TMP_ROOT/staged/$error_trigger"
 
   export_all_workflows "$TMP_ROOT/after-error-import.json"
   write_state "$TMP_ROOT/after-error-import.json" "$TMP_ROOT/after-error-state.json"
   ensure_no_duplicates "$TMP_ROOT/after-error-state.json"
 
   local error_workflow_id
-  error_workflow_id="$(state_field "$TMP_ROOT/after-error-state.json" "error-trigger.json" "id")"
+  error_workflow_id="$(state_field "$TMP_ROOT/after-error-state.json" "$error_trigger" "id")"
   if [[ -z "$error_workflow_id" ]]; then
     echo "ERROR: Error Trigger workflow ID could not be resolved after import." >&2
     exit 1
@@ -502,7 +507,7 @@ import_workflows() {
   echo ""
   echo "=== Importing remaining managed workflows inactive ==="
   while IFS= read -r file_name; do
-    if [[ -z "$file_name" || "$file_name" == "error-trigger.json" ]]; then
+    if [[ -z "$file_name" || "$file_name" == "$error_trigger" ]]; then
       continue
     fi
     stage_workflow_file "$file_name" "$backup_dir/original-state.json" "$error_workflow_id" \
@@ -561,7 +566,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0, "$ROOT_DIR")
 from infrastructure.scripts.workflow_registry import load_registry
-registry = load_registry(Path("$ROOT_DIR/n8n/workflow-registry.json"))
+registry = load_registry(Path("$REGISTRY_PATH"))
 spec = registry.by_file("$file_name")
 print(json.dumps({
     "file": spec.file,
@@ -622,7 +627,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0, "$ROOT_DIR")
 from infrastructure.scripts.workflow_registry import load_registry
-registry = load_registry(Path("$ROOT_DIR/n8n/workflow-registry.json"))
+registry = load_registry(Path("$REGISTRY_PATH"))
 spec = registry.by_file("$file_name")
 print(json.dumps({
     "file": spec.file,
@@ -642,6 +647,12 @@ PY
     echo "ERROR: refusing activate-test for $file_name" >&2
     exit 1
   fi
+
+  # activate-test must never publish a workflow while contract or credential
+  # verification is failing -- run both before touching the live instance,
+  # exactly like `import` and `activate` already do.
+  run_verify_workflows
+  run_verify_credentials
 
   wait_for_n8n
 
@@ -687,10 +698,10 @@ deactivate_test_workflow() {
   manifest_json="$(cat "$manifest_file")"
   local restored_active
   if ! restored_active="$(python "$STAGE_PY" restore-from-manifest <<PY
-{"manifest": $manifest_json, "run_id": "$run_id"}
+{"manifest": $manifest_json, "run_id": "$run_id", "file_name": "$file_name"}
 PY
   )"; then
-    echo "ERROR: could not restore $file_name for run $run_id (RUN_ID mismatch or missing manifest)" >&2
+    echo "ERROR: could not restore $file_name for run $run_id (RUN_ID or file mismatch, or missing manifest)" >&2
     exit 1
   fi
 

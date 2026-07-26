@@ -15,6 +15,10 @@ COMPOSE_FILE="${COMPOSE_FILE:-$ROOT_DIR/docker-compose.yml}"
 # ./n8n/scripts read-only into the n8n container at this path (or set
 # N8N_SCRIPTS_CONTAINER_PATH to wherever it is actually mounted).
 CONTAINER_SCRIPT_PATH="${N8N_SCRIPTS_CONTAINER_PATH:-/home/node/scripts/provision-credentials.mjs}"
+# The only account allowed to own these secret files. Docker secrets are
+# normally root-owned on the host; override only if your deployment
+# provisions them under a different, explicitly intended account.
+PWR_SECRET_OWNER="${PWR_SECRET_OWNER:-root}"
 
 SECRET_FILES=(
   "/run/secrets/pwr_n8n_native_header"
@@ -53,8 +57,9 @@ check_secret_permissions() {
   fi
   local owner
   owner="$(stat -c '%U' "$path" 2>/dev/null || stat -f '%Su' "$path" 2>/dev/null || echo '')"
-  if [[ -n "$owner" && "$owner" != "root" && "$owner" != "$(id -un)" ]]; then
-    echo "WARNING: $path is owned by unexpected user '$owner'" >&2
+  if [[ -n "$owner" && "$owner" != "$PWR_SECRET_OWNER" ]]; then
+    echo "ERROR: $path is owned by '$owner', not the permitted owner '$PWR_SECRET_OWNER'" >&2
+    exit 1
   fi
 }
 
