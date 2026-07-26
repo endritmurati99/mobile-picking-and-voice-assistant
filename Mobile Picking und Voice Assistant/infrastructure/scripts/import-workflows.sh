@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# Controlled n8n workflow rollout with explicit backup/import/activate/rollback phases.
+# Controlled n8n workflow rollout with explicit backup/import/activate/rollback
+# phases. The registry (infrastructure/scripts/workflow_registry.py) is the
+# sole source of truth for which files are managed, their activation order,
+# their credential bindings, and which ones are test_only -- nothing here is
+# hardcoded.
 set -euo pipefail
 
 MODE="${1:-}"
-ROLLBACK_DIR="${2:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -11,20 +14,10 @@ COMPOSE_FILE="${COMPOSE_FILE:-$ROOT_DIR/docker-compose.yml}"
 WORKFLOW_DIR="$ROOT_DIR/n8n/workflows"
 BACKUP_ROOT="$ROOT_DIR/n8n/backups"
 TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/n8n-import.XXXXXX")"
-
-WORKFLOW_FILES=(
-  "error-trigger.json"
-  "quality-alert-created.json"
-  "voice-exception-query.json"
-  "shortage-reported.json"
-)
-
-ACTIVATION_ORDER=(
-  "error-trigger.json"
-  "voice-exception-query.json"
-  "quality-alert-created.json"
-  "shortage-reported.json"
-)
+REGISTRY_PY="$SCRIPT_DIR/workflow_registry.py"
+STAGE_PY="$SCRIPT_DIR/stage_workflow.py"
+VERIFY_PY="$SCRIPT_DIR/verify-workflows.py"
+CREDENTIALS_SH="$SCRIPT_DIR/provision-n8n-credentials.sh"
 
 cleanup() {
   rm -rf "$TMP_ROOT"
@@ -38,27 +31,75 @@ Usage:
   bash infrastructure/scripts/import-workflows.sh backup
   bash infrastructure/scripts/import-workflows.sh import <backup-dir>
   bash infrastructure/scripts/import-workflows.sh activate <backup-dir> [workflow-file ...]
+  bash infrastructure/scripts/import-workflows.sh activate-test <backup-dir> <workflow-file> <run-id>
+  bash infrastructure/scripts/import-workflows.sh deactivate-test <backup-dir> <workflow-file> <run-id>
   bash infrastructure/scripts/import-workflows.sh rollback <backup-dir>
 
 Notes:
-  - backup   exports the current n8n state into a timestamped directory
-  - import   verifies contracts, imports the four production workflows inactive, and writes an ID manifest
-  - activate publishes workflows in fixed order unless explicit workflow files are provided
-  - rollback restores workflow files and activation state from the backup directory
+  - backup          exports every managed=true workflow into a timestamped directory
+  - import          verifies contracts and credentials, stages every managed file with
+                     metadata-only credential/error-workflow IDs, and imports it inactive
+  - activate        publishes managed, production_activation=true workflows in registry
+                     order unless explicit workflow files are provided; refuses any
+                     workflow that is not production_activation=true, whose credentials
+                     are not verified, or that collides with a duplicate n8n workflow name
+  - activate-test    activates exactly one test_only=true, production_activation=false
+                     workflow for a live smoke run identified by an operator-generated
+                     RUN_ID, and writes a 0600 restoration manifest
+  - deactivate-test  restores the exact prior active state recorded by the matching
+                     activate-test call; a missing or mismatched RUN_ID is a hard failure
+  - rollback        restores workflow files and activation state from the backup directory
 EOF
 }
 
-workflow_name() {
-  case "$1" in
-    "error-trigger.json") echo "Error Trigger" ;;
-    "quality-alert-created.json") echo "Quality Alert Created" ;;
-    "voice-exception-query.json") echo "Voice Exception Query" ;;
-    "shortage-reported.json") echo "Shortage Reported" ;;
-    *)
-      echo "Unknown workflow file: $1" >&2
-      return 1
-      ;;
-  esac
+registry_query() {
+  python "$REGISTRY_PY" "$@"
+}
+
+managed_files() {
+  registry_query managed-files | python -c 'import json,sys; print("\n".join(json.load(sys.stdin)))'
+}
+
+activation_order_files() {
+  registry_query activation-order | python -c 'import json,sys; print("\n".join(json.load(sys.stdin)))'
+}
+
+test_only_files() {
+  registry_query test-only-files | python -c 'import json,sys; print("\n".join(json.load(sys.stdin)))'
+}
+
+credential_bindings_json() {
+  local file_name="$1"
+  registry_query credential-bindings "$file_name"
+}
+
+workflow_name_for_file() {
+  local file_name="$1"
+  python - "$ROOT_DIR/n8n/workflows/$file_name" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+print(data.get("name") or "")
+PY
+}
+
+stage_py() {
+  python "$STAGE_PY" "$@"
+}
+
+run_verify_workflows() {
+  echo "=== Verifying workflow contracts ==="
+  (
+    cd "$ROOT_DIR"
+    python "$VERIFY_PY"
+  )
+}
+
+run_verify_credentials() {
+  echo "=== Verifying n8n credentials ==="
+  bash "$CREDENTIALS_SH" verify >/dev/null
 }
 
 compose_exec() {
@@ -81,14 +122,6 @@ wait_for_n8n() {
   done
   echo "ERROR: n8n did not become healthy within 30 attempts." >&2
   return 1
-}
-
-run_verify_workflows() {
-  echo "=== Verifying workflow contracts ==="
-  (
-    cd "$ROOT_DIR"
-    python infrastructure/scripts/verify-workflows.py
-  )
 }
 
 export_all_workflows() {
@@ -119,17 +152,21 @@ create_cli_backup_tar() {
 write_state() {
   local export_file="$1"
   local state_file="$2"
-  python - "$export_file" "$state_file" <<'PY'
+  python - "$export_file" "$state_file" <<PY
 import json
 import sys
 from collections import defaultdict
 
-TARGETS = {
-    "error-trigger.json": "Error Trigger",
-    "quality-alert-created.json": "Quality Alert Created",
-    "voice-exception-query.json": "Voice Exception Query",
-    "shortage-reported.json": "Shortage Reported",
-}
+TARGETS = {}
+for file_name in """$(managed_files)""".splitlines():
+    if not file_name:
+        continue
+    TARGETS[file_name] = "$ROOT_DIR/n8n/workflows/" + file_name
+
+names_by_file = {}
+for file_name, path in TARGETS.items():
+    with open(path, encoding="utf-8") as handle:
+        names_by_file[file_name] = json.load(handle).get("name")
 
 export_path, state_path = sys.argv[1:3]
 with open(export_path, encoding="utf-8") as handle:
@@ -155,7 +192,7 @@ for workflow in workflows:
         by_name[str(workflow["name"])].append(workflow)
 
 state = {"workflows": {}, "duplicates": {}}
-for file_name, workflow_name in TARGETS.items():
+for file_name, workflow_name in names_by_file.items():
     matches = by_name.get(workflow_name, [])
     if len(matches) > 1:
         state["duplicates"][workflow_name] = [match.get("id") for match in matches]
@@ -194,6 +231,19 @@ if duplicates:
 PY
 }
 
+has_duplicate() {
+  local state_file="$1"
+  local workflow_name="$2"
+  python - "$state_file" "$workflow_name" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    state = json.load(handle)
+print("true" if sys.argv[2] in (state.get("duplicates") or {}) else "false")
+PY
+}
+
 state_field() {
   local state_file="$1"
   local file_name="$2"
@@ -225,7 +275,7 @@ backup_existing_workflows() {
     if [[ "$exists" != "true" ]]; then
       continue
     fi
-    echo "  Backing up $(workflow_name "$file_name") ..."
+    echo "  Backing up $file_name ..."
     export_workflow_by_id "$workflow_id" "$backup_dir/$file_name"
   done < <(
     python - "$state_file" <<'PY'
@@ -241,36 +291,77 @@ PY
   )
 }
 
-stage_workflow() {
+# Build the {"logical_name","credential_type"} -> {id,name,type} index from
+# the credential-provisioning metadata (see provision-n8n-credentials.sh
+# verify), keyed exactly like workflow_registry.py's credential_bindings.
+build_credential_index_json() {
+  bash "$CREDENTIALS_SH" verify
+}
+
+stage_workflow_file() {
   local file_name="$1"
   local state_file="$2"
-  local error_workflow_id="${3:-}"
-  local output_file="$4"
+  local error_workflow_id="$3"
+  local credential_metadata_file="$4"
+  local output_file="$5"
 
-  python - "$WORKFLOW_DIR/$file_name" "$state_file" "$file_name" "$error_workflow_id" "$output_file" <<'PY'
+  python - "$WORKFLOW_DIR/$file_name" "$state_file" "$file_name" \
+    "$error_workflow_id" "$credential_metadata_file" "$STAGE_PY" \
+    "$REGISTRY_PY" "$output_file" <<'PY'
 import json
+import subprocess
 import sys
-from uuid import uuid4
 
-source_path, state_path, file_name, error_workflow_id, output_path = sys.argv[1:6]
+(
+    source_path, state_path, file_name, error_workflow_id,
+    credential_metadata_path, stage_py, registry_py, output_path,
+) = sys.argv[1:9]
 
 with open(source_path, encoding="utf-8") as handle:
-    workflow = json.load(handle)
+    source = json.load(handle)
 with open(state_path, encoding="utf-8") as handle:
     state = json.load(handle)
+with open(credential_metadata_path, encoding="utf-8") as handle:
+    credential_metadata = json.load(handle)
+
+bindings = json.loads(
+    subprocess.run(
+        ["python", registry_py, "credential-bindings", file_name],
+        check=True, capture_output=True, text=True,
+    ).stdout
+)
+
+credentials_by_name_type = {
+    (item["name"], item["type"]): item for item in credential_metadata.get("credentials", [])
+}
+credential_index = [
+    {
+        "logical_name": binding["logical_name"],
+        "credential_type": binding["credential_type"],
+        "credential": credentials_by_name_type.get(
+            (binding["logical_name"], binding["credential_type"])
+        ),
+    }
+    for binding in bindings
+]
 
 existing_id = ((state.get("workflows") or {}).get(file_name) or {}).get("id")
-if existing_id:
-    workflow["id"] = existing_id
-else:
-    workflow["id"] = workflow.get("id") or uuid4().hex
 
-if file_name != "error-trigger.json" and error_workflow_id:
-    settings = workflow.setdefault("settings", {})
-    settings["errorWorkflow"] = error_workflow_id
+payload = {
+    "source": source,
+    "bindings": bindings,
+    "credential_index": credential_index,
+    "existing_workflow_id": existing_id,
+    "error_workflow_id": error_workflow_id or None,
+}
+
+result = subprocess.run(
+    ["python", stage_py, "stage"],
+    input=json.dumps(payload), check=True, capture_output=True, text=True,
+)
 
 with open(output_path, "w", encoding="utf-8") as handle:
-    json.dump(workflow, handle, indent=2)
+    handle.write(result.stdout)
 PY
 }
 
@@ -289,17 +380,13 @@ set_activation_state() {
   shift 2
 
   local file_args=("$@")
-  if [[ ${#file_args[@]} -eq 0 ]]; then
-    file_args=("${WORKFLOW_FILES[@]}")
-  fi
-
   for file_name in "${file_args[@]}"; do
     local workflow_id
     workflow_id="$(state_field "$state_file" "$file_name" "id")"
     if [[ -z "$workflow_id" ]]; then
       continue
     fi
-    echo "  Setting $(workflow_name "$file_name") active=$active_value ..."
+    echo "  Setting $file_name active=$active_value ..."
     if [[ "$active_value" == "true" ]]; then
       compose_exec n8n publish:workflow --id="$workflow_id" >/dev/null </dev/null
     else
@@ -342,14 +429,14 @@ PY
     if [[ -z "$workflow_id" ]]; then
       continue
     fi
-    echo "  Restoring $(workflow_name "$file_name") active=$desired_active ..."
+    echo "  Restoring $file_name active=$desired_active ..."
     if [[ "$desired_active" == "true" ]]; then
       compose_exec n8n publish:workflow --id="$workflow_id" >/dev/null </dev/null
     else
       compose_exec n8n unpublish:workflow --id="$workflow_id" >/dev/null </dev/null
     fi
     if [[ "$existed_before" != "true" ]]; then
-      echo "  NOTE: $(workflow_name "$file_name") did not exist before. It was deactivated but not deleted." >&2
+      echo "  NOTE: $file_name did not exist before. It was deactivated but not deleted." >&2
     fi
   done
 }
@@ -387,12 +474,18 @@ import_workflows() {
   fi
 
   run_verify_workflows
+  run_verify_credentials
   wait_for_n8n
   mkdir -p "$TMP_ROOT/staged"
 
+  local credential_metadata_file="$TMP_ROOT/credential-metadata.json"
+  build_credential_index_json >"$credential_metadata_file"
+  chmod 600 "$credential_metadata_file"
+
   echo ""
   echo "=== Importing error workflow ==="
-  stage_workflow "error-trigger.json" "$backup_dir/original-state.json" "" "$TMP_ROOT/staged/error-trigger.json"
+  stage_workflow_file "error-trigger.json" "$backup_dir/original-state.json" "" \
+    "$credential_metadata_file" "$TMP_ROOT/staged/error-trigger.json"
   import_staged_workflow "$TMP_ROOT/staged/error-trigger.json"
 
   export_all_workflows "$TMP_ROOT/after-error-import.json"
@@ -407,11 +500,15 @@ import_workflows() {
   fi
 
   echo ""
-  echo "=== Importing primary workflows inactive ==="
-  for file_name in "quality-alert-created.json" "voice-exception-query.json" "shortage-reported.json"; do
-    stage_workflow "$file_name" "$backup_dir/original-state.json" "$error_workflow_id" "$TMP_ROOT/staged/$file_name"
+  echo "=== Importing remaining managed workflows inactive ==="
+  while IFS= read -r file_name; do
+    if [[ -z "$file_name" || "$file_name" == "error-trigger.json" ]]; then
+      continue
+    fi
+    stage_workflow_file "$file_name" "$backup_dir/original-state.json" "$error_workflow_id" \
+      "$credential_metadata_file" "$TMP_ROOT/staged/$file_name"
     import_staged_workflow "$TMP_ROOT/staged/$file_name"
-  done
+  done < <(managed_files)
 
   export_all_workflows "$backup_dir/imported-workflows.json"
   write_state "$backup_dir/imported-workflows.json" "$backup_dir/imported-state.json"
@@ -419,7 +516,8 @@ import_workflows() {
 
   echo ""
   echo "=== Ensuring imported workflows stay inactive ==="
-  set_activation_state "$backup_dir/imported-state.json" "false"
+  mapfile -t all_managed < <(managed_files)
+  set_activation_state "$backup_dir/imported-state.json" "false" "${all_managed[@]}"
 
   echo ""
   echo "Import completed. Imported workflow manifest: $backup_dir/imported-state.json"
@@ -435,14 +533,51 @@ activate_workflows() {
     exit 1
   fi
 
+  run_verify_workflows
+
+  local credentials_verified="true"
+  if ! run_verify_credentials; then
+    credentials_verified="false"
+  fi
+
   wait_for_n8n
 
   local files_to_activate=()
   if [[ $# -gt 0 ]]; then
     files_to_activate=("$@")
   else
-    files_to_activate=("${ACTIVATION_ORDER[@]}")
+    mapfile -t files_to_activate < <(activation_order_files)
   fi
+
+  for file_name in "${files_to_activate[@]}"; do
+    local workflow_name
+    workflow_name="$(state_field "$backup_dir/imported-state.json" "$file_name" "name")"
+    local duplicate
+    duplicate="$(has_duplicate "$backup_dir/imported-state.json" "$workflow_name")"
+    local spec_json
+    spec_json="$(python - "$file_name" <<PY
+import json
+from pathlib import Path
+import sys
+sys.path.insert(0, "$ROOT_DIR")
+from infrastructure.scripts.workflow_registry import load_registry
+registry = load_registry(Path("$ROOT_DIR/n8n/workflow-registry.json"))
+spec = registry.by_file("$file_name")
+print(json.dumps({
+    "file": spec.file,
+    "production_activation": spec.production_activation,
+    "test_only": spec.test_only,
+}))
+PY
+)"
+    if ! python "$STAGE_PY" assert-activatable <<PY
+{"spec": $spec_json, "credentials_verified": $credentials_verified, "duplicate": $duplicate}
+PY
+    then
+      echo "ERROR: refusing to activate $file_name" >&2
+      exit 1
+    fi
+  done
 
   echo ""
   echo "=== Activating workflows ==="
@@ -458,6 +593,119 @@ activate_workflows() {
   echo "Activation completed. Remember to run the documented smoke tests before activating the next workflow."
 }
 
+activate_test_workflow() {
+  local backup_dir="$1"
+  local file_name="$2"
+  local run_id="$3"
+
+  if [[ -z "$backup_dir" || -z "$file_name" || -z "$run_id" ]]; then
+    usage >&2
+    exit 1
+  fi
+
+  local registered
+  registered="false"
+  while IFS= read -r candidate; do
+    if [[ "$candidate" == "$file_name" ]]; then
+      registered="true"
+    fi
+  done < <(test_only_files)
+  if [[ "$registered" != "true" ]]; then
+    echo "ERROR: $file_name is not a registered test_only workflow" >&2
+    exit 1
+  fi
+
+  local spec_json
+  spec_json="$(python - "$file_name" <<PY
+import json
+from pathlib import Path
+import sys
+sys.path.insert(0, "$ROOT_DIR")
+from infrastructure.scripts.workflow_registry import load_registry
+registry = load_registry(Path("$ROOT_DIR/n8n/workflow-registry.json"))
+spec = registry.by_file("$file_name")
+print(json.dumps({
+    "file": spec.file,
+    "production_activation": spec.production_activation,
+    "test_only": spec.test_only,
+}))
+PY
+)"
+  mapfile -t dependency_files < <(activation_order_files)
+  local dependency_files_json
+  dependency_files_json="$(printf '%s\n' "${dependency_files[@]}" | python -c 'import json,sys; print(json.dumps([line for line in sys.stdin.read().splitlines() if line]))')"
+
+  if ! python "$STAGE_PY" assert-test-activatable <<PY
+{"spec": $spec_json, "run_id": "$run_id", "dependency_files": $dependency_files_json}
+PY
+  then
+    echo "ERROR: refusing activate-test for $file_name" >&2
+    exit 1
+  fi
+
+  wait_for_n8n
+
+  export_all_workflows "$TMP_ROOT/pre-activate-test.json"
+  write_state "$TMP_ROOT/pre-activate-test.json" "$TMP_ROOT/pre-activate-test-state.json"
+  local workflow_id previous_active
+  workflow_id="$(state_field "$TMP_ROOT/pre-activate-test-state.json" "$file_name" "id")"
+  previous_active="$(state_field "$TMP_ROOT/pre-activate-test-state.json" "$file_name" "active")"
+  if [[ -z "$workflow_id" ]]; then
+    echo "ERROR: $file_name is not imported; run 'import' first" >&2
+    exit 1
+  fi
+
+  local manifest_file="$backup_dir/activate-test-$run_id.json"
+  python "$STAGE_PY" build-manifest <<PY >"$manifest_file"
+{"file_name": "$file_name", "run_id": "$run_id", "workflow_id": "$workflow_id", "previous_active": $previous_active}
+PY
+  chmod 600 "$manifest_file"
+
+  echo "  Activating $file_name for live smoke run $run_id ..."
+  compose_exec n8n publish:workflow --id="$workflow_id" >/dev/null </dev/null
+  echo "Restoration manifest written: $manifest_file"
+  echo "Remember to call deactivate-test with the same RUN_ID when the smoke run finishes."
+}
+
+deactivate_test_workflow() {
+  local backup_dir="$1"
+  local file_name="$2"
+  local run_id="$3"
+
+  if [[ -z "$backup_dir" || -z "$file_name" || -z "$run_id" ]]; then
+    usage >&2
+    exit 1
+  fi
+
+  local manifest_file="$backup_dir/activate-test-$run_id.json"
+  if [[ ! -f "$manifest_file" ]]; then
+    echo "ERROR: no restoration manifest for $file_name / $run_id at $manifest_file" >&2
+    exit 1
+  fi
+
+  local manifest_json
+  manifest_json="$(cat "$manifest_file")"
+  local restored_active
+  if ! restored_active="$(python "$STAGE_PY" restore-from-manifest <<PY
+{"manifest": $manifest_json, "run_id": "$run_id"}
+PY
+  )"; then
+    echo "ERROR: could not restore $file_name for run $run_id (RUN_ID mismatch or missing manifest)" >&2
+    exit 1
+  fi
+
+  local workflow_id
+  workflow_id="$(python -c "import json; print(json.loads('''$manifest_json''')['workflow_id'])")"
+
+  echo "  Restoring $file_name to active=$restored_active for run $run_id ..."
+  if [[ "$restored_active" == "true" ]]; then
+    compose_exec n8n publish:workflow --id="$workflow_id" >/dev/null </dev/null
+  else
+    compose_exec n8n unpublish:workflow --id="$workflow_id" >/dev/null </dev/null
+  fi
+  rm -f "$manifest_file"
+}
+
 rollback_workflows() {
   local backup_dir="$1"
   if [[ -z "$backup_dir" || ! -f "$backup_dir/original-state.json" ]]; then
@@ -469,11 +717,11 @@ rollback_workflows() {
 
   echo ""
   echo "=== Restoring original workflows ==="
-  for file_name in "${WORKFLOW_FILES[@]}"; do
-    if [[ -f "$backup_dir/original/$file_name" ]]; then
+  while IFS= read -r file_name; do
+    if [[ -n "$file_name" && -f "$backup_dir/original/$file_name" ]]; then
       import_staged_workflow "$backup_dir/original/$file_name"
     fi
-  done
+  done < <(managed_files)
 
   export_all_workflows "$TMP_ROOT/post-rollback.json"
   write_state "$TMP_ROOT/post-rollback.json" "$TMP_ROOT/post-rollback-state.json"
@@ -494,18 +742,25 @@ case "$MODE" in
     backup_workflows
     ;;
   import)
-    import_workflows "$ROLLBACK_DIR"
+    import_workflows "${2:-}"
     ;;
   activate)
-    if [[ -z "$ROLLBACK_DIR" ]]; then
+    if [[ -z "${2:-}" ]]; then
       usage >&2
       exit 1
     fi
+    backup_dir="$2"
     shift 2
-    activate_workflows "$ROLLBACK_DIR" "$@"
+    activate_workflows "$backup_dir" "$@"
+    ;;
+  activate-test)
+    activate_test_workflow "${2:-}" "${3:-}" "${4:-}"
+    ;;
+  deactivate-test)
+    deactivate_test_workflow "${2:-}" "${3:-}" "${4:-}"
     ;;
   rollback)
-    rollback_workflows "$ROLLBACK_DIR"
+    rollback_workflows "${2:-}"
     ;;
   *)
     usage >&2
