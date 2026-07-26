@@ -17,8 +17,10 @@
 #   ODOO_DB_NAME
 #     - final Odoo-19 production database name
 #   PWR_DB_ADMIN_PASSWORD_FILE, ODOO_DB_PASSWORD_FILE, N8N_DB_PASSWORD_FILE
-#     - password files for the new roles, mode 0400 or 0600 (required by
-#       apply and rollback, which create/use these roles)
+#     - password files for the new roles, mode 0400 or 0600. apply and
+#       rollback need all three (they create/use these roles); verify
+#       needs PWR_DB_ADMIN_PASSWORD_FILE alone, to authenticate the
+#       isolation verifier's bootstrap-admin checks as pwr_db_admin.
 #   LEGACY_DB_SUPERUSER
 #     - required only if the existing shared role is not named "odoo";
 #       must not be "postgres" or "pwr_db_admin"
@@ -84,8 +86,13 @@ require_odoo_db_name() {
 # Connection to the pre-migration, still-privileged legacy admin. Only
 # used to bootstrap pwr_db_admin itself (ensure_pwr_db_admin) and for
 # the read-only backup phase, which runs before pwr_db_admin exists.
+# Connects as the resolved legacy role (LEGACY_DB_SUPERUSER, default
+# "odoo"), never as an unrelated $POSTGRES_USER value: if the legacy
+# superuser isn't literally named "odoo", $POSTGRES_USER would silently
+# target the wrong account and the whole migration would run against
+# the wrong role.
 psql_admin() {
-    psql -v ON_ERROR_STOP=1 --username "${POSTGRES_USER:-odoo}" "$@"
+    psql -v ON_ERROR_STOP=1 --username "$(legacy_role)" "$@"
 }
 
 # Connection to the dedicated bootstrap superuser. Used for every
@@ -108,7 +115,13 @@ ensure_pwr_db_admin() {
     pwr_password="$(cat "$PWR_DB_ADMIN_PASSWORD_FILE")"
 
     log "Ensuring bootstrap role pwr_db_admin exists"
-    psql_admin -d postgres -v "pwr_password=$pwr_password" <<'SQL'
+    # The password reaches psql through the environment of this single
+    # invocation (\getenv), never as a `-v name=value` command-line
+    # argument, which any local user could read from the process list.
+    # (A bare `VAR=val cmd` prefix applies to shell functions too, not
+    # just external binaries, so no separate `env` call is needed here.)
+    PWR_ADMIN_PASSWORD="$pwr_password" psql_admin -d postgres <<'SQL'
+\getenv pwr_password PWR_ADMIN_PASSWORD
 SELECT format(
   'CREATE ROLE pwr_db_admin SUPERUSER LOGIN PASSWORD %L',
   :'pwr_password'
@@ -189,9 +202,14 @@ cmd_apply() {
     n8n_password="$(cat "$N8N_DB_PASSWORD_FILE")"
 
     log "Creating odoo_app/n8n_app roles if absent (via pwr_db_admin)"
-    psql_pwr_admin -d postgres \
-        -v "odoo_password=$odoo_password" \
-        -v "n8n_password=$n8n_password" <<'SQL'
+    # Passwords reach psql through this single invocation's environment
+    # (\getenv), never as `-v name=value` argv, which is readable by any
+    # local user via the process list.
+    ODOO_APP_PASSWORD="$odoo_password" N8N_APP_PASSWORD="$n8n_password" \
+        psql_pwr_admin -d postgres <<'SQL'
+\getenv odoo_password ODOO_APP_PASSWORD
+\getenv n8n_password N8N_APP_PASSWORD
+
 SELECT format(
   'CREATE ROLE odoo_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L',
   :'odoo_password'
@@ -254,8 +272,11 @@ SQL
     log "Running isolation verifier"
     # Force the verifier's bootstrap-admin check onto pwr_db_admin itself,
     # regardless of whatever POSTGRES_USER happens to be set to in this
-    # shell (the pre-migration legacy role, historically "odoo").
-    POSTGRES_USER=pwr_db_admin bash "$(dirname "${BASH_SOURCE[0]}")/verify-db-role-isolation.sh"
+    # shell (the pre-migration legacy role, historically "odoo"), and
+    # supply its password via PGPASSWORD so the check actually
+    # authenticates under password auth instead of failing to connect.
+    POSTGRES_USER=pwr_db_admin PGPASSWORD="$(cat "$PWR_DB_ADMIN_PASSWORD_FILE")" \
+        bash "$(dirname "${BASH_SOURCE[0]}")/verify-db-role-isolation.sh"
 
     log "Demoting legacy role $legacy to a non-login, non-privileged role"
     psql_pwr_admin -d postgres -v "legacy=$legacy" <<'SQL'
@@ -266,7 +287,9 @@ SQL
 }
 
 cmd_verify() {
-    POSTGRES_USER=pwr_db_admin bash "$(dirname "${BASH_SOURCE[0]}")/verify-db-role-isolation.sh"
+    require_password_file PWR_DB_ADMIN_PASSWORD_FILE
+    POSTGRES_USER=pwr_db_admin PGPASSWORD="$(cat "$PWR_DB_ADMIN_PASSWORD_FILE")" \
+        bash "$(dirname "${BASH_SOURCE[0]}")/verify-db-role-isolation.sh"
 }
 
 cmd_rollback() {

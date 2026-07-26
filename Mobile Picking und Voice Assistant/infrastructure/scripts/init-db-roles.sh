@@ -15,7 +15,11 @@
 #   ODOO_DB_NAME                - final Odoo-19 production database name
 #                                  (fail closed: no guessed default)
 #
-# This script never echoes secret file contents.
+# This script never echoes secret file contents, and never passes a
+# password as a psql command-line argument (argv is readable by any
+# local user via the process list); every password reaches psql through
+# the environment of that single invocation and is picked up inside the
+# SQL script with \getenv, not via `-v name=value`.
 set -euo pipefail
 
 log() {
@@ -54,24 +58,46 @@ fi
 # This script must run as the image-created bootstrap superuser named
 # pwr_db_admin (Task 15 sets POSTGRES_USER=pwr_db_admin for the fresh-
 # volume image bootstrap). Fail closed rather than silently creating
-# app roles under an arbitrary/unverified admin identity.
+# app roles under an arbitrary/unverified admin identity. The name
+# check alone is not proof of privilege, so it is followed by a live
+# attribute check against the connected role.
 if [ "${POSTGRES_USER:-}" != "pwr_db_admin" ]; then
     fail "POSTGRES_USER must be pwr_db_admin (the bootstrap superuser this script runs as); got '${POSTGRES_USER:-<unset>}'"
 fi
 
+actual_super="$(psql -X -At -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres -c \
+    "SELECT rolsuper FROM pg_roles WHERE rolname = current_user")"
+if [ "$actual_super" != "t" ]; then
+    fail "connected role $POSTGRES_USER is not rolsuper=true; refusing to bootstrap app roles under a non-superuser identity"
+fi
+
+PWR_ADMIN_PASSWORD="$(cat "$PWR_DB_ADMIN_PASSWORD_FILE")"
 ODOO_DB_PASSWORD="$(cat "$ODOO_DB_PASSWORD_FILE")"
 N8N_DB_PASSWORD="$(cat "$N8N_DB_PASSWORD_FILE")"
 
 log "Bootstrapping roles pwr_db_admin (existing), odoo_app, n8n_app"
 log "Odoo database: $ODOO_DB_NAME"
 
-psql -v ON_ERROR_STOP=1 \
+# Actually apply PWR_DB_ADMIN_PASSWORD_FILE: set pwr_db_admin's password to
+# the file's contents so it is a known, controlled credential rather than
+# whatever the image's own bootstrap happened to set (or none at all),
+# and so PGPASSWORD-based tooling (migrate-n8n-db-role.sh,
+# verify-db-role-isolation.sh) can authenticate as it later.
+env PWR_ADMIN_PASSWORD="$PWR_ADMIN_PASSWORD" \
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres <<'SQL'
+\getenv pwr_password PWR_ADMIN_PASSWORD
+ALTER ROLE pwr_db_admin PASSWORD :'pwr_password';
+SQL
+
+env ODOO_APP_PASSWORD="$ODOO_DB_PASSWORD" N8N_APP_PASSWORD="$N8N_DB_PASSWORD" \
+    psql -v ON_ERROR_STOP=1 \
     --username "$POSTGRES_USER" \
     --dbname postgres \
-    -v "odoo_password=$ODOO_DB_PASSWORD" \
-    -v "n8n_password=$N8N_DB_PASSWORD" \
     -v "odoo_db=$ODOO_DB_NAME" <<'SQL'
 -- Executed as the image-created pwr_db_admin bootstrap superuser.
+\getenv odoo_password ODOO_APP_PASSWORD
+\getenv n8n_password N8N_APP_PASSWORD
+
 SELECT format(
   'CREATE ROLE odoo_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L',
   :'odoo_password'
@@ -111,7 +137,7 @@ ALTER DEFAULT PRIVILEGES FOR ROLE n8n_app GRANT ALL ON SEQUENCES TO n8n_app;
 SQL
 
 log "Applying schema ownership and default privileges inside $ODOO_DB_NAME"
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$ODOO_DB_NAME" <<SQL
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$ODOO_DB_NAME" <<'SQL'
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE, CREATE ON SCHEMA public TO odoo_app;
 ALTER SCHEMA public OWNER TO odoo_app;
