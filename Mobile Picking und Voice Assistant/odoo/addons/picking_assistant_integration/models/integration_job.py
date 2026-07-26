@@ -207,10 +207,24 @@ class PickingAssistantIntegrationJob(models.Model):
             self.env["ir.cron"]._commit_progress(processed, remaining=remaining)
 
     @api.model
+    def api_recover_stalled_jobs(self, limit=200):
+        """Guarded RPC entry for the backend watchdog (Task 9). Invokes the
+        SAME locked batch as the minute cron and returns ONLY counts — never
+        lease tokens or any other row data."""
+        self.env["picking.assistant.api.mixin"]._require_api_service()
+        return {"recovered": self._recover_stalled_jobs_batch(limit)}
+
+    @api.model
     def _cron_recover_stalled_jobs(self, limit=200):
         """Every minute: recover event receipts whose processing lease expired
         without a terminal callback. Bumps the delivery generation and returns
         the same outbox event (unchanged envelope) to pending."""
+        recovered = self._recover_stalled_jobs_batch(limit)
+        self._report_cron_progress(recovered)
+
+    @api.model
+    def _recover_stalled_jobs_batch(self, limit=200):
+        """Locked recovery batch shared by the cron and the guarded API."""
         now = fields.Datetime.now()
         receipts = self.env["picking.assistant.event.receipt"].sudo()
         outboxes = self.env["picking.assistant.outbox"].sudo()
@@ -289,7 +303,7 @@ class PickingAssistantIntegrationJob(models.Model):
                     }
                 )
             recovered += 1
-        self._report_cron_progress(recovered)
+        return recovered
 
     @api.model
     def _cron_cleanup_ephemeral(self, limit=1000):
