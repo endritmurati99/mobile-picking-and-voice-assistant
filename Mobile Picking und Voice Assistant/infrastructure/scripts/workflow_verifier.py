@@ -415,7 +415,11 @@ def _body_contains_field(body_json: str | None, field_name: str) -> bool:
     return bool(pattern.search(body_json))
 
 
-def _is_direct_odoo_writeback(url: str) -> bool:
+def _is_direct_odoo_writeback(url: Any) -> bool:
+    # Callers pass values pulled straight out of parsed JSON (workflow node
+    # parameters), which are not guaranteed to be strings even where the
+    # common case is -- widen the annotation instead of asserting str so
+    # this guard stays meaningful rather than a redundant, always-true check.
     if not isinstance(url, str):
         return False
     return bool(DIRECT_ODOO_URL_RE.search(url))
@@ -702,7 +706,34 @@ SIGNED_HTTP_TYPES = {"CUSTOM.pwrSignedHttpRequest", "n8n-nodes-pwr.pwrSignedHttp
 RESPOND_TO_WEBHOOK_NODE = "Respond to Webhook"
 WEBHOOK_TYPE = "n8n-nodes-base.webhook"
 HTTP_REQUEST_TYPE = "n8n-nodes-base.httpRequest"
+CODE_FIELD_TYPES = {
+    "n8n-nodes-base.code",
+    "n8n-nodes-base.function",
+    "n8n-nodes-base.functionItem",
+    "n8n-nodes-base.set",
+}
 TEMPLATE_SEGMENT_RE = re.compile(r"^\{[A-Za-z_][A-Za-z0-9_]*\}$")
+# n8n marks a field as a dynamic expression either by prefixing the whole
+# string with "=" or by embedding a "{{ ... }}" expression inside it. A
+# statically-verified target must be neither -- if it can vary at runtime,
+# this verifier cannot know what it will resolve to, so it must reject it
+# rather than silently approve an unresolved value.
+UNRESOLVED_EXPRESSION_RE = re.compile(r"\{\{.*\}\}")
+EVENT_ID_TOKEN_RE = re.compile(r"event_id", re.IGNORECASE)
+ODOO_INSTANCE_TOKEN_RE = re.compile(r"odoo_instance", re.IGNORECASE)
+DELIVERY_TOKEN_RE = re.compile(r"delivery_generation|deliverygenerationproperty", re.IGNORECASE)
+LEASE_TOKEN_RE = re.compile(r"\blease\b", re.IGNORECASE)
+IDEMPOTENCY_TOKEN_RE = re.compile(r"idempotency", re.IGNORECASE)
+IMAGE_ANALYSIS_CLAIM_RE = re.compile(r"image_analysis|vision_result|photo_analysis", re.IGNORECASE)
+IMAGE_EVIDENCE_RE = re.compile(r"binary|image_base64|image_url|photo_base64|attachment", re.IGNORECASE)
+PHOTO_COUNT_TOKEN_RE = re.compile(r"photo_count", re.IGNORECASE)
+ARTIFACT_OR_BASE64_TOKEN_RE = re.compile(
+    r"\b(?:base64|artifact_data|photo_base64|image_base64|artifact_content)\b", re.IGNORECASE
+)
+# A long run of base64-alphabet characters is a strong signal of an inlined
+# binary/artifact blob living directly in item JSON, even without one of the
+# named tokens above.
+BASE64_BLOB_RE = re.compile(r"[A-Za-z0-9+/]{200,}={0,2}")
 
 
 def _webhook_node(nodes: list[dict]) -> dict | None:
@@ -738,12 +769,44 @@ def _reachable_node_names(connections: dict, start_names: list[str]) -> set[str]
     return seen
 
 
+def _reverse_adjacency(connections: dict) -> dict[str, set[str]]:
+    reverse: dict[str, set[str]] = {}
+    for source_name, source_edges in connections.items():
+        for output_edges in (source_edges or {}).get("main") or []:
+            for edge in output_edges or []:
+                target = edge.get("node")
+                if target:
+                    reverse.setdefault(target, set()).add(source_name)
+    return reverse
+
+
+def _backward_reachable_node_names(connections: dict, start_name: str) -> set[str]:
+    reverse = _reverse_adjacency(connections)
+    seen: set[str] = set()
+    queue = [start_name]
+    while queue:
+        name = queue.pop()
+        if name in seen or not name:
+            continue
+        seen.add(name)
+        for source in reverse.get(name) or ():
+            if source not in seen:
+                queue.append(source)
+    return seen
+
+
 def _extract_host(url: str) -> str | None:
     if not isinstance(url, str) or not url:
         return None
     if "://" not in url:
         return None
     return urlparse(url).hostname
+
+
+def _is_unresolved_expression(value: Any) -> bool:
+    if not isinstance(value, str):
+        return True
+    return value.startswith("=") or bool(UNRESOLVED_EXPRESSION_RE.search(value))
 
 
 def _target_matches_template(target_segments: list[str], template_segments: list[str]) -> bool:
@@ -769,23 +832,52 @@ def _is_registered_target(target: str, spec: dict[str, Any]) -> bool:
     return False
 
 
+def _is_event_or_callback_target(target: str, spec: dict[str, Any]) -> bool:
+    return _is_registered_target(target, spec)
+
+
+def _node_text_blob(node: dict[str, Any]) -> str:
+    """Stringify everything about a node's parameters (including nested
+    functionCode / jsonParameters) for cheap substring scanning. Used only
+    for coarse, defense-in-depth heuristics -- not a substitute for a real
+    data-flow analysis, which JSON-only static verification cannot provide.
+    """
+    try:
+        return json.dumps(node.get("parameters") or {}, default=str)
+    except TypeError:
+        return str(node.get("parameters") or {})
+
+
+def _combined_text_blob(nodes_by_name: dict[str, dict], names: set[str]) -> str:
+    return "\n".join(_node_text_blob(nodes_by_name[name]) for name in names if name in nodes_by_name)
+
+
 def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[str]:
     """Verify the v2-generation invariants for a single workflow.
 
-    Best-effort coverage: authentication/rawBody on the Webhook trigger,
-    PWR Signature Gate being the first node after the Webhook, the
-    rejection output only ever reaching "Respond to Webhook", raw
-    httpRequest nodes never being used for internal targets (PWR Signed
-    HTTP Request required instead), PWR Signed HTTP Request targets being
-    relative paths registered either as an exact callback path or matching
-    a registered {field} artifact-path template segment-by-segment, direct
-    Odoo URLs being rejected, and bodyMode=literalUtf8 being restricted to
-    test_only=true specs.
+    Enforces: authentication/rawBody on the Webhook trigger; PWR Signature
+    Gate being the mandatory first node after the Webhook; the rejection
+    output only ever reaching "Respond to Webhook"; the very first node
+    reached after the Signature Gate's accepted output must itself be a
+    PWR Signed HTTP Request (no model/carrier/Odoo/callback/business node
+    may run before acceptance completes); raw httpRequest nodes never being
+    used for internal targets (PWR Signed HTTP Request required instead);
+    PWR Signed HTTP Request targets being static (non-expression) relative
+    paths registered either as an exact callback path or matching a
+    registered {field} artifact-path template segment-by-segment; a
+    concrete resolved host that is present in allowed_target_hosts; direct
+    Odoo targets being rejected; bodyMode=literalUtf8 being restricted to
+    test_only=true specs; event/callback nodes referencing event_id,
+    odoo_instance, and at least one delivery/lease/idempotency field; a
+    Quality workflow never claiming image analysis from photo_count alone;
+    and Code/Set ("Edit Fields") nodes never embedding artifact or base64
+    content directly in item JSON.
     """
     errors: list[str] = []
     nodes = workflow.get("nodes") or []
     connections = workflow.get("connections") or {}
     file_name = spec.get("file") or workflow.get("name", "<unknown>")
+    by_name = {node.get("name"): node for node in nodes}
 
     webhook = _webhook_node(nodes)
     if webhook is None:
@@ -804,25 +896,42 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
     gate = _gate_node(nodes)
     if gate is None:
         errors.append(f"{file_name}: v2 workflow has no PWR Signature Gate node")
-    elif webhook is not None:
-        webhook_targets = _first_output_targets(connections, webhook.get("name"))
-        if webhook_targets != [gate.get("name")]:
-            found = ", ".join(webhook_targets) if webhook_targets else "none"
-            errors.append(
-                f"{file_name}: PWR Signature Gate must be first node after Webhook "
-                f"(found: {found})"
-            )
+    else:
+        if webhook is not None:
+            webhook_targets = _first_output_targets(connections, webhook.get("name"))
+            if webhook_targets != [gate.get("name")]:
+                found = ", ".join(webhook_targets) if webhook_targets else "none"
+                errors.append(
+                    f"{file_name}: PWR Signature Gate must be first node after Webhook "
+                    f"(found: {found})"
+                )
 
-    if gate is not None:
         rejected_targets = _first_output_targets(connections, gate.get("name"), output_index=1)
         rejected_reachable = _reachable_node_names(connections, rejected_targets)
-        by_name = {node.get("name"): node for node in nodes}
         for name in sorted(rejected_reachable):
             if name != RESPOND_TO_WEBHOOK_NODE and by_name.get(name) is not None:
                 errors.append(
                     f"{file_name}: rejection path reaches '{name}', only "
                     f"'{RESPOND_TO_WEBHOOK_NODE}' is allowed"
                 )
+
+        # Nothing -- no model, carrier, Odoo, callback, or other business
+        # node -- may run before acceptance: the very first node reached
+        # from the Signature Gate's accepted (verified) output must itself
+        # be a PWR Signed HTTP Request. This mirrors the Webhook->Gate check
+        # above one hop further down the graph.
+        accepted_targets = _first_output_targets(connections, gate.get("name"), output_index=0)
+        first_accepted_node = by_name.get(accepted_targets[0]) if accepted_targets else None
+        if len(accepted_targets) != 1 or (
+            first_accepted_node is None or first_accepted_node.get("type") not in SIGNED_HTTP_TYPES
+        ):
+            found = ", ".join(accepted_targets) if accepted_targets else "none"
+            errors.append(
+                f"{file_name}: node(s) '{found}' run before acceptance; the first node "
+                "reached from the Signature Gate's accepted output must be a PWR Signed "
+                "HTTP Request that returns process=true -- no model, carrier, Odoo, "
+                "callback, or other business node may run first"
+            )
 
     allowed_hosts = set(spec.get("allowed_target_hosts") or [])
     for node in nodes:
@@ -847,8 +956,16 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
         params = node.get("parameters") or {}
         target = params.get("target", "")
         node_name = node.get("name")
+        host = params.get("host")
+        target_is_registered = False
 
-        if not isinstance(target, str) or not target.startswith("/"):
+        if _is_unresolved_expression(target):
+            errors.append(
+                f"{file_name}: node '{node_name}' target is a dynamic/unresolved n8n "
+                f"expression ('{target}'); a statically-verified target must be a "
+                "fixed relative path"
+            )
+        elif not target.startswith("/"):
             errors.append(
                 f"{file_name}: node '{node_name}' target must be a relative path, got '{target}'"
             )
@@ -861,9 +978,17 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
                 f"{file_name}: node '{node_name}' target '{target}' is not a registered target "
                 "(callback path or artifact-path template)"
             )
+        else:
+            target_is_registered = True
 
-        host = params.get("host")
-        if host and allowed_hosts and host not in allowed_hosts:
+        # A concrete, resolved host is mandatory -- not merely checked when
+        # present -- and it must be one of the registry's allowed hosts.
+        if _is_unresolved_expression(host) or not host:
+            errors.append(
+                f"{file_name}: node '{node_name}' has no concrete resolved host; a "
+                f"host from allowed_target_hosts {sorted(allowed_hosts)} is required"
+            )
+        elif host not in allowed_hosts:
             errors.append(
                 f"{file_name}: node '{node_name}' resolved host '{host}' is not in "
                 f"allowed_target_hosts {sorted(allowed_hosts)}"
@@ -873,6 +998,51 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
             errors.append(
                 f"{file_name}: node '{node_name}' uses bodyMode=literalUtf8 outside a "
                 "test_only=true registry entry"
+            )
+
+        if target_is_registered and isinstance(target, str) and _is_event_or_callback_target(target, spec):
+            backward_names = _backward_reachable_node_names(connections, node_name)
+            blob = _node_text_blob(node) + "\n" + _combined_text_blob(by_name, backward_names)
+            missing = []
+            if not EVENT_ID_TOKEN_RE.search(blob):
+                missing.append("event_id")
+            if not ODOO_INSTANCE_TOKEN_RE.search(blob):
+                missing.append("odoo_instance")
+            if not (
+                DELIVERY_TOKEN_RE.search(blob)
+                or LEASE_TOKEN_RE.search(blob)
+                or IDEMPOTENCY_TOKEN_RE.search(blob)
+            ):
+                missing.append("delivery generation/lease/idempotency")
+            if missing:
+                errors.append(
+                    f"{file_name}: event/callback node '{node_name}' is missing required "
+                    f"fields: {', '.join(missing)}"
+                )
+
+    # Quality workflows must not claim image analysis from photo_count alone.
+    if "quality" in file_name.lower():
+        for node in nodes:
+            if node.get("type") not in CODE_FIELD_TYPES:
+                continue
+            blob = _node_text_blob(node)
+            if IMAGE_ANALYSIS_CLAIM_RE.search(blob) and PHOTO_COUNT_TOKEN_RE.search(blob):
+                if not IMAGE_EVIDENCE_RE.search(blob):
+                    errors.append(
+                        f"{file_name}: node '{node.get('name')}' claims image analysis "
+                        "using only photo_count, without any actual image/binary evidence"
+                    )
+
+    # Code/Edit Fields nodes may not place artifact or base64 content
+    # directly in item JSON.
+    for node in nodes:
+        if node.get("type") not in CODE_FIELD_TYPES:
+            continue
+        blob = _node_text_blob(node)
+        if ARTIFACT_OR_BASE64_TOKEN_RE.search(blob) or BASE64_BLOB_RE.search(blob):
+            errors.append(
+                f"{file_name}: node '{node.get('name')}' ({node.get('type')}) appears to "
+                "place artifact or base64 content directly in item JSON"
             )
 
     return errors
