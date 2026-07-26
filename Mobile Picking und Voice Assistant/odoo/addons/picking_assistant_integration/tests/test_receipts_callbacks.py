@@ -1,6 +1,8 @@
+from datetime import timedelta
 from unittest.mock import patch
 
-from odoo.exceptions import ValidationError
+from odoo import fields
+from odoo.exceptions import AccessError, ValidationError
 
 from ..models.receipts import PickingAssistantWebhookNonce
 from .common import IntegrationCase
@@ -186,3 +188,55 @@ class TestReceiptsAndCallbacks(IntegrationCase):
         self.assertEqual(replay, first)
         self.assertEqual(self.job.state, "running")
         self.assertEqual(self.job.sequence, 1)
+
+    def _accept_and_expire_lease(self):
+        self.env["picking.assistant.event.receipt"].with_user(
+            self.api_user
+        ).api_accept_event(
+            self.outbox.event_id,
+            self.job.job_id,
+            "a" * 64,
+            "b2n-test",
+            "123e4567-e89b-42d3-a456-426614174060",
+            1,
+            "n2b-test",
+            "123e4567-e89b-42d3-a456-426614174061",
+        )
+        receipt = self.env["picking.assistant.event.receipt"].search(
+            [("event_id", "=", self.outbox.event_id)]
+        )
+        receipt.write(
+            {
+                "processing_lease_expires_at": fields.Datetime.now()
+                - timedelta(seconds=1)
+            }
+        )
+        return receipt
+
+    def test_api_recover_stalled_jobs_requires_api_service_group(self):
+        jobs = self.env["picking.assistant.integration.job"].with_user(
+            self.picker
+        )
+        with self.assertRaises(AccessError):
+            jobs.api_recover_stalled_jobs(10)
+
+    def test_api_recover_stalled_jobs_returns_counts_only_and_recovers(self):
+        receipt = self._accept_and_expire_lease()
+        result = self.env["picking.assistant.integration.job"].with_user(
+            self.api_user
+        ).api_recover_stalled_jobs(10)
+        # Counts only: the guarded watchdog batch must never expose lease
+        # tokens or any other row data over RPC.
+        self.assertEqual(result, {"recovered": 1})
+        self.assertEqual(receipt.state, "retryable")
+        self.assertFalse(receipt.processing_lease_token)
+        self.assertEqual(self.job.state, "retry_scheduled")
+        self.assertEqual(self.job.delivery_generation, 2)
+        self.assertEqual(self.outbox.state, "pending")
+        self.assertEqual(self.outbox.envelope_text, '{"schema_version":"v2"}')
+
+    def test_api_recover_stalled_jobs_with_nothing_due_recovers_zero(self):
+        result = self.env["picking.assistant.integration.job"].with_user(
+            self.api_user
+        ).api_recover_stalled_jobs(10)
+        self.assertEqual(result, {"recovered": 0})
