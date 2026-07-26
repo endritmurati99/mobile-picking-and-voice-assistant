@@ -215,8 +215,16 @@ async def get_request_odoo_client_or_grace(
     (Default `local`) zurueck, statt sofort 401 zu werfen.
 
     `get_request_odoo_client` selbst bleibt davon unberuehrt und bedient
-    weiterhin ausschliesslich strikt Principal-gebundene Routen (z. B.
-    `/api/products/{id}/image`, siehe `test_instance_routing.py`).
+    weiterhin ausschliesslich strikt Principal-gebundene Routen.
+
+    ACHTUNG, geaendert am 2026-07-26: `/api/products/{id}/image` gehoert NICHT
+    mehr dazu -- diese Route bezieht ihren Client bewusst hier, weil `<img src>`
+    keine Custom-Header setzen kann und bis zum PWA-Login-UI (Task 16) kein
+    Session-Cookie existiert. Im Dev-Profil sind Produktbilder damit ohne
+    Session lesbar; in production bleibt Grace-Mode fail-closed und die Route
+    antwortet weiter 401. Beide Zusagen sind in `test_instance_routing.py`
+    festgenagelt. Die saubere Loesung waere eine kurzlebig signierte Bild-URL,
+    dann kann die Ausnahme wieder entfallen.
 
     Ehrt zusaetzlich einen expliziten Test-Override auf `get_request_odoo_client`
     (der in bestehenden Routen-Tests uebliche Seam, um einen Fake-Client statt
