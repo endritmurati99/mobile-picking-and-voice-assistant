@@ -36,6 +36,16 @@
 # — the override YAML itself cannot express this check, so it must be
 # enforced by an explicit script gate:
 #   clone-postgres-volume.sh assert-target MANIFEST_DIR REQUESTED_VOLUME
+#
+# Intentionally no ODOO_DB_NAME dependency: unlike init-db-roles.sh and
+# migrate-n8n-db-role.sh, this tool never opens a database connection or
+# reads database/table names — it only ever operates on whole Docker
+# volumes by name/ID (docker volume inspect/create/rm) and on their raw
+# bytes (tar, sha256sum, PG_VERSION file contents). It has no code path
+# where a database name would be consumed, so requiring ODOO_DB_NAME
+# here would be a dead, unused gate rather than real fail-closed
+# behavior — the real fail-closed requirement for this tool is instead
+# assert-target's refusal to accept the recorded source volume identity.
 set -euo pipefail
 
 log() {
