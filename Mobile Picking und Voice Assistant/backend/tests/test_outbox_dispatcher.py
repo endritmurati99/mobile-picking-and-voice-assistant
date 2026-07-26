@@ -438,6 +438,98 @@ async def test_second_concurrent_lifespan_start_is_refused(monkeypatch):
     await again.__aexit__(None, None, None)
 
 
+@pytest.mark.asyncio
+async def test_failed_startup_stops_partial_tasks_and_frees_the_guard(monkeypatch):
+    """Watchdog construction failing AFTER the dispatcher task was created:
+    the half-started pair must be shut down (no orphan task) and the process
+    guard must be free so a later start succeeds."""
+    from app import main as main_module
+
+    events = []
+
+    class FakeDispatcher:
+        async def run(self, stop_event):
+            events.append("dispatcher-started")
+            await stop_event.wait()
+            events.append("dispatcher-stopped")
+
+    monkeypatch.setattr(
+        main_module, "get_outbox_dispatcher", lambda c: FakeDispatcher()
+    )
+
+    def broken_watchdog(_candidate):
+        raise ValueError("watchdog construction boom")
+
+    monkeypatch.setattr(main_module, "get_integration_watchdog", broken_watchdog)
+    lifespan = main_module.build_lifespan(
+        _candidate_settings(dispatcher_enabled=True)
+    )
+    with pytest.raises(ValueError, match="watchdog construction boom"):
+        await lifespan(main_module.app).__aenter__()
+    assert events == ["dispatcher-started", "dispatcher-stopped"]
+
+    # Guard is free: a subsequent healthy start succeeds.
+    class FakeWatchdog:
+        async def run_once(self, instance):
+            return WatchdogStats(recovered=0)
+
+    monkeypatch.setattr(
+        main_module, "get_integration_watchdog", lambda c: FakeWatchdog()
+    )
+    healthy = lifespan(main_module.app)
+    await healthy.__aenter__()
+    await healthy.__aexit__(None, None, None)
+
+
+@pytest.mark.asyncio
+async def test_cancelled_shutdown_cancels_tasks_and_frees_the_guard(monkeypatch):
+    """Cancellation while awaiting shutdown must still cancel the pair and
+    release the guard — otherwise one cancelled shutdown permanently refuses
+    every later enabled lifespan in this process."""
+    from app import main as main_module
+
+    class HangingDispatcher:
+        async def run(self, stop_event):
+            await stop_event.wait()
+            await asyncio.Event().wait()  # never finishes shutdown on its own
+
+    class FakeWatchdog:
+        async def run_once(self, instance):
+            return WatchdogStats(recovered=0)
+
+    monkeypatch.setattr(
+        main_module, "get_outbox_dispatcher", lambda c: HangingDispatcher()
+    )
+    monkeypatch.setattr(
+        main_module, "get_integration_watchdog", lambda c: FakeWatchdog()
+    )
+    lifespan = main_module.build_lifespan(
+        _candidate_settings(dispatcher_enabled=True)
+    )
+
+    async def runner():
+        async with lifespan(main_module.app):
+            pass  # shutdown begins immediately and hangs in the dispatcher
+
+    task = asyncio.create_task(runner())
+    await asyncio.sleep(0.05)  # let it reach the hanging shutdown await
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    # Guard is free and no orphan task blocks a fresh start.
+    class CleanDispatcher:
+        async def run(self, stop_event):
+            await stop_event.wait()
+
+    monkeypatch.setattr(
+        main_module, "get_outbox_dispatcher", lambda c: CleanDispatcher()
+    )
+    healthy = lifespan(main_module.app)
+    await healthy.__aenter__()
+    await healthy.__aexit__(None, None, None)
+
+
 def test_build_integration_watchdog_reads_only_the_candidate_settings():
     candidate = _candidate_settings(
         odoo_instances_json=(
