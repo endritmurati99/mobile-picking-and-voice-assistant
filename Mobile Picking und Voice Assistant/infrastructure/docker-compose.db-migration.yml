@@ -6,16 +6,19 @@
 #
 # This override YAML has no way to enforce that PWR_DB_MIGRATION_VOLUME
 # is actually the recorded disposable clone rather than the live source
-# volume — that check MUST happen before `up`, via:
+# volume, or even a volume that merely shares its name after being
+# deleted and recreated. That check cannot be skipped by running
+# `docker compose` directly against this file — do not do that. Always
+# go through the wrapper, which runs the guard and only then starts
+# this override:
 #
-#   infrastructure/scripts/clone-postgres-volume.sh assert-target \
-#     MANIFEST_DIR "$PWR_DB_MIGRATION_VOLUME"
+#   infrastructure/scripts/clone-postgres-volume.sh compose-up \
+#     MANIFEST_DIR <clone_volume_name> pwr_dbrole_test
 #
-# Usage:
+# `compose-up` internally runs `assert-target` (refusing the recorded
+# source volume outright, and refusing any volume that does not contain
+# the recorded clone identity token) before it execs the equivalent of:
 #   PWR_DB_MIGRATION_VOLUME=<clone_volume_name> \
-#     infrastructure/scripts/clone-postgres-volume.sh assert-target \
-#     MANIFEST_DIR "$PWR_DB_MIGRATION_VOLUME" \
-#   && PWR_DB_MIGRATION_VOLUME=<clone_volume_name> \
 #     docker compose -p pwr_dbrole_test \
 #     -f docker-compose.yml -f infrastructure/docker-compose.db-migration.yml \
 #     up -d db
