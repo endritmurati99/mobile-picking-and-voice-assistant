@@ -35,6 +35,7 @@ def _v2_spec_dict(workflow_spec) -> dict:
         "allowed_target_hosts": list(workflow_spec.allowed_target_hosts),
         "authentication": workflow_spec.authentication,
         "test_only": workflow_spec.test_only,
+        "artifact_path_templates": list(workflow_spec.artifact_path_templates),
     }
 
 

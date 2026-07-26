@@ -31,6 +31,10 @@ class WorkflowSpec:
     activation_order: int | None
     allowed_target_hosts: tuple[str, ...]
     credential_bindings: tuple[CredentialBinding, ...]
+    # Registered {field} artifact-path templates (see workflow_verifier.py's
+    # verify_v2_workflow), e.g. "/api/internal/n8n/v2/artifacts/{event_id}".
+    # Empty for every current (v1) workflow.
+    artifact_path_templates: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -74,6 +78,22 @@ class WorkflowRegistry:
     def required_credentials(self, file_name: str) -> tuple[CredentialBinding, ...]:
         return self.by_file(file_name).credential_bindings
 
+    def error_trigger_file(self) -> str:
+        """Resolve the single managed workflow that is THE error trigger,
+        rather than any caller hardcoding "error-trigger.json". Fails
+        closed if there is not exactly one such managed entry.
+        """
+        matches = [
+            item.file
+            for item in self.workflows
+            if item.managed and item.authentication == "error_trigger_v1"
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                f"expected exactly one managed error_trigger_v1 workflow, found {len(matches)}"
+            )
+        return matches[0]
+
 
 def load_registry(
     path: Path,
@@ -111,6 +131,7 @@ def load_registry(
                 activation_order=value.get("activation_order"),
                 allowed_target_hosts=tuple(value.get("allowed_target_hosts") or []),
                 credential_bindings=bindings,
+                artifact_path_templates=tuple(value.get("artifact_path_templates") or []),
             )
         )
 
@@ -213,6 +234,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="List credential bindings for a workflow file.",
     )
     credential_parser.add_argument("file", help="Workflow file name, e.g. shortage-reported.json")
+    subparsers.add_parser(
+        "error-trigger-file",
+        parents=[common],
+        help="Print the single managed error_trigger_v1 workflow file.",
+    )
     return parser
 
 
@@ -229,6 +255,8 @@ def main(argv: list[str] | None = None) -> int:
             payload = list(registry.test_only_files())
         elif args.command == "credential-bindings":
             payload = _credential_bindings_payload(registry, args.file)
+        elif args.command == "error-trigger-file":
+            payload = registry.error_trigger_file()
         else:  # pragma: no cover - argparse enforces valid choices
             raise ValueError(f"unknown command {args.command}")
     except (ValueError, KeyError, OSError) as exc:
