@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.routers import auth, cluster, demo, health, instances, integration, llm, n8n_internal, obsidian, pickings, quality, scan, voice
+# Task 10: eigene Importzeile, damit parallele Branches die Zeile oben nicht anfassen muessen.
+from app.routers import n8n_v2
 
 app = FastAPI(
     title="Picking Assistant API",
@@ -32,3 +34,6 @@ app.include_router(n8n_internal.router, prefix="/api")
 app.include_router(llm.router, prefix="/api")
 app.include_router(instances.router, prefix="/api", tags=["instances"])
 app.include_router(demo.router, prefix="/api", tags=["demo"])
+# Task 10: signierte v2-Routen, wie n8n_internal unter /api gemountet. Der
+# Legacy-Router n8n_internal bleibt bewusst daneben bestehen (v1).
+app.include_router(n8n_v2.router, prefix="/api", tags=["n8n-v2"])

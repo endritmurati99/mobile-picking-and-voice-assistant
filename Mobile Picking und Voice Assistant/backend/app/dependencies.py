@@ -22,6 +22,14 @@ from app.services.odoo_client import OdooClient
 from app.services.picking_service import PickingService
 from app.config import settings, decode_secret_b64, get_instance_registry
 from app.models.auth import Principal
+# Task 10 additions (kept as separate import lines so concurrent branches that
+# touch the block above merge cleanly).
+from dataclasses import dataclass
+from datetime import datetime, timezone
+
+from app.config import Settings
+from app.models.webhook_security import HmacKey, HmacKeyring, VerifiedSignature
+from app.services.hmac_signing import SignatureError, verify_signature
 
 logger = logging.getLogger(__name__)
 
@@ -445,3 +453,143 @@ def require_n8n_callback_secret(
         )
     if not provided_secret or not secrets.compare_digest(provided_secret, expected_secret):
         raise HTTPException(status_code=403, detail="Ungueltiges n8n callback secret.")
+
+
+# ---------------------------------------------------------------------------
+# Task 10: signierte n8n -> Backend Transportschicht (v2)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class VerifiedInternalRequest:
+    """Ergebnis einer BESTANDENEN Signaturpruefung.
+
+    Es gibt keinen Konstruktionsweg zu diesem Objekt, der die Pruefung
+    ueberspringt: `verify_n8n_to_backend_request` erzeugt es ausschliesslich
+    nach `verify_signature`. Routen sehen den Rohbody erst hier -- damit ist
+    "erst verifizieren, dann parsen" strukturell erzwungen und nicht bloss
+    Konvention.
+    """
+
+    signature: VerifiedSignature
+    raw_body: bytes
+
+
+def get_signature_now() -> datetime:
+    """Uhr fuer die Signatur-Skew-Pruefung als eigene Dependency, damit Tests
+    das Zeitfenster deterministisch setzen koennen (statt von der Wanduhr
+    abzuhaengen)."""
+    return datetime.now(timezone.utc)
+
+
+def build_n8n_to_backend_keyring(candidate: Settings) -> HmacKeyring:
+    """Keyring fuer die n8n -> Backend Richtung aus der uebergebenen
+    `candidate`-Settings-Instanz (niemals ein anderes globales Settings-Objekt).
+
+    `decode_secret_b64` erzwingt >= 32 entschluesselte Bytes und faellt bei
+    fehlender/ungueltiger Konfiguration mit ValueError aus -- fail closed, es
+    gibt keinen Pfad zu einem leeren oder Default-Secret.
+    """
+    active = HmacKey(
+        candidate.pwr_n8n_to_backend_active_key_id,
+        decode_secret_b64(
+            "PWR_N8N_TO_BACKEND_ACTIVE_SECRET_B64",
+            candidate.pwr_n8n_to_backend_active_secret_b64,
+        ),
+    )
+    previous = None
+    if candidate.pwr_n8n_to_backend_previous_key_id:
+        previous = HmacKey(
+            candidate.pwr_n8n_to_backend_previous_key_id,
+            decode_secret_b64(
+                "PWR_N8N_TO_BACKEND_PREVIOUS_SECRET_B64",
+                candidate.pwr_n8n_to_backend_previous_secret_b64,
+            ),
+        )
+    return HmacKeyring(active=active, previous=previous)
+
+
+def get_n8n_to_backend_keyring() -> HmacKeyring:
+    # Transitional dependency until Task 16 binds the keyring to
+    # app.state.runtime. Bis dahin wird der Keyring pro Request aus
+    # `app.config.settings` gebaut -- absichtlich NICHT gecacht, damit eine
+    # Key-Rotation keinen Prozess-Neustart braucht.
+    try:
+        return build_n8n_to_backend_keyring(settings)
+    except ValueError as exc:
+        # Fehlendes/ungueltiges Secret => 503, exakt wie
+        # `require_n8n_callback_secret` fuer den Legacy-Pfad. Es gibt keinen
+        # Fallback-Key: ohne Konfiguration ist die Route geschlossen. Der Grund
+        # bleibt im Log, nicht in der Antwort.
+        logger.error("n8n-to-backend HMAC keyring is not configured: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail="n8n-to-backend signing keys sind nicht konfiguriert.",
+        ) from exc
+
+
+async def verify_n8n_to_backend_request(
+    request: Request,
+    keyring: HmacKeyring = Depends(get_n8n_to_backend_keyring),
+    now: datetime = Depends(get_signature_now),
+) -> VerifiedInternalRequest:
+    """Prueft die HMAC-Signatur des ROHEN Requests, bevor irgendetwas anderes
+    passiert (Schema, Instanz-Routing, Odoo).
+
+    Der signierte Pfad wird gegen `raw_path` verglichen, nicht gegen den von
+    Starlette dekodierten `url.path`: sonst koennten prozentkodierte Varianten
+    desselben Ziels dieselbe Signatur bedienen. Ein Query-String ist auf diesen
+    Routen komplett verboten (`verify_signature` -> 400), damit kein
+    ungesignter Parameter Verhalten beeinflussen kann.
+
+    Replay-Schutz liegt bewusst NICHT hier: der autoritative Nonce-Store ist
+    `picking.assistant.webhook.nonce` in Odoo (Task 8, 900s Retention > der
+    geforderten 600s). Er wird innerhalb von `api_accept_event` /
+    `api_apply_callback` reserviert, also in derselben Transaktion wie die
+    Zustandsaenderung -- ein prozesslokaler Cache hier waere pro Worker
+    getrennt und damit kein Replay-Schutz. Das Skew-Fenster
+    (`pwr_hmac_max_skew_seconds`) begrenzt zusaetzlich, wie alt eine
+    wiedervorgelegte Signatur sein darf.
+    """
+    raw_body = await request.body()
+    raw_path = request.scope.get("raw_path") or request.url.path.encode("utf-8")
+    try:
+        try:
+            actual_target = raw_path.decode("ascii")
+        except UnicodeDecodeError as exc:
+            # Ein Pfad mit Nicht-ASCII-Bytes ist nie ein gueltiges signiertes
+            # Ziel -- fail closed statt Signaturpruefung mit Ersatzzeichen.
+            raise SignatureError(400, "malformed_target") from exc
+        signature = verify_signature(
+            actual_method=request.method,
+            actual_target=actual_target,
+            raw_query=request.scope.get("query_string", b""),
+            raw_body=raw_body,
+            headers=dict(request.headers),
+            keyring=keyring,
+            now=now,
+            max_skew_seconds=settings.pwr_hmac_max_skew_seconds,
+        )
+    except SignatureError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"reason_code": exc.reason_code},
+        ) from exc
+    return VerifiedInternalRequest(signature=signature, raw_body=raw_body)
+
+
+def get_callback_odoo_client(odoo_instance: str) -> OdooClient:
+    """Odoo-Client fuer die signierten v2-Routen, ausschliesslich aus dem
+    Instanznamen im SIGNIERTEN Body aufgeloest.
+
+    Bewusst KEINE FastAPI-Dependency: es gibt damit keinen Weg, den Namen aus
+    einem Header (`X-Odoo-Instance`), einem Query-Parameter oder einem
+    `local`-Default zu beziehen. Der Name wird als Allowlist gegen das
+    serverseitige Instanzregister geprueft (exakter Treffer, keine
+    Normalisierung -- der Body muss den kanonischen Namen nennen) und eine
+    unbekannte Instanz endet in 403 mit einer Meldung, die nicht verraet,
+    welche Instanzen existieren.
+    """
+    if odoo_instance not in get_instance_registry():
+        raise HTTPException(status_code=403, detail="Unbekannte Callback-Instanz.")
+    return _get_cached_client(odoo_instance)

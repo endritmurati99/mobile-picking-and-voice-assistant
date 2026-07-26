@@ -107,7 +107,10 @@ class EventAcceptanceRequest(StrictModel):
     schema_version: Literal["v2"]
     event_id: UUID
     job_id: UUID
-    odoo_instance: str
+    # Task 10: identisches Muster wie CallbackEnvelopeV2.odoo_instance -- der
+    # Instanzname aus dem signierten Body steuert das Schreibziel, also muss er
+    # in BEIDEN Modellen gleich streng validiert werden (nicht nur in einem).
+    odoo_instance: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
     payload_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
     ingress_key_id: str
     ingress_nonce: UUID
