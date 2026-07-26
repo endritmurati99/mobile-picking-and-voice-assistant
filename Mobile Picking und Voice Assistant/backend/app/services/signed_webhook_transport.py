@@ -20,8 +20,9 @@ from app.services.hmac_signing import sign_request
 
 # Allowlist, not denylist: a deliverable target is exactly one /webhook/
 # segment made of lowercase letters, digits and hyphens (the same charset
-# `load_event_targets` enforces on the registry side). Everything else —
-# absolute URLs, query strings, fragments, traversal, extra segments,
+# `load_event_targets` enforces on the registry side — note: underscores are
+# deliberately NOT allowed, v2 webhook paths must be kebab-case). Everything
+# else — absolute URLs, query strings, fragments, traversal, extra segments,
 # header-injection attempts — fails closed before any network I/O.
 _ALLOWED_TARGET = re.compile(r"^/webhook/[a-z0-9][a-z0-9-]*$")
 

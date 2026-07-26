@@ -4,6 +4,11 @@ No Python constant repeats the event-to-path mapping: the only source is
 `n8n/workflow-registry.json` (schema v1). Only `generation: "v2"` workflows
 contribute targets; every rule here is an allowlist and every violation
 fails closed with `ValueError` at construction time.
+
+COMPATIBILITY CONSTRAINT for future registry entries (Task 15's smoke
+workflow included): the path allowlist is lowercase letters, digits and
+hyphens ONLY — underscores are deliberately rejected. Name v2 webhook paths
+kebab-case (e.g. `quality-assessment-v2`), never snake_case.
 """
 import json
 import re
