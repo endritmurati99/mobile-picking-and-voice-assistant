@@ -445,3 +445,32 @@ def require_n8n_callback_secret(
         )
     if not provided_secret or not secrets.compare_digest(provided_secret, expected_secret):
         raise HTTPException(status_code=403, detail="Ungueltiges n8n callback secret.")
+
+
+# ---------------------------------------------------------------------------
+# Task 9: signed v2 event transport — outbox dispatcher and integration
+# watchdog. Deliberately appended (imports included) so concurrent edits to
+# this file stay trivially mergeable.
+# ---------------------------------------------------------------------------
+from pathlib import Path  # noqa: E402
+
+from app.config import Settings  # noqa: E402
+from app.services.outbox_dispatcher import (  # noqa: E402
+    IntegrationWatchdog,
+    OutboxDispatcher,
+    build_integration_watchdog,
+    build_outbox_dispatcher,
+)
+from app.services.workflow_targets import load_event_targets  # noqa: E402
+
+
+def get_outbox_dispatcher(candidate: Settings = settings) -> OutboxDispatcher:
+    """Dispatcher fuer die uebergebene Settings-Instanz. Die Event-zu-Pfad-
+    Zuordnung kommt ausschliesslich aus dem einen Registry-File
+    (`load_event_targets`), nie aus einer Python-Konstante."""
+    targets = load_event_targets(Path(candidate.workflow_registry_path))
+    return build_outbox_dispatcher(candidate, _get_cached_client, targets)
+
+
+def get_integration_watchdog(candidate: Settings = settings) -> IntegrationWatchdog:
+    return build_integration_watchdog(candidate, _get_cached_client)

@@ -252,6 +252,56 @@ def test_build_outbox_dispatcher_reads_only_the_candidate_settings():
     assert transport._key.secret == b"c" * 32
 
 
+@pytest.mark.asyncio
+async def test_lifespan_constructs_nothing_while_dispatcher_disabled(monkeypatch):
+    from app import main as main_module
+
+    def must_not_be_called(_candidate):
+        raise AssertionError("dispatcher must not be constructed when disabled")
+
+    monkeypatch.setattr(main_module, "get_outbox_dispatcher", must_not_be_called)
+    monkeypatch.setattr(
+        main_module, "get_integration_watchdog", must_not_be_called
+    )
+    lifespan = main_module.build_lifespan(
+        _candidate_settings(dispatcher_enabled=False)
+    )
+    async with lifespan(main_module.app):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_lifespan_starts_and_stops_dispatcher_and_watchdog(monkeypatch):
+    from app import main as main_module
+
+    events = []
+
+    class FakeDispatcher:
+        async def run(self, stop_event):
+            events.append("dispatcher-started")
+            await stop_event.wait()
+            events.append("dispatcher-stopped")
+
+    class FakeWatchdog:
+        async def run_once(self, instance):
+            events.append(f"watchdog:{instance}")
+            return WatchdogStats(recovered=0)
+
+    candidate = _candidate_settings(dispatcher_enabled=True)
+    monkeypatch.setattr(
+        main_module, "get_outbox_dispatcher", lambda c: FakeDispatcher()
+    )
+    monkeypatch.setattr(
+        main_module, "get_integration_watchdog", lambda c: FakeWatchdog()
+    )
+    lifespan = main_module.build_lifespan(candidate)
+    async with lifespan(main_module.app):
+        await asyncio.sleep(0.05)
+    assert "dispatcher-started" in events
+    assert "dispatcher-stopped" in events
+    assert "watchdog:local" in events
+
+
 def test_build_integration_watchdog_reads_only_the_candidate_settings():
     candidate = _candidate_settings(
         odoo_instances_json=(

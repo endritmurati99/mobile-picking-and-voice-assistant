@@ -117,6 +117,7 @@ async def test_acceptance_body_is_matched_exactly_not_by_subset():
         {"accepted": True},
         {"accepted": False, "event_id": "evt-1"},
         {"accepted": "true", "event_id": "evt-1"},
+        {"accepted": 1, "event_id": "evt-1"},
         [],
         "accepted",
     ]
