@@ -9,6 +9,7 @@ Zweites Leitmotiv: Paritaet. Die beiden Routen (`/events/accept` und
 `/callbacks/status`) werden fuer jede Transport-Abwehr parametrisiert getestet,
 damit eine Verteidigung nicht in einer Route sitzt und in der anderen fehlt.
 """
+import hashlib
 import json
 from datetime import datetime, timezone
 
@@ -199,7 +200,7 @@ def test_signed_callback_writes_only_named_instance(signed_env):
     assert (model, method) == ("picking.assistant.callback.receipt", "api_apply_callback")
     # Die Route reicht Fingerprint/Key-Id/Nonce der VERIFIZIERTEN Signatur weiter,
     # damit Odoo den Replay-Schutz (Nonce-Store, Task 8) fuehren kann.
-    assert args[1] == __import__("hashlib").sha256(body).hexdigest()
+    assert args[1] == hashlib.sha256(body).hexdigest()
     assert args[2] == SIGNING_KEY.key_id
     assert args[3] == NONCE
 
@@ -611,6 +612,16 @@ def test_v2_router_has_no_browser_or_legacy_dependencies():
         resolve_instance,
         resolve_legacy_header_identity,
     }
+    def transitive_calls(dependant) -> set:
+        """Rekursiv, nicht nur die oberste Ebene: eine verbotene Abhaengigkeit
+        waere sonst schon dadurch unsichtbar, dass sie eine Ebene tiefer
+        eingehaengt wird."""
+        found = set()
+        for dep in dependant.dependencies:
+            found.add(dep.call)
+            found |= transitive_calls(dep)
+        return found
+
     v2_routes = [
         route
         for route in app.routes
@@ -618,5 +629,7 @@ def test_v2_router_has_no_browser_or_legacy_dependencies():
     ]
     assert {route.path for route in v2_routes} == {ACCEPT_TARGET, CALLBACK_TARGET}
     for route in v2_routes:
-        used = {dep.call for dep in route.dependant.dependencies}
+        used = transitive_calls(route.dependant)
         assert not (used & forbidden), route.path
+        # Die Signaturpruefung MUSS an jeder v2-Route haengen.
+        assert dependencies.verify_n8n_to_backend_request in used, route.path
