@@ -60,6 +60,11 @@ let cachedDeVoice = null;
 let _piperHealthy = null;
 let _currentPiperAudio = null;
 
+// Epoch-Token gegen TTS-Races: stopSpeaking() erhoeht den Zaehler; verzoegerte
+// Sprachstarts (80ms-Browser-Timer, laufender Piper-Fetch) pruefen ihn und
+// brechen still ab statt nach dem Cancel doch noch loszureden.
+let _speechEpoch = 0;
+
 function _resetConfirmationState() {
     _pendingConfirmAction = null;
     _pendingConfirmValue = null;
@@ -242,7 +247,7 @@ function beginSpeechInterlock(promptText) {
  * Gibt true zurueck bei Erfolg, false bei Fehler/Unavailability.
  * Cacht den Verfuegbarkeitsstatus um wiederholte Timeouts zu vermeiden.
  */
-async function _tryPiper(text) {
+async function _tryPiper(text, epoch) {
     if (_piperHealthy === false) return false;
 
     try {
@@ -268,6 +273,12 @@ async function _tryPiper(text) {
         const blob = await response.blob();
         _piperHealthy = true;
 
+        if (epoch !== undefined && epoch !== _speechEpoch) {
+            // Waehrend des Fetch abgebrochen — nicht mehr abspielen, aber als
+            // Erfolg melden, damit kein Browser-TTS-Fallback nachspricht.
+            return true;
+        }
+
         return new Promise((resolve) => {
             const url = URL.createObjectURL(blob);
             const audio = new Audio(url);
@@ -289,13 +300,17 @@ async function _tryPiper(text) {
     }
 }
 
-function _speakBrowserTTS(text, done) {
+function _speakBrowserTTS(text, done, epoch) {
     if (!('speechSynthesis' in window)) {
         done();
         return;
     }
     window.speechSynthesis.cancel();
     window.setTimeout(() => {
+        if (epoch !== undefined && epoch !== _speechEpoch) {
+            done();
+            return;
+        }
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'de-DE';
         utterance.rate = 1.15;
@@ -317,6 +332,7 @@ export function speak(text) {
         }
 
         beginSpeechInterlock(text);
+        const epoch = _speechEpoch;
 
         const done = () => {
             ttsBusy = false;
@@ -326,21 +342,22 @@ export function speak(text) {
         };
 
         if (!shouldUsePiperTts(text)) {
-            _speakBrowserTTS(text, done);
+            _speakBrowserTTS(text, done, epoch);
             return;
         }
 
-        _tryPiper(text).then((piperOk) => {
-            if (piperOk) {
+        _tryPiper(text, epoch).then((piperOk) => {
+            if (piperOk || epoch !== _speechEpoch) {
                 done();
             } else {
-                _speakBrowserTTS(text, done);
+                _speakBrowserTTS(text, done, epoch);
             }
         });
     });
 }
 
 export function stopSpeaking() {
+    _speechEpoch += 1;
     if (_currentPiperAudio) {
         _currentPiperAudio.pause();
         _currentPiperAudio = null;
