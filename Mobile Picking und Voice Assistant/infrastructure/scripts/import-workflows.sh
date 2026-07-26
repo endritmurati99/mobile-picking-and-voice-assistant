@@ -56,7 +56,12 @@ EOF
 }
 
 registry_query() {
-  python "$REGISTRY_PY" --registry "$REGISTRY_PATH" "$@"
+  # --registry must come after the subcommand: workflow_registry.py's
+  # subparsers each redeclare --registry with their own default via a
+  # shared `parents=[common]`, and argparse re-applies that default when
+  # parsing the subcommand's own arguments -- silently discarding a
+  # --registry given before the subcommand name.
+  python "$REGISTRY_PY" "$@" --registry "$REGISTRY_PATH"
 }
 
 managed_files() {
