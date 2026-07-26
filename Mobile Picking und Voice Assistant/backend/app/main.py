@@ -39,37 +39,51 @@ def build_lifespan(candidate_settings: Settings):
                     "Outbox dispatcher is already running in this process."
                 )
             guard_held = True
-            try:
-                dispatcher = get_outbox_dispatcher(candidate_settings)
-                watchdog = get_integration_watchdog(candidate_settings)
-            except BaseException:
-                _dispatcher_process_guard.release()
-                raise
-            tasks.append(asyncio.create_task(dispatcher.run(stop_event)))
-
-            async def watchdog_loop():
-                while not stop_event.is_set():
-                    for instance in get_instance_registry(candidate_settings):
-                        try:
-                            await watchdog.run_once(instance)
-                        except Exception:
-                            logger.exception(
-                                "Watchdog cycle failed for instance %s", instance
-                            )
-                    try:
-                        await asyncio.wait_for(stop_event.wait(), timeout=60)
-                    except TimeoutError:
-                        pass
-
-            tasks.append(asyncio.create_task(watchdog_loop()))
+        # From here on, EVERYTHING (construction, task creation, run, and
+        # shutdown) sits under one try/finally: any failure or cancellation
+        # on any path stops partially created tasks and releases the guard
+        # in the innermost finally — a leaked guard would permanently refuse
+        # every later enabled lifespan in this process.
         try:
+            if guard_held:
+                dispatcher = get_outbox_dispatcher(candidate_settings)
+                tasks.append(asyncio.create_task(dispatcher.run(stop_event)))
+                watchdog = get_integration_watchdog(candidate_settings)
+
+                async def watchdog_loop():
+                    while not stop_event.is_set():
+                        for instance in get_instance_registry(candidate_settings):
+                            try:
+                                await watchdog.run_once(instance)
+                            except Exception:
+                                logger.exception(
+                                    "Watchdog cycle failed for instance %s", instance
+                                )
+                        try:
+                            await asyncio.wait_for(stop_event.wait(), timeout=60)
+                        except TimeoutError:
+                            pass
+
+                tasks.append(asyncio.create_task(watchdog_loop()))
             yield
         finally:
             stop_event.set()
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
-            if guard_held:
-                _dispatcher_process_guard.release()
+            try:
+                if tasks:
+                    try:
+                        await asyncio.gather(*tasks, return_exceptions=True)
+                    finally:
+                        # Only meaningful when the await above was cancelled:
+                        # cancel the (possibly partial) pair and await the
+                        # cancellations so no orphan task survives. On the
+                        # normal path all tasks are already done and both
+                        # calls return immediately.
+                        for task in tasks:
+                            task.cancel()
+                        await asyncio.gather(*tasks, return_exceptions=True)
+            finally:
+                if guard_held:
+                    _dispatcher_process_guard.release()
 
     return app_lifespan
 
