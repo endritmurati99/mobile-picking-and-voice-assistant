@@ -7,12 +7,19 @@ from app.routers import auth, cluster, demo, health, instances, integration, llm
 # --- Task 9: settings-bound lifespan for the outbox dispatcher/watchdog ----
 import asyncio  # noqa: E402
 import logging  # noqa: E402
+import threading  # noqa: E402
 from contextlib import asynccontextmanager  # noqa: E402
 
 from app.config import Settings, get_instance_registry  # noqa: E402
 from app.dependencies import get_integration_watchdog, get_outbox_dispatcher  # noqa: E402
 
 logger = logging.getLogger(__name__)
+
+# Process-local guard: exactly ONE dispatcher/watchdog pair per process.
+# Every dispatcher in this process shares the same hostname:pid worker id,
+# so a second concurrently entered lifespan would silently double delivery
+# work under one lease identity — refuse it instead.
+_dispatcher_process_guard = threading.Lock()
 
 
 def build_lifespan(candidate_settings: Settings):
@@ -25,9 +32,19 @@ def build_lifespan(candidate_settings: Settings):
     async def app_lifespan(app: FastAPI):
         stop_event = asyncio.Event()
         tasks: list[asyncio.Task] = []
+        guard_held = False
         if candidate_settings.dispatcher_enabled:
-            dispatcher = get_outbox_dispatcher(candidate_settings)
-            watchdog = get_integration_watchdog(candidate_settings)
+            if not _dispatcher_process_guard.acquire(blocking=False):
+                raise RuntimeError(
+                    "Outbox dispatcher is already running in this process."
+                )
+            guard_held = True
+            try:
+                dispatcher = get_outbox_dispatcher(candidate_settings)
+                watchdog = get_integration_watchdog(candidate_settings)
+            except BaseException:
+                _dispatcher_process_guard.release()
+                raise
             tasks.append(asyncio.create_task(dispatcher.run(stop_event)))
 
             async def watchdog_loop():
@@ -51,6 +68,8 @@ def build_lifespan(candidate_settings: Settings):
             stop_event.set()
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
+            if guard_held:
+                _dispatcher_process_guard.release()
 
     return app_lifespan
 

@@ -401,6 +401,43 @@ async def test_lifespan_starts_and_stops_dispatcher_and_watchdog(monkeypatch):
     assert "watchdog:local" in events
 
 
+@pytest.mark.asyncio
+async def test_second_concurrent_lifespan_start_is_refused(monkeypatch):
+    """One dispatcher/watchdog pair per process: a second lifespan entered
+    while the first is still running must be refused, not silently double
+    the dispatcher under the same hostname:pid worker id."""
+    from app import main as main_module
+
+    class FakeDispatcher:
+        async def run(self, stop_event):
+            await stop_event.wait()
+
+    class FakeWatchdog:
+        async def run_once(self, instance):
+            return WatchdogStats(recovered=0)
+
+    monkeypatch.setattr(
+        main_module, "get_outbox_dispatcher", lambda c: FakeDispatcher()
+    )
+    monkeypatch.setattr(
+        main_module, "get_integration_watchdog", lambda c: FakeWatchdog()
+    )
+    lifespan = main_module.build_lifespan(
+        _candidate_settings(dispatcher_enabled=True)
+    )
+    first = lifespan(main_module.app)
+    await first.__aenter__()
+    try:
+        with pytest.raises(RuntimeError, match="already running"):
+            await lifespan(main_module.app).__aenter__()
+    finally:
+        await first.__aexit__(None, None, None)
+    # After a clean shutdown the guard is released and a restart succeeds.
+    again = lifespan(main_module.app)
+    await again.__aenter__()
+    await again.__aexit__(None, None, None)
+
+
 def test_build_integration_watchdog_reads_only_the_candidate_settings():
     candidate = _candidate_settings(
         odoo_instances_json=(
