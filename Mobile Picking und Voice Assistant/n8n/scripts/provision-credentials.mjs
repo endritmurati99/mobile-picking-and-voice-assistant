@@ -199,15 +199,22 @@ async function writeSecretJson(path, value) {
     await chmod(path, 0o600);
 }
 
+// Only the n8n subcommand name and exit status are ever included in a
+// thrown error. n8n CLI stdout/stderr can echo back request bodies or other
+// credential-shaped material on failure, so it must never be captured into
+// an error message, a log line, or anything that could reach a report or a
+// crash dump.
+function n8nSubcommand(args) {
+    return args[0] || 'n8n';
+}
+
 function runN8n(args) {
     const result = spawnSync('n8n', args, {encoding: 'utf8'});
     if (result.error) {
-        throw result.error;
+        throw new Error(`n8n ${n8nSubcommand(args)} could not be started: ${result.error.code || 'unknown error'}`);
     }
     if (result.status !== 0) {
-        throw new Error(
-            `n8n ${args.join(' ')} failed (exit ${result.status}): ${result.stderr || result.stdout}`,
-        );
+        throw new Error(`n8n ${n8nSubcommand(args)} failed (exit ${result.status})`);
     }
     return result;
 }
