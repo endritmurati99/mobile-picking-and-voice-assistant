@@ -7,7 +7,7 @@
 
     @odoo_path path /odoo /odoo/*
     handle @odoo_path {
-        redir http://{$LAN_HOST}:8069/ 308
+        redir http://{host}:8069/ 308
     }
 
     @n8n_path path /n8n /n8n/*
@@ -41,5 +41,5 @@
     @n8n_host host nn n8n nn.localhost n8n.localhost
     redir @n8n_host https://{host}{uri} permanent
 
-    redir https://{$LAN_HOST}{uri} permanent
+    redir https://{host}{uri} permanent
 }
