@@ -175,6 +175,14 @@ class PickingAssistantIntegrationJob(models.Model):
     # ------------------------------------------------------------------
 
     @api.model
+    def _report_cron_progress(self, processed, remaining=0):
+        """ir.cron._commit_progress commits the cursor even when called
+        outside a cron run (verified in the Odoo-19 runtime), which is
+        forbidden on test cursors. Only report when a real cron executes."""
+        if self.env.context.get("ir_cron_progress_id"):
+            self.env["ir.cron"]._commit_progress(processed, remaining=remaining)
+
+    @api.model
     def _cron_recover_stalled_jobs(self, limit=200):
         """Every minute: recover event receipts whose processing lease expired
         without a terminal callback. Bumps the delivery generation and returns
@@ -224,7 +232,7 @@ class PickingAssistantIntegrationJob(models.Model):
                     }
                 )
             recovered += 1
-        self.env["ir.cron"]._commit_progress(recovered, remaining=0)
+        self._report_cron_progress(recovered)
 
     @api.model
     def _cron_cleanup_ephemeral(self, limit=1000):
@@ -259,7 +267,7 @@ class PickingAssistantIntegrationJob(models.Model):
         )
         removed += len(sessions)
         sessions.unlink()
-        self.env["ir.cron"]._commit_progress(removed, remaining=0)
+        self._report_cron_progress(removed)
 
     @api.model
     def _cron_cleanup_audit(self, limit=1000):
@@ -329,4 +337,4 @@ class PickingAssistantIntegrationJob(models.Model):
         )
         removed += len(jobs)
         jobs.unlink()
-        self.env["ir.cron"]._commit_progress(removed, remaining=0)
+        self._report_cron_progress(removed)
