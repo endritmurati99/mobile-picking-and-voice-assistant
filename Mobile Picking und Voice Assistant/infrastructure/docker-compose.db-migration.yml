@@ -1,0 +1,33 @@
+# Compose override for offline PostgreSQL role migration and volume
+# cloning (Task 13). Always run with an isolated COMPOSE_PROJECT_NAME
+# (e.g. -p pwr_dbrole_test) and a disposable clone volume so no
+# container in this override can ever mount the live production volume
+# by accident.
+#
+# This override YAML has no way to enforce that PWR_DB_MIGRATION_VOLUME
+# is actually the recorded disposable clone rather than the live source
+# volume, or even a volume that merely shares its name after being
+# deleted and recreated. That check cannot be skipped by running
+# `docker compose` directly against this file — do not do that. Always
+# go through the wrapper, which runs the guard and only then starts
+# this override:
+#
+#   infrastructure/scripts/clone-postgres-volume.sh compose-up \
+#     MANIFEST_DIR <clone_volume_name> pwr_dbrole_test
+#
+# `compose-up` internally runs `assert-target` (refusing the recorded
+# source volume outright, and refusing any volume that does not contain
+# the recorded clone identity token) before it execs the equivalent of:
+#   PWR_DB_MIGRATION_VOLUME=<clone_volume_name> \
+#     docker compose -p pwr_dbrole_test \
+#     -f docker-compose.yml -f infrastructure/docker-compose.db-migration.yml \
+#     up -d db
+services:
+  db:
+    volumes:
+      - pwr_migration_data:/var/lib/postgresql/data
+
+volumes:
+  pwr_migration_data:
+    external: true
+    name: ${PWR_DB_MIGRATION_VOLUME:?PWR_DB_MIGRATION_VOLUME is required}
