@@ -252,7 +252,10 @@ SQL
     docker compose up -d odoo n8n
 
     log "Running isolation verifier"
-    bash "$(dirname "${BASH_SOURCE[0]}")/verify-db-role-isolation.sh"
+    # Force the verifier's bootstrap-admin check onto pwr_db_admin itself,
+    # regardless of whatever POSTGRES_USER happens to be set to in this
+    # shell (the pre-migration legacy role, historically "odoo").
+    POSTGRES_USER=pwr_db_admin bash "$(dirname "${BASH_SOURCE[0]}")/verify-db-role-isolation.sh"
 
     log "Demoting legacy role $legacy to a non-login, non-privileged role"
     psql_pwr_admin -d postgres -v "legacy=$legacy" <<'SQL'
@@ -263,7 +266,7 @@ SQL
 }
 
 cmd_verify() {
-    bash "$(dirname "${BASH_SOURCE[0]}")/verify-db-role-isolation.sh"
+    POSTGRES_USER=pwr_db_admin bash "$(dirname "${BASH_SOURCE[0]}")/verify-db-role-isolation.sh"
 }
 
 cmd_rollback() {
