@@ -54,6 +54,22 @@ class TestJobOutboxTransaction(IntegrationCase):
         self.assertEqual(failed["attempt_count"], 1)
         self.assertEqual(failed["retry_after_seconds"], 10)
 
+    def test_lease_reads_locked_row_not_stale_orm_cache(self):
+        _job, outbox = self._enqueue("1")
+        # Prime the ORM cache, then change the row behind its back (stands in
+        # for another transaction's committed write).
+        self.assertEqual(outbox.attempt_count, 0)
+        self.env.cr.execute(
+            "UPDATE picking_assistant_outbox SET attempt_count = 3 "
+            "WHERE id = %s",
+            (outbox.id,),
+        )
+        model = self.env["picking.assistant.outbox"].with_user(self.api_user)
+        leased = model.api_lease_due("worker-a", limit=1, lease_seconds=60)
+        # A lease computed from the stale cache would report 1 and overwrite
+        # the newer attempt_count; the locked row's value must win.
+        self.assertEqual(leased[0]["attempt_count"], 4)
+
     def test_expired_lease_holder_cannot_ack_or_nack(self):
         self._enqueue("1")
         model = self.env["picking.assistant.outbox"].with_user(self.api_user)

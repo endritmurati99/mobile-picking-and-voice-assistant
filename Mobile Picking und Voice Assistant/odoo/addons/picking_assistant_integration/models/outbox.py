@@ -74,6 +74,9 @@ class PickingAssistantOutbox(models.Model):
         )
         ids = [row[0] for row in self.env.cr.fetchall()]
         records = self.sudo().browse(ids)
+        # The lease must be computed from the locked rows, not from values
+        # cached before the lock (same fencing as _owned_lease).
+        records.invalidate_recordset()
         for record in records:
             record.write(
                 {

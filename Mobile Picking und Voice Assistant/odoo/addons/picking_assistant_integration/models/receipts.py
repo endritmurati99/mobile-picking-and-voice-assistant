@@ -145,16 +145,16 @@ class PickingAssistantEventReceipt(models.Model):
         self.env["picking.assistant.api.mixin"]._require_api_service()
         outboxes = self.env["picking.assistant.outbox"].sudo()
         jobs = self.env["picking.assistant.integration.job"].sudo()
-        # 2. load and lock the outbox and job rows.
+        # 2. resolve identifiers WITHOUT locks, then acquire locks in the
+        # global job -> receipt -> outbox order (multi-table FOR UPDATE OF
+        # implies no portable acquisition order). The outbox columns read
+        # below (payload_fingerprint, linkage) are create-once immutable and
+        # this path never writes the outbox, so it takes no outbox lock.
         outboxes.flush_model()
         jobs.flush_model()
         self.env.cr.execute(
-            "SELECT o.id, o.job_record_id"
-            "  FROM picking_assistant_outbox o"
-            "  JOIN picking_assistant_integration_job j"
-            "    ON j.id = o.job_record_id"
-            " WHERE o.event_id = %s"
-            "   FOR UPDATE OF o, j",
+            "SELECT id, job_record_id FROM picking_assistant_outbox "
+            "WHERE event_id = %s",
             (event_id,),
         )
         row = self.env.cr.fetchone()
@@ -162,6 +162,14 @@ class PickingAssistantEventReceipt(models.Model):
             raise ValidationError("Unknown outbox event.")
         outbox = outboxes.browse(row[0])
         job = jobs.browse(row[1])
+        self.env.cr.execute(
+            "SELECT id FROM picking_assistant_integration_job "
+            "WHERE id = %s FOR UPDATE",
+            (job.id,),
+        )
+        # Re-read both records post-lock instead of trusting pre-lock cache.
+        job.invalidate_recordset()
+        outbox.invalidate_recordset()
         # 3. reject before any create/write when a supplied value differs.
         if job.job_id != job_id:
             raise ValidationError("Job ID mismatch.")
@@ -334,6 +342,7 @@ class PickingAssistantCallbackReceipt(models.Model):
         if not row:
             raise ValidationError("Unknown job.")
         job = jobs.browse(row[0])
+        job.invalidate_recordset()
         self.env.cr.execute(
             "SELECT id FROM picking_assistant_event_receipt "
             "WHERE event_id = %s FOR UPDATE",
@@ -343,6 +352,7 @@ class PickingAssistantCallbackReceipt(models.Model):
         if not row:
             raise ValidationError("Unknown event receipt.")
         receipt = receipts.browse(row[0])
+        receipt.invalidate_recordset()
         if receipt.job_record_id.id != job.id:
             raise ValidationError("Callback event does not belong to this job.")
 
@@ -458,10 +468,18 @@ class PickingAssistantCallbackReceipt(models.Model):
                             "last_received_at": now,
                         }
                     )
-                    outbox = self.env["picking.assistant.outbox"].sudo().search(
-                        [("event_id", "=", source_event_id)], limit=1
+                    # Third lock in the global job -> receipt -> outbox order.
+                    outboxes = self.env["picking.assistant.outbox"].sudo()
+                    outboxes.flush_model()
+                    self.env.cr.execute(
+                        "SELECT id FROM picking_assistant_outbox "
+                        "WHERE event_id = %s FOR UPDATE",
+                        (source_event_id,),
                     )
-                    if outbox:
+                    outbox_row = self.env.cr.fetchone()
+                    if outbox_row:
+                        outbox = outboxes.browse(outbox_row[0])
+                        outbox.invalidate_recordset()
                         # Same event returns to pending, envelope unchanged.
                         outbox.write(
                             {
