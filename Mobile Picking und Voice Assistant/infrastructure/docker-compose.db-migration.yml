@@ -1,0 +1,20 @@
+# Compose override for offline PostgreSQL role migration and volume
+# cloning (Task 13). Always run with an isolated COMPOSE_PROJECT_NAME
+# (e.g. -p pwr_dbrole_test) and a disposable clone volume so no
+# container in this override can ever mount the live production volume
+# by accident.
+#
+# Usage:
+#   PWR_DB_MIGRATION_VOLUME=<clone_volume_name> \
+#     docker compose -p pwr_dbrole_test \
+#     -f docker-compose.yml -f infrastructure/docker-compose.db-migration.yml \
+#     up -d db
+services:
+  db:
+    volumes:
+      - pwr_migration_data:/var/lib/postgresql/data
+
+volumes:
+  pwr_migration_data:
+    external: true
+    name: ${PWR_DB_MIGRATION_VOLUME:?PWR_DB_MIGRATION_VOLUME is required}
