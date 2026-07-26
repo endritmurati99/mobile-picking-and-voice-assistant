@@ -11,18 +11,23 @@
 #   migrate-n8n-db-role.sh verify
 #   migrate-n8n-db-role.sh rollback "$BACKUP_DIR"
 #
-# Required environment:
-#   PWR_DB_ADMIN_PASSWORD_FILE, ODOO_DB_PASSWORD_FILE, N8N_DB_PASSWORD_FILE
-#     - password files for the new roles, mode 0400 or 0600
+# Required environment (every mode; the tool consumes the final
+# Odoo-19 database name unconditionally and fails closed if it is
+# unset, rather than guessing it):
 #   ODOO_DB_NAME
-#     - final Odoo-19 production database name (fail closed, no guessing)
+#     - final Odoo-19 production database name
+#   PWR_DB_ADMIN_PASSWORD_FILE, ODOO_DB_PASSWORD_FILE, N8N_DB_PASSWORD_FILE
+#     - password files for the new roles, mode 0400 or 0600 (required by
+#       apply and rollback, which create/use these roles)
 #   LEGACY_DB_SUPERUSER
 #     - required only if the existing shared role is not named "odoo";
 #       must not be "postgres" or "pwr_db_admin"
 #
 # This script uses `umask 077`, refuses a world-readable backup
 # directory, redacts connection URIs in its own logs, and never
-# invokes `set -x`.
+# invokes `set -x`. All identifier substitution into SQL (role and
+# database names) goes through psql's quoted-identifier (:"var") or
+# format('%I', ...) forms, never bare/unquoted interpolation.
 set -euo pipefail
 umask 077
 
@@ -76,8 +81,46 @@ require_odoo_db_name() {
     [ -n "${ODOO_DB_NAME:-}" ] || fail "ODOO_DB_NAME is required (final Odoo-19 production database name); refusing to guess it"
 }
 
+# Connection to the pre-migration, still-privileged legacy admin. Only
+# used to bootstrap pwr_db_admin itself (ensure_pwr_db_admin) and for
+# the read-only backup phase, which runs before pwr_db_admin exists.
 psql_admin() {
     psql -v ON_ERROR_STOP=1 --username "${POSTGRES_USER:-odoo}" "$@"
+}
+
+# Connection to the dedicated bootstrap superuser. Used for every
+# privileged statement once pwr_db_admin has been ensured to exist,
+# so the migration never depends on an arbitrary $POSTGRES_USER value
+# beyond that one bootstrap step.
+psql_pwr_admin() {
+    require_password_file PWR_DB_ADMIN_PASSWORD_FILE
+    PGPASSWORD="$(cat "$PWR_DB_ADMIN_PASSWORD_FILE")" \
+        psql -v ON_ERROR_STOP=1 --username pwr_db_admin "$@"
+}
+
+# Creates the pwr_db_admin bootstrap superuser from
+# PWR_DB_ADMIN_PASSWORD_FILE if it does not already exist (idempotent),
+# using the pre-migration legacy admin connection, then verifies it
+# really exists as a superuser. Fails closed if verification fails.
+ensure_pwr_db_admin() {
+    require_password_file PWR_DB_ADMIN_PASSWORD_FILE
+    local pwr_password
+    pwr_password="$(cat "$PWR_DB_ADMIN_PASSWORD_FILE")"
+
+    log "Ensuring bootstrap role pwr_db_admin exists"
+    psql_admin -d postgres -v "pwr_password=$pwr_password" <<'SQL'
+SELECT format(
+  'CREATE ROLE pwr_db_admin SUPERUSER LOGIN PASSWORD %L',
+  :'pwr_password'
+)
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'pwr_db_admin')
+\gexec
+SQL
+
+    local is_super
+    is_super="$(psql_admin -X -At -d postgres -c \
+        "SELECT rolsuper FROM pg_roles WHERE rolname = 'pwr_db_admin'")"
+    [ "$is_super" = "t" ] || fail "pwr_db_admin does not exist as a superuser bootstrap role after ensure_pwr_db_admin"
 }
 
 cmd_backup() {
@@ -85,9 +128,12 @@ cmd_backup() {
     install -d -m 0700 "$backup_dir"
     require_backup_dir_not_world_readable "$backup_dir"
 
-    log "Recording legacy role flags for $(legacy_role)"
-    psql_admin -d postgres -Atc \
-        "SELECT rolname, rolsuper, rolcreatedb, rolcreaterole, rolcanlogin FROM pg_roles WHERE rolname = '$(legacy_role)'" \
+    local legacy
+    legacy="$(legacy_role)"
+
+    log "Recording legacy role flags for $legacy"
+    psql_admin -d postgres -At -v "legacy=$legacy" -c \
+        "SELECT rolname, rolsuper, rolcreatedb, rolcreaterole, rolcanlogin FROM pg_roles WHERE rolname = :'legacy'" \
         > "$backup_dir/legacy-role-flags-before.tsv"
 
     log "Dumping roles (no passwords redacted in output, filesystem access required)"
@@ -126,7 +172,6 @@ cmd_apply() {
     local backup_dir="${1:?BACKUP_DIR required}"
     require_backup_dir_not_world_readable "$backup_dir"
     verify_manifest "$backup_dir"
-    require_odoo_db_name
     require_password_file PWR_DB_ADMIN_PASSWORD_FILE
     require_password_file ODOO_DB_PASSWORD_FILE
     require_password_file N8N_DB_PASSWORD_FILE
@@ -137,12 +182,14 @@ cmd_apply() {
     log "Stopping n8n before role migration"
     docker compose stop n8n
 
+    ensure_pwr_db_admin
+
     local odoo_password n8n_password
     odoo_password="$(cat "$ODOO_DB_PASSWORD_FILE")"
     n8n_password="$(cat "$N8N_DB_PASSWORD_FILE")"
 
-    log "Creating pwr_db_admin/odoo_app/n8n_app roles if absent"
-    psql_admin -d postgres \
+    log "Creating odoo_app/n8n_app roles if absent (via pwr_db_admin)"
+    psql_pwr_admin -d postgres \
         -v "odoo_password=$odoo_password" \
         -v "n8n_password=$n8n_password" <<'SQL'
 SELECT format(
@@ -161,9 +208,11 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'n8n_app')
 SQL
 
     log "Reassigning ownership in n8n from $legacy to n8n_app"
-    psql_admin -d n8n -v "legacy=$legacy" <<'SQL'
-REASSIGN OWNED BY :legacy TO n8n_app;
+    psql_pwr_admin -d n8n -v "legacy=$legacy" <<'SQL'
+REASSIGN OWNED BY :"legacy" TO n8n_app;
 ALTER DATABASE n8n OWNER TO n8n_app;
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
+GRANT USAGE, CREATE ON SCHEMA public TO n8n_app;
 ALTER SCHEMA public OWNER TO n8n_app;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO n8n_app;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO n8n_app;
@@ -172,14 +221,25 @@ ALTER DEFAULT PRIVILEGES FOR ROLE n8n_app GRANT ALL ON SEQUENCES TO n8n_app;
 SQL
 
     log "Reassigning ownership in $ODOO_DB_NAME from $legacy to odoo_app"
-    psql_admin -d "$ODOO_DB_NAME" -v "legacy=$legacy" -v "odoo_db=$ODOO_DB_NAME" <<'SQL'
-REASSIGN OWNED BY :legacy TO odoo_app;
+    psql_pwr_admin -d "$ODOO_DB_NAME" -v "legacy=$legacy" -v "odoo_db=$ODOO_DB_NAME" <<'SQL'
+REASSIGN OWNED BY :"legacy" TO odoo_app;
 ALTER DATABASE :"odoo_db" OWNER TO odoo_app;
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
+GRANT USAGE, CREATE ON SCHEMA public TO odoo_app;
 ALTER SCHEMA public OWNER TO odoo_app;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO odoo_app;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO odoo_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE odoo_app GRANT ALL ON TABLES TO odoo_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE odoo_app GRANT ALL ON SEQUENCES TO odoo_app;
+SQL
+
+    log "Enforcing per-database CONNECT isolation for n8n and $ODOO_DB_NAME"
+    psql_pwr_admin -d postgres -v "odoo_db=$ODOO_DB_NAME" <<'SQL'
+REVOKE CONNECT, TEMPORARY ON DATABASE n8n FROM PUBLIC;
+GRANT CONNECT, TEMPORARY ON DATABASE n8n TO n8n_app;
+
+SELECT format('REVOKE CONNECT, TEMPORARY ON DATABASE %I FROM PUBLIC', :'odoo_db') \gexec
+SELECT format('GRANT CONNECT, TEMPORARY ON DATABASE %I TO odoo_app', :'odoo_db') \gexec
 SQL
 
     log "Checking resolved Compose config references odoo_app and n8n_app"
@@ -195,11 +255,11 @@ SQL
     bash "$(dirname "${BASH_SOURCE[0]}")/verify-db-role-isolation.sh"
 
     log "Demoting legacy role $legacy to a non-login, non-privileged role"
-    psql_admin -d postgres -v "legacy=$legacy" <<'SQL'
-ALTER ROLE :legacy NOSUPERUSER NOCREATEDB NOCREATEROLE NOLOGIN;
+    psql_pwr_admin -d postgres -v "legacy=$legacy" <<'SQL'
+ALTER ROLE :"legacy" NOSUPERUSER NOCREATEDB NOCREATEROLE NOLOGIN;
 SQL
 
-    log "Apply complete: $legacy demoted, odoo_app/n8n_app own their databases"
+    log "Apply complete: $legacy demoted, odoo_app/n8n_app own their databases, pwr_db_admin is the sole surviving superuser"
 }
 
 cmd_verify() {
@@ -210,6 +270,7 @@ cmd_rollback() {
     local backup_dir="${1:?BACKUP_DIR required}"
     require_backup_dir_not_world_readable "$backup_dir"
     verify_manifest "$backup_dir"
+    require_password_file PWR_DB_ADMIN_PASSWORD_FILE
 
     local legacy
     legacy="$(legacy_role)"
@@ -217,19 +278,21 @@ cmd_rollback() {
     log "Stopping n8n and Odoo before rollback"
     docker compose stop n8n odoo
 
+    ensure_pwr_db_admin
+
     log "Re-enabling legacy role $legacy with its pre-migration flags"
     local flags
     flags="$(cat "$backup_dir/legacy-role-flags-before.tsv")"
-    psql_admin -d postgres -v "legacy=$legacy" <<SQL
-ALTER ROLE :legacy LOGIN;
+    psql_pwr_admin -d postgres -v "legacy=$legacy" <<'SQL'
+ALTER ROLE :"legacy" LOGIN;
 SQL
     log "Legacy role flags recorded at migration time: $flags"
     log "Review $backup_dir/legacy-role-flags-before.tsv and restore SUPERUSER/CREATEDB/CREATEROLE manually if it held them"
 
     log "Dropping and recreating n8n database owned by legacy role"
-    psql_admin -d postgres <<SQL
+    psql_pwr_admin -d postgres -v "legacy=$legacy" <<'SQL'
 DROP DATABASE IF EXISTS n8n;
-CREATE DATABASE n8n OWNER $legacy;
+SELECT format('CREATE DATABASE n8n OWNER %I', :'legacy') \gexec
 SQL
 
     log "Restoring n8n from backup dump"
@@ -246,6 +309,20 @@ SQL
 
 main() {
     local mode="${1:-}"
+    case "$mode" in
+        backup|apply|verify|rollback)
+            ;;
+        *)
+            echo "Usage: $0 {backup|apply|verify|rollback} [BACKUP_DIR]" >&2
+            exit 1
+            ;;
+    esac
+
+    # ODOO_DB_NAME is consumed by this tool as a whole (Interfaces:
+    # "Consumes: final Odoo-19 database name"), not just by apply, so
+    # it is enforced here, before mode dispatch, for every mode.
+    require_odoo_db_name
+
     shift || true
     case "$mode" in
         "backup")
@@ -259,10 +336,6 @@ main() {
             ;;
         "rollback")
             cmd_rollback "$@"
-            ;;
-        *)
-            echo "Usage: $0 {backup|apply|verify|rollback} [BACKUP_DIR]" >&2
-            exit 1
             ;;
     esac
 }

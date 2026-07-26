@@ -51,6 +51,14 @@ if [ -z "${ODOO_DB_NAME:-}" ]; then
     fail "ODOO_DB_NAME is required (final Odoo-19 production database name); refusing to guess it"
 fi
 
+# This script must run as the image-created bootstrap superuser named
+# pwr_db_admin (Task 15 sets POSTGRES_USER=pwr_db_admin for the fresh-
+# volume image bootstrap). Fail closed rather than silently creating
+# app roles under an arbitrary/unverified admin identity.
+if [ "${POSTGRES_USER:-}" != "pwr_db_admin" ]; then
+    fail "POSTGRES_USER must be pwr_db_admin (the bootstrap superuser this script runs as); got '${POSTGRES_USER:-<unset>}'"
+fi
+
 ODOO_DB_PASSWORD="$(cat "$ODOO_DB_PASSWORD_FILE")"
 N8N_DB_PASSWORD="$(cat "$N8N_DB_PASSWORD_FILE")"
 

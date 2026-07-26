@@ -4,8 +4,18 @@
 # container in this override can ever mount the live production volume
 # by accident.
 #
+# This override YAML has no way to enforce that PWR_DB_MIGRATION_VOLUME
+# is actually the recorded disposable clone rather than the live source
+# volume — that check MUST happen before `up`, via:
+#
+#   infrastructure/scripts/clone-postgres-volume.sh assert-target \
+#     MANIFEST_DIR "$PWR_DB_MIGRATION_VOLUME"
+#
 # Usage:
 #   PWR_DB_MIGRATION_VOLUME=<clone_volume_name> \
+#     infrastructure/scripts/clone-postgres-volume.sh assert-target \
+#     MANIFEST_DIR "$PWR_DB_MIGRATION_VOLUME" \
+#   && PWR_DB_MIGRATION_VOLUME=<clone_volume_name> \
 #     docker compose -p pwr_dbrole_test \
 #     -f docker-compose.yml -f infrastructure/docker-compose.db-migration.yml \
 #     up -d db

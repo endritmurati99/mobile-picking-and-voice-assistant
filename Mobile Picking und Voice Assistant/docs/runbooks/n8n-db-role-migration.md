@@ -42,6 +42,13 @@ full backup → apply → verify → rollback cycle against the clone:
 bash infrastructure/scripts/clone-postgres-volume.sh create \
   <production_volume_name> pwr_migration_rehearsal_data /path/to/manifest-dir
 
+# Required gate: the override YAML cannot itself verify the volume it is
+# given is the disposable clone and not the live source, so run this
+# check explicitly before ever starting the override with a given
+# PWR_DB_MIGRATION_VOLUME value:
+bash infrastructure/scripts/clone-postgres-volume.sh assert-target \
+  /path/to/manifest-dir pwr_migration_rehearsal_data
+
 PWR_DB_MIGRATION_VOLUME=pwr_migration_rehearsal_data \
   docker compose -p pwr_dbrole_rehearsal \
   -f docker-compose.yml -f infrastructure/docker-compose.db-migration.yml \
