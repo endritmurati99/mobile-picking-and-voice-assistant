@@ -21,6 +21,21 @@ Drei Invarianten:
    haenge er eine fremde Datei an seinen eigenen Job und liest sie ueber die
    signierte Route aus.
 
+VERTRAUENSGRENZE (wichtig, im Review ausdruecklich verlangt): die TIEFE
+Formatpruefung lebt am Backend-Rand, in
+`backend/app/services/binary_validation.py` -- dort steht die vollstaendige
+PDF-Objektgraph-Allowlist, das Expansionsbudget gegen Dekompressionsbomben
+und die Pillow-gestuetzte Bildpruefung. Jeder Aufrufer, der Odoo DIREKT per
+JSON-RPC erreicht, liegt ausserhalb dieser Zusicherung. Deshalb -- und nur
+deshalb -- revalidiert dieses Modul zusaetzlich am Eingang: ein deklarierter
+Typ muss wenigstens WIRKLICH dieser Typ sein (Magic, Revisionsdisziplin,
+und fuer ZPL die vollstaendige Kommando-Allowlist, die ohne Fremdbibliothek
+auskommt). Das ist bewusst WENIGER als die Backend-Pruefung: `pypdf` ist im
+Odoo-Image nicht installiert (nur das unwartete PyPDF2 2.12.1, das ich
+feindlichen Eingaben nicht vorsetze), und eine zweite, abweichende
+Tiefenpruefung waere ohnehin eine Quelle fuer Drift. Wer die harte Garantie
+will, muss ueber die signierte Backend-Route kommen.
+
 Aufbewahrung: die Foundation erfindet keine Frist. `pwr_retention_until`
 bleibt leer, bis ein Feature-Add-on eine EXPLIZITE Frist setzt (Visual
 Quality: Alarm-/Review-Abschluss + 30 Tage, Shipping: Versand/Storno + 90
@@ -30,6 +45,7 @@ gemeinsame `legal_hold` des Jobs blockiert jede verknuepfte Ressource.
 import base64
 import binascii
 import hashlib
+import re
 from uuid import uuid4
 
 from odoo import api, fields, models
@@ -62,6 +78,23 @@ PWR_BINDING_FIELDS = frozenset(
         "pwr_sha256",
         "pwr_original_filename",
         "pwr_retention_until",
+        "pwr_binding_generation",
+    }
+)
+
+# Die Teilmenge, die die IDENTITAET der Bindung ausmacht. Sie ist nach dem
+# ersten Setzen unveraenderlich -- auch fuer sudo-faehigen Code.
+# Nicht enthalten: pwr_retention_until und pwr_original_filename, die ein
+# Feature-Add-on spaeter noch setzen koennen muss.
+PWR_IMMUTABLE_FIELDS = frozenset(
+    {
+        "pwr_job_record_id",
+        "pwr_media_ref",
+        "pwr_artifact_ref",
+        "pwr_source_event_id",
+        "pwr_artifact_kind",
+        "pwr_sha256",
+        "pwr_binding_generation",
     }
 )
 
@@ -79,6 +112,10 @@ class IrAttachment(models.Model):
     pwr_sha256 = fields.Char(index=True)
     pwr_original_filename = fields.Char()
     pwr_retention_until = fields.Datetime(index=True)
+    # Die Generation, unter der die Bindung entstanden ist. Sie macht im
+    # Nachhinein nachvollziehbar, welcher Zustellversuch die Datei gebracht
+    # hat, und ist -- wie die uebrige Bindung -- unveraenderlich.
+    pwr_binding_generation = fields.Integer()
 
     # NULLs kollidieren in Postgres nicht: gewoehnliche Anhaenge ohne
     # pwr_job_record_id bleiben von beiden Constraints unberuehrt.
@@ -90,6 +127,32 @@ class IrAttachment(models.Model):
         "UNIQUE(pwr_job_record_id, pwr_source_event_id, pwr_artifact_kind)",
         "Artifact kind must be unique per job event.",
     )
+
+    def _check_pwr_binding_immutable(self, values):
+        """Einmal gesetzt, bleibt die Bindung stehen -- UNABHAENGIG von sudo.
+
+        `_check_pwr_binding_access` ist eine Rechtepruefung und wird von
+        `env.su` bewusst uebersprungen; genau deshalb darf die Zuordnung
+        nicht an ihr haengen. Diese Pruefung hier laeuft immer, hat keine
+        Kontext-Hintertuer und macht aus "wer darf schreiben" ein
+        "was ist ueberhaupt aenderbar". Idempotentes Neuschreiben desselben
+        Wertes bleibt erlaubt, `pwr_retention_until` und
+        `pwr_original_filename` bleiben nachtraeglich setzbar (die Frist
+        kommt erst vom Feature-Add-on).
+        """
+        touched = PWR_IMMUTABLE_FIELDS.intersection(values or {})
+        if not touched:
+            return
+        for record in self:
+            for name in sorted(touched):
+                current = record[name]
+                if name == "pwr_job_record_id":
+                    current = current.id
+                requested = values[name]
+                if current and current != requested:
+                    raise ValidationError(
+                        "Job binding fields cannot be changed once set."
+                    )
 
     def _check_pwr_binding_access(self, values):
         """Nur die Integrations-API darf die Bindung setzen oder aendern.
@@ -112,6 +175,7 @@ class IrAttachment(models.Model):
 
     def write(self, values):
         self._check_pwr_binding_access(values)
+        self._check_pwr_binding_immutable(values)
         return super().write(values)
 
 
@@ -168,8 +232,9 @@ class PickingAssistantIntegrationJobResources(models.Model):
         self,
         attachment,
         *,
+        generation,
         media_ref,
-        sha256,
+        sha256=False,
         retention_until=False,
         original_filename=False,
     ):
@@ -178,15 +243,35 @@ class PickingAssistantIntegrationJobResources(models.Model):
         Einstiegspunkt fuer die Feature-Add-ons (Visual Quality legt das
         Bild an, die Foundation besitzt nur die Bindung). Die Frist wird hier
         durchgereicht und nie erfunden.
+
+        `generation` ist PFLICHT. Die erste Fassung nahm keine entgegen und
+        war damit das Loch in der zentralen Zusage dieser Task: ein Worker,
+        der eine Generationsrolle verpasst hatte, konnte einen Anhang anlegen
+        und binden, obwohl `api_get_job_media` und `api_store_job_artifact`
+        ihn laengst aussperrten. Der Job wird deshalb hier gesperrt und unter
+        der Sperre gegen Generation UND laufende Lease revalidiert -- dieselbe
+        Gate-Funktion, die die beiden API-Methoden benutzen.
+
+        Der Hash wird selbst berechnet und ein mitgelieferter nur noch
+        gegengeprueft: der Aufrufer bestimmt den Inhalt, aber nicht, wofuer
+        er sich ausgibt.
         """
         self.ensure_one()
         if not media_ref:
             raise ValidationError("Media reference is required.")
+        attachment.ensure_one()
+        job = self._locked_job(self.job_id)
+        job._require_current_generation(generation)
+        raw = base64.b64decode(attachment.sudo().datas or b"", validate=False)
+        computed = hashlib.sha256(raw).hexdigest()
+        if sha256 and sha256 != computed:
+            raise ValidationError("Media hash mismatch.")
         attachment.sudo().write(
             {
-                "pwr_job_record_id": self.id,
+                "pwr_job_record_id": job.id,
                 "pwr_media_ref": media_ref,
-                "pwr_sha256": sha256,
+                "pwr_sha256": computed,
+                "pwr_binding_generation": int(generation),
                 "pwr_original_filename": original_filename or False,
                 "pwr_retention_until": retention_until or False,
             }
@@ -259,6 +344,10 @@ class PickingAssistantIntegrationJobResources(models.Model):
             raise ValidationError("Artifact exceeds the size limit.")
         if hashlib.sha256(raw).hexdigest() != sha256:
             raise ValidationError("Artifact hash mismatch.")
+        # Siehe Vertrauensgrenze im Modul-Docstring: der Backend-Rand macht
+        # die Tiefenpruefung, dieser Eingang stellt nur sicher, dass der
+        # deklarierte Typ ueberhaupt dieser Typ IST.
+        _revalidate_artifact_bytes(artifact_kind, raw)
         existing = self.env["ir.attachment"].sudo().search(
             [
                 ("pwr_job_record_id", "=", job.id),
@@ -308,6 +397,90 @@ class PickingAssistantIntegrationJobResources(models.Model):
         remaining = self.env["ir.attachment"].sudo().search_count(domain)
         self._report_cron_progress(processed, remaining=remaining)
         return processed
+
+
+# ---------------------------------------------------------------------------
+# Eingangs-Revalidierung (siehe Vertrauensgrenze im Modul-Docstring)
+# ---------------------------------------------------------------------------
+
+PDF_VERSION_PREFIXES = tuple(
+    ("%%PDF-%s" % version).encode("ascii")
+    for version in ("1.0", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "2.0")
+)
+# Aktive Konstrukte, die in einem Etikett oder Lieferschein nichts zu suchen
+# haben. Ausdruecklich nur ein billiges Zusatznetz -- die massgebliche,
+# allowlist-basierte Pruefung des Objektgraphen sitzt am Backend-Rand.
+PDF_ACTIVE_MARKERS = (
+    b"/JavaScript",
+    b"/JS",
+    b"/EmbeddedFile",
+    b"/Launch",
+    b"/OpenAction",
+    b"/AA",
+    b"/AcroForm",
+    b"/RichMedia",
+)
+
+ZPL_COMMAND = re.compile(r"[\^~][A-Z@][A-Z0-9@]?", re.ASCII)
+ZPL_ALLOWED = {
+    "^XA", "^XZ", "^FO", "^FD", "^FS", "^A", "^A0", "^BC", "^BQ",
+    "^BY", "^CI", "^PW", "^LL", "^LH",
+}
+ZPL_TEXT = re.compile(r"\A[\x20-\x7e\r\n]*\Z", re.ASCII)
+
+
+def _revalidate_pdf_bytes(raw):
+    """Magic, Version und Revisionsdisziplin -- ohne Fremdbibliothek."""
+    if not raw.startswith(PDF_VERSION_PREFIXES):
+        raise ValidationError("Artifact is not a PDF of an allowed version.")
+    if raw.count(b"%%EOF") != 1:
+        raise ValidationError("PDF must contain exactly one revision.")
+    marker = raw.find(b"%%EOF")
+    if raw[marker + len(b"%%EOF"):].strip(b"\r\n\t ") != b"":
+        raise ValidationError("PDF has bytes after %%EOF.")
+    for needle in PDF_ACTIVE_MARKERS:
+        if needle in raw:
+            raise ValidationError("PDF contains an active construct.")
+
+
+def _revalidate_zpl_bytes(raw):
+    """Vollstaendige Portierung der Backend-Allowlist. Anders als beim PDF
+    braucht ZPL keine Fremdbibliothek, also gibt es hier keinen Grund, sich
+    mit weniger zufriedenzugeben."""
+    try:
+        text = raw.decode("ascii")
+    except UnicodeDecodeError as exc:
+        raise ValidationError("ZPL must be ASCII.") from exc
+    if not ZPL_TEXT.fullmatch(text):
+        raise ValidationError("ZPL contains control characters.")
+    if (
+        not text.startswith("^XA")
+        or not text.endswith("^XZ")
+        or text.count("^XA") != 1
+        or text.count("^XZ") != 1
+    ):
+        raise ValidationError("ZPL requires exactly one ^XA/^XZ document.")
+    for position, character in enumerate(text):
+        if character not in "^~":
+            continue
+        if character == "~":
+            raise ValidationError("ZPL tilde commands are forbidden.")
+        match = ZPL_COMMAND.match(text, position)
+        if match is None or match.group() not in ZPL_ALLOWED:
+            raise ValidationError("ZPL command is not allowed.")
+
+
+ARTIFACT_REVALIDATORS = {
+    "pdf": _revalidate_pdf_bytes,
+    "zpl": _revalidate_zpl_bytes,
+}
+
+
+def _revalidate_artifact_bytes(artifact_kind, raw):
+    revalidate = ARTIFACT_REVALIDATORS.get(artifact_kind)
+    if revalidate is None:
+        raise ValidationError("Artifact kind is not allowed.")
+    revalidate(raw)
 
 
 class PickingAssistantWebhookNonceResources(models.Model):

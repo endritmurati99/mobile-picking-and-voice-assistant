@@ -60,6 +60,26 @@ class ResourceCase(IntegrationCase):
             self.api_user
         )
 
+    def lease(self, job, outbox, suffix):
+        """Gibt einem weiteren Job eine laufende Processing-Lease.
+
+        Noetig, seit `_bind_job_media` Generation UND Lease prueft: ein Job
+        ohne laufende Verarbeitung nimmt zu Recht keine Medien mehr an.
+        """
+        self.env["picking.assistant.event.receipt"].with_user(
+            self.api_user
+        ).api_accept_event(
+            outbox.event_id,
+            job.job_id,
+            "a" * 64,
+            "b2n-test",
+            f"123e4567-e89b-42d3-a456-4266141740{suffix}",
+            job.delivery_generation,
+            "n2b-test",
+            f"123e4567-e89b-42d3-a456-4266141741{suffix}",
+        )
+        return job
+
     def store(self, **overrides):
         values = {
             "job_id": self.job.job_id,
@@ -302,7 +322,7 @@ class TestResourceRetentionCron(ResourceCase):
         return attachment
 
     def test_cleanup_removes_expired_but_never_legal_held_resources(self):
-        held_job, _outbox = self.env[
+        held_job, held_outbox = self.env[
             "picking.assistant.integration.job"
         ]._enqueue_job_event(
             job_type="quality_assessment",
@@ -315,9 +335,10 @@ class TestResourceRetentionCron(ResourceCase):
             payload_fingerprint="a" * 64,
             correlation_id="0b2f7909-4ad9-44c1-8527-e775fe6d4bf0",
         )
-        held_job.write({"legal_hold": True})
+        self.lease(held_job, held_outbox, "80")
         free = self._expired(self.job, "media-free")
         held = self._expired(held_job, "media-held")
+        held_job.write({"legal_hold": True})
 
         processed = self.env[
             "picking.assistant.integration.job"
