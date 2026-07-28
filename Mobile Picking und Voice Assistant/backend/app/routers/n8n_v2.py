@@ -230,14 +230,17 @@ async def apply_callback(
 #   1. Pfadform (UUID / Allowlist-Referenz / Allowlist-Artefaktart)
 #   2. Idempotency-Key (nur POST -- GET veraendert nichts)
 #   3. Zielinstanz aus dem Pfad, Allowlist gegen das Instanzregister
-#   4. deklarierter Typ gegen die Artefaktart (billig, vor dem Replay-Gate)
-#   5. Nonce-Reservierung in Odoo -- job- UND generationsgebunden
-#   6. Inhaltsvalidierung (teuer, laeuft nur fuer nicht wiedervorgelegte
-#      Anfragen)
+#   4. deklarierter Typ gegen die Artefaktart
+#   5. Inhaltsvalidierung (nur POST -- die GET-Route hat keinen Inhalt)
+#   6. Nonce-Reservierung in Odoo -- job- UND generationsgebunden
 #   7. Odoo-Zugriff auf die Ressource
 #
-# Punkt 5 vor Punkt 6 ist Absicht: eine mitgeschnittene, erneut eingereichte
-# Anfrage wird am Nonce-Store abgewiesen, bevor der Parser ueberhaupt anlaeuft.
+# Punkt 5 VOR Punkt 6: keine Anfrage darf eine Nonce verbrennen, die es nie
+# bis zur Ablage schafft. Reservierte man zuerst, wuerde jede signierte, aber
+# ungueltige Nutzlast eine Nonce und eine Datenbankzeile fuer 900s belegen --
+# ein fehlerhafter oder uebernommener Sender koennte damit die
+# Replay-Kapazitaet erschoepfen, ohne je etwas abzulegen.
+#
 # Die Generation stammt IMMER aus der verifizierten Signatur, nie aus Pfad,
 # Query oder Body -- eine veraltete Generation kann damit weder lesen noch
 # anhaengen, und Odoo prueft sie unter Sperre ein zweites Mal.
@@ -401,14 +404,23 @@ async def store_job_artifact(
     _require_idempotency_key(idempotency_key)
     odoo = get_callback_odoo_client(odoo_instance)
     declared_mime = _declared_media_type(content_type)
-    _validated(lambda: require_artifact_declared_mime(artifact_kind, declared_mime))
-    generation = verified.signature.delivery_generation
-    await _reserve_signed_nonce(odoo, verified, job_id)
+    # Der Inhalt wird VOR der Nonce-Reservierung validiert. Die erste Fassung
+    # reservierte zuerst, damit ein Replay am Nonce-Store stirbt, bevor der
+    # Parser laeuft -- der Preis dafuer war, dass jede signierte, aber
+    # ungueltige Nutzlast eine Nonce und eine Datenbankzeile fuer 900s
+    # dauerhaft verbrennt. Ein fehlerhafter oder uebernommener Sender haette
+    # so die Replay-Kapazitaet erschoepfen koennen, ohne je die Ablage zu
+    # erreichen. Der Parseraufwand ist dagegen beschraenkt: der Aufrufer muss
+    # bereits eine gueltige Signatur besitzen, der Rumpf ist auf 10 MiB
+    # gedeckelt und das Skew-Fenster begrenzt, wie lange eine Signatur
+    # ueberhaupt vorgelegt werden kann.
     validated = _validated(
         lambda: validate_artifact(
             artifact_kind, verified.raw_body, declared_mime=declared_mime
         )
     )
+    generation = verified.signature.delivery_generation
+    await _reserve_signed_nonce(odoo, verified, job_id)
     filename = sanitize_filename(f"{job_id}-{artifact_kind}.{validated.extension}")
     try:
         result = await odoo.execute_kw(

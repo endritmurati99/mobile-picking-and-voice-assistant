@@ -652,11 +652,13 @@ def test_artifact_content_type_must_match_its_kind(client, fake_odoo, minimal_pd
 def test_artifact_content_failing_validation_is_never_stored(
     client, fake_odoo, kind, body, content_type
 ):
+    """Und es verbrennt auch keine Nonce: eine Nutzlast, die es nie bis zur
+    Ablage schafft, darf keine Replay-Kapazitaet belegen (Review IMPORTANT 3)."""
     response = post_artifact(
         client, body, path=artifact_path(kind), content_type=content_type
     )
     assert response.status_code == 422
-    assert [call[1] for call in fake_odoo.calls] == ["api_reserve_request_nonce"]
+    assert fake_odoo.calls == []
 
 
 def test_encrypted_pdf_artifact_is_rejected(client, fake_odoo):
@@ -665,13 +667,13 @@ def test_encrypted_pdf_artifact_is_rejected(client, fake_odoo):
 
     response = post_artifact(client, pdf_bytes(mutate=mutate))
     assert response.status_code == 422
-    assert "api_store_job_artifact" not in [call[1] for call in fake_odoo.calls]
+    assert fake_odoo.calls == []
 
 
 def test_artifact_over_10_mib_is_rejected(client, fake_odoo):
     response = post_artifact(client, b"%PDF-1.7" + b"0" * (10 * 1024 * 1024))
     assert response.status_code == 422
-    assert "api_store_job_artifact" not in [call[1] for call in fake_odoo.calls]
+    assert fake_odoo.calls == []
 
 
 def test_artifact_with_unusable_odoo_result_is_a_conflict(client, fake_odoo, minimal_pdf):
