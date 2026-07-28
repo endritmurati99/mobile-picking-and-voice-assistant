@@ -31,6 +31,7 @@ from __future__ import annotations
 import hashlib
 import re
 import warnings
+import zlib
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import PurePath
@@ -38,13 +39,18 @@ from typing import Callable
 
 from PIL import Image, UnidentifiedImageError
 from pypdf import PdfReader
-from pypdf.generic import DictionaryObject, IndirectObject
+from pypdf.generic import DictionaryObject, IndirectObject, StreamObject
 
 MAX_IMAGE_BYTES = 15 * 1024 * 1024
 MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 MAX_IMAGE_PIXELS = 24_000_000
 MAX_PDF_PAGES = 20
 MAX_PDF_OBJECTS = 20_000
+# Gesamtbudget fuer ALLE dekomprimierten Streams eines PDF zusammen. Ein
+# 10-MiB-PDF darf sich damit gut dreifach entfalten -- eine Bombe, die aus
+# 200 KB 200 MB macht, nicht.
+MAX_PDF_EXPANDED_BYTES = 32 * 1024 * 1024
+_INFLATE_STEP_BYTES = 1024 * 1024
 MAX_FILENAME_LENGTH = 120
 
 
@@ -266,16 +272,22 @@ _PDF_PAGE_KEYS = {
 
 _PDF_PAGES_NODE_KEYS = {"/Type", "/Kids", "/Count", "/Parent", "/MediaBox", "/Resources", "/Rotate"}
 
-# Allowlist der Stream-Filter: nur verlustfreie/Bild-Dekodierer, kein /Crypt.
+# Allowlist der Stream-Filter. Bewusst KLEINER als die Menge der
+# verlustfreien PDF-Filter: /LZWDecode und /RunLengthDecode koennen ebenfalls
+# stark expandieren, und ich implementiere fuer sie keinen gebundenen
+# Dekodierer -- also stehen sie nicht auf der Liste. /Crypt ohnehin nicht.
 _PDF_FILTERS = {
     "/FlateDecode",
-    "/LZWDecode",
     "/ASCII85Decode",
     "/ASCIIHexDecode",
-    "/RunLengthDecode",
     "/DCTDecode",
     "/CCITTFaxDecode",
 }
+# Diese beiden expandieren nie ueber ihre Eingabelaenge hinaus.
+_PDF_NON_EXPANDING_FILTERS = {"/ASCII85Decode", "/ASCIIHexDecode"}
+# Bildcodecs: die Ausgabe ist durch die deklarierten Bildmasse begrenzt,
+# nicht durch den Stream -- also werden die Masse begrenzt.
+_PDF_IMAGE_FILTERS = {"/DCTDecode", "/CCITTFaxDecode"}
 
 # Benannte aktive Konstrukte. NICHT die Absicherung -- die liegt in den
 # Allowlists oben -- sondern die bessere Fehlermeldung davor.
@@ -338,16 +350,79 @@ def _reject_active_pdf_constructs(node: DictionaryObject) -> None:
         raise BinaryValidationError(message)
 
 
-def _check_pdf_filters(node: DictionaryObject) -> None:
+def _bounded_inflate(data: bytes, budget: int) -> int:
+    """Dekomprimiert einen Flate-Stream und meldet die erzeugte Byte-Menge,
+    OHNE sie je vollstaendig im Speicher zu halten.
+
+    Der Kern der Bombenabwehr: `decompress(..., max_length)` liefert
+    hoechstens `max_length` Bytes und legt den Rest in `unconsumed_tail`. Es
+    wird also in 1-MiB-Schritten dekodiert und nach jedem Schritt gegen das
+    Budget geprueft -- eine 200-KB-Datei, die sich auf 200 MB entfaltet,
+    fliegt nach wenigen Schritten raus, statt vorher den Speicher zu fuellen.
+    """
+    decompressor = zlib.decompressobj()
+    produced = 0
+    chunk = data
+    try:
+        while True:
+            produced += len(decompressor.decompress(chunk, _INFLATE_STEP_BYTES))
+            if produced > budget:
+                return produced
+            if decompressor.eof:
+                return produced
+            chunk = decompressor.unconsumed_tail
+            if not chunk:
+                # Eingabe erschoepft, aber der Strom endete nie sauber.
+                raise BinaryValidationError("PDF stream is truncated")
+    except zlib.error as exc:
+        raise BinaryValidationError("PDF stream is not decodable") from exc
+
+
+def _consume_stream_budget(node: DictionaryObject, remaining: int) -> int:
+    """Prueft Filter und Expansion EINES Streams und gibt das Restbudget
+    zurueck. Das Budget ist bewusst global ueber alle Streams: viele kleine
+    Bomben sind dieselbe Bombe."""
     raw = node.get("/Filter")
-    if raw is None:
-        return
     if isinstance(raw, IndirectObject):
         raw = raw.get_object()
-    names = raw if isinstance(raw, (list, tuple)) else [raw]
+    if raw is None:
+        names: list[str] = []
+    elif isinstance(raw, (list, tuple)):
+        names = [str(name) for name in raw]
+    else:
+        names = [str(raw)]
+    # Eine Filterkette liesse sich nicht gebunden dekodieren, ohne jede Stufe
+    # selbst nachzubauen -- also genau ein Filter pro Stream.
+    if len(names) > 1:
+        raise BinaryValidationError("PDF stream filter chains are not allowed")
     for name in names:
-        if str(name) not in _PDF_FILTERS:
+        if name not in _PDF_FILTERS:
             raise BinaryValidationError("PDF stream filter is not allowed")
+    if names and names[0] in _PDF_IMAGE_FILTERS:
+        width = _pdf_int(node.get("/Width"))
+        height = _pdf_int(node.get("/Height"))
+        if width * height > MAX_IMAGE_PIXELS:
+            raise BinaryValidationError("PDF image exceeds 24 megapixels")
+        return remaining
+    data = getattr(node, "_data", b"") or b""
+    if not isinstance(data, (bytes, bytearray)):
+        raise BinaryValidationError("PDF parser rejected input")
+    if not names or names[0] in _PDF_NON_EXPANDING_FILTERS:
+        produced = len(data)
+    else:
+        produced = _bounded_inflate(bytes(data), remaining)
+    if produced > remaining:
+        raise BinaryValidationError("PDF stream expands beyond the allowed budget")
+    return remaining - produced
+
+
+def _pdf_int(value) -> int:
+    if isinstance(value, IndirectObject):
+        value = value.get_object()
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _check_pdf_shape(node: DictionaryObject) -> None:
@@ -365,7 +440,6 @@ def _check_pdf_shape(node: DictionaryObject) -> None:
         )
         if unexpected:
             raise BinaryValidationError(f"PDF page tree key is not allowed: {unexpected[0]}")
-    _check_pdf_filters(node)
 
 
 def validate_pdf(body: bytes) -> ValidatedBinary:
@@ -409,21 +483,36 @@ def validate_pdf(body: bytes) -> ValidatedBinary:
     unexpected = sorted(str(key) for key in catalog.keys() if str(key) not in _PDF_CATALOG_KEYS)
     if unexpected:
         raise BinaryValidationError(f"PDF catalog key is not allowed: {unexpected[0]}")
-    # 3. ... und der Formen darunter.
+    # 3. ... und der Formen darunter, inklusive Filter- und
+    #    Expansionsbudget jedes erreichbaren Streams.
+    remaining = MAX_PDF_EXPANDED_BYTES
     for node in _pdf_nodes(catalog):
         _check_pdf_shape(node)
+        if isinstance(node, StreamObject):
+            remaining = _consume_stream_budget(node, remaining)
     return _result(body, "application/pdf", "pdf")
 
 
 def _reject_trailing_pdf_bytes(body: bytes) -> None:
-    """Nach dem letzten %%EOF darf nur Whitespace stehen.
+    """Genau EINE Revision, und hinter ihrem %%EOF nur Whitespace.
 
-    Der Parser ignoriert alles danach -- genau darauf beruhen PDF-Polyglots
-    und angehaengte Nutzlasten.
+    Die erste Fassung dieser Pruefung sah nur hinter das LETZTE %%EOF und war
+    damit wirkungslos: `gueltig.pdf + Nutzlast + b"%%EOF"` bestand sie, waehrend
+    der Parser unveraendert die urspruengliche xref benutzte -- der Anhang fuhr
+    unsichtbar mit. Massgeblich ist deshalb das ERSTE %%EOF, und es darf nur
+    eines geben; damit sind angehaengte Nutzlasten UND inkrementelle Updates
+    (bei denen nicht mehr eindeutig ist, welche Bytes ein Leser sieht) beide
+    ausgeschlossen.
+
+    Bewusste Inkaufnahme: taucht die Bytefolge "%%EOF" zufaellig in einem
+    komprimierten Stream auf, lehnt diese Pruefung ein an sich gueltiges PDF
+    ab. Das ist die fail-closed Richtung.
     """
-    marker = body.rfind(b"%%EOF")
-    if marker < 0:
-        raise BinaryValidationError("PDF has no %%EOF marker")
+    if body.count(b"%%EOF") != 1:
+        raise BinaryValidationError(
+            "PDF must contain exactly one revision: malformed or polyglot"
+        )
+    marker = body.find(b"%%EOF")
     if body[marker + len(b"%%EOF") :].strip(b"\r\n\t ") != b"":
         raise BinaryValidationError("PDF has bytes after %%EOF: malformed or polyglot")
 

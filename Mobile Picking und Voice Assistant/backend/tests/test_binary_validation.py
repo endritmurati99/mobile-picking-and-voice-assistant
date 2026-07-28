@@ -13,12 +13,20 @@ PDF und ZPL jeweils gepruefte -- eine Abwehr darf nicht in einem Validator
 sitzen und im Nachbarn fehlen.
 """
 import hashlib
+import zlib
 from io import BytesIO
 
 import pytest
 from PIL import Image
 from pypdf import PdfWriter
-from pypdf.generic import ArrayObject, DictionaryObject, NameObject, TextStringObject
+from pypdf.generic import (
+    ArrayObject,
+    DictionaryObject,
+    NameObject,
+    NumberObject,
+    StreamObject,
+    TextStringObject,
+)
 
 from app.services.binary_validation import (
     MAX_DOCUMENT_BYTES,
@@ -409,3 +417,85 @@ def test_sanitize_filename_truncates_and_never_returns_separators():
         result = sanitize_filename(value)
         assert "/" not in result and "\\" not in result
         assert result not in ("", ".", "..")
+
+
+# ==========================================================================
+# Regressionen aus dem Review (Runde 1)
+# ==========================================================================
+
+
+def flate_bomb_pdf(plain_megabytes: int = 200) -> bytes:
+    """Ein syntaktisch einwandfreies einseitiges PDF, dessen Inhaltsstream
+    komprimiert ~200 KB gross ist und dekomprimiert ~200 MB ergibt."""
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=100, height=100)
+    deflated = zlib.compress(b"0" * (plain_megabytes * 1024 * 1024), 9)
+    stream = StreamObject()
+    stream[NameObject("/Filter")] = NameObject("/FlateDecode")
+    stream[NameObject("/Length")] = NumberObject(len(deflated))
+    stream._data = deflated
+    page[NameObject("/Contents")] = writer._add_object(stream)
+    out = BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def test_pdf_flate_decompression_bomb_is_rejected():
+    """CRITICAL 1: die Pillow-Bombe war zu, die PDF-Bombe offen. Ein 200-KB-
+    PDF darf sich nicht auf 200 MB entfalten duerfen."""
+    body = flate_bomb_pdf()
+    assert len(body) < 1024 * 1024
+    with pytest.raises(BinaryValidationError, match="expands"):
+        validate_pdf(body)
+
+
+def test_pdf_within_the_expansion_budget_still_passes():
+    """Gegenprobe: die Bomben-Sperre darf ein normales PDF mit komprimiertem
+    Inhaltsstream nicht mitreissen."""
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=100, height=100)
+    deflated = zlib.compress(b"BT /F1 12 Tf (hello) Tj ET\n" * 100, 9)
+    stream = StreamObject()
+    stream[NameObject("/Filter")] = NameObject("/FlateDecode")
+    stream[NameObject("/Length")] = NumberObject(len(deflated))
+    stream._data = deflated
+    page[NameObject("/Contents")] = writer._add_object(stream)
+    out = BytesIO()
+    writer.write(out)
+    assert validate_pdf(out.getvalue()).extension == "pdf"
+
+
+def test_pdf_with_chained_filters_is_rejected():
+    """Eine Filterkette laesst sich nicht gebunden dekodieren, ohne jede Stufe
+    selbst zu implementieren. Genau ein Filter pro Stream ist erlaubt."""
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=100, height=100)
+    stream = StreamObject()
+    stream[NameObject("/Filter")] = ArrayObject(
+        [NameObject("/ASCII85Decode"), NameObject("/FlateDecode")]
+    )
+    stream._data = b"whatever"
+    stream[NameObject("/Length")] = NumberObject(8)
+    page[NameObject("/Contents")] = writer._add_object(stream)
+    out = BytesIO()
+    writer.write(out)
+    with pytest.raises(BinaryValidationError, match="filter"):
+        validate_pdf(out.getvalue())
+
+
+def test_pdf_polyglot_with_appended_second_eof_is_rejected():
+    """CRITICAL 2: nur hinter dem LETZTEN %%EOF zu pruefen war wirkungslos --
+    der Parser benutzt weiter die urspruengliche xref, der Anhang faehrt mit.
+    Genau eine Revision, und hinter ihrem %%EOF nur Whitespace."""
+    hostile = pdf_bytes() + b"<?php system($_GET[0]); ?>\n%%EOF\n"
+    with pytest.raises(BinaryValidationError, match="polyglot"):
+        validate_pdf(hostile)
+
+
+def test_pdf_with_incremental_update_is_rejected():
+    """Dieselbe Regel aus der anderen Richtung: mehrere Revisionen in einer
+    Datei sind nicht erlaubt, weil dann nicht mehr eindeutig ist, welche
+    Bytes der Leser tatsaechlich sieht."""
+    body = pdf_bytes()
+    with pytest.raises(BinaryValidationError, match="polyglot"):
+        validate_pdf(body + body)
