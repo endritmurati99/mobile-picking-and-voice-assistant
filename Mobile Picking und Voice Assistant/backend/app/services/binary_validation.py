@@ -495,6 +495,24 @@ _ARTIFACT_KINDS: dict[str, tuple[str, Callable[[bytes], ValidatedBinary]]] = {
 ARTIFACT_KINDS = frozenset(_ARTIFACT_KINDS)
 
 
+def require_artifact_declared_mime(kind: str, declared_mime: str) -> str:
+    """Prueft Art + deklarierten Typ OHNE den Inhalt anzufassen.
+
+    Existiert, damit die Route den billigen Header-Vergleich vor dem
+    Replay-Gate machen kann und den teuren Parserlauf erst danach -- ohne
+    dass dabei eine zweite, moeglicherweise abweichende Vergleichslogik
+    entsteht: `validate_artifact` ruft exakt diese Funktion auf, beide lesen
+    dieselbe Tabelle.
+    """
+    entry = _ARTIFACT_KINDS.get(kind) if isinstance(kind, str) else None
+    if entry is None:
+        raise BinaryValidationError("Artifact kind is not allowed")
+    expected_mime = entry[0]
+    if declared_mime != expected_mime:
+        raise BinaryValidationError("Declared MIME does not match artifact kind")
+    return expected_mime
+
+
 def validate_artifact(kind: str, body: bytes, *, declared_mime: str) -> ValidatedBinary:
     """Prueft Art, deklarierten Typ und tatsaechlichen Inhalt in einem Zug.
 
@@ -503,10 +521,5 @@ def validate_artifact(kind: str, body: bytes, *, declared_mime: str) -> Validate
     Artefakt-Referenzen fuer dieselbe Datei fuehrt. `kind` wird nie in die
     Meldung uebernommen -- der Wert kommt aus dem URL-Pfad.
     """
-    entry = _ARTIFACT_KINDS.get(kind) if isinstance(kind, str) else None
-    if entry is None:
-        raise BinaryValidationError("Artifact kind is not allowed")
-    expected_mime, validator = entry
-    if declared_mime != expected_mime:
-        raise BinaryValidationError("Declared MIME does not match artifact kind")
-    return validator(body)
+    require_artifact_declared_mime(kind, declared_mime)
+    return _ARTIFACT_KINDS[kind][1](body)

@@ -448,15 +448,36 @@ def test_malformed_job_id_is_rejected_before_odoo(client, fake_odoo, job_id):
     assert fake_odoo.calls == []
 
 
-@pytest.mark.parametrize("media_ref", ["..", ".", "x" * 200, "media~1", "média"])
+@pytest.mark.parametrize(
+    "media_ref",
+    ["x" * 200, "media~1", "media:1", "-media", ".media", "media%1", "media,1"],
+)
 def test_malformed_media_ref_is_rejected_before_odoo(client, fake_odoo, media_ref):
     path = f"/api/internal/instances/o19/jobs/{JOB_ID}/media/{media_ref}"
     response = client.get(
         path, headers=signed(path, b"", method="GET", idempotency_key=None)
     )
-    # "média" wird als %C3%A9 uebertragen: der signierte Pfad weicht dann vom
-    # rohen Pfad ab und die Signaturpruefung schlaegt vorher zu (401).
-    assert response.status_code in (400, 401)
+    assert response.status_code == 400
+    assert fake_odoo.calls == []
+
+
+def test_percent_encoded_media_ref_is_validated_after_decoding(client, fake_odoo):
+    """Der signierte Pfad ist der ROHE Pfad, der Handler sieht den dekodierten
+    Wert. Beides muss geprueft werden: die Signatur passt hier, und trotzdem
+    darf `média` die Allowlist nicht passieren."""
+    path = f"/api/internal/instances/o19/jobs/{JOB_ID}/media/m%C3%A9dia"
+    response = client.get(path, headers=signed(path, b"", method="GET", idempotency_key=None))
+    assert response.status_code == 400
+    assert fake_odoo.calls == []
+
+
+def test_percent_encoded_traversal_never_escapes_the_media_reference(client, fake_odoo):
+    """%2e%2e%2f dekodiert zu "../". Das darf nie zu einem Ressourcenzugriff
+    fuehren: entweder passt nach dem Dekodieren kein Routenmuster mehr (404)
+    oder die Allowlist weist den Wert ab (400) -- ein 200 waere der Fehler."""
+    path = f"/api/internal/instances/o19/jobs/{JOB_ID}/media/%2e%2e%2f%2e%2e%2fetc%2fpasswd"
+    response = client.get(path, headers=signed(path, b"", method="GET", idempotency_key=None))
+    assert response.status_code in (400, 404)
     assert fake_odoo.calls == []
 
 
@@ -587,12 +608,24 @@ def test_artifact_kind_outside_the_allowlist_is_rejected(
 
 @pytest.mark.parametrize(
     "idempotency_key",
-    [None, "", "k" * 129, "schlüssel"],
+    [None, "", "k" * 129, "key with space", "key\ttab"],
 )
 def test_artifact_requires_a_short_ascii_idempotency_key(
     client, fake_odoo, minimal_pdf, idempotency_key
 ):
     response = post_artifact(client, minimal_pdf, idempotency_key=idempotency_key)
+    assert response.status_code == 400
+    assert fake_odoo.calls == []
+
+
+def test_artifact_rejects_a_non_ascii_idempotency_key(client, fake_odoo, minimal_pdf):
+    """httpx kann einen Nicht-ASCII-String gar nicht als Header senden, ein
+    roher Byte-Header aber schon -- genau so wuerde ein Angreifer es tun."""
+    headers = signed(ARTIFACT_PATH, minimal_pdf, content_type="application/pdf")
+    headers.pop("Idempotency-Key")
+    raw_headers = [(name.encode(), value.encode()) for name, value in headers.items()]
+    raw_headers.append((b"Idempotency-Key", "schlüssel".encode("utf-8")))
+    response = client.post(ARTIFACT_PATH, content=minimal_pdf, headers=raw_headers)
     assert response.status_code == 400
     assert fake_odoo.calls == []
 

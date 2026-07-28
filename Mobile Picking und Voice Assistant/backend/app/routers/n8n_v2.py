@@ -22,6 +22,20 @@ Absichtlich NICHT vorhanden: `get_odoo_client`, `WriteRequestContext`,
 `n8n_internal.py` bleibt unveraendert v1 und nur im internen Netz erreichbar,
 bis seine Workflows migriert sind.
 
+Task 11 haengt zwei weitere Routen an denselben Wachposten:
+`GET  /instances/{i}/jobs/{j}/media/{m}` und
+`POST /instances/{i}/jobs/{j}/events/{e}/artifacts/{k}`. Sie tragen Job,
+Quell-Event und Artefaktart im PFAD statt im Body -- der Pfad ist Teil der
+kanonischen Signatureingabe, ist also genauso gebunden wie ein signiertes
+Body-Feld. Deshalb wurde der Router-Prefix auf `/internal` verkuerzt und die
+v2-Routen tragen ihren Pfad selbst; die vollstaendigen URLs der Task-10-Routen
+bleiben dabei Byte-fuer-Byte dieselben (`/api/internal/n8n/v2/...`), und
+`main.py` (Task 9) musste nicht angefasst werden.
+
+Fuer die Binaerrouten gilt zusaetzlich: rohe Bytes rein, rohe Bytes raus.
+Base64 existiert ausschliesslich auf dem internen JSON-RPC-Hop zu Odoo und
+taucht in keiner HTTP-Antwort, keinem Log und keinem Event auf.
+
 Replay-Schutz und Zustandslogik liegen in Odoo (Task 8): `api_accept_event`
 und `api_apply_callback` reservieren die Nonce im Store
 `picking.assistant.webhook.nonce` in derselben Transaktion wie die
@@ -30,9 +44,15 @@ Job, Generation) wird hier auf ein generisches 409 abgebildet -- die
 Odoo-Meldung wird nie an den Aufrufer durchgereicht, damit die Antwort nicht
 verraet, ob ein Job, ein Event oder ein Receipt existiert.
 """
+import base64
+import binascii
+import re
+from hmac import compare_digest
 from typing import Any
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Response
+from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from app.dependencies import (
@@ -46,9 +66,20 @@ from app.models.events import (
     EventAcceptanceRequest,
     EventAcceptanceResponse,
 )
+from app.services.binary_validation import (
+    ARTIFACT_KINDS,
+    BinaryValidationError,
+    ValidatedBinary,
+    require_artifact_declared_mime,
+    sanitize_filename,
+    validate_artifact,
+    validate_image,
+)
 from app.services.odoo_client import OdooAPIError
 
-router = APIRouter(prefix="/internal/n8n/v2")
+router = APIRouter(prefix="/internal")
+
+V2 = "/n8n/v2"
 
 
 def _parse(model, raw_body: bytes):
@@ -117,7 +148,7 @@ def _receipt_response(model, **values):
         raise HTTPException(status_code=409, detail="Unexpected receipt result.") from exc
 
 
-@router.post("/events/accept", response_model=EventAcceptanceResponse)
+@router.post(V2 + "/events/accept", response_model=EventAcceptanceResponse)
 async def accept_event(
     verified: VerifiedInternalRequest = Depends(verify_n8n_to_backend_request),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
@@ -153,7 +184,7 @@ async def accept_event(
     )
 
 
-@router.post("/callbacks/status", response_model=CallbackApplyResponse)
+@router.post(V2 + "/callbacks/status", response_model=CallbackApplyResponse)
 async def apply_callback(
     verified: VerifiedInternalRequest = Depends(verify_n8n_to_backend_request),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
@@ -185,4 +216,223 @@ async def apply_callback(
         status=_required(result, "status"),
         job_id=_required(result, "job_id"),
         sequence=_required(result, "sequence"),
+    )
+
+
+# ===========================================================================
+# Task 11: job-gebundene Medien und Artefakte
+# ===========================================================================
+#
+# Beide Routen laufen durch dieselbe Wache wie die Routen oben und danach
+# durch EINE gemeinsame Reihenfolge, damit keine Verteidigung in der einen
+# Route sitzt und in der anderen fehlt:
+#
+#   1. Pfadform (UUID / Allowlist-Referenz / Allowlist-Artefaktart)
+#   2. Idempotency-Key (nur POST -- GET veraendert nichts)
+#   3. Zielinstanz aus dem Pfad, Allowlist gegen das Instanzregister
+#   4. deklarierter Typ gegen die Artefaktart (billig, vor dem Replay-Gate)
+#   5. Nonce-Reservierung in Odoo -- job- UND generationsgebunden
+#   6. Inhaltsvalidierung (teuer, laeuft nur fuer nicht wiedervorgelegte
+#      Anfragen)
+#   7. Odoo-Zugriff auf die Ressource
+#
+# Punkt 5 vor Punkt 6 ist Absicht: eine mitgeschnittene, erneut eingereichte
+# Anfrage wird am Nonce-Store abgewiesen, bevor der Parser ueberhaupt anlaeuft.
+# Die Generation stammt IMMER aus der verifizierten Signatur, nie aus Pfad,
+# Query oder Body -- eine veraltete Generation kann damit weder lesen noch
+# anhaengen, und Odoo prueft sie unter Sperre ein zweites Mal.
+
+_MEDIA_REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", re.ASCII)
+# RFC-9110-Feldwert ohne Whitespace: druckbares ASCII, 1..128 Zeichen. Damit
+# sind Zeilenumbrueche (Header-/Log-Injection) und alles Nicht-ASCII raus.
+_IDEMPOTENCY_KEY = re.compile(r"[\x21-\x7e]{1,128}", re.ASCII)
+
+
+def _require_canonical_uuid(value: str, label: str) -> str:
+    """Nur die kanonische Kleinschreibung mit Bindestrichen wird akzeptiert.
+
+    `UUID()` allein wuerde auch "4DDB2442E58A..." schlucken; zwei
+    Schreibweisen derselben UUID waeren aber zwei verschiedene signierte
+    Ziele und in Odoo zwei verschiedene Suchbegriffe.
+    """
+    try:
+        parsed = UUID(value)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"Malformed {label}.") from exc
+    if str(parsed) != value:
+        raise HTTPException(status_code=400, detail=f"Malformed {label}.")
+    return value
+
+
+def _require_idempotency_key(idempotency_key: str | None) -> str:
+    if not idempotency_key or not _IDEMPOTENCY_KEY.fullmatch(idempotency_key):
+        raise HTTPException(status_code=400, detail="Idempotency-Key is required.")
+    return idempotency_key
+
+
+def _declared_media_type(content_type: str | None) -> str:
+    """Nur der Medientyp, ohne Parameter, klein geschrieben."""
+    return (content_type or "").split(";")[0].strip().lower()
+
+
+def _validated(call, *, conflict: bool = False) -> ValidatedBinary:
+    """Uebersetzt eine Validierungsablehnung in 422.
+
+    Die Meldung aus `binary_validation` wird durchgereicht: sie besteht
+    ausschliesslich aus festen Texten und Zeichen aus einer Allowlist,
+    enthaelt also keine Angreiferdaten, die in Proxy-Logs zurueckgespiegelt
+    werden koennten.
+    """
+    try:
+        return call()
+    except BinaryValidationError as exc:
+        raise HTTPException(
+            status_code=409 if conflict else 422, detail=str(exc)
+        ) from exc
+
+
+def _odoo_text(result: Any, key: str) -> str:
+    """Ein fehlendes oder falsch typisiertes Feld in der Odoo-Antwort ist ein
+    Konflikt, kein 500 -- wie `_required` fuer die Routen oben."""
+    if not isinstance(result, dict) or not isinstance(result.get(key), str):
+        raise HTTPException(status_code=409, detail="Unexpected resource result.")
+    return result[key]
+
+
+async def _reserve_signed_nonce(odoo, verified: VerifiedInternalRequest, job_id: str):
+    """Reserviert die Nonce der verifizierten Signatur, gebunden an Job UND
+    Generation. Autoritativ ist der Store in Odoo (Task 8, 900s Retention) --
+    ein prozesslokaler Cache waere pro Worker getrennt und damit kein
+    Replay-Schutz."""
+    try:
+        return await odoo.execute_kw(
+            "picking.assistant.webhook.nonce",
+            "api_reserve_request_nonce",
+            [
+                "n8n_to_backend",
+                verified.signature.key_id,
+                verified.signature.nonce,
+                False,
+                job_id,
+                verified.signature.delivery_generation,
+            ],
+        )
+    except OdooAPIError as exc:
+        raise HTTPException(status_code=409, detail="Resource request conflict.") from exc
+
+
+@router.get("/instances/{odoo_instance}/jobs/{job_id}/media/{media_ref}")
+async def get_job_media(
+    odoo_instance: str,
+    job_id: str,
+    media_ref: str,
+    verified: VerifiedInternalRequest = Depends(verify_n8n_to_backend_request),
+) -> Response:
+    """Liefert ein job-gebundenes Bild als ROHE Bytes.
+
+    Das Bild wird auch auf dem Rueckweg validiert, nicht nur beim Hochladen:
+    Odoo ist fuer diese Route eine Datenquelle wie jede andere, und ein
+    Anhang, der auf anderem Weg in die Datenbank gekommen ist, darf hier
+    nicht ungeprueft an einen Workflow gereicht werden.
+    """
+    _require_canonical_uuid(job_id, "job id")
+    if not _MEDIA_REF.fullmatch(media_ref):
+        raise HTTPException(status_code=400, detail="Malformed media reference.")
+    odoo = get_callback_odoo_client(odoo_instance)
+    generation = verified.signature.delivery_generation
+    await _reserve_signed_nonce(odoo, verified, job_id)
+    try:
+        result = await odoo.execute_kw(
+            "picking.assistant.integration.job",
+            "api_get_job_media",
+            [job_id, media_ref, generation],
+        )
+    except OdooAPIError as exc:
+        raise HTTPException(status_code=409, detail="Media access conflict.") from exc
+    try:
+        body = base64.b64decode(_odoo_text(result, "content_base64"), validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=409, detail="Unexpected resource result.") from exc
+    expected_sha256 = _odoo_text(result, "sha256")
+    declared_mime = _odoo_text(result, "mimetype")
+    validated = _validated(lambda: validate_image(body, declared_mime=declared_mime))
+    if not compare_digest(validated.sha256, expected_sha256):
+        raise HTTPException(status_code=409, detail="Media hash mismatch.")
+    # Serverseitig erzeugter Dateiname: der Originalname des Uploads wird
+    # gespeichert, aber niemals ausgeliefert (er ist Angreiferdaten).
+    filename = sanitize_filename(f"{job_id}-{media_ref}.{validated.extension}")
+    return Response(
+        content=body,
+        media_type=validated.mime_type,
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            # Der Typ ist validiert; nosniff verbietet dem Client trotzdem,
+            # ihn selbst zu erraten.
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.post(
+    "/instances/{odoo_instance}/jobs/{job_id}"
+    "/events/{source_event_id}/artifacts/{artifact_kind}",
+    status_code=201,
+)
+async def store_job_artifact(
+    odoo_instance: str,
+    job_id: str,
+    source_event_id: str,
+    artifact_kind: str,
+    verified: VerifiedInternalRequest = Depends(verify_n8n_to_backend_request),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    content_type: str | None = Header(default=None, alias="Content-Type"),
+) -> JSONResponse:
+    """Nimmt ein Artefakt als ROHE Bytes an und legt es job-gebunden ab.
+
+    201 fuer ein neues Artefakt, 200 fuer eine identische Wiedervorlage --
+    die Unterscheidung trifft Odoo unter Sperre (gleiche Bytes = Replay,
+    andere Bytes unter derselben Art = Konflikt), nicht diese Route.
+    """
+    if artifact_kind not in ARTIFACT_KINDS:
+        raise HTTPException(status_code=400, detail="Unknown artifact kind.")
+    _require_canonical_uuid(job_id, "job id")
+    _require_canonical_uuid(source_event_id, "source event id")
+    _require_idempotency_key(idempotency_key)
+    odoo = get_callback_odoo_client(odoo_instance)
+    declared_mime = _declared_media_type(content_type)
+    _validated(lambda: require_artifact_declared_mime(artifact_kind, declared_mime))
+    generation = verified.signature.delivery_generation
+    await _reserve_signed_nonce(odoo, verified, job_id)
+    validated = _validated(
+        lambda: validate_artifact(
+            artifact_kind, verified.raw_body, declared_mime=declared_mime
+        )
+    )
+    filename = sanitize_filename(f"{job_id}-{artifact_kind}.{validated.extension}")
+    try:
+        result = await odoo.execute_kw(
+            "picking.assistant.integration.job",
+            "api_store_job_artifact",
+            [
+                job_id,
+                source_event_id,
+                artifact_kind,
+                generation,
+                # Base64 NUR hier, fuer den internen JSON-RPC-Hop.
+                base64.b64encode(verified.raw_body).decode("ascii"),
+                validated.sha256,
+                validated.mime_type,
+                filename,
+            ],
+        )
+    except OdooAPIError as exc:
+        raise HTTPException(status_code=409, detail="Artifact storage conflict.") from exc
+    artifact_ref = _required(result, "artifact_ref")
+    if not isinstance(artifact_ref, str) or not artifact_ref:
+        raise HTTPException(status_code=409, detail="Unexpected resource result.")
+    replayed = _require_bool(result, "replayed")
+    return JSONResponse(
+        status_code=200 if replayed else 201,
+        content={"artifact_ref": artifact_ref, "replayed": replayed},
     )
