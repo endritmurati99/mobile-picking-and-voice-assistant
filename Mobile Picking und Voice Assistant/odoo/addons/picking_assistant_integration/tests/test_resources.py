@@ -590,3 +590,85 @@ class TestReviewRegressions(ResourceCase):
             ),
             2,
         )
+
+
+class TestOrmIngressBoundary(ResourceCase):
+    """Review-Runde 2, FIX 1.
+
+    `ir.attachment.create`/`write` sind OEFFENTLICHE ORM-Einstiegspunkte. Dass
+    `_bind_job_media` privat und damit nicht per RPC erreichbar ist, half
+    nichts: ein API-Service-Nutzer konnte einfach direkt einen Anhang mit
+    gefaelschtem `pwr_job_record_id`, gefaelschter Identitaet, gefaelschter
+    Generation und gefaelschtem Hash anlegen -- an jedem Gate vorbei. Die
+    Unveraenderlichkeit aus Runde 1 zementierte die Faelschung dann sogar.
+    """
+
+    def test_api_service_user_cannot_create_a_binding_through_generic_orm(self):
+        with self.assertRaises(ValidationError):
+            self.env["ir.attachment"].with_user(self.api_user).create(
+                {
+                    "name": "forged.pdf",
+                    "type": "binary",
+                    "datas": encoded(PDF_BYTES),
+                    "pwr_job_record_id": self.job.id,
+                    "pwr_media_ref": "forged",
+                    "pwr_sha256": "f" * 64,
+                    "pwr_binding_generation": 1,
+                }
+            )
+        self.assertFalse(
+            self.env["ir.attachment"].sudo().search_count(
+                [("pwr_media_ref", "=", "forged")]
+            )
+        )
+
+    def test_api_service_user_cannot_write_a_binding_through_generic_orm(self):
+        attachment = self.env["ir.attachment"].with_user(self.api_user).create(
+            {"name": "plain.pdf", "type": "binary", "datas": encoded(PDF_BYTES)}
+        )
+        with self.assertRaises(ValidationError):
+            attachment.write({"pwr_job_record_id": self.job.id})
+        with self.assertRaises(ValidationError):
+            attachment.write({"pwr_retention_until": fields.Datetime.now()})
+        self.assertFalse(attachment.pwr_job_record_id)
+
+    def test_sudo_cannot_create_or_write_a_binding_through_generic_orm(self):
+        """Auch sudo nicht: die Grenze ist der Einstiegspunkt, nicht das Recht."""
+        with self.assertRaises(ValidationError):
+            self.env["ir.attachment"].sudo().create(
+                {
+                    "name": "forged2.pdf",
+                    "type": "binary",
+                    "datas": encoded(PDF_BYTES),
+                    "pwr_job_record_id": self.job.id,
+                    "pwr_media_ref": "forged2",
+                }
+            )
+        attachment = self.env["ir.attachment"].sudo().create(
+            {"name": "plain2.pdf", "type": "binary", "datas": encoded(PDF_BYTES)}
+        )
+        with self.assertRaises(ValidationError):
+            attachment.write({"pwr_artifact_kind": "pdf"})
+
+    def test_plain_attachments_are_unaffected(self):
+        """Gegenprobe: gewoehnliche Anhaenge ohne pwr_*-Felder funktionieren
+        unveraendert -- der Hook haengt an einem Kernmodell."""
+        attachment = self.env["ir.attachment"].with_user(self.picker).create(
+            {"name": "normal.png", "type": "binary", "datas": encoded(PNG_BYTES)}
+        )
+        attachment.write({"name": "renamed.png"})
+        self.assertEqual(attachment.name, "renamed.png")
+
+    def test_the_guarded_methods_still_bind(self):
+        """Und der eine erlaubte Weg funktioniert weiterhin."""
+        attachment = self.bind_media(media_ref="media-guarded")
+        self.assertEqual(attachment.pwr_job_record_id, self.job)
+        result = self.store()
+        self.assertFalse(result["replayed"])
+
+    def test_retention_is_settable_through_the_guarded_path_only(self):
+        attachment = self.bind_media(
+            media_ref="media-ret",
+            retention_until=fields.Datetime.now() + timedelta(days=30),
+        )
+        self.assertTrue(attachment.pwr_retention_until)
