@@ -83,7 +83,8 @@ class ResourceCase(IntegrationCase):
             values["filename"],
         )
 
-    def bind_media(self, media_ref="media-1", body=PNG_BYTES, job=None, **kwargs):
+    def bind_media(self, media_ref="media-1", body=PNG_BYTES, job=None,
+                   generation=1, **kwargs):
         job = job or self.job
         attachment = self.env["ir.attachment"].sudo().create(
             {
@@ -97,6 +98,7 @@ class ResourceCase(IntegrationCase):
         )
         job.sudo()._bind_job_media(
             attachment,
+            generation=generation,
             media_ref=media_ref,
             sha256=digest(body),
             **kwargs,
@@ -407,3 +409,163 @@ class TestGuardedNonceReservation(ResourceCase):
             "n8n_to_backend", "n2b-test", "123e4567-e89b-42d3-a456-426614174073"
         )
         self.assertTrue(result["reserved"])
+
+
+class TestReviewRegressions(ResourceCase):
+    """Regressionen aus dem Review (Runde 1)."""
+
+    def test_stale_generation_cannot_bind_media(self):
+        """CRITICAL 3: `_bind_job_media` nahm gar keine Generation entgegen.
+        Ein Worker, der die Generationsrolle verpasst hat, konnte damit einen
+        Anhang anlegen und binden -- genau die Invariante, die diese Task
+        zusichert."""
+        self.job.sudo().write({"delivery_generation": 2})
+        with self.assertRaises(ValidationError):
+            self.bind_media(media_ref="media-stale", generation=1)
+        self.assertFalse(
+            self.env["ir.attachment"].sudo().search_count(
+                [("pwr_media_ref", "=", "media-stale")]
+            )
+        )
+
+    def test_current_generation_binds_and_is_persisted(self):
+        attachment = self.bind_media(media_ref="media-current", generation=1)
+        self.assertEqual(attachment.pwr_binding_generation, 1)
+        self.assertEqual(attachment.pwr_job_record_id, self.job)
+
+    def test_binding_without_an_active_lease_is_refused(self):
+        receipt = self.env["picking.assistant.event.receipt"].sudo().search(
+            [("event_id", "=", self.outbox.event_id)]
+        )
+        receipt.write(
+            {"processing_lease_expires_at": fields.Datetime.now() - timedelta(seconds=1)}
+        )
+        with self.assertRaises(ValidationError):
+            self.bind_media(media_ref="media-noleash", generation=1)
+
+    def test_bind_media_verifies_the_hash_itself(self):
+        """Der Aufrufer liefert den Hash, aber er wird nicht geglaubt."""
+        job = self.job.sudo()
+        attachment = self.env["ir.attachment"].sudo().create(
+            {"name": "u.png", "type": "binary", "datas": encoded(PNG_BYTES)}
+        )
+        with self.assertRaises(ValidationError):
+            job._bind_job_media(
+                attachment, generation=1, media_ref="media-liar", sha256="f" * 64
+            )
+
+    def test_job_binding_is_immutable_even_under_sudo(self):
+        """IMPORTANT 2: der create/write-Hook laesst `env.su` durch, also darf
+        die Unveraenderlichkeit nicht an ihm haengen. Einmal gesetzt, bleibt
+        die Job-Zuordnung stehen -- auch fuer sudo-faehigen Code."""
+        attachment = self.bind_media(media_ref="media-owned")
+        other_job, _outbox = self.env[
+            "picking.assistant.integration.job"
+        ]._enqueue_job_event(
+            job_type="quality_assessment",
+            aggregate_model="res.partner",
+            aggregate_res_id=self.picker.partner_id.id,
+            aggregate_revision=1,
+            event_id="a4ff5ca2-4546-4ea4-8e6c-b75bc003ca44",
+            event_name="quality.assessment.requested.v1",
+            envelope_text='{"schema_version":"v2"}',
+            payload_fingerprint="a" * 64,
+            correlation_id="0b2f7909-4ad9-44c1-8527-e775fe6d4bf4",
+        )
+        for values in (
+            {"pwr_job_record_id": other_job.id},
+            {"pwr_media_ref": "media-hijacked"},
+            {"pwr_sha256": "f" * 64},
+            {"pwr_binding_generation": 99},
+        ):
+            with self.assertRaises(ValidationError):
+                attachment.sudo().write(values)
+        self.assertEqual(attachment.pwr_job_record_id, self.job)
+
+    def test_rewriting_the_same_binding_value_stays_allowed(self):
+        """Gegenprobe: Unveraenderlichkeit darf keine idempotente
+        Wiederholung brechen, und die Frist bleibt nachtraeglich setzbar."""
+        attachment = self.bind_media(media_ref="media-idem")
+        attachment.sudo().write({"pwr_media_ref": "media-idem"})
+        attachment.sudo().write(
+            {"pwr_retention_until": fields.Datetime.now() + timedelta(days=30)}
+        )
+        self.assertTrue(attachment.pwr_retention_until)
+
+    def test_artifact_binding_is_immutable_under_sudo(self):
+        result = self.store()
+        attachment = self.env["ir.attachment"].sudo().search(
+            [("pwr_artifact_ref", "=", result["artifact_ref"])]
+        )
+        for values in (
+            {"pwr_artifact_kind": "zpl"},
+            {"pwr_source_event_id": "00000000-0000-4000-8000-000000000098"},
+            {"pwr_artifact_ref": "forged"},
+        ):
+            with self.assertRaises(ValidationError):
+                attachment.write(values)
+
+    def test_odoo_ingress_rejects_content_that_is_not_its_declared_type(self):
+        """IMPORTANT 1: ein direkter JSON-RPC-Aufruf umgeht die Tiefenpruefung
+        des Backends vollstaendig. Der deklarierte Typ muss deshalb auch hier
+        wenigstens WIRKLICH dieser Typ sein."""
+        with self.assertRaises(ValidationError):
+            self.store(
+                content_base64=encoded(ZPL_BYTES), sha256=digest(ZPL_BYTES)
+            )
+        with self.assertRaises(ValidationError):
+            self.store(
+                artifact_kind="zpl",
+                mimetype="application/zpl",
+                content_base64=encoded(PDF_BYTES),
+                sha256=digest(PDF_BYTES),
+            )
+        with self.assertRaises(ValidationError):
+            self.store(
+                content_base64=encoded(b"\x89PNG\r\n\x1a\nnope"),
+                sha256=digest(b"\x89PNG\r\n\x1a\nnope"),
+            )
+        self.assertFalse(self.env["ir.attachment"].sudo().search_count(
+            [("pwr_artifact_ref", "!=", False)]
+        ))
+
+    def test_odoo_ingress_rejects_pdf_with_an_appended_payload(self):
+        hostile = PDF_BYTES + b"<?php system($_GET[0]); ?>\n%%EOF\n"
+        with self.assertRaises(ValidationError):
+            self.store(content_base64=encoded(hostile), sha256=digest(hostile))
+
+    def test_odoo_ingress_rejects_zpl_outside_the_command_allowlist(self):
+        for hostile in (
+            b"^XA^JUS^XZ",
+            b"^XA^DFE:FORMAT.ZPL^XZ",
+            b"^XA^ju^XZ",
+            b"^XA^FDx^FS^XZ^XA^JUS^XZ",
+            "^XA^FDPäckchen^FS^XZ".encode("utf-8"),
+        ):
+            with self.assertRaises(ValidationError):
+                self.store(
+                    artifact_kind="zpl",
+                    mimetype="application/zpl",
+                    content_base64=encoded(hostile),
+                    sha256=digest(hostile),
+                )
+        self.assertFalse(self.env["ir.attachment"].sudo().search_count(
+            [("pwr_artifact_ref", "!=", False)]
+        ))
+
+    def test_odoo_ingress_still_accepts_the_legitimate_types(self):
+        """Gegenprobe: die neue Eingangspruefung darf gueltige Artefakte
+        nicht mitreissen."""
+        self.store()
+        self.store(
+            artifact_kind="zpl",
+            mimetype="application/zpl",
+            content_base64=encoded(ZPL_BYTES),
+            sha256=digest(ZPL_BYTES),
+        )
+        self.assertEqual(
+            self.env["ir.attachment"].sudo().search_count(
+                [("pwr_job_record_id", "=", self.job.id)]
+            ),
+            2,
+        )
