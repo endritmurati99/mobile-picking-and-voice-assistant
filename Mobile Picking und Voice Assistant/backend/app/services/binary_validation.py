@@ -272,22 +272,32 @@ _PDF_PAGE_KEYS = {
 
 _PDF_PAGES_NODE_KEYS = {"/Type", "/Kids", "/Count", "/Parent", "/MediaBox", "/Resources", "/Rotate"}
 
-# Allowlist der Stream-Filter. Bewusst KLEINER als die Menge der
-# verlustfreien PDF-Filter: /LZWDecode und /RunLengthDecode koennen ebenfalls
-# stark expandieren, und ich implementiere fuer sie keinen gebundenen
-# Dekodierer -- also stehen sie nicht auf der Liste. /Crypt ohnehin nicht.
+# Allowlist der Stream-Filter. Bewusst KLEINER als die Menge der zulaessigen
+# PDF-Filter -- ein Filter steht hier nur, wenn seine Expansion GEBUNDEN
+# geprueft werden kann:
+#
+# * /LZWDecode und /RunLengthDecode expandieren stark; ich baue fuer sie
+#   keinen gebundenen Dekodierer.
+# * /DCTDecode und /CCITTFaxDecode sind Bildcodecs. Ihre Ausgabe laesst sich
+#   nicht aus dem Stream ableiten, und die frueher hier benutzten DEKLARIERTEN
+#   /Width und /Height sind wertlos: ein Stream darf 1x1 behaupten und
+#   Codecdaten fuer ein riesiges Bild tragen. Sie ohne Dekodierung zu
+#   akzeptieren war ein Loch im Expansionsbudget -- also fliegen sie raus.
+# * /Crypt ohnehin nicht.
+#
+# FOLGE, bewusst in Kauf genommen: ein PDF mit eingebettetem JPEG oder
+# CCITT-Fax wird abgelehnt. Etiketten und Lieferscheine sind Text, Vektor und
+# Barcode; wer Rasterbilder braucht, kodiert sie /FlateDecode (gebunden
+# geprueft). Sollte das spaeter nicht reichen, ist der richtige Weg eine
+# Pillow-gestuetzte Pruefung der INTRINSISCHEN Bildmasse, nicht die Rueckkehr
+# zu den deklarierten.
 _PDF_FILTERS = {
     "/FlateDecode",
     "/ASCII85Decode",
     "/ASCIIHexDecode",
-    "/DCTDecode",
-    "/CCITTFaxDecode",
 }
 # Diese beiden expandieren nie ueber ihre Eingabelaenge hinaus.
 _PDF_NON_EXPANDING_FILTERS = {"/ASCII85Decode", "/ASCIIHexDecode"}
-# Bildcodecs: die Ausgabe ist durch die deklarierten Bildmasse begrenzt,
-# nicht durch den Stream -- also werden die Masse begrenzt.
-_PDF_IMAGE_FILTERS = {"/DCTDecode", "/CCITTFaxDecode"}
 
 # Benannte aktive Konstrukte. NICHT die Absicherung -- die liegt in den
 # Allowlists oben -- sondern die bessere Fehlermeldung davor.
@@ -398,12 +408,6 @@ def _consume_stream_budget(node: DictionaryObject, remaining: int) -> int:
     for name in names:
         if name not in _PDF_FILTERS:
             raise BinaryValidationError("PDF stream filter is not allowed")
-    if names and names[0] in _PDF_IMAGE_FILTERS:
-        width = _pdf_int(node.get("/Width"))
-        height = _pdf_int(node.get("/Height"))
-        if width * height > MAX_IMAGE_PIXELS:
-            raise BinaryValidationError("PDF image exceeds 24 megapixels")
-        return remaining
     data = getattr(node, "_data", b"") or b""
     if not isinstance(data, (bytes, bytearray)):
         raise BinaryValidationError("PDF parser rejected input")
@@ -414,15 +418,6 @@ def _consume_stream_budget(node: DictionaryObject, remaining: int) -> int:
     if produced > remaining:
         raise BinaryValidationError("PDF stream expands beyond the allowed budget")
     return remaining - produced
-
-
-def _pdf_int(value) -> int:
-    if isinstance(value, IndirectObject):
-        value = value.get_object()
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
 
 
 def _check_pdf_shape(node: DictionaryObject) -> None:
@@ -584,6 +579,48 @@ _ARTIFACT_KINDS: dict[str, tuple[str, Callable[[bytes], ValidatedBinary]]] = {
 ARTIFACT_KINDS = frozenset(_ARTIFACT_KINDS)
 
 
+def precheck_artifact(kind: str, body: bytes, *, declared_mime: str) -> None:
+    """Phase 1 von zwei: die BILLIGEN, streng gebundenen Pruefungen.
+
+    Warum es diese Funktion gibt -- die Reihenfolge im Aufrufer ist ein
+    Kompromiss zwischen zwei echten Angriffen, und beide wurden im Review
+    vorgefuehrt:
+
+    * Reserviert man die Nonce ZUERST, verbrennt jede signierte, aber
+      ungueltige Nutzlast dauerhaft eine Nonce (Replay-Kapazitaet erschoepfbar).
+    * Validiert man ZUERST vollstaendig, laesst sich dieselbe gueltige,
+      signierte Anfrage beliebig oft wiedervorlegen und erzwingt jedes Mal bis
+      zu 10 MiB Parsing plus 32 MiB Inflation, bevor ueberhaupt eine Nonce
+      faellt.
+
+    Aufloesung in drei Phasen: erst DAS HIER (Groesse, Magic, deklarierter Typ,
+    ZPL-Kommandoscan -- alles linear, ohne Parser, ohne Dekompression), dann
+    die Nonce-Reservierung, dann der teure Durchlauf. Eine Wiedervorlage
+    stirbt damit an der Nonce, bevor teure Arbeit anfaellt; eine Nonce
+    verbrennen kann nur, wer diese Huerde bereits genommen hat.
+
+    Wer diese Reihenfolge aendert, macht einen der beiden Angriffe wieder auf.
+    """
+    require_artifact_declared_mime(kind, declared_mime)
+    if len(body) > MAX_DOCUMENT_BYTES:
+        raise BinaryValidationError("Artifact exceeds 10 MiB")
+    _ARTIFACT_PRECHECKS[kind](body)
+
+
+def _precheck_pdf(body: bytes) -> None:
+    """Magic, erlaubte Version und Revisionsdisziplin -- reine Bytescans."""
+    if not body.startswith(_PDF_VERSIONS):
+        raise BinaryValidationError("PDF magic or version is not allowed")
+    _reject_trailing_pdf_bytes(body)
+
+
+def _precheck_zpl(body: bytes) -> None:
+    """ZPL ist bereits vollstaendig linear pruefbar -- die komplette
+    Kommando-Allowlist passt deshalb in die billige Phase. Fuer ZPL ist der
+    teure Durchlauf danach nur noch eine Wiederholung."""
+    validate_zpl(body)
+
+
 def require_artifact_declared_mime(kind: str, declared_mime: str) -> str:
     """Prueft Art + deklarierten Typ OHNE den Inhalt anzufassen.
 
@@ -612,3 +649,10 @@ def validate_artifact(kind: str, body: bytes, *, declared_mime: str) -> Validate
     """
     require_artifact_declared_mime(kind, declared_mime)
     return _ARTIFACT_KINDS[kind][1](body)
+# Die billige Vorpruefung je Art. Gleiche Schluessel wie _ARTIFACT_KINDS --
+# eine Art ohne Vorpruefung waere ein KeyError, kein stilles Durchwinken.
+_ARTIFACT_PRECHECKS: dict[str, Callable[[bytes], None]] = {
+    "pdf": _precheck_pdf,
+    "zpl": _precheck_zpl,
+}
+assert set(_ARTIFACT_PRECHECKS) == ARTIFACT_KINDS

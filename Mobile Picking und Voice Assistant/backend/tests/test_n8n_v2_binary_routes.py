@@ -643,22 +643,60 @@ def test_artifact_content_type_must_match_its_kind(client, fake_odoo, minimal_pd
         ("zpl", pdf_bytes(), "application/zpl"),
         ("pdf", png_bytes(), "application/pdf"),
         ("pdf", pdf_bytes() + b"HOSTILE", "application/pdf"),
-        ("pdf", pdf_bytes(pages=21), "application/pdf"),
         ("zpl", b"^XA^JUS^XZ", "application/zpl"),
         ("zpl", b"^XA^DFE:FORMAT.ZPL^XZ", "application/zpl"),
         ("zpl", "^XA^FDPäckchen^FS^XZ".encode(), "application/zpl"),
     ],
 )
-def test_artifact_content_failing_validation_is_never_stored(
+def test_artifact_rejected_by_the_cheap_phase_never_touches_odoo(
     client, fake_odoo, kind, body, content_type
 ):
-    """Und es verbrennt auch keine Nonce: eine Nutzlast, die es nie bis zur
-    Ablage schafft, darf keine Replay-Kapazitaet belegen (Review IMPORTANT 3)."""
+    """Phase 1: was an Groesse, Magic, deklariertem Typ oder der
+    ZPL-Allowlist scheitert, erreicht Odoo gar nicht und verbrennt deshalb
+    auch keine Nonce."""
     response = post_artifact(
         client, body, path=artifact_path(kind), content_type=content_type
     )
     assert response.status_code == 422
     assert fake_odoo.calls == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [pdf_bytes(pages=21), pdf_bytes(mutate=lambda writer: writer.encrypt("pw"))],
+)
+def test_artifact_rejected_by_the_expensive_phase_stores_nothing(
+    client, fake_odoo, body
+):
+    """Phase 3: was nur der volle Durchlauf erkennt, kostet eine Nonce -- aber
+    niemals eine Ablage. Genau dafuer sitzt das Replay-Gate davor."""
+    response = post_artifact(client, body)
+    assert response.status_code == 422
+    assert [call[1] for call in fake_odoo.calls] == ["api_reserve_request_nonce"]
+
+
+def test_replayed_request_is_stopped_before_the_expensive_parse(
+    client, fake_odoo, monkeypatch, minimal_pdf
+):
+    """Der Kern der Dreiteilung: schlaegt die Nonce-Reservierung fehl (also
+    bei einer Wiedervorlage), darf der teure Durchlauf gar nicht erst
+    laufen -- sonst waere jede mitgeschnittene Anfrage ein beliebig oft
+    ausloesbarer Parser-Aufwand."""
+    from app.routers import n8n_v2
+    from app.services.odoo_client import OdooAPIError
+
+    calls = []
+    real = n8n_v2.validate_artifact
+    monkeypatch.setattr(
+        n8n_v2,
+        "validate_artifact",
+        lambda *args, **kwargs: (calls.append(1), real(*args, **kwargs))[1],
+    )
+    fake_odoo.error = OdooAPIError("Webhook nonce replay.")
+    response = post_artifact(client, minimal_pdf)
+    assert response.status_code == 409
+    assert [call[1] for call in fake_odoo.calls] == ["api_reserve_request_nonce"]
+    assert calls == []
 
 
 def test_encrypted_pdf_artifact_is_rejected(client, fake_odoo):
@@ -667,7 +705,7 @@ def test_encrypted_pdf_artifact_is_rejected(client, fake_odoo):
 
     response = post_artifact(client, pdf_bytes(mutate=mutate))
     assert response.status_code == 422
-    assert fake_odoo.calls == []
+    assert "api_store_job_artifact" not in [call[1] for call in fake_odoo.calls]
 
 
 def test_artifact_over_10_mib_is_rejected(client, fake_odoo):

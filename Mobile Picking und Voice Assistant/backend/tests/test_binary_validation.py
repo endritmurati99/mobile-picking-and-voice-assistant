@@ -32,6 +32,7 @@ from app.services.binary_validation import (
     MAX_DOCUMENT_BYTES,
     MAX_IMAGE_BYTES,
     BinaryValidationError,
+    precheck_artifact,
     sanitize_filename,
     validate_artifact,
     validate_image,
@@ -499,3 +500,69 @@ def test_pdf_with_incremental_update_is_rejected():
     body = pdf_bytes()
     with pytest.raises(BinaryValidationError, match="polyglot"):
         validate_pdf(body + body)
+
+
+# ==========================================================================
+# Regressionen aus dem Review (Runde 2)
+# ==========================================================================
+
+
+def image_codec_pdf(filter_name: str) -> bytes:
+    """Ein PDF mit einem Stream, der einen Bildcodec deklariert und dabei
+    1x1 Pixel behauptet -- die Codecdaten selbst koennen beliebig gross sein."""
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=100, height=100)
+    stream = StreamObject()
+    stream[NameObject("/Filter")] = NameObject(filter_name)
+    stream[NameObject("/Width")] = NumberObject(1)
+    stream[NameObject("/Height")] = NumberObject(1)
+    stream._data = b"\xff\xd8\xff" + b"\x00" * 64
+    stream[NameObject("/Length")] = NumberObject(67)
+    page[NameObject("/Contents")] = writer._add_object(stream)
+    out = BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+@pytest.mark.parametrize("filter_name", ["/DCTDecode", "/CCITTFaxDecode"])
+def test_pdf_image_codec_filters_are_not_allowed(filter_name):
+    """FIX 2: diese beiden umgingen das Expansionsbudget vollstaendig und
+    vertrauten allein den DEKLARIERTEN Bildmassen -- ein 1x1-Bild darf
+    Codecdaten fuer ein riesiges tragen. Sie stehen jetzt, wie /LZWDecode und
+    /RunLengthDecode zuvor, gar nicht mehr auf der Allowlist."""
+    with pytest.raises(BinaryValidationError, match="filter"):
+        validate_pdf(image_codec_pdf(filter_name))
+
+
+def test_precheck_is_bounded_and_catches_the_cheap_rejections():
+    """FIX 4: die billige Vorpruefung muss ohne Parser und ohne Inflation
+    auskommen und trotzdem alles fangen, was an Magic, Groesse, deklariertem
+    Typ oder ZPL-Kommandos scheitert."""
+    for kind, body, declared in (
+        ("pdf", png_bytes(), "application/pdf"),
+        ("pdf", ZPL_LABEL, "application/pdf"),
+        ("pdf", pdf_bytes() + b"HOSTILE", "application/pdf"),
+        ("pdf", b"%PDF-1.7" + b"0" * MAX_DOCUMENT_BYTES, "application/pdf"),
+        ("zpl", pdf_bytes(), "application/zpl"),
+        ("zpl", b"^XA^JUS^XZ", "application/zpl"),
+        ("zpl", b"^XA^ju^XZ", "application/zpl"),
+        ("pdf", pdf_bytes(), "application/zpl"),
+        ("png", pdf_bytes(), "application/pdf"),
+    ):
+        with pytest.raises(BinaryValidationError):
+            precheck_artifact(kind, body, declared_mime=declared)
+
+
+def test_precheck_passes_what_only_the_full_parse_can_reject():
+    """Gegenprobe und zugleich die Begruendung fuer die Reihenfolge: was nur
+    der teure Durchlauf erkennt, kommt hier durch -- deshalb sitzt die
+    Nonce-Reservierung dazwischen."""
+    for body in (pdf_bytes(pages=21), flate_bomb_pdf()):
+        precheck_artifact("pdf", body, declared_mime="application/pdf")
+        with pytest.raises(BinaryValidationError):
+            validate_artifact("pdf", body, declared_mime="application/pdf")
+
+
+def test_precheck_accepts_the_legitimate_artifacts():
+    precheck_artifact("pdf", pdf_bytes(), declared_mime="application/pdf")
+    precheck_artifact("zpl", ZPL_LABEL, declared_mime="application/zpl")
