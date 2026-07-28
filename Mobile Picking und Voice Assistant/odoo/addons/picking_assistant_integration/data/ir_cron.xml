@@ -53,4 +53,14 @@
         <field name="interval_type">days</field>
         <field name="active">True</field>
     </record>
+
+    <record id="ir_cron_cleanup_job_resources" model="ir.cron">
+        <field name="name">Picking Assistant: purge expired job media and artifacts</field>
+        <field name="model_id" ref="model_picking_assistant_integration_job"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_cleanup_job_resources()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="active">True</field>
+    </record>
 </odoo>
