@@ -154,29 +154,52 @@ class IrAttachment(models.Model):
                         "Job binding fields cannot be changed once set."
                     )
 
-    def _check_pwr_binding_access(self, values):
-        """Nur die Integrations-API darf die Bindung setzen oder aendern.
+    def _reject_binding_through_generic_orm(self, values):
+        """Die Bindungsfelder sind ueber `create`/`write` UEBERHAUPT NICHT
+        schreibbar -- fuer niemanden, auch nicht fuer sudo oder die
+        API-Service-Gruppe.
 
-        `readonly=True` waere hier wertlos -- es ist eine UI-Eigenschaft und
-        haelt keinen ORM-Schreibzugriff auf. Diese Pruefung laeuft in create
-        UND write; eine der beiden allein waere eine Luecke.
+        Die vorige Fassung fragte hier nach der Gruppe und liess die
+        Integrations-API durch. Das war die Luecke: `ir.attachment.create` und
+        `write` sind OEFFENTLICHE ORM-Einstiegspunkte, ein API-Nutzer konnte
+        also per JSON-RPC direkt einen Anhang mit gefaelschter Job-Zuordnung,
+        gefaelschter Generation und gefaelschtem Hash anlegen und umging damit
+        jedes Gate. Dass `_bind_job_media` privat ist, half nicht -- der
+        Angriff ging nie durch `_bind_job_media`.
+
+        Die Grenze ist jetzt der EINSTIEGSPUNKT statt des Rechts: gesetzt
+        werden die Felder ausschliesslich in `_pwr_write_binding`, das
+        unterstrichen und damit per RPC unaufrufbar ist und nur aus den
+        gepruefte Methoden heraus benutzt wird.
         """
-        if self.env.su:
-            return
         touched = PWR_BINDING_FIELDS.intersection(values or {})
         if touched:
-            self.env["picking.assistant.api.mixin"]._require_api_service()
+            raise ValidationError(
+                "Job binding fields can only be set through the guarded "
+                "media and artifact methods."
+            )
 
     @api.model_create_multi
     def create(self, vals_list):
         for values in vals_list:
-            self._check_pwr_binding_access(values)
+            self._reject_binding_through_generic_orm(values)
         return super().create(vals_list)
 
     def write(self, values):
-        self._check_pwr_binding_access(values)
-        self._check_pwr_binding_immutable(values)
+        self._reject_binding_through_generic_orm(values)
         return super().write(values)
+
+    def _pwr_write_binding(self, values):
+        """Der EINZIGE Weg, Bindungsfelder zu schreiben.
+
+        Umgeht bewusst `IrAttachment.write` (und damit die Sperre oben),
+        erzwingt aber weiterhin die Unveraenderlichkeit. Unterstrichen, also
+        per JSON-RPC nicht aufrufbar; alle Aufrufer sind die bereits
+        generations- und lease-gepruefte `_bind_job_media` sowie
+        `api_store_job_artifact`.
+        """
+        self._check_pwr_binding_immutable(values)
+        return super(IrAttachment, self).write(values)
 
 
 class PickingAssistantIntegrationJobResources(models.Model):
@@ -197,15 +220,32 @@ class PickingAssistantIntegrationJobResources(models.Model):
             raise ValidationError("Delivery generation must be an integer.") from exc
         if self.delivery_generation != requested:
             raise ValidationError("Stale delivery generation.")
-        receipt = self.env["picking.assistant.event.receipt"].sudo().search(
-            [
-                ("job_record_id", "=", self.id),
-                ("state", "=", "processing"),
-                ("processing_lease_expires_at", ">", fields.Datetime.now()),
-            ],
-            limit=1,
+        # Zweite Sperre in der globalen Reihenfolge job -> receipt -> outbox
+        # (Task 8 und Task 9 mussten fuer genau diese Nachlaessigkeit
+        # korrigiert werden). Ein ungesperrtes `search` haette die Lease
+        # gelesen, waehrend der Watchdog sie nebenan freigibt.
+        receipts = self.env["picking.assistant.event.receipt"].sudo()
+        receipts.flush_model()
+        now = fields.Datetime.now()
+        self.env.cr.execute(
+            "SELECT id FROM picking_assistant_event_receipt "
+            "WHERE job_record_id = %s AND state = 'processing' "
+            "AND processing_lease_expires_at > %s "
+            "ORDER BY id LIMIT 1 FOR UPDATE",
+            (self.id, now),
         )
-        if not receipt:
+        row = self.env.cr.fetchone()
+        if not row:
+            raise ValidationError("Job has no active processing lease.")
+        receipt = receipts.browse(row[0])
+        receipt.invalidate_recordset()
+        # Unter der Sperre neu lesen statt dem Vorher-Zustand zu glauben.
+        if (
+            receipt.job_record_id.id != self.id
+            or receipt.state != "processing"
+            or not receipt.processing_lease_expires_at
+            or receipt.processing_lease_expires_at <= now
+        ):
             raise ValidationError("Job has no active processing lease.")
         return receipt
 
@@ -266,7 +306,7 @@ class PickingAssistantIntegrationJobResources(models.Model):
         computed = hashlib.sha256(raw).hexdigest()
         if sha256 and sha256 != computed:
             raise ValidationError("Media hash mismatch.")
-        attachment.sudo().write(
+        attachment.sudo()._pwr_write_binding(
             {
                 "pwr_job_record_id": job.id,
                 "pwr_media_ref": media_ref,
@@ -325,14 +365,20 @@ class PickingAssistantIntegrationJobResources(models.Model):
             raise ValidationError("Artifact mimetype does not match its kind.")
         job = self._locked_job(job_id)
         job._require_current_generation(generation)
-        outbox = self.env["picking.assistant.outbox"].sudo().search(
-            [
-                ("job_record_id", "=", job.id),
-                ("event_id", "=", source_event_id),
-            ],
-            limit=1,
+        # Dritte Sperre in der globalen Reihenfolge job -> receipt -> outbox.
+        outboxes = self.env["picking.assistant.outbox"].sudo()
+        outboxes.flush_model()
+        self.env.cr.execute(
+            "SELECT id FROM picking_assistant_outbox "
+            "WHERE job_record_id = %s AND event_id = %s FOR UPDATE",
+            (job.id, source_event_id),
         )
-        if not outbox:
+        row = self.env.cr.fetchone()
+        if not row:
+            raise ValidationError("Source event not found.")
+        outbox = outboxes.browse(row[0])
+        outbox.invalidate_recordset()
+        if outbox.job_record_id.id != job.id or outbox.event_id != source_event_id:
             raise ValidationError("Source event not found.")
         try:
             raw = base64.b64decode(content_base64 or "", validate=True)
@@ -363,7 +409,11 @@ class PickingAssistantIntegrationJobResources(models.Model):
                 raise ValidationError("Artifact replay has different bytes.")
             return {"artifact_ref": existing.pwr_artifact_ref, "replayed": True}
         artifact_ref = str(uuid4())
-        self.env["ir.attachment"].sudo().create(
+        # Anlegen und Binden sind zwei Schritte, weil `create` die
+        # Bindungsfelder nicht mehr annimmt (siehe
+        # `_reject_binding_through_generic_orm`). Beide liegen in derselben
+        # Transaktion, ein Anhang ohne Bindung kann also nicht zurueckbleiben.
+        attachment = self.env["ir.attachment"].sudo().create(
             {
                 "name": filename,
                 "type": "binary",
@@ -371,13 +421,19 @@ class PickingAssistantIntegrationJobResources(models.Model):
                 "mimetype": expected_mimetype,
                 "res_model": self._name,
                 "res_id": job.id,
+            }
+        )
+        attachment._pwr_write_binding(
+            {
                 "pwr_job_record_id": job.id,
                 "pwr_artifact_ref": artifact_ref,
                 "pwr_source_event_id": source_event_id,
                 "pwr_artifact_kind": artifact_kind,
                 "pwr_sha256": sha256,
+                "pwr_binding_generation": int(generation),
             }
         )
+        attachment.flush_recordset()
         return {"artifact_ref": artifact_ref, "replayed": False}
 
     @api.model

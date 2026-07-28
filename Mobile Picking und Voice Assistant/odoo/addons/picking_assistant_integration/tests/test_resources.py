@@ -305,21 +305,24 @@ class TestMediaAccess(ResourceCase):
     def test_non_api_user_cannot_bind_an_attachment_to_a_job(self):
         """Die pwr_*-Felder sind die Job-Bindung. Waeren sie fuer jeden
         schreibbar, koennte ein Picker fremde Anhaenge an seinen Job haengen
-        und sie ueber die signierte Route auslesen."""
+        und sie ueber die signierte Route auslesen.
+
+        Seit FIX 1 ist die Regel schaerfer als "nur die API-Gruppe darf": ueber
+        `write` darf es NIEMAND, deshalb ValidationError statt AccessError."""
         attachment = self.env["ir.attachment"].with_user(self.picker).create(
             {"name": "own.png", "type": "binary", "datas": encoded(PNG_BYTES)}
         )
-        with self.assertRaises(AccessError):
+        with self.assertRaises(ValidationError):
             attachment.write({"pwr_job_record_id": self.job.id, "pwr_media_ref": "x"})
 
 
 class TestResourceRetentionCron(ResourceCase):
     def _expired(self, job, media_ref):
-        attachment = self.bind_media(media_ref=media_ref, job=job)
-        attachment.sudo().write(
-            {"pwr_retention_until": fields.Datetime.now() - timedelta(days=1)}
+        return self.bind_media(
+            media_ref=media_ref,
+            job=job,
+            retention_until=fields.Datetime.now() - timedelta(days=1),
         )
-        return attachment
 
     def test_cleanup_removes_expired_but_never_legal_held_resources(self):
         held_job, held_outbox = self.env[
@@ -493,6 +496,8 @@ class TestReviewRegressions(ResourceCase):
             payload_fingerprint="a" * 64,
             correlation_id="0b2f7909-4ad9-44c1-8527-e775fe6d4bf4",
         )
+        # Ueber den GEPRUEFTEN Schreibweg -- sonst wuerde dieser Test nur die
+        # Ingress-Sperre aus FIX 1 wiederholen statt die Unveraenderlichkeit.
         for values in (
             {"pwr_job_record_id": other_job.id},
             {"pwr_media_ref": "media-hijacked"},
@@ -500,15 +505,15 @@ class TestReviewRegressions(ResourceCase):
             {"pwr_binding_generation": 99},
         ):
             with self.assertRaises(ValidationError):
-                attachment.sudo().write(values)
+                attachment.sudo()._pwr_write_binding(values)
         self.assertEqual(attachment.pwr_job_record_id, self.job)
 
     def test_rewriting_the_same_binding_value_stays_allowed(self):
         """Gegenprobe: Unveraenderlichkeit darf keine idempotente
         Wiederholung brechen, und die Frist bleibt nachtraeglich setzbar."""
         attachment = self.bind_media(media_ref="media-idem")
-        attachment.sudo().write({"pwr_media_ref": "media-idem"})
-        attachment.sudo().write(
+        attachment.sudo()._pwr_write_binding({"pwr_media_ref": "media-idem"})
+        attachment.sudo()._pwr_write_binding(
             {"pwr_retention_until": fields.Datetime.now() + timedelta(days=30)}
         )
         self.assertTrue(attachment.pwr_retention_until)
@@ -524,7 +529,7 @@ class TestReviewRegressions(ResourceCase):
             {"pwr_artifact_ref": "forged"},
         ):
             with self.assertRaises(ValidationError):
-                attachment.write(values)
+                attachment._pwr_write_binding(values)
 
     def test_odoo_ingress_rejects_content_that_is_not_its_declared_type(self):
         """IMPORTANT 1: ein direkter JSON-RPC-Aufruf umgeht die Tiefenpruefung
