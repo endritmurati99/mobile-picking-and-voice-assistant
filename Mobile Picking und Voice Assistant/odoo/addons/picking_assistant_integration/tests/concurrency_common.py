@@ -13,9 +13,10 @@ genuinely need two transactions.
 
 import threading
 from contextlib import contextmanager
+from datetime import timedelta
 from uuid import uuid4
 
-from odoo import SUPERUSER_ID
+from odoo import SUPERUSER_ID, fields
 from odoo.api import Environment
 from odoo.modules.registry import Registry
 from odoo.tests.common import BaseCase, get_db_name, new_test_user, tagged
@@ -147,6 +148,67 @@ class CommittedConcurrencyCase(BaseCase):
         }
         values.update(overrides)
         return values
+
+    def _outbox_values(self, job, receipt, **overrides):
+        """The outbox row that belongs to a receipt's event.
+
+        `api_accept_event` resolves the job FROM the outbox row, and recovery
+        requeues exactly that row -- a fixture without it can neither reach
+        acceptance nor observe a requeue.
+        """
+        values = {
+            "event_id": receipt.event_id,
+            "job_record_id": job.id,
+            "event_name": "quality.assessment.requested.v1",
+            "envelope_text": '{"schema_version":"v2"}',
+            "payload_fingerprint": receipt.payload_fingerprint,
+            "state": "leased",
+            "attempt_count": 1,
+            "next_attempt_at": fields.Datetime.now(),
+            "lease_owner": "worker-1",
+            "lease_expires_at": fields.Datetime.now() + timedelta(seconds=60),
+        }
+        values.update(overrides)
+        return values
+
+    def _acceptance_args(self, job, receipt):
+        """The eight positional arguments of `api_accept_event`, in the order
+        declared in `receipts.py`.
+
+        Both nonces are fresh per call because every reuse is rejected by
+        design, and both are registered for cleanup: `_reserve` writes inside
+        its own savepoint, so the rows survive an acceptance that goes on to
+        raise -- and this base class commits.
+        """
+        ingress_nonce = str(uuid4())
+        acceptance_nonce = str(uuid4())
+        self.addCleanup(self._track_nonces, ingress_nonce, acceptance_nonce)
+        return (
+            receipt.event_id,
+            job.job_id,
+            receipt.payload_fingerprint,
+            "b2n-test",
+            ingress_nonce,
+            job.delivery_generation,
+            "n2b-test",
+            acceptance_nonce,
+        )
+
+    def _track_nonces(self, *nonces):
+        self.track(
+            self.env["picking.assistant.webhook.nonce"]
+            .sudo()
+            .search([("nonce", "in", list(nonces))])
+        )
+
+    def _accept_event(self, job, receipt, env=None):
+        """Call `api_accept_event` as the committed API-service user."""
+        env = env or self.env
+        return (
+            env["picking.assistant.event.receipt"]
+            .with_user(self.api_user_id)
+            .api_accept_event(*self._acceptance_args(job, receipt))
+        )
 
     def _callback_payload(self, job, receipt, token, **overrides):
         payload = {

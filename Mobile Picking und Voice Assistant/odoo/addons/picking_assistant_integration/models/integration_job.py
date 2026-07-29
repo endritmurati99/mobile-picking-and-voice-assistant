@@ -14,16 +14,24 @@ JOB_STATES = [
     ("failed", "Failed"),
 ]
 TERMINAL_STATES = {"succeeded", "review_required", "failed"}
-# Documented amendment to the brief's frozen table: queued -> retry_scheduled
-# is the watchdog recovery edge (a processing lease can expire before the
-# first callback moves the job to running). The brief's watchdog spec
-# requires the edge; recording it here keeps TRANSITIONS the single source
-# of truth instead of a parallel rule inside the watchdog helper.
+# TRANSITIONS ist die Tabelle der Kanten, die `_transition()` erzeugen darf --
+# also der Kanten, die ein Callback ausloest.
+#
+# `queued -> retry_scheduled` steht hier BEWUSST NICHT (mehr) drin. Als nackte
+# Kante in `_transition()` waere sie eine reine Zustandsaenderung: Generation
+# unveraendert, Lease unangetastet, Outbox-Zeile nicht requeued -- genau der
+# Zustand, in dem ein alter Worker mit gueltiger Generation weiterarbeitet.
+# Die Kante ist nur noch als NEBENWIRKUNG von `_recover_expired_lease`
+# erlaubt, und dort untrennbar mit allen vier Effekten verbunden.
 TRANSITIONS = {
-    "queued": {"running", "retry_scheduled"},
+    "queued": {"running"},
     "running": {"succeeded", "review_required", "retry_scheduled", "failed"},
     "retry_scheduled": {"running"},
 }
+# Aus diesen Zustaenden darf eine abgelaufene Lease zurueckgeholt werden. Der
+# Ablauf kann vor dem ersten Callback eintreten (Job noch `queued`) oder
+# danach (`running`).
+LEASE_RECOVERY_SOURCE_STATES = {"queued", "running"}
 
 # Audit retention windows (days); every cleanup skips legal_hold jobs.
 RETENTION_DELIVERED_OUTBOX_DAYS = 30
@@ -175,24 +183,75 @@ class PickingAssistantIntegrationJob(models.Model):
             values["processing_lease_expires_at"] = False
         self.write(values)
 
-    def _watchdog_retry_scheduled(self):
-        """Watchdog recovery transition, validated against the authoritative
-        TRANSITIONS table (which explicitly lists the queued/running ->
-        retry_scheduled recovery edges). Bumps the delivery generation and
-        clears the processing lease atomically with the state change."""
-        self.ensure_one()
-        if "retry_scheduled" not in TRANSITIONS.get(self.state, set()):
-            raise ValidationError(
-                f"Illegal watchdog recovery from {self.state}."
-            )
-        self.write(
+    @api.model
+    def _recover_expired_lease(self, job, receipt, now):
+        """Die EINZIGE erlaubte Art, aus einer abgelaufenen Lease herauszukommen.
+
+        Generation erhoehen, Lease loeschen, Job auf `retry_scheduled` setzen
+        und die Outbox-Zeile requeuen -- alles zusammen, unter den bereits
+        gehaltenen Locks in der globalen Reihenfolge nonce -> job -> receipt ->
+        outbox. Ein alter Worker wird dadurch automatisch wertlos: seine
+        Generation stimmt danach nicht mehr.
+
+        Eine Neuvergabe des Tokens innerhalb derselben Generation ist verboten.
+        Sie liess Consumer weiterlaufen, die an "Generation plus irgendeine
+        aktive Lease" gebunden waren statt an das Token.
+
+        DIESE Funktion ist auch der einzige Erzeuger der Kante
+        `queued -> retry_scheduled` (Entscheidung §3.3). Sie schreibt den
+        Zustand deshalb absichtlich selbst statt ueber `_transition()`: die
+        Kante existiert nur zusammen mit den drei anderen Effekten, und
+        `_transition()` kennt sie nicht mehr. Ein zweiter Weg in diesen
+        Zustand -- der frueher als `_watchdog_retry_scheduled` daneben stand --
+        gibt es nicht mehr; der Watchdog-Batch ruft diese Funktion auf.
+
+        Der Aufrufer MUSS Job und Receipt gesperrt und neu gelesen haben.
+        """
+        job.ensure_one()
+        receipt.ensure_one()
+        if job.state not in LEASE_RECOVERY_SOURCE_STATES:
+            raise ValidationError(f"Illegal lease recovery from {job.state}.")
+        if receipt.job_record_id.id != job.id:
+            raise ValidationError("Receipt does not belong to this job.")
+        job.write(
             {
                 "state": "retry_scheduled",
-                "delivery_generation": self.delivery_generation + 1,
+                "delivery_generation": job.delivery_generation + 1,
                 "processing_lease_token": False,
                 "processing_lease_expires_at": False,
             }
         )
+        receipt.write(
+            {
+                "state": "retryable",
+                "processing_lease_token": False,
+                "processing_lease_expires_at": False,
+                "delivery_generation": job.delivery_generation,
+                "last_received_at": now,
+            }
+        )
+        # Dritter Lock in der globalen Reihenfolge job -> receipt -> outbox.
+        # Dieselbe Zeile, unveraenderter Envelope: der Retry liefert das
+        # gleiche Event erneut aus, nur unter neuer Generation.
+        outboxes = self.env["picking.assistant.outbox"].sudo()
+        outboxes.flush_model()
+        self.env.cr.execute(
+            "SELECT id FROM picking_assistant_outbox "
+            "WHERE event_id = %s FOR UPDATE",
+            (receipt.event_id,),
+        )
+        outbox_row = self.env.cr.fetchone()
+        if outbox_row:
+            outbox = outboxes.browse(outbox_row[0])
+            outbox.invalidate_recordset()
+            outbox.write(
+                {
+                    "state": "pending",
+                    "next_attempt_at": now,
+                    "lease_owner": False,
+                    "lease_expires_at": False,
+                }
+            )
 
     # ------------------------------------------------------------------
     # Crons
@@ -263,33 +322,11 @@ class PickingAssistantIntegrationJob(models.Model):
             job = self.sudo().browse(job_record_id)
             receipt.invalidate_recordset()
             job.invalidate_recordset()
-            if job.state in ("queued", "running"):
-                job._watchdog_retry_scheduled()
-                receipt.write(
-                    {
-                        "state": "retryable",
-                        "processing_lease_token": False,
-                        "processing_lease_expires_at": False,
-                    }
-                )
-                # Third lock in the global job -> receipt -> outbox order.
-                self.env.cr.execute(
-                    "SELECT id FROM picking_assistant_outbox "
-                    "WHERE event_id = %s FOR UPDATE",
-                    (receipt.event_id,),
-                )
-                outbox_row = self.env.cr.fetchone()
-                if outbox_row:
-                    outbox = outboxes.browse(outbox_row[0])
-                    outbox.invalidate_recordset()
-                    outbox.write(
-                        {
-                            "state": "pending",
-                            "next_attempt_at": now,
-                            "lease_owner": False,
-                            "lease_expires_at": False,
-                        }
-                    )
+            if job.state in LEASE_RECOVERY_SOURCE_STATES:
+                # Der Watchdog hat keine eigene Recovery-Logik: er sucht die
+                # Kandidaten und sperrt sie, die vier Effekte macht die EINE
+                # Recovery-Funktion.
+                self._recover_expired_lease(job, receipt, now)
             else:
                 # Job already terminal/retry_scheduled: only release the
                 # stale receipt lease, never touch generation or outbox.

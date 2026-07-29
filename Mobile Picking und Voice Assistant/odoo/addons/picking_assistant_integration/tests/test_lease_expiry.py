@@ -25,6 +25,11 @@ class TestLeaseExpiry(CommittedConcurrencyCase):
                 self._receipt_values(job, state="processing")
             )
         )
+        self.track(
+            env["picking.assistant.outbox"].create(
+                self._outbox_values(job, receipt)
+            )
+        )
         now = fields.Datetime.now()
         receipt.write(
             {
@@ -102,3 +107,75 @@ class TestLeaseExpiry(CommittedConcurrencyCase):
             self._apply_callback(wrong_token)
 
         self.assertEqual(str(late.exception), str(guess.exception))
+
+    # ------------------------------------------------------------------
+    # Finding #5, second half: an expired lease must not be survivable by
+    # handing out a new token under the SAME delivery generation.
+    # ------------------------------------------------------------------
+
+    def test_acceptance_does_not_reissue_a_token_in_the_same_generation(self):
+        """The hole: acceptance saw "no live lease" and issued a fresh token.
+
+        The old worker's token stopped matching, but the generation never
+        moved -- so every consumer bound to "generation plus SOME live lease"
+        (the resource routes are exactly that, see `_require_current_generation`)
+        was fooled into serving the new worker's window to the old one.
+        """
+        job, receipt = self._job_with_expired_lease()
+        generation_before = job.delivery_generation
+
+        with self.assertRaises(ValidationError) as caught:
+            self.env["picking.assistant.event.receipt"].with_user(
+                self.api_user_id
+            ).api_accept_event(*self._acceptance_args(job, receipt))
+
+        self.assertIn("processing_lease_expired", str(caught.exception))
+        job.invalidate_recordset()
+        receipt.invalidate_recordset()
+        self.assertEqual(job.delivery_generation, generation_before)
+        # Refusing must not quietly mint a token either.
+        self.assertEqual(receipt.processing_lease_token, "stale-token")
+
+    def test_recovery_increments_the_generation_and_clears_the_lease(self):
+        job, receipt = self._job_with_expired_lease()
+        generation_before = job.delivery_generation
+
+        self.env["picking.assistant.integration.job"]._recover_expired_lease(
+            job, receipt, fields.Datetime.now()
+        )
+
+        job.invalidate_recordset()
+        receipt.invalidate_recordset()
+        self.assertEqual(job.delivery_generation, generation_before + 1)
+        self.assertFalse(receipt.processing_lease_token)
+        self.assertFalse(receipt.processing_lease_expires_at)
+        self.assertFalse(job.processing_lease_token)
+        self.assertEqual(receipt.state, "retryable")
+        self.assertEqual(job.state, "retry_scheduled")
+        outbox = self.env["picking.assistant.outbox"].search(
+            [("job_record_id", "=", job.id)], limit=1
+        )
+        self.assertEqual(outbox.state, "pending")
+        self.assertEqual(outbox.envelope_text, '{"schema_version":"v2"}')
+
+    def test_the_old_worker_is_useless_after_recovery(self):
+        job, receipt = self._job_with_expired_lease()
+        self.env["picking.assistant.integration.job"]._recover_expired_lease(
+            job, receipt, fields.Datetime.now()
+        )
+        self.env.cr.commit()
+
+        callback = self._callback_payload(job, receipt, token="stale-token")
+        with self.assertRaises(ValidationError):
+            self._apply_callback(callback)
+
+    def test_a_bare_transition_can_no_longer_reach_retry_scheduled(self):
+        """Decision §3.3: recovery is the ONLY producer of that state from
+        `queued`. A bare `_transition()` would leave the generation, the lease
+        and the outbox row untouched -- i.e. exactly the state an old worker
+        can keep working in."""
+        job, _receipt = self._job_with_expired_lease()
+        job.write({"state": "queued"})
+
+        with self.assertRaises(ValidationError):
+            job._transition("retry_scheduled", sequence=1)

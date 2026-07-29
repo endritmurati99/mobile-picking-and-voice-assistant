@@ -158,13 +158,34 @@ class TestWatchdogAndAuditCleanup(IntegrationCase):
         self.assertEqual(outbox.state, "pending")
         self.assertEqual(outbox.envelope_text, '{"schema_version":"v2"}')
 
-    def test_watchdog_transition_rejects_states_not_in_transitions(self):
-        job, _outbox = self._enqueue("7")
+    def test_recovery_rejects_states_it_may_not_recover_from(self):
+        """Renamed with `_watchdog_retry_scheduled`, which no longer exists:
+        the watchdog has no recovery edge of its own any more, it calls the
+        one recovery function. The guarded state set is unchanged."""
+        job, outbox = self._enqueue("7")
+        receipt = self.env["picking.assistant.event.receipt"].create(
+            {
+                "event_id": outbox.event_id,
+                "job_record_id": job.id,
+                "payload_fingerprint": "a" * 64,
+                "delivery_generation": job.delivery_generation,
+                "state": "processing",
+            }
+        )
+        jobs = self.env["picking.assistant.integration.job"]
         for unlisted in ("succeeded", "review_required", "failed",
                          "retry_scheduled"):
             job.write({"state": unlisted})
             with self.assertRaises(ValidationError):
-                job._watchdog_retry_scheduled()
+                jobs._recover_expired_lease(job, receipt, fields.Datetime.now())
+
+    def test_a_bare_transition_cannot_produce_the_recovery_edge(self):
+        """Decision §3.3: `queued -> retry_scheduled` exists ONLY as a side
+        effect of recovery, never as a bare state change."""
+        job, _outbox = self._enqueue("8")
+        self.assertEqual(job.state, "queued")
+        with self.assertRaises(ValidationError):
+            job._transition("retry_scheduled", sequence=1)
 
     def test_audit_cleanup_deletes_old_unheld_records(self):
         job, outbox = self._enqueue("6")

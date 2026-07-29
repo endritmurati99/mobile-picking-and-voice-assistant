@@ -178,10 +178,7 @@ class PickingAssistantEventReceipt(models.Model):
         if not receipt.processing_lease_token:
             refuse("receipt holds no lease token")
         # Ablauf zuerst, Token danach: siehe Docstring.
-        if (
-            not receipt.processing_lease_expires_at
-            or receipt.processing_lease_expires_at <= now
-        ):
+        if self._lease_has_expired(receipt, now):
             refuse("lease expired")
         if require_token:
             if not supplied_token:
@@ -190,6 +187,28 @@ class PickingAssistantEventReceipt(models.Model):
                 receipt.processing_lease_token, supplied_token
             ):
                 refuse("lease token mismatch")
+
+    def _lease_has_expired(self, receipt, now):
+        """"Diese Lease existiert, ist aber abgelaufen" -- als EIN Ausdruck.
+
+        `_assert_active_lease` benutzt diesen Ausdruck fuer seinen
+        Ablauf-Schritt, `api_accept_event` fragt ihn danach, WARUM die Lease
+        abgelehnt wurde (abgelaufen vs. gar keine). Damit gibt es weiterhin
+        genau eine Definition von "abgelaufen"; sie kann nicht zwischen
+        Dedup-Antwort und Callback-Antwort auseinanderlaufen.
+
+        Das ist ausschliesslich eine SERVERSEITIGE Unterscheidung. Nach aussen
+        traegt jede Ablehnung aus `_assert_active_lease` unveraendert
+        LEASE_REFUSED_MESSAGE -- siehe dessen Docstring.
+        """
+        return bool(
+            receipt.state == "processing"
+            and receipt.processing_lease_token
+            and (
+                not receipt.processing_lease_expires_at
+                or receipt.processing_lease_expires_at <= now
+            )
+        )
 
     def _lock_existing(self, event_id):
         self.sudo().flush_model()
@@ -324,6 +343,16 @@ class PickingAssistantEventReceipt(models.Model):
                 "process": False,
                 "processing_lease_token": False,
             }
+        # 7b. Eine ABGELAUFENE Lease ist keine freie Bahn fuer ein neues Token
+        # (Review-Befund #5, zweite Haelfte). Frueher lief genau dieser Fall in
+        # Schritt 8 und bekam ein frisches Token unter DERSELBEN Generation:
+        # das alte Token passte danach nicht mehr, aber jeder Consumer, der an
+        # "Generation plus irgendeine aktive Lease" gebunden war statt an das
+        # Token -- die Ressourcenrouten sind genau das --, arbeitete fuer den
+        # alten Worker weiter. Der einzige Ausgang aus einer abgelaufenen Lease
+        # ist `_recover_expired_lease`, und die erhoeht die Generation.
+        if self._lease_has_expired(receipt, now):
+            raise ValidationError("processing_lease_expired")
         # 8. hand out a fresh five-minute processing lease.
         token = secrets.token_urlsafe(32)
         lease_expires = now + timedelta(seconds=PROCESSING_LEASE_SECONDS)
