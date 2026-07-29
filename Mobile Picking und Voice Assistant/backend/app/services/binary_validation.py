@@ -335,18 +335,57 @@ _PDF_ACTION_MESSAGES = {
 # deshalb am Strom-/Zeilenanfang oder hinter einem Trenner, und ihm folgt ein
 # Schluesselname, ein Array, ein Dictionary oder ein Kommentar.
 #
-# Die Trennerklassen folgen der PDF-Spezifikation, NICHT Pythons `\s`. ISO
-# 32000-1 Tabelle 1 kennt sechs Whitespace-Bytes: NUL 0x00, TAB 0x09, LF 0x0A,
-# FF 0x0C, CR 0x0D, SP 0x20. Pythons `\s` fuer Bytes ist
-# [ \t\n\r\f\v] -- es fehlt NUL und es enthaelt zusaetzlich VT 0x0B, das PDF
-# gar nicht als Whitespace kennt. Die erste Fassung dieser Regex war deshalb
-# umgehbar: `q\x00BI /W 65535 ...` wurde von jedem konformen Renderer wie
-# `q BI ...` tokenisiert, aber von der Pruefung nicht gesehen. `\s` bleibt
-# zusaetzlich stehen (VT ueberdeckt nur mehr, nie weniger); NUL und das
-# Kommentarzeichen "%" -- das ein Token ebenfalls beendet -- sind explizit
-# aufgenommen.
+# Die Trennerklassen folgen der PDF-SPEZIFIKATION -- nicht Pythons `\s` und
+# nicht einer handgeschriebenen Zeichenliste. Beide Tabellen stehen deshalb
+# als benannte Konstanten hier und werden in die Regex EINGESETZT: eine
+# Abweichung von der Spezifikation muss an dieser einen Stelle sichtbar sein.
+#
+# ISO 32000-1 Tabelle 1 (Whitespace): NUL 0x00, TAB 0x09, LF 0x0A, FF 0x0C,
+# CR 0x0D, SP 0x20. Pythons `\s` fuer Bytes ist [ \t\n\r\f\v]: NUL fehlt dort,
+# dafuer ist VT 0x0B enthalten, das PDF gar nicht als Whitespace kennt. Genau
+# daran scheiterte die erste Fassung -- `q\x00BI /W 65535 ...` tokenisiert
+# jeder konforme Renderer wie `q BI ...`.
 _PDF_WHITESPACE = b"\x00\x09\x0a\x0c\x0d\x20"
-_INLINE_IMAGE_OPERATOR = re.compile(rb"(?:^|[\x00\s\]>)])BI[\x00\s/\[<%]")
+# ISO 32000-1 Tabelle 2 (Delimiter). Sie beenden ein Token ebenso.
+_PDF_DELIMITERS = b"()<>[]{}/%"
+# VT 0x0B ist KEIN PDF-Whitespace, bleibt aber in der Klasse: mehr fangen ist
+# erlaubt, weniger nicht.
+_NON_PDF_WHITESPACE_KEPT = b"\x0b"
+
+# Welche Delimiter duerfen VOR "BI" stehen, damit "BI" noch ein Operator sein
+# kann?
+#
+#   ) > ]  schliessen String, Hex-String/Dictionary und Array; danach beginnt
+#          wieder ein Token.
+#   { }    sind Delimiter des Inhaltsstrom-Lexers. "q}BI /W ..." zerfaellt in
+#          q, }, BI -- ein Interpreter fuehrt das Inline-Bild aus. Diese
+#          beiden fehlten und waren die zweite Luecke derselben Wurzel:
+#          Tabelle 2 war nie aufgezaehlt worden.
+#
+# Bewusst NICHT aufgenommen; nach ihnen ist "BI" nachweislich Text und nie ein
+# Operator, und ihre Aufnahme wuerde gueltige Dokumente ablehnen:
+#
+#   %  danach ist der Rest der Zeile Kommentar.
+#   (  danach steht Zeichenkettentext -- "(BI 42)" ist ein Lieferscheintext.
+#   /  danach steht ein Name.
+#   <  danach steht ein Hex-String oder ein Dictionary-Schluessel.
+#   [  danach steht ein Array-Element; ein nacktes "BI" darin ist ungueltig.
+_INLINE_IMAGE_PREFIX_DELIMITERS = b")>]{}"
+# Nach dem Operator folgt das Bild-Dictionary: Name, Array, Dictionary oder
+# Kommentar. Die uebrigen Delimiter fehlen bewusst -- ein konformes
+# Inline-Bild-Dictionary kann nicht mit ihnen beginnen, "BI)" oder "BI}" ist
+# also nie ein zeichenbares Bild.
+_INLINE_IMAGE_SUFFIX_DELIMITERS = b"/[<%"
+
+assert set(_INLINE_IMAGE_PREFIX_DELIMITERS) <= set(_PDF_DELIMITERS)
+assert set(_INLINE_IMAGE_SUFFIX_DELIMITERS) <= set(_PDF_DELIMITERS)
+_INLINE_IMAGE_OPERATOR = re.compile(
+    b"(?:^|["
+    + re.escape(_PDF_WHITESPACE + _NON_PDF_WHITESPACE_KEPT + _INLINE_IMAGE_PREFIX_DELIMITERS)
+    + b"])BI["
+    + re.escape(_PDF_WHITESPACE + _NON_PDF_WHITESPACE_KEPT + _INLINE_IMAGE_SUFFIX_DELIMITERS)
+    + b"]"
+)
 # Laengster moeglicher Treffer (4 Bytes) minus eins: so viele Bytes muessen
 # beim schrittweisen Scannen vom vorigen Block mitgenommen werden, damit ein
 # "BI", das auf der Blockgrenze zerfaellt, trotzdem gesehen wird. Genauer:
@@ -365,6 +404,44 @@ def _reject_inline_images(content: bytes) -> None:
             "PDF contains an inline image; artifact PDFs must use bounded "
             "FlateDecode stream objects"
         )
+
+
+def _reject_inline_images_outside_streams(body: bytes) -> None:
+    """Derselbe Scan fuer Phase 1, aber OHNE die Stream-Nutzdaten.
+
+    Warum das sicher ist: Phase 1 ist fuer diese Abwehr nicht tragend. Jeder
+    Strom, den sie im Klartext saehe, wird in Phase 3 ohnehin gescannt (Zweig
+    "kein Filter"), und ein Strom, den Phase 3 nicht scannt, ist nachweislich
+    kein Inhalt (siehe `_exempt_raster_idnums`). Phase 1 darf deshalb LOCKER
+    sein -- und muss es sein, denn sie laeuft ueber die komprimierten Bytes
+    von Rasterbildern. Das Vier-Byte-Muster trifft dort rein zufaellig mit
+    rund 3e-8 pro Byte; ein 200-KB-Raster wuerde so etwa eines von 160
+    voellig gueltigen Dokumenten grundlos ablehnen.
+
+    Wer die Schluesselwoerter faelscht, laesst Phase 1 nur MEHR ueberspringen
+    -- und alles Uebersprungene sieht Phase 3. Der Sicherheitspreis ist null.
+
+    Ein einziger linearer Durchlauf, kein Parser, keine Dekompression: die
+    Phasenordnung bleibt unberuehrt.
+    """
+    position = 0
+    region_start = 0
+    while True:
+        start = body.find(b"stream", position)
+        if start < 0:
+            break
+        if body[max(0, start - 3) : start] == b"end":
+            # "endstream" enthaelt "stream" -- das eroeffnet keine Nutzdaten.
+            position = start + 6
+            continue
+        _reject_inline_images(body[region_start : start + 6])
+        end = body.find(b"endstream", start + 6)
+        if end < 0:
+            # Unabgeschlossener Strom: der Rest der Datei sind Nutzdaten.
+            return
+        region_start = end
+        position = end + 9
+    _reject_inline_images(body[region_start:])
 
 
 def _pdf_nodes(root):
@@ -463,33 +540,79 @@ _NON_EXPANDING_DECODERS: dict[str, Callable[[bytes], bytes]] = {
 assert set(_NON_EXPANDING_DECODERS) == _PDF_NON_EXPANDING_FILTERS
 
 
-def _content_stream_idnums(root) -> set[int]:
-    """Objektnummern aller Streams, die als SEITENINHALT ausgefuehrt werden.
+def _resolved(value):
+    return value.get_object() if isinstance(value, IndirectObject) else value
 
-    Das ist der faelschungssichere Unterscheider zwischen "wird als
-    Programmtext ausgefuehrt" und "wird als Rasterbild gezeichnet": nicht das
-    frei waehlbare /Subtype, sondern die STRUKTURELLE POSITION im Objektgraph
-    -- Wert des /Contents einer /Page oder Element dieses Arrays. Ueber diese
-    Position kann ein Angreifer nicht luegen, ohne den Strom tatsaechlich zum
-    Inhaltsstrom zu machen.
 
-    Verglichen wird ueber die Objektnummer und nicht ueber die Objektidentitaet
-    im Speicher: ein Cache-Miss im Parser wuerde sonst still dazu fuehren, dass
-    ein Inhaltsstrom als Bild durchginge.
+def _outgoing_references(node: DictionaryObject):
+    """Alle Objektverweise, die DIREKT an diesem Knoten haengen.
+
+    Direkte (nicht indirekte) Arrays werden mitverfolgt, weil ein Verweis
+    darin genauso ein Verweis dieses Knotens ist. Verschachtelte direkte
+    Dictionaries nicht -- die sind im Graphen eigene Knoten.
     """
-    idnums: set[int] = set()
+    stack = list(node.values())
+    while stack:
+        value = stack.pop()
+        if isinstance(value, IndirectObject):
+            yield value
+        elif isinstance(value, (list, tuple)):
+            stack.extend(value)
+
+
+def _exempt_raster_idnums(root) -> set[int]:
+    """Objektnummern der Streams, die NACHWEISLICH nicht ausgefuehrt werden.
+
+    Die Regel ist bewusst positiv formuliert, und das ist der Kern: befreit
+    wird nur, was BEWIESEN kein Inhalt ist -- nicht alles, wofuer der Beweis
+    "ist Inhalt" gerade nicht gelang. Die fruehere, umgekehrte Fassung ("kein
+    /Page/Contents und /Subtype /Image -> befreit") war ein Rueckschritt: sie
+    verwandelte jedes Beweisloch in eine Befreiung, und /Subtype ist frei
+    waehlbar. Eine Seite ohne /Type, ein Kachelmuster (/PatternType 1) und ein
+    Typ-3-Glyph (/CharProcs) sind alle Inhalt, tragen aber kein
+    /Page-/Contents-Paar -- mit /Subtype /Image bestueckt kamen sie durch.
+
+    Befreit ist deshalb nur ein Strom, der
+      * ueber /Resources -> /XObject als Wert eingehaengt ist,
+      * /Type /XObject UND /Subtype /Image traegt, und
+      * AUSSCHLIESSLICH so erreichbar ist -- taucht dieselbe Objektnummer
+        irgendwo sonst im Graphen auf, faellt die Befreiung weg.
+
+    Verglichen wird ueber die Objektnummer, nicht ueber die Objektidentitaet
+    im Speicher: ein Cache-Miss im Parser darf einen Inhaltsstrom nicht still
+    zum Rasterbild degradieren.
+    """
+    raster_slot: set[int] = set()
+    xobject_dictionaries: set[int] = set()
     for node, _ in _pdf_nodes(root):
-        if str(node.get("/Type", "")) != "/Page" or "/Contents" not in node:
+        resources = _resolved(node.get("/Resources"))
+        if not isinstance(resources, DictionaryObject):
             continue
-        entry = node.raw_get("/Contents")
-        candidates = [entry]
-        resolved = entry.get_object() if isinstance(entry, IndirectObject) else entry
-        if isinstance(resolved, (list, tuple)):
-            candidates.extend(resolved)
-        for candidate in candidates:
-            if isinstance(candidate, IndirectObject):
-                idnums.add(candidate.idnum)
-    return idnums
+        xobjects = _resolved(resources.get("/XObject"))
+        if not isinstance(xobjects, DictionaryObject):
+            continue
+        xobject_dictionaries.add(id(xobjects))
+        for reference in xobjects.values():
+            if not isinstance(reference, IndirectObject):
+                continue
+            target = _resolved(reference)
+            if (
+                isinstance(target, DictionaryObject)
+                and str(target.get("/Type", "")) == "/XObject"
+                and str(target.get("/Subtype", "")) == "/Image"
+            ):
+                raster_slot.add(reference.idnum)
+
+    other_reference: set[int] = set()
+    for node, _ in _pdf_nodes(root):
+        if id(node) in xobject_dictionaries:
+            # Die Verweise dieses Dictionaries SIND die Bildplaetze. Alles
+            # darin, was kein Rasterbild ist, steht ohnehin nicht in
+            # `raster_slot` und wird deshalb gescannt.
+            continue
+        for reference in _outgoing_references(node):
+            other_reference.add(reference.idnum)
+    return raster_slot - other_reference
 
 
 def _decode_non_expanding(name: str, data: bytes) -> bytes:
@@ -507,33 +630,14 @@ def _decode_non_expanding(name: str, data: bytes) -> bytes:
         raise BinaryValidationError("PDF stream is not decodable") from exc
 
 
-def _is_executable_as_content(node: DictionaryObject, is_page_content: bool) -> bool:
-    """Kann dieser Strom ueberhaupt einen BI-Operator AUSFUEHREN?
-
-    Ja, wenn er Seiteninhalt ist (strukturell nachgewiesen, siehe
-    `_content_stream_idnums`) -- und ja, solange er nicht ausdruecklich ein
-    Rasterbild ist. Ein Strom mit /Subtype /Image, der NICHT von /Contents aus
-    erreicht wird, wird von jedem konformen Renderer per `Do` als Pixelraster
-    gezeichnet; ein "BI" darin ist Bildrauschen, kein Operator.
-
-    Die Richtung ist entscheidend: die Behauptung "/Subtype /Image" allein
-    befreit nicht vom Scan -- ein Angreifer koennte sie sonst einfach auf
-    seinen Inhaltsstrom schreiben. Erst die strukturelle Position entscheidet.
-    Umgekehrt fuehrt eine Behauptung "/Subtype /Form" nur zu MEHR Pruefung.
-    """
-    if is_page_content:
-        return True
-    return str(node.get("/Subtype", "")) != "/Image"
-
-
 def _consume_stream_budget(
-    node: DictionaryObject, remaining: int, *, is_page_content: bool = True
+    node: DictionaryObject, remaining: int, *, scan_for_inline_images: bool = True
 ) -> int:
     """Prueft Filter und Expansion EINES Streams und gibt das Restbudget
     zurueck. Das Budget ist bewusst global ueber alle Streams: viele kleine
     Bomben sind dieselbe Bombe.
 
-    `is_page_content` ist absichtlich fail-closed vorbelegt: wer diese
+    `scan_for_inline_images` ist absichtlich fail-closed vorbelegt: wer diese
     Funktion ohne die Angabe aufruft, bekommt die strengere Pruefung."""
     raw = node.get("/Filter")
     if isinstance(raw, IndirectObject):
@@ -559,13 +663,13 @@ def _consume_stream_budget(
     # selbst komprimiert oder kodiert sein; ein Rohbyte-Scan allein waere die
     # Abwehr an einer Stelle und ihre Luecke in der Schwester daneben.
     #
-    # Ausgenommen sind ausschliesslich Rasterbilder, die strukturell KEIN
-    # Inhalt sind (siehe `_is_executable_as_content`). Das ist kein Nachlassen,
-    # sondern die Beseitigung eines echten Fehlalarms: der Operator ist nur
-    # vier Bytes lang, in zufaelligen Bilddaten trifft das Muster mit rund
-    # 1,9e-8 pro Byte -- ein 600-KB-Raster wuerde so etwa eines von hundert
+    # Ausgenommen sind ausschliesslich Stroeme, die NACHWEISLICH kein Inhalt
+    # sind (siehe `_exempt_raster_idnums`). Das ist kein Nachlassen, sondern
+    # die Beseitigung eines echten Fehlalarms: der Operator ist vier Bytes
+    # lang und trifft in zufaelligen Bilddaten mit rund 3e-8 pro Byte -- ein
+    # dekodiertes 600-KB-Raster wuerde so etwa eines von 55 voellig
     # gueltigen Dokumenten grundlos ablehnen.
-    scan = _is_executable_as_content(node, is_page_content)
+    scan = scan_for_inline_images
     if not names:
         # Unkodiert: dieselben Bytes stehen so auch in der Datei, der
         # Rohbyte-Scan hat sie also bereits gesehen. Trotzdem auch hier --
@@ -596,7 +700,11 @@ def _check_pdf_shape(node: DictionaryObject) -> None:
     sie sind ueber den Katalog gar nicht erreichbar, weil dessen eigene
     Allowlist nur /Pages als Einstieg in den Baum zulaesst."""
     node_type = str(node.get("/Type", ""))
-    if node_type == "/Page":
+    # /Contents entscheidet mit, nicht nur /Type: pypdf liefert auch eine
+    # Seite OHNE /Type als Seite aus und fuehrt ihren Inhaltsstrom aus. Nur
+    # auf /Type zu schauen hiesse, dass ein weggelassener Schluessel die
+    # ganze Seiten-Allowlist umgeht -- dieselbe Wurzel wie beim Inline-Bild.
+    if node_type == "/Page" or "/Contents" in node:
         unexpected = sorted(str(key) for key in node.keys() if str(key) not in _PDF_PAGE_KEYS)
         if unexpected:
             raise BinaryValidationError(f"PDF page key is not allowed: {unexpected[0]}")
@@ -619,10 +727,11 @@ def validate_pdf(body: bytes) -> ValidatedBinary:
     if not body.startswith(_PDF_VERSIONS):
         raise BinaryValidationError("PDF magic or version is not allowed")
     _reject_trailing_pdf_bytes(body)
-    # Reiner Bytescan, vor dem Parser: ein unkomprimierter Inhaltsstrom mit
-    # Inline-Bild stirbt hier, ohne dass irgendetwas geparst wurde. Die
-    # komprimierte Variante faengt spaeter `_bounded_inflate` ab.
-    _reject_inline_images(body)
+    # Reiner Bytescan ausserhalb der Stream-Nutzdaten, vor dem Parser. Die
+    # Nutzdaten selbst -- komprimiert wie unkomprimiert -- gehoeren dem
+    # Objektgraph-Durchlauf weiter unten; siehe
+    # `_reject_inline_images_outside_streams`.
+    _reject_inline_images_outside_streams(body)
     try:
         reader = PdfReader(BytesIO(body), strict=True)
     except Exception as exc:
@@ -656,14 +765,14 @@ def validate_pdf(body: bytes) -> ValidatedBinary:
     # 3. ... und der Formen darunter, inklusive Filter- und
     #    Expansionsbudget jedes erreichbaren Streams.
     remaining = MAX_PDF_EXPANDED_BYTES
-    # Welche Stroeme werden als Seiteninhalt AUSGEFUEHRT? Strukturell
-    # bestimmt, nicht aus dem frei waehlbaren /Subtype geraten.
-    content_idnums = _content_stream_idnums(catalog)
+    # Welche Stroeme sind NACHWEISLICH kein Inhalt? Nur die werden vom
+    # Inline-Bild-Scan befreit -- alles andere wird gescannt.
+    exempt_idnums = _exempt_raster_idnums(catalog)
     for node, idnum in _pdf_nodes(catalog):
         _check_pdf_shape(node)
         if isinstance(node, StreamObject):
             remaining = _consume_stream_budget(
-                node, remaining, is_page_content=idnum in content_idnums
+                node, remaining, scan_for_inline_images=idnum not in exempt_idnums
             )
     return _result(body, "application/pdf", "pdf")
 
@@ -789,16 +898,21 @@ def precheck_artifact(kind: str, body: bytes, *, declared_mime: str) -> None:
 
 def _precheck_pdf(body: bytes) -> None:
     """Magic, erlaubte Version, Revisionsdisziplin und der Inline-Bild-Scan
-    -- alles reine Bytescans, linear, ohne Parser und ohne Dekompression, und
-    damit richtig in Phase 1 aufgehoben: ein Inline-Bild im Klartext kostet
-    weder eine Nonce noch einen Parserlauf. Der Fall, den nur der teure
-    Durchlauf sieht -- ein Inline-Bild in einem KOMPRIMIERTEN Inhaltsstrom --
-    bleibt bewusst dort; ihn hier zu erledigen hiesse dekomprimieren, und
-    genau das darf vor der Nonce nicht passieren."""
+    ausserhalb der Stream-Nutzdaten -- alles reine Bytescans, linear, ohne
+    Parser und ohne Dekompression, und damit richtig in Phase 1 aufgehoben.
+
+    Was Phase 1 hier NICHT mehr leistet, und warum das folgenlos ist: die
+    Nutzdaten der Stroeme werden uebersprungen, ein Inline-Bild in einem
+    Inhaltsstrom faellt also erst im teuren Durchlauf. Das war schon vorher so,
+    sobald der Strom komprimiert war -- ihn hier zu sehen hiesse vor der Nonce
+    dekomprimieren. Fuer den unkomprimierten Fall ist Phase 1 nur eine
+    Wiederholung dessen, was Phase 3 im Zweig "kein Filter" ohnehin prueft;
+    diese Wiederholung wurde aufgegeben, weil sie ueber die komprimierten
+    Bytes von Rasterbildern lief und dort massenhaft Fehlalarme erzeugte."""
     if not body.startswith(_PDF_VERSIONS):
         raise BinaryValidationError("PDF magic or version is not allowed")
     _reject_trailing_pdf_bytes(body)
-    _reject_inline_images(body)
+    _reject_inline_images_outside_streams(body)
 
 
 def _precheck_zpl(body: bytes) -> None:

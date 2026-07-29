@@ -626,12 +626,33 @@ def test_inline_image_without_a_filter_is_also_rejected():
         validate_pdf(body)
 
 
-def test_inline_image_is_rejected_in_the_cheap_phase_before_any_parsing():
-    """Die Abweisung muss in der billigen Phase fallen -- vor der
-    Nonce-Reservierung und vor dem teuren Parserlauf."""
-    body = _content_stream_pdf(_inline_image_content(b"/DCT"))
+def test_the_cheap_phase_skips_stream_payloads_but_still_scans_the_rest():
+    """Phase 1 ueberspringt Stream-Nutzdaten -- sie laeuft sonst ueber die
+    komprimierten Bytes von Rasterbildern und lehnt gueltige Dokumente ab.
+    Der Sicherheitspreis ist null: was sie ueberspringt, sieht Phase 3."""
+    from app.services.binary_validation import _reject_inline_images_outside_streams
+
+    inside = (
+        b"%PDF-1.7\n1 0 obj<</Length 20>>stream\n"
+        b"q BI /W 1 /H 1 ID x EI Q\nendstream endobj\n"
+    )
+    _reject_inline_images_outside_streams(inside)
     with pytest.raises(BinaryValidationError, match="inline image"):
+        _reject_inline_images_outside_streams(inside + b"q BI /W 1\n")
+    # Ohne "endstream" ist der Rest der Datei Nutzdaten -- und Phase 3 sieht
+    # ihn trotzdem, denn ohne "endstream" gibt es kein parsbares PDF.
+    _reject_inline_images_outside_streams(b"%PDF-1.7\n1 0 obj<<>>stream\nq BI /W 1\n")
+
+
+def test_the_cheap_phase_hands_stream_payloads_to_the_expensive_pass():
+    """Gegenprobe und zugleich der Nachweis, dass nichts verloren geht: was
+    Phase 1 durchlaesst, weist der teure Durchlauf ab -- genau wie bei der
+    Flate-Bombe und der Seitenzahl."""
+    for compress in (False, True):
+        body = _content_stream_pdf(_inline_image_content(b"/DCT"), compress=compress)
         precheck_artifact("pdf", body, declared_mime="application/pdf")
+        with pytest.raises(BinaryValidationError, match="inline image"):
+            validate_artifact("pdf", body, declared_mime="application/pdf")
 
 
 def test_inline_image_inside_a_compressed_content_stream_is_rejected():
@@ -739,12 +760,8 @@ def test_the_three_reported_nul_and_comment_bypasses_are_closed():
                 _reject_inline_images(body)
             with pytest.raises(BinaryValidationError, match="inline image"):
                 validate_pdf(body)
-            if not compress:
-                # Im Klartext faellt die Abweisung schon in der billigen
-                # Phase. Komprimiert kann sie das nicht -- das hiesse vor der
-                # Nonce dekomprimieren.
-                with pytest.raises(BinaryValidationError, match="inline image"):
-                    precheck_artifact("pdf", body, declared_mime="application/pdf")
+            with pytest.raises(BinaryValidationError, match="inline image"):
+                validate_artifact("pdf", body, declared_mime="application/pdf")
 
 
 def test_vertical_tab_is_not_pdf_whitespace_but_is_still_refused():
@@ -835,4 +852,227 @@ def test_subtype_image_inside_a_contents_array_is_still_scanned():
     out = BytesIO()
     writer.write(out)
     with pytest.raises(BinaryValidationError, match="inline image"):
+        validate_pdf(out.getvalue())
+
+
+# --------------------------------------------------------------------------
+# Review-Runde 2, C1-Rest: die DELIMITER-Tabelle (ISO 32000-1 Tabelle 2)
+# --------------------------------------------------------------------------
+
+# ISO 32000-1, Tabelle 2.
+PDF_DELIMITER_BYTES = b"()<>[]{}/%"
+# Delimiter, nach denen "BI" noch ein Operator sein kann. `{` und `}` sind
+# Lexer-Delimiter des Inhaltsstroms: `q}BI /W ...` zerfaellt in q, }, BI.
+PDF_DELIMITERS_THAT_CAN_PRECEDE_AN_OPERATOR = b")>]{}"
+
+
+def test_the_module_spells_out_both_spec_tables():
+    from app.services.binary_validation import _PDF_DELIMITERS, _PDF_WHITESPACE
+
+    assert _PDF_WHITESPACE == b"".join(PDF_WHITESPACE_BYTES)
+    assert _PDF_DELIMITERS == PDF_DELIMITER_BYTES
+
+
+def test_the_prefix_class_is_exactly_the_documented_set():
+    """Vollstaendiger 0x00-0xFF-Durchlauf statt Stichproben. Genau daran ist
+    die vorige Fassung zweimal gescheitert: erst fehlte NUL (Tabelle 1), dann
+    fehlten { und } (Tabelle 2)."""
+    from app.services.binary_validation import _INLINE_IMAGE_OPERATOR
+
+    tripping = {
+        byte
+        for byte in range(256)
+        if _INLINE_IMAGE_OPERATOR.search(bytes([byte]) + b"BI /W 1")
+    }
+    expected = (
+        set(b"".join(PDF_WHITESPACE_BYTES))
+        | set(PDF_DELIMITERS_THAT_CAN_PRECEDE_AN_OPERATOR)
+        | {0x0B}  # VT: kein PDF-Whitespace, bewusst mitgefangen
+    )
+    assert tripping == expected
+
+
+@pytest.mark.parametrize("delimiter", [b"{", b"}"])
+@pytest.mark.parametrize("compress", [False, True])
+def test_curly_brace_delimiters_before_bi_are_an_inline_image(delimiter, compress):
+    """`q}BI /W 65535 ...` wird vom Lexer in q, }, BI zerlegt und ausgefuehrt.
+    Beide Klammern fehlten in der ersten Fassung der Delimiterklasse."""
+    content = b"q" + delimiter + b"BI /W 65535 /H 65535 /F /DCT\nID \xff\xd8 EI\nQ\n"
+    body = _content_stream_pdf(content, compress=compress)
+    with pytest.raises(BinaryValidationError, match="inline image"):
+        validate_pdf(body)
+
+
+@pytest.mark.parametrize("delimiter", [b"%", b"(", b"/", b"<", b"["])
+def test_the_five_text_opening_delimiters_are_deliberately_not_in_the_class(delimiter):
+    """Nach % ( / < [ ist "BI" Kommentartext, Zeichenkettentext, Namensrest,
+    Hex-String oder Array-Element -- nie ein Operator. Sie aufzunehmen wuerde
+    einen Lieferschein mit dem Text "(BI 42)" ablehnen."""
+    from app.services.binary_validation import _reject_inline_images
+
+    _reject_inline_images(delimiter + b"BI /W 1")
+
+
+def test_a_delivery_note_containing_the_token_bi_in_a_string_is_still_a_document():
+    body = _content_stream_pdf(b"BT /F1 12 Tf (Lager (BI 42) Regal 7) Tj ET\n")
+    assert validate_pdf(body).extension == "pdf"
+
+
+# --------------------------------------------------------------------------
+# Review-Runde 2, I3: befreit wird nur, was NACHWEISLICH kein Inhalt ist
+# --------------------------------------------------------------------------
+
+HOSTILE_CONTENT = b"q\nBI /W 65535 /H 65535 /CS /RGB /BPC 8 /F /DCT\nID \xff\xd8\xff\xe0 EI\nQ\n"
+
+
+def _flate_stream(writer, payload: bytes, extra: dict):
+    deflated = zlib.compress(payload, 9)
+    stream = StreamObject()
+    for key, value in extra.items():
+        stream[NameObject(key)] = value
+    stream[NameObject("/Filter")] = NameObject("/FlateDecode")
+    stream[NameObject("/Length")] = NumberObject(len(deflated))
+    stream._data = deflated
+    return writer._add_object(stream)
+
+
+@pytest.mark.parametrize("claim_image", [False, True])
+def test_a_page_without_type_still_has_its_content_stream_scanned(claim_image):
+    """Angriff 1: `/Type` weglassen. pypdf meldet die Seite trotzdem und
+    liefert ihre Bytes aus -- eine Regel, die auf `/Type == "/Page"` keyt,
+    verwandelt das fehlende Feld in eine Befreiung."""
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=100, height=100)
+    extra = {"/Subtype": NameObject("/Image")} if claim_image else {}
+    page[NameObject("/Contents")] = _flate_stream(writer, HOSTILE_CONTENT, extra)
+    del page[NameObject("/Type")]
+    out = BytesIO()
+    writer.write(out)
+    with pytest.raises(BinaryValidationError, match="inline image"):
+        validate_pdf(out.getvalue())
+
+
+@pytest.mark.parametrize("claim_image", [False, True])
+def test_a_tiling_pattern_stream_is_scanned(claim_image):
+    """Angriff 2: ein konformes Kachelmuster. Ausgefuehrt wird es wegen
+    /PatternType 1, nicht wegen /Subtype -- ein angeklebtes /Subtype /Image
+    ist bedeutungslos und darf nicht befreien."""
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=100, height=100)
+    extra = {
+        "/Type": NameObject("/Pattern"),
+        "/PatternType": NumberObject(1),
+        "/PaintType": NumberObject(1),
+        "/TilingType": NumberObject(1),
+        "/BBox": ArrayObject([NumberObject(0), NumberObject(0), NumberObject(10), NumberObject(10)]),
+        "/XStep": NumberObject(10),
+        "/YStep": NumberObject(10),
+        "/Resources": DictionaryObject(),
+    }
+    if claim_image:
+        extra["/Subtype"] = NameObject("/Image")
+    patterns = DictionaryObject()
+    patterns[NameObject("/P0")] = _flate_stream(writer, HOSTILE_CONTENT, extra)
+    resources = DictionaryObject()
+    resources[NameObject("/Pattern")] = patterns
+    page[NameObject("/Resources")] = resources
+    page[NameObject("/Contents")] = _flate_stream(
+        writer, b"/Pattern cs /P0 scn 0 0 100 100 re f\n", {}
+    )
+    out = BytesIO()
+    writer.write(out)
+    with pytest.raises(BinaryValidationError, match="inline image"):
+        validate_pdf(out.getvalue())
+
+
+@pytest.mark.parametrize("claim_image", [False, True])
+def test_a_type3_charproc_glyph_stream_is_scanned(claim_image):
+    """Angriff 3: ein Typ-3-Glyph. /CharProcs-Werte sind Inhaltsstroeme und
+    werden unabhaengig von /Subtype ausgefuehrt."""
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=100, height=100)
+    extra = {"/Subtype": NameObject("/Image")} if claim_image else {}
+    procs = DictionaryObject()
+    procs[NameObject("/a")] = _flate_stream(writer, HOSTILE_CONTENT, extra)
+    font = DictionaryObject()
+    font[NameObject("/Type")] = NameObject("/Font")
+    font[NameObject("/Subtype")] = NameObject("/Type3")
+    font[NameObject("/CharProcs")] = writer._add_object(procs)
+    font[NameObject("/FirstChar")] = NumberObject(97)
+    font[NameObject("/LastChar")] = NumberObject(97)
+    font[NameObject("/Widths")] = ArrayObject([NumberObject(1000)])
+    fonts = DictionaryObject()
+    fonts[NameObject("/F0")] = writer._add_object(font)
+    resources = DictionaryObject()
+    resources[NameObject("/Font")] = fonts
+    page[NameObject("/Resources")] = resources
+    page[NameObject("/Contents")] = _flate_stream(writer, b"BT /F0 12 Tf (a) Tj ET\n", {})
+    out = BytesIO()
+    writer.write(out)
+    with pytest.raises(BinaryValidationError, match="inline image"):
+        validate_pdf(out.getvalue())
+
+
+def test_a_stream_reachable_both_as_raster_and_as_content_is_scanned():
+    """Die Befreiung gilt nur AUSSCHLIESSLICH eingehaengten Rasterbildern.
+    Dasselbe Objekt zusaetzlich als /Contents zu verlinken hebt sie auf."""
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=100, height=100)
+    reference = _flate_stream(
+        writer,
+        HOSTILE_CONTENT,
+        {"/Type": NameObject("/XObject"), "/Subtype": NameObject("/Image")},
+    )
+    xobjects = DictionaryObject()
+    xobjects[NameObject("/Im0")] = reference
+    resources = DictionaryObject()
+    resources[NameObject("/XObject")] = xobjects
+    page[NameObject("/Resources")] = resources
+    page[NameObject("/Contents")] = reference
+    out = BytesIO()
+    writer.write(out)
+    with pytest.raises(BinaryValidationError, match="inline image"):
+        validate_pdf(out.getvalue())
+
+
+def test_a_properly_typed_raster_xobject_is_still_exempt():
+    """Gegenprobe: das eine, was nachweislich kein Inhalt ist, bleibt vom
+    Scan befreit -- sonst kehrt der Fehlalarm auf Rasterbildern zurueck."""
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=100, height=100)
+    reference = _flate_stream(
+        writer,
+        _LOOKS_LIKE_BI,
+        {
+            "/Type": NameObject("/XObject"),
+            "/Subtype": NameObject("/Image"),
+            "/Width": NumberObject(4),
+            "/Height": NumberObject(4),
+        },
+    )
+    xobjects = DictionaryObject()
+    xobjects[NameObject("/Im0")] = reference
+    resources = DictionaryObject()
+    resources[NameObject("/XObject")] = xobjects
+    page[NameObject("/Resources")] = resources
+    page[NameObject("/Contents")] = _flate_stream(
+        writer, b"q 100 0 0 100 0 0 cm /Im0 Do Q\n", {}
+    )
+    out = BytesIO()
+    writer.write(out)
+    assert validate_pdf(out.getvalue()).extension == "pdf"
+
+
+def test_a_page_without_type_does_not_escape_the_page_key_allowlist():
+    """Dieselbe Wurzel an einer zweiten Stelle: `_check_pdf_shape` keyte
+    ebenfalls nur auf /Type, ein /Type-loses Seiten-Dictionary umging damit
+    die ganze Schluessel-Allowlist."""
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=100, height=100)
+    page[NameObject("/Contents")] = _flate_stream(writer, b"q Q\n", {})
+    page[NameObject("/AA")] = DictionaryObject()
+    del page[NameObject("/Type")]
+    out = BytesIO()
+    writer.write(out)
+    with pytest.raises(BinaryValidationError, match="page key is not allowed"):
         validate_pdf(out.getvalue())
