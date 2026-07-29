@@ -1,10 +1,14 @@
 import {randomBytes, randomUUID} from 'node:crypto';
+import {chmod, mkdtemp, rm, symlink, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
     buildDefinitions,
     indexCredentials,
+    readSecretFile,
     resolveCredentialId,
 } from '../scripts/provision-credentials.mjs';
 
@@ -80,4 +84,65 @@ test('resolveCredentialId generates a fresh id when nothing exists yet', () => {
     const id = resolveCredentialId('pwr.v2.inbound-header', 'httpHeaderAuth', new Map());
     assert.equal(typeof id, 'string');
     assert.ok(id.length > 0);
+});
+
+// ---------------------------------------------------------------------------
+// readSecretFile: the ONLY permission check that counts. The host-side check
+// in infrastructure/scripts/provision-n8n-credentials.sh inspects a different
+// file with the same name in a different namespace; this one sits immediately
+// before the read, inside the container.
+// ---------------------------------------------------------------------------
+
+test('readSecretFile reads a 0600 regular file owned by the runtime user', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pwr-secret-ok-'));
+    try {
+        const path = join(dir, 'secret');
+        await writeFile(path, ' opaque-value \n', {mode: 0o600});
+        await chmod(path, 0o600);
+        assert.equal(await readSecretFile(path), 'opaque-value');
+    } finally {
+        await rm(dir, {recursive: true, force: true});
+    }
+});
+
+test('readSecretFile treats a missing file as absent, not as an error', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pwr-secret-missing-'));
+    try {
+        assert.equal(await readSecretFile(join(dir, 'nope')), '');
+    } finally {
+        await rm(dir, {recursive: true, force: true});
+    }
+});
+
+test('readSecretFile refuses a group- or world-accessible secret', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pwr-secret-mode-'));
+    try {
+        const path = join(dir, 'secret');
+        await writeFile(path, randomOpaqueValue(), {mode: 0o600});
+        await chmod(path, 0o644);
+        await assert.rejects(
+            () => readSecretFile(path),
+            /group- or world-accessible/,
+        );
+    } finally {
+        await rm(dir, {recursive: true, force: true});
+    }
+});
+
+test('readSecretFile refuses a symlink even when its target looks fine', async () => {
+    // This is precisely why the check must use lstat and not stat: with
+    // stat, the symlink would report the TARGET's mode (0600, ours) and
+    // sail through, while the link itself is the thing an attacker can
+    // repoint at any file the runtime user may read.
+    const dir = await mkdtemp(join(tmpdir(), 'pwr-secret-symlink-'));
+    try {
+        const target = join(dir, 'target');
+        const link = join(dir, 'secret');
+        await writeFile(target, randomOpaqueValue(), {mode: 0o600});
+        await chmod(target, 0o600);
+        await symlink(target, link);
+        await assert.rejects(() => readSecretFile(link), /not a regular file/);
+    } finally {
+        await rm(dir, {recursive: true, force: true});
+    }
 });

@@ -307,7 +307,7 @@ stage_workflow_file() {
 
   python - "$WORKFLOW_DIR/$file_name" "$state_file" "$file_name" \
     "$error_workflow_id" "$credential_metadata_file" "$STAGE_PY" \
-    "$REGISTRY_PY" "$output_file" <<'PY'
+    "$REGISTRY_PY" "$output_file" "$REGISTRY_PATH" <<'PY'
 import json
 import subprocess
 import sys
@@ -315,7 +315,8 @@ import sys
 (
     source_path, state_path, file_name, error_workflow_id,
     credential_metadata_path, stage_py, registry_py, output_path,
-) = sys.argv[1:9]
+    registry_path,
+) = sys.argv[1:10]
 
 with open(source_path, encoding="utf-8") as handle:
     source = json.load(handle)
@@ -324,23 +325,43 @@ with open(state_path, encoding="utf-8") as handle:
 with open(credential_metadata_path, encoding="utf-8") as handle:
     credential_metadata = json.load(handle)
 
-bindings = json.loads(
-    subprocess.run(
-        ["python", registry_py, "credential-bindings", file_name],
-        check=True, capture_output=True, text=True,
-    ).stdout
+# --registry must be passed explicitly (and, as everywhere else in this
+# script, AFTER the subcommand): without it argparse falls back to the
+# default registry, so this staging step would read the real repo registry
+# even when the rest of the run is pointed at another one via REGISTRY_PATH.
+bindings_result = subprocess.run(
+    ["python", registry_py, "credential-bindings", file_name, "--registry", registry_path],
+    capture_output=True, text=True,
 )
+if bindings_result.returncode != 0:
+    # Only workflow_registry.py's own message (file/credential names) is
+    # forwarded -- never its stdout.
+    sys.stderr.write(bindings_result.stderr)
+    raise SystemExit(1)
+bindings = json.loads(bindings_result.stdout)
 
-credentials_by_name_type = {
-    (item["name"], item["type"]): item for item in credential_metadata.get("credentials", [])
-}
+# Wire format for credential_index: a list of
+# {"logical_name", "credential_type", "credentials"} rows (JSON object keys
+# cannot carry the (name, type) tuple directly). "credentials" is itself a
+# list of every candidate found for that key, so a real duplicate (more
+# than one candidate) is representable and stage_workflow's own "exactly
+# one" check actually has something to reject.
+#
+# Eine LISTE aller Kandidaten, nicht der eine "beste" Treffer: nur so ist
+# ein echtes Duplikat ueberhaupt darstellbar und die "genau einer"-Pruefung
+# in stage_workflow.py hat etwas abzulehnen. Diese Datei und
+# stage_workflow.py:227 tragen dieselbe Spezifikation im selben Wortlaut --
+# sie sind die zwei Haelften desselben Vertrags.
 credential_index = [
     {
         "logical_name": binding["logical_name"],
         "credential_type": binding["credential_type"],
-        "credential": credentials_by_name_type.get(
-            (binding["logical_name"], binding["credential_type"])
-        ),
+        "credentials": [
+            item
+            for item in credential_metadata.get("credentials", [])
+            if item["name"] == binding["logical_name"]
+            and item["type"] == binding["credential_type"]
+        ],
     }
     for binding in bindings
 ]
@@ -357,8 +378,17 @@ payload = {
 
 result = subprocess.run(
     ["python", stage_py, "stage"],
-    input=json.dumps(payload), check=True, capture_output=True, text=True,
+    input=json.dumps(payload), capture_output=True, text=True,
 )
+if result.returncode != 0:
+    # Forward stage_workflow.py's own diagnostic (logical credential names
+    # and candidate counts only) so a fail-closed refusal is legible to the
+    # operator. Its stdout -- the staged workflow, which carries the
+    # resolved credential IDs -- is never echoed, and neither is anything
+    # the n8n CLI produced: CLI output can echo back credential-shaped
+    # material and must never reach a message, a log line or a crash dump.
+    sys.stderr.write(result.stderr)
+    raise SystemExit(1)
 
 with open(output_path, "w", encoding="utf-8") as handle:
     handle.write(result.stdout)

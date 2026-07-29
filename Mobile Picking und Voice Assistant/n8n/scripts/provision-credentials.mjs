@@ -24,7 +24,7 @@
  * ever logged.
  */
 import {randomUUID} from 'node:crypto';
-import {chmod, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {chmod, lstat, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
@@ -112,16 +112,41 @@ function decodeBase64Secret(label, base64Value) {
     return decoded;
 }
 
-async function readSecretFile(path) {
+/**
+ * Read one secret file, checking its permissions immediately before the
+ * read.
+ *
+ * Der Host-Pfad-Check in provision-n8n-credentials.sh prueft eine andere
+ * Datei als die, die hier gelesen wird -- gleicher Name, anderer Namespace.
+ * Die einzige Pruefung, die zaehlt, sitzt unmittelbar vor dem Lesen, im
+ * Container, und benutzt lstat: mit stat wuerde ein Symlink auf eine
+ * world-readable Datei die Rechte des Ziels zeigen, nicht die des Links.
+ *
+ * A file that is simply absent is not an error: several of these secrets
+ * are optional (the previous HMAC outside a rotation, the legacy callback
+ * secret), and buildConfig decides which ones the current mode requires.
+ */
+export async function readSecretFile(path) {
+    let info;
     try {
-        const raw = await readFile(path, 'utf8');
-        return raw.trim();
+        info = await lstat(path);
     } catch (error) {
         if (error.code === 'ENOENT') {
             return '';
         }
         throw error;
     }
+    if (!info.isFile()) {
+        throw new Error(`credential file ${path} is not a regular file`);
+    }
+    if ((info.mode & 0o077) !== 0) {
+        throw new Error(`credential file ${path} is group- or world-accessible`);
+    }
+    if (info.uid !== process.getuid()) {
+        throw new Error(`credential file ${path} is not owned by the runtime user`);
+    }
+    const raw = await readFile(path, 'utf8');
+    return raw.trim();
 }
 
 async function readSecrets() {
