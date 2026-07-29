@@ -1,10 +1,34 @@
 import base64
 import binascii
 import json
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Literal
 from urllib.parse import urlparse
 
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+# Odoo retains request nonces for 900 seconds (see the addon's nonce model).
+# The backend must never be configured to expect a longer memory than Odoo has,
+# and its signature acceptance window must close well inside that retention.
+ODOO_NONCE_RETENTION_SECONDS = 900
+
+# Settings that were removed rather than renamed. `extra="ignore"` would let a
+# stale value sit in .env looking effective while doing nothing, so refuse to
+# start instead of silently ignoring it.
+_REMOVED_ENV_VARS = ("CORS_ORIGINS",)
+
+
+def reject_removed_env_vars(environ: Mapping[str, str]) -> None:
+    for name in _REMOVED_ENV_VARS:
+        if name in environ:
+            raise ValueError(
+                f"{name} was removed. Configure PWA_ORIGINS instead; it is the "
+                "single origin list and it is validated in production."
+            )
 
 
 @dataclass(frozen=True)
@@ -54,30 +78,29 @@ class Settings(BaseSettings):
     n8n_circuit_breaker_failures: int = 3
     n8n_circuit_breaker_open_seconds: int = 60
 
-    cors_origins: str = "https://localhost"
     log_level: str = "info"
     mobile_claim_ttl_seconds: int = 120
     mobile_claim_heartbeat_seconds: int = 30
     mobile_idempotency_ttl_seconds: int = 86400
-    mobile_header_grace_mode: bool = True
+    mobile_header_grace_mode: bool = False
     demo_traceability_enabled: bool = False
     demo_traceability_allowed_dbs: str = "masterfischer_o19_trial"
 
     # Secure runtime / session / auth configuration (Task 1: Platform Security and
     # Event Contracts Foundation). See docs/superpowers/plans/
     # 2026-07-23-platform-security-event-contracts-foundation.md for rationale.
-    runtime_profile: str = "development"
+    runtime_profile: Literal["development", "test", "production"] = "development"
     pwa_origins: str = "https://localhost"
     trusted_caddy_peers: str = "127.0.0.1"
     session_cookie_name: str = "pwr_session"
     session_max_age_seconds: int = 28800
-    session_role_revalidate_seconds: int = 300
+    session_role_revalidate_seconds: int = Field(default=300, ge=1, le=300)
     session_throttle_hmac_secret_b64: str = ""
     login_failure_limit: int = 5
     login_window_seconds: int = 900
     login_throttle_retention_seconds: int = 86400
-    pwr_hmac_max_skew_seconds: int = 300
-    pwr_nonce_ttl_seconds: int = 600
+    pwr_hmac_max_skew_seconds: int = Field(default=300, ge=1, le=300)
+    pwr_nonce_ttl_seconds: int = 900
     pwr_backend_to_n8n_active_key_id: str = ""
     pwr_backend_to_n8n_active_secret_b64: str = ""
     pwr_backend_to_n8n_previous_key_id: str = ""
@@ -92,7 +115,23 @@ class Settings(BaseSettings):
     dispatcher_lease_seconds: int = 60
     dispatcher_batch_size: int = 50
 
+    @model_validator(mode="after")
+    def _check_replay_window(self) -> "Settings":
+        window = 2 * self.pwr_hmac_max_skew_seconds
+        if self.pwr_nonce_ttl_seconds <= window:
+            raise ValueError(
+                "PWR_NONCE_TTL_SECONDS must exceed the signature acceptance "
+                f"window of {window}s (2 x PWR_HMAC_MAX_SKEW_SECONDS)"
+            )
+        if self.pwr_nonce_ttl_seconds > ODOO_NONCE_RETENTION_SECONDS:
+            raise ValueError(
+                "PWR_NONCE_TTL_SECONDS must not exceed the Odoo nonce retention "
+                f"of {ODOO_NONCE_RETENTION_SECONDS}s"
+            )
+        return self
 
+
+reject_removed_env_vars(os.environ)
 settings = Settings()
 ODOO19_TRIAL_PROFILE_NAMES = {"o19", "odoo19", "o19-trial", "odoo19-trial"}
 ODOO19_TRIAL_DB = "masterfischer_o19_trial"

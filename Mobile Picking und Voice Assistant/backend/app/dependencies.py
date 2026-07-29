@@ -152,12 +152,13 @@ def get_demo_odoo_client(instance: str = Depends(resolve_instance)) -> OdooClien
 
 
 def _grace_mode_active() -> bool:
-    """Grace-Mode ist nur ausserhalb von `production` UND nur mit dem expliziten
+    """Grace-Mode ist nur im Profil `development` UND nur mit dem expliziten
     Feature-Flag aktiv. `validate_runtime_security` verbietet das Flag in
     production zusaetzlich fail-closed -- diese Funktion ist die zweite,
-    redundante Absicherung direkt an der Nutzungsstelle.
+    redundante Absicherung direkt an der Nutzungsstelle. `test` und jedes
+    kuenftige Profil zaehlen bewusst NICHT als development.
     """
-    return settings.runtime_profile != "production" and settings.mobile_header_grace_mode
+    return settings.runtime_profile == "development" and settings.mobile_header_grace_mode
 
 
 def _resolve_session_service(request: Request) -> SessionService:
