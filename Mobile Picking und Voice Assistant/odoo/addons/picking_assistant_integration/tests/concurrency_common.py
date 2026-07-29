@@ -41,8 +41,11 @@ def _all_thread_stacks():
     """
     frames = sys._current_frames()
     chunks = [
+        # getattr: this is a private attribute used for diagnostics only. If a
+        # future Odoo drops it, the diagnostic must degrade, not raise an
+        # AttributeError on top of the failure it is trying to explain.
         "Registry._lock=%r main_thread=%r"
-        % (Registry._lock, threading.main_thread().ident)
+        % (getattr(Registry, "_lock", None), threading.main_thread().ident)
     ]
     for alive in threading.enumerate():
         frame = frames.get(alive.ident)
@@ -109,6 +112,14 @@ class CommittedConcurrencyCase(BaseCase):
 
         The registry object is already in hand from `setUpClass`, so hand it
         to `Transaction` directly instead of looking it up behind that lock.
+
+        SAFE ONLY POST_INSTALL. Skipping the lookup is equivalent to doing it
+        exactly because the registry is fully built and cached by the time
+        post-install tests run -- `Registry(db)` would return this same object.
+        A worker spawned from an `at_install` test would be racing registry
+        CONSTRUCTION, and that lock is what serialises it; this class is
+        `@tagged("post_install", "-at_install")` for that reason and must stay
+        so.
         """
         if cr.transaction is None:
             cr.transaction = Transaction(self.registry)
@@ -153,6 +164,10 @@ class CommittedConcurrencyCase(BaseCase):
                 cr.commit()
             except Exception as exc:  # noqa: BLE001 - the exception IS the result
                 cr.rollback()
+                # An exception carried around as a value has lost its
+                # traceback, and "which line raised this" is the first thing
+                # anyone asks of a failed race. Keep it on the object.
+                exc.pwr_traceback = traceback.format_exc()
                 results[index] = exc
             finally:
                 # A worker that dies before the barrier must not strand the
@@ -371,5 +386,9 @@ class CommittedConcurrencyCase(BaseCase):
                     .sudo()
                     .search([("key_id", "=", "n2b-test"), ("nonce", "=", nonce)])
                 )
-            except psycopg2.Error:
+            # ONLY that error is swallowed. A bare `psycopg2.Error` here would
+            # also hide a ProgrammingError from a bug in this very cleanup,
+            # which would leave nonce rows behind and break the next run's
+            # `search_count([])` assertions with no visible cause.
+            except psycopg2.errors.InFailedSqlTransaction:
                 pass

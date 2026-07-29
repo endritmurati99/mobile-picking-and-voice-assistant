@@ -33,6 +33,13 @@ CALLBACK_STATUSES = {
 }
 NONCE_DIRECTIONS = ("backend_to_n8n", "n8n_to_backend")
 
+# Der von Odoo vergebene Name der (direction, key_id, nonce)-Unique-Constraint.
+# `_reserve` erkennt einen Replay daran, weil das die EINZIGE Information ist,
+# die nicht vom Transaktions-Snapshot abhaengt. Ein Test haelt diesen Namen
+# gegen den tatsaechlichen Namen in der Datenbank -- laeuft er weg, faellt die
+# Klassifizierung still auf "roher Datenbankfehler nach aussen" zurueck.
+NONCE_UNIQUE_CONSTRAINT = "picking_assistant_webhook_nonce_nonce_unique"
+
 # Eine globale Sperr-Reihenfolge, ausnahmslos, in jedem Pfad. Zwei Pfade mit
 # entgegengesetzter Reihenfolge sind ein Deadlock-Zyklus, und Postgres loest
 # den mit 40P01 auf -- also mit einem 500er unter genau der Last, fuer die das
@@ -67,7 +74,8 @@ class PickingAssistantWebhookNonce(models.Model):
     def _reserve(self, direction, key_id, nonce, event_id=False):
         """Reserve a (direction, key_id, nonce) triple. A collision is never a
         deduplicated success: the race is contained in a savepoint and every
-        reuse raises ValidationError."""
+        reuse raises ValidationError -- auch dann, wenn der Gewinner in einer
+        ANDEREN Transaktion sitzt (siehe Klassifizierung unten)."""
         if direction not in NONCE_DIRECTIONS:
             raise ValidationError("Unknown nonce direction.")
         if not key_id or not nonce:
@@ -88,16 +96,33 @@ class PickingAssistantWebhookNonce(models.Model):
                 )
                 record.flush_recordset()
             return record
-        except IntegrityError:
-            # Re-read only to classify the conflict: a replay is rejected,
-            # anything else (unrelated constraint failure) is re-raised.
+        except IntegrityError as exc:
+            # Klassifizieren, nie stillschweigend deduplizieren: ein Replay
+            # wird abgelehnt, jede andere Constraint-Verletzung fliegt weiter.
+            #
+            # Der Constraint-Name kommt aus der Diagnose der Ausnahme SELBST.
+            # Frueher stand hier ein SELECT, der nachsah, ob die Zeile
+            # existiert -- und der ist unter echter Nebenlaeufigkeit falsch:
+            # Odoo faehrt REPEATABLE READ, der Snapshot dieser Transaktion ist
+            # aelter als der Commit des Gewinners, der SELECT fand also nichts
+            # und das blanke `raise` liess eine ROHE psycopg2.UniqueViolation
+            # nach aussen. Aus einer sauberen fachlichen Ablehnung wurde damit
+            # ein 500. Sichtbar wurde das erst, als der Lock-Order-Test zwei
+            # echte Transaktionen gegeneinander laufen liess; auf einem Cursor
+            # sieht der SELECT die eigene, noch ungecommittete Zeile und der
+            # Fehler existiert nicht.
+            #
+            # Der SELECT bleibt nur als Rueckfallebene, falls der Treiber
+            # keinen Constraint-Namen liefert.
+            if getattr(exc.diag, "constraint_name", None) == NONCE_UNIQUE_CONSTRAINT:
+                raise ValidationError("Webhook nonce replay.") from exc
             self.env.cr.execute(
                 "SELECT id FROM picking_assistant_webhook_nonce "
                 "WHERE direction = %s AND key_id = %s AND nonce = %s",
                 (direction, key_id, nonce),
             )
             if self.env.cr.fetchone():
-                raise ValidationError("Webhook nonce replay.")
+                raise ValidationError("Webhook nonce replay.") from exc
             raise
 
     @api.model
@@ -221,6 +246,16 @@ class PickingAssistantEventReceipt(models.Model):
         )
 
     def _lock_existing(self, event_id):
+        """Lock the receipt for an event and re-read it from the locked row.
+
+        Die `invalidate_recordset()` ist keine Kosmetik, auch wenn `browse()`
+        auf eine frisch selektierte ID heute meist einen leeren Cache trifft:
+        die Lane-Regel lautet "auf JEDES FOR UPDATE folgt ein
+        `invalidate_recordset()`", und das hier war die einzige Ausnahme im
+        Addon. Eine Regel mit einer Ausnahme ist keine Regel -- der naechste
+        Aufrufer, der den Receipt vor dem Lock schon einmal angefasst hat,
+        laese sonst den Vor-Lock-Zustand.
+        """
         self.sudo().flush_model()
         self.env.cr.execute(
             "SELECT id FROM picking_assistant_event_receipt "
@@ -228,7 +263,11 @@ class PickingAssistantEventReceipt(models.Model):
             (event_id,),
         )
         row = self.env.cr.fetchone()
-        return self.sudo().browse(row[0]) if row else self.sudo().browse()
+        if not row:
+            return self.sudo().browse()
+        receipt = self.sudo().browse(row[0])
+        receipt.invalidate_recordset()
+        return receipt
 
     @api.model
     def api_accept_event(
