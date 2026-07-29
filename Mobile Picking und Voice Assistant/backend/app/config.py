@@ -39,14 +39,21 @@ def reject_removed_env_vars(environ: Mapping[str, str], *, env_file: str | None 
     way `Settings.model_config` reads it, so a removed key sitting quietly in
     the dotenv file fails closed exactly like one exported in the real
     process environment.
+
+    The comparison is casefolded on both sides: pydantic-settings' dotenv
+    source is case-insensitive by default, so a lowercase `cors_origins=` in
+    `.env` is read by `Settings`, silently dropped by `extra=\"ignore\"`, and
+    would otherwise slip past an exact-case check -- the same silent-stale
+    failure this guard exists to prevent, just spelled in lowercase.
     """
     combined: dict[str, str | None] = dict(environ)
     if env_file:
         dotenv_path = Path(env_file)
         if dotenv_path.is_file():
             combined.update(dotenv_values(dotenv_path))
+    folded_keys = {key.casefold() for key in combined}
     for name in _REMOVED_ENV_VARS:
-        if name in combined:
+        if name.casefold() in folded_keys:
             raise ValueError(
                 f"{name} was removed. Configure PWA_ORIGINS instead; it is the "
                 "single origin list and it is validated in production."

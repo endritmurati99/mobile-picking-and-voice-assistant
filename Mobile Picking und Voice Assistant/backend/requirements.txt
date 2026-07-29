@@ -4,6 +4,10 @@ python-multipart==0.0.*
 httpx==0.28.*
 pydantic==2.*
 pydantic-settings==2.*
+# app/config.py imports python-dotenv directly (reject_removed_env_vars reads
+# the same .env file Settings does) -- declare it explicitly rather than
+# relying on it riding in as pydantic-settings' transitive dependency.
+python-dotenv==1.*
 python-jose[cryptography]==3.*
 # Task 11: Parser fuer die Binaer-Validierung (Bild/PDF). Beide werden NUR
 # innerhalb von app/services/binary_validation.py benutzt -- kein anderer

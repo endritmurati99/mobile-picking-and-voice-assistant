@@ -239,3 +239,19 @@ def test_reject_removed_env_vars_passes_a_clean_dotenv_file(tmp_path):
 def test_reject_removed_env_vars_still_works_with_no_dotenv_file(tmp_path):
     missing = tmp_path / "does-not-exist.env"
     reject_removed_env_vars({"PWA_ORIGINS": "https://pwa.example.com"}, env_file=str(missing))
+
+
+def test_reject_removed_env_vars_catches_a_lowercase_dotenv_entry(tmp_path):
+    # pydantic-settings' dotenv source is case-insensitive by default: a
+    # lowercase `cors_origins=` line is read by Settings and silently dropped
+    # by extra="ignore", same as the uppercase spelling. An exact-case-only
+    # guard would miss this; the check must casefold both sides.
+    dotenv_file = tmp_path / ".env"
+    dotenv_file.write_text("cors_origins=*\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="CORS_ORIGINS"):
+        reject_removed_env_vars({}, env_file=str(dotenv_file))
+
+
+def test_reject_removed_env_vars_catches_a_lowercase_process_env_entry():
+    with pytest.raises(ValueError, match="CORS_ORIGINS"):
+        reject_removed_env_vars({"cors_origins": "*"}, env_file=None)
