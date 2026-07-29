@@ -185,6 +185,31 @@ def inverted_process_gate_operator(g):
     g["nodes"][4]["parameters"]["conditions"]["boolean"][0]["operation"] = "notEqual"
 
 
+def post_accept_execute_command(g):
+    """A shell-command node sits on the dominated true branch.
+
+    Only the TYPE is swapped -- one mutation, so the rejection is attributable
+    to the type alone. The node keeps the artifact node's `target`/`host`
+    parameters, which are relative and so invisible to ABSOLUTE_URL_RE; that is
+    exactly why domination alone let this through.
+    """
+    g["nodes"][5]["type"] = "n8n-nodes-base.executeCommand"
+
+
+def post_accept_langchain(g):
+    """An LLM node on the dominated true branch."""
+    g["nodes"][5]["type"] = "@n8n/n8n-nodes-langchain.openAi"
+
+
+def post_accept_unknown_community_node(g):
+    """An invented community node, carrying its own host/path parameters.
+
+    Nobody has ever enumerated this type anywhere. An allowlist must reject it
+    for that reason alone; a denylist would wave it through.
+    """
+    g["nodes"][5]["type"] = "n8n-nodes-community.evilThing"
+
+
 MUTATIONS = {
     "artifact_instead_of_acceptance.json": artifact_instead_of_acceptance,
     "effect_directly_after_acceptance.json": effect_directly_after_acceptance,
@@ -194,6 +219,9 @@ MUTATIONS = {
     "spoofed_rejection_node.json": spoofed_rejection_node,
     "process_gate_bypasses_acceptance.json": process_gate_bypasses_acceptance,
     "inverted_process_gate_operator.json": inverted_process_gate_operator,
+    "post_accept_execute_command.json": post_accept_execute_command,
+    "post_accept_langchain.json": post_accept_langchain,
+    "post_accept_unknown_community_node.json": post_accept_unknown_community_node,
 }
 
 

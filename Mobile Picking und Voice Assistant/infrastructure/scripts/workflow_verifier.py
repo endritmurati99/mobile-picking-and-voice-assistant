@@ -778,6 +778,32 @@ PRE_ACCEPTANCE_ALLOWED_TYPES: frozenset[str] = frozenset({
     "n8n-nodes-base.renameKeys",
     "n8n-nodes-base.splitOut",
 })
+# After acceptance, the SAME discipline. Obligation 7 proves only WHERE a node
+# sits (dominated by the process gate's true branch); it never constrained WHAT
+# that node may be, so an "n8n-nodes-base.executeCommand", an LLM node, or an
+# invented community node carrying its own host/path parameters all passed with
+# zero errors -- gated behind the backend's decision, but not blocked, and the
+# threat model here is a tampered workflow definition where this verifier IS
+# the boundary. ALLOWLIST, never a denylist: an unlisted or invented type fails
+# closed.
+#
+# DERIVED, not imagined. Every entry is a type a committed, passing v2 workflow
+# actually runs on the dominated true branch:
+#   - CUSTOM.pwrSignedHttpRequest -- "Publish Artifact" and "Status Callback"
+#     in tests/fixtures/v2_adversarial/task15_reference_graph.json.
+#   - n8n-nodes-pwr.pwrSignedHttpRequest -- the other committed spelling of the
+#     same node, used by valid_v2_workflow() in tests/test_import_workflows.py.
+#     Both are already SIGNED_HTTP_TYPES; dropping one would reject a workflow
+#     the importer harness proves good.
+#   - n8n-nodes-base.respondToWebhook -- "Respond Accepted" in the reference
+#     graph is dominated by the true branch too, and must be able to answer.
+# Nothing is pre-added "in case Task 15 needs it": a speculative entry is a
+# permanent hole, and Task 15 can widen this by one reviewable commit.
+POST_ACCEPTANCE_ALLOWED_TYPES: frozenset[str] = frozenset({
+    "CUSTOM.pwrSignedHttpRequest",
+    "n8n-nodes-pwr.pwrSignedHttpRequest",
+    "n8n-nodes-base.respondToWebhook",
+})
 # Node types that can express the mandatory "process == true" branch point.
 PROCESS_GATE_TYPES: frozenset[str] = frozenset({
     "n8n-nodes-base.if",
@@ -1103,7 +1129,7 @@ def _combined_text_blob(nodes_by_name: dict[str, dict], names: set[str]) -> str:
 def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[str]:
     """Verify the v2-generation invariants for a single workflow.
 
-    Der Verifier beweist den Graphen, er tastet ihn nicht ab. Neun Pflichten:
+    Der Verifier beweist den Graphen, er tastet ihn nicht ab. Zehn Pflichten:
 
      1. Genau ein Webhook-Knoten, mit dem Registry-Pfad und Methode POST.
      2. Genau ein Signature Gate, mit literalem expectedMethod und
@@ -1123,6 +1149,10 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
         eine zweite Kante am Gate vorbei an der Acceptance: die Wirkungen
         blieben formal vom True-Zweig dominiert, das Gate entschiede aber
         ueber Items, die das Backend nie gesehen hat.
+    10. Jeder vom True-Zweig dominierte Knoten hat einen Typ aus
+        POST_ACCEPTANCE_ALLOWED_TYPES. Pflicht 7 beweist nur den ORT eines
+        Knotens, nie WAS er sein darf; "gated" ist nicht "blocked". Allowlist,
+        nie Denylist -- ein unbekannter oder erfundener Typ faellt zu.
 
     Bis 2026-07 pruefte diese Funktion nur, dass der EINE Knoten hinter dem
     akzeptierten Gate-Ausgang irgendein PWR Signed HTTP Request ist. Ein
@@ -1156,8 +1186,9 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
     verifier twice: reachability rooted at the wrong node, and an outbound
     check that only recognized n8n-nodes-base.httpRequest by name). Where
     practical, checks here are written as allowlists of what's permitted
-    (OUTBOUND_ALLOWED_TYPES, SIGNED_HTTP_TYPES, the "main"-only path from
-    the trigger) with everything else rejected, not the reverse.
+    (OUTBOUND_ALLOWED_TYPES, SIGNED_HTTP_TYPES, PRE_ACCEPTANCE_ALLOWED_TYPES,
+    POST_ACCEPTANCE_ALLOWED_TYPES, the "main"-only path from the trigger)
+    with everything else rejected, not the reverse.
 
     KNOWN, ACCEPTED LIMITS (do not mistake this for a data-flow analyzer):
     this module does static JSON/text substring matching, nothing more.
@@ -1174,17 +1205,23 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
         only ever sees the literal JSON the workflow file contains. This
         also covers a dynamically-built outbound URL: the outbound
         allowlist check below only catches a LITERAL absolute URL string.
-      - GATING IS NOT BLOCKING. Obligations 7 and 9 prove WHERE a node sits
-        in the graph, never WHAT it is allowed to be. After acceptance there
-        is NO node-type allowlist: an "n8n-nodes-base.executeCommand" running
-        a shell command, an "@n8n/n8n-nodes-langchain.openAi" node, or an
-        unknown community node carrying its own host/path parameters all
-        pass, provided they are dominated by the process gate's true branch.
-        The only post-acceptance net is ABSOLUTE_URL_RE, which needs a
-        LITERAL absolute URL and so sees none of the three. Such a node runs
-        only when the backend answered process == true -- that is the whole
-        guarantee, and it is a real one, but it is not containment. A
-        post-acceptance node-type allowlist is tracked as separate work.
+      - THE POST-ACCEPTANCE ALLOWLIST CONSTRAINS TYPE, NOT BEHAVIOUR.
+        Obligation 10 closes the gap that obligations 7 and 9 left open --
+        those prove WHERE a node sits and never WHAT it may be, so until
+        2026-07-29 an "n8n-nodes-base.executeCommand" running a shell
+        command, an "@n8n/n8n-nodes-langchain.openAi" node, or an invented
+        community node carrying its own host/path parameters all passed with
+        zero errors on the dominated true branch. Obligation 10 now rejects
+        every one of them. What it does NOT do: it says nothing about the
+        PARAMETERS of a node whose type IS on the list. A signed request
+        node's parameters are further constrained by the target/host checks
+        further down and by ABSOLUTE_URL_RE, and by nothing else; any
+        parameter those two do not cover -- a body, a header, an option, an
+        expression -- is unchecked. Nor does it constrain node types before
+        the process gate (that is obligation 4's separate allowlist) or on
+        the rejection path (obligation 3). "Only permitted types run after
+        acceptance" is the claim; "only safe things happen after acceptance"
+        is not.
       - `_is_process_true_gate` proves the gate's OPERATOR is one of
         PROCESS_TRUE_OPERATIONS; it does not prove the gate's operands. A
         gate comparing some other field, or one whose left-hand side is an
@@ -1484,6 +1521,39 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
                         "are still reachable from the trigger with that branch cut away, "
                         "so a side path runs them whatever the backend decided -- "
                         "reachability through the gate is not domination by it"
+                    )
+
+                # Obligation 10: WHAT may run there, not only WHERE it sits.
+                # Obligation 7 above proves domination and stops. This proves
+                # type. Scoped to every node the true branch DOMINATES (not
+                # merely reaches), so the set is exactly the nodes that run
+                # because the backend answered process == true -- the process
+                # gate itself is never dominated by its own output and so is
+                # correctly out of scope, and a node on a side path is already
+                # obligation 7's rejection, not this one's.
+                post_acceptance = _dominated_by(
+                    connections,
+                    process_gate_name,
+                    0,
+                    {
+                        name
+                        for name in _reachable_node_names(connections, [trigger_name])
+                        if name in by_name
+                    },
+                    trigger_name=trigger_name,
+                )
+                for name in sorted(post_acceptance):
+                    node = by_name[name]
+                    if node.get("type") in POST_ACCEPTANCE_ALLOWED_TYPES:
+                        continue
+                    errors.append(
+                        f"{file_name}: node '{name}' ({node.get('type')}) is not "
+                        f"permitted after acceptance; only "
+                        f"{sorted(POST_ACCEPTANCE_ALLOWED_TYPES)} may run on the "
+                        f"process gate '{process_gate_name}'s true branch -- being "
+                        "gated on the backend's decision is not the same as being "
+                        "allowed to do anything once gated, and an unlisted or "
+                        "invented node type fails closed here by design"
                     )
 
                 # Obligation 8: the false branch ends without effect.

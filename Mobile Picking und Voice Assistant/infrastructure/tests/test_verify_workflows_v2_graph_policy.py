@@ -16,7 +16,11 @@ from pathlib import Path
 
 import pytest
 
-from infrastructure.scripts.workflow_verifier import verify_v2_workflow
+from infrastructure.scripts.workflow_verifier import (
+    POST_ACCEPTANCE_ALLOWED_TYPES,
+    SIGNED_HTTP_TYPES,
+    verify_v2_workflow,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "v2_adversarial"
 
@@ -52,6 +56,15 @@ def test_the_task15_reference_graph_is_accepted():
         ("spoofed_rejection_node.json", "type"),
         ("process_gate_bypasses_acceptance.json", "dominated by the acceptance"),
         ("inverted_process_gate_operator.json", "process"),
+        # Obligation 10. All three are DOMINATED by the process gate's true
+        # branch and so satisfy obligation 7 completely; each one differs from
+        # the reference by a single node TYPE. Before obligation 10 existed the
+        # verifier returned zero errors for every one of them, because the only
+        # post-acceptance net was ABSOLUTE_URL_RE and none of them carries a
+        # literal absolute URL.
+        ("post_accept_execute_command.json", "not permitted after acceptance"),
+        ("post_accept_langchain.json", "not permitted after acceptance"),
+        ("post_accept_unknown_community_node.json", "not permitted after acceptance"),
     ],
 )
 def test_adversarial_graphs_are_rejected(fixture, expected_fragment):
@@ -62,6 +75,37 @@ def test_adversarial_graphs_are_rejected(fixture, expected_fragment):
     errors = verify_v2_workflow(_load(fixture), dict(SPEC, file="workflow.json"))
     assert errors, f"{fixture} was accepted"
     assert any(expected_fragment in error.lower() for error in errors), (fixture, errors)
+
+
+def test_post_acceptance_allowlist_rejects_an_invented_type():
+    """The list must be an ALLOWLIST, not a denylist.
+
+    A type nobody has ever written down anywhere -- not in the verifier, not in
+    a fixture, not in n8n -- must fail for exactly that reason. This lane was
+    already bitten once by an outbound rule that enumerated forbidden types and
+    let an unlisted `graphql` node with an external endpoint through.
+    """
+    graph = _load("task15_reference_graph.json")
+    for node in graph["nodes"]:
+        if node["name"] == "Publish Artifact":
+            node["type"] = "n8n-nodes-community.brand-new-thing"
+    errors = verify_v2_workflow(graph, dict(SPEC, file="workflow.json"))
+    assert any("not permitted after acceptance" in error.lower() for error in errors), errors
+
+
+def test_post_acceptance_allowlist_is_derived_from_the_reference_workflow():
+    """Guard against a speculative entry: every listed type must be in use.
+
+    A type on the allowlist that no committed passing workflow actually runs is
+    a permanent hole with no offsetting benefit. `n8n-nodes-pwr.pwrSignedHttp
+    Request` is the spelling used by `valid_v2_workflow()` in
+    test_import_workflows.py rather than by this fixture, so it is checked
+    against SIGNED_HTTP_TYPES instead of against the graph.
+    """
+    reference = _load("task15_reference_graph.json")
+    types_in_reference = {node["type"] for node in reference["nodes"]}
+    for node_type in POST_ACCEPTANCE_ALLOWED_TYPES:
+        assert node_type in types_in_reference | SIGNED_HTTP_TYPES, node_type
 
 
 def _mutations(reference, mutated, path="$"):
