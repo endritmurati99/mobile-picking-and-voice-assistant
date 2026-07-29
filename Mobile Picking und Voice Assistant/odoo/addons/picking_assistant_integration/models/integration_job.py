@@ -206,6 +206,11 @@ class PickingAssistantIntegrationJob(models.Model):
         gibt es nicht mehr; der Watchdog-Batch ruft diese Funktion auf.
 
         Der Aufrufer MUSS Job und Receipt gesperrt und neu gelesen haben.
+
+        Alle Vorbedingungen werden HIER geprueft, nicht beim Aufrufer. Dass es
+        heute nur einen Aufrufer gibt und der Name mit `_` beginnt, ist keine
+        Absicherung -- dieses Programm ist genau daran schon einmal
+        vorbeigelaufen.
         """
         job.ensure_one()
         receipt.ensure_one()
@@ -213,6 +218,15 @@ class PickingAssistantIntegrationJob(models.Model):
             raise ValidationError(f"Illegal lease recovery from {job.state}.")
         if receipt.job_record_id.id != job.id:
             raise ValidationError("Receipt does not belong to this job.")
+        # Recovery entwertet einen Worker, indem sie die Generation weiterdreht.
+        # Auf eine LEBENDE Lease angewandt toetet sie still einen gesunden
+        # Worker mitten im Lauf. Geprueft wird mit DEMSELBEN Praedikat, das
+        # `_assert_active_lease` und `api_accept_event` benutzen -- es gibt
+        # weiterhin genau eine Definition von "abgelaufen".
+        if not self.env["picking.assistant.event.receipt"]._lease_has_expired(
+            receipt, now
+        ):
+            raise ValidationError("Processing lease is not expired.")
         job.write(
             {
                 "state": "retry_scheduled",
@@ -241,17 +255,31 @@ class PickingAssistantIntegrationJob(models.Model):
             (receipt.event_id,),
         )
         outbox_row = self.env.cr.fetchone()
-        if outbox_row:
-            outbox = outboxes.browse(outbox_row[0])
-            outbox.invalidate_recordset()
-            outbox.write(
-                {
-                    "state": "pending",
-                    "next_attempt_at": now,
-                    "lease_owner": False,
-                    "lease_expires_at": False,
-                }
+        if not outbox_row:
+            # Ohne Outbox-Zeile kann das Event nie wieder ausgeliefert werden.
+            # Die anderen drei Effekte trotzdem stehen zu lassen und Erfolg zu
+            # melden ist das schlechteste verfuegbare Ergebnis: der Job parkt
+            # fuer immer und zaehlt als "recovered". Also abbrechen, damit die
+            # Transaktion zurueckrollt und NICHTS halb angewandt bleibt.
+            #
+            # Erreichbar, weil `_cron_cleanup_audit` gelieferte/tote
+            # Outbox-Zeilen nach 30/90 Tagen loescht, Receipts aber bis 90 Tage
+            # leben. Dass Retention die Outbox eines nicht-terminalen Jobs
+            # ueberhaupt anfassen darf, ist Task 6 dieser Lane -- hier wird nur
+            # die Weigerung durchgesetzt, ohne sie weiterzumachen.
+            raise ValidationError(
+                "Cannot recover an expired lease without its outbox event."
             )
+        outbox = outboxes.browse(outbox_row[0])
+        outbox.invalidate_recordset()
+        outbox.write(
+            {
+                "state": "pending",
+                "next_attempt_at": now,
+                "lease_owner": False,
+                "lease_expires_at": False,
+            }
+        )
 
     # ------------------------------------------------------------------
     # Crons

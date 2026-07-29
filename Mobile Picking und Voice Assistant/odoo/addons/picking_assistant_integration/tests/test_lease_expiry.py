@@ -169,6 +169,64 @@ class TestLeaseExpiry(CommittedConcurrencyCase):
         with self.assertRaises(ValidationError):
             self._apply_callback(callback)
 
+    def test_recovery_refuses_a_lease_that_is_still_live(self):
+        """Fix round 1, finding 2.
+
+        Recovery invalidates a worker by moving the generation. Doing that to a
+        LIVE lease silently kills a healthy in-flight worker. "Only one caller
+        today" is not a guard, so the function asserts the precondition itself
+        -- with the SAME predicate the acceptance path uses, so there stays
+        exactly one definition of "expired".
+        """
+        job, receipt = self._job_with_expired_lease()
+        receipt.write(
+            {
+                "processing_lease_expires_at": fields.Datetime.now()
+                + timedelta(minutes=5)
+            }
+        )
+        generation_before = job.delivery_generation
+
+        with self.assertRaises(ValidationError):
+            self.env["picking.assistant.integration.job"]._recover_expired_lease(
+                job, receipt, fields.Datetime.now()
+            )
+
+        job.invalidate_recordset()
+        receipt.invalidate_recordset()
+        self.assertEqual(job.delivery_generation, generation_before)
+        self.assertEqual(job.state, "running")
+        self.assertEqual(receipt.processing_lease_token, "stale-token")
+
+    def test_recovery_refuses_when_the_outbox_event_is_gone(self):
+        """Fix round 1, finding 1.
+
+        Without its outbox row the event can never be redelivered. Applying
+        three of the four effects and reporting success parks the job forever
+        AND counts it as recovered. The transaction must roll back instead --
+        the receipt can outlive its outbox row, because `_cron_cleanup_audit`
+        purges delivered/dead outbox rows at 30/90 days while receipts live to
+        90 (the retention half of that is Task 6, not this function).
+        """
+        job, receipt = self._job_with_expired_lease()
+        self.env["picking.assistant.outbox"].search(
+            [("event_id", "=", receipt.event_id)]
+        ).unlink()
+        self.env.cr.commit()
+
+        with self.assertRaises(ValidationError):
+            self.env["picking.assistant.integration.job"]._recover_expired_lease(
+                job, receipt, fields.Datetime.now()
+            )
+
+        # Raising is only worth anything if the partial writes go with it.
+        self.env.cr.rollback()
+        self.env.invalidate_all()
+        self.assertEqual(job.delivery_generation, 1)
+        self.assertEqual(job.state, "running")
+        self.assertEqual(receipt.state, "processing")
+        self.assertEqual(receipt.processing_lease_token, "stale-token")
+
     def test_a_bare_transition_can_no_longer_reach_retry_scheduled(self):
         """Decision §3.3: recovery is the ONLY producer of that state from
         `queued`. A bare `_transition()` would leave the generation, the lease
