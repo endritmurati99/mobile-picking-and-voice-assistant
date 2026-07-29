@@ -12,7 +12,6 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from app.dependencies import (
     get_legacy_n8n_workflow_service,
     get_legacy_n8n_write_context,
-    get_mobile_workflow_service,
     get_odoo_client,
     require_n8n_callback_secret,
 )
