@@ -688,3 +688,151 @@ def test_inline_image_operator_discriminates_operator_from_substring():
     ):
         with pytest.raises(BinaryValidationError, match="inline image"):
             _reject_inline_images(hostile)
+
+
+# --------------------------------------------------------------------------
+# Review-Runde 1, C1: die Trennerklasse ist die der PDF-SPEZIFIKATION,
+# nicht Pythons `\s`
+# --------------------------------------------------------------------------
+
+# ISO 32000-1, Tabelle 1. NUL gehoert dazu und fehlt in Pythons `\s`; VT
+# (0x0B) steht in Pythons `\s` und ist hier KEIN Whitespace.
+PDF_WHITESPACE_BYTES = [b"\x00", b"\t", b"\n", b"\x0c", b"\r", b" "]
+
+
+@pytest.mark.parametrize("separator", PDF_WHITESPACE_BYTES)
+@pytest.mark.parametrize("compress", [False, True])
+def test_every_pdf_whitespace_byte_separates_the_bi_operator(separator, compress):
+    """Jedes der sechs Whitespace-Bytes der PDF-Spezifikation trennt Tokens.
+    NUL fehlte in Pythons `\\s` und machte `q\\x00BI /W 65535` unsichtbar --
+    jeder konforme Renderer tokenisiert das wie `q BI`."""
+    content = b"q" + separator + b"BI" + separator + b"/W 65535 /H 65535 /F /DCT\nID \xff\xd8 EI\nQ\n"
+    body = _content_stream_pdf(content, compress=compress)
+    with pytest.raises(BinaryValidationError, match="inline image"):
+        validate_pdf(body)
+
+
+@pytest.mark.parametrize("compress", [False, True])
+def test_a_pdf_comment_after_bi_also_terminates_the_operator(compress):
+    """`%` beendet ein Token ebenfalls: `BI%c\\n/W ...` ist ein Inline-Bild."""
+    body = _content_stream_pdf(
+        b"q\nBI%c\n/W 65535 /H 65535 /F /DCT\nID \xff\xd8 EI\nQ\n", compress=compress
+    )
+    with pytest.raises(BinaryValidationError, match="inline image"):
+        validate_pdf(body)
+
+
+def test_the_three_reported_nul_and_comment_bypasses_are_closed():
+    """Die drei vom Review vorgefuehrten Umgehungen, roh UND Flate-gepackt."""
+    from app.services.binary_validation import _reject_inline_images
+
+    tail = b"/W 65535 /H 65535 /CS /RGB /BPC 8 /F /DCT\nID \xff\xd8\xff\xe0 EI\nQ\n"
+    for content in (
+        b"q\x00BI " + tail,
+        b"q\nBI\x00" + tail,
+        b"q\nBI%c\n" + tail,
+    ):
+        for compress in (False, True):
+            body = _content_stream_pdf(content, compress=compress)
+            if compress:
+                # Beweis, dass hier der dekodierte Pfad greift, nicht der rohe.
+                _reject_inline_images(body)
+            with pytest.raises(BinaryValidationError, match="inline image"):
+                validate_pdf(body)
+            if not compress:
+                # Im Klartext faellt die Abweisung schon in der billigen
+                # Phase. Komprimiert kann sie das nicht -- das hiesse vor der
+                # Nonce dekomprimieren.
+                with pytest.raises(BinaryValidationError, match="inline image"):
+                    precheck_artifact("pdf", body, declared_mime="application/pdf")
+
+
+def test_vertical_tab_is_not_pdf_whitespace_but_is_still_refused():
+    """VT (0x0B) ist in Pythons `\\s` und in PDF KEIN Whitespace. Es bleibt in
+    der Klasse: die Pruefung darf mehr fangen als noetig, nie weniger."""
+    from app.services.binary_validation import _reject_inline_images
+
+    with pytest.raises(BinaryValidationError, match="inline image"):
+        _reject_inline_images(b"q\x0bBI /W 1")
+
+
+# --------------------------------------------------------------------------
+# Review-Runde 1, I3: Inhaltsstrom vs. Rasterbild wird STRUKTURELL
+# unterschieden, nicht am frei waehlbaren /Subtype
+# --------------------------------------------------------------------------
+
+
+def _pdf_with_image_xobject(image_payload: bytes, *, as_page_contents: bool) -> bytes:
+    """Ein Flate-Strom mit /Subtype /Image -- einmal als Bild-XObject in
+    /Resources, einmal als /Contents-Wert derselben Seite.
+
+    Die Bytes sind identisch; nur die STRUKTURELLE POSITION unterscheidet
+    sich. Genau daran, und nicht am /Subtype, muss die Pruefung haengen.
+    """
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=100, height=100)
+    deflated = zlib.compress(image_payload, 9)
+    stream = StreamObject()
+    stream[NameObject("/Type")] = NameObject("/XObject")
+    stream[NameObject("/Subtype")] = NameObject("/Image")
+    stream[NameObject("/Filter")] = NameObject("/FlateDecode")
+    stream[NameObject("/Length")] = NumberObject(len(deflated))
+    stream._data = deflated
+    reference = writer._add_object(stream)
+    if as_page_contents:
+        page[NameObject("/Contents")] = reference
+    else:
+        xobjects = DictionaryObject()
+        xobjects[NameObject("/Im0")] = reference
+        resources = DictionaryObject()
+        resources[NameObject("/XObject")] = xobjects
+        page[NameObject("/Resources")] = resources
+        content = StreamObject()
+        content._data = b"q 100 0 0 100 0 0 cm /Im0 Do Q\n"
+        content[NameObject("/Length")] = NumberObject(len(content._data))
+        page[NameObject("/Contents")] = writer._add_object(content)
+    out = BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+# Bytes, die im Rasterrauschen zufaellig wie ein BI-Operator aussehen.
+_LOOKS_LIKE_BI = b"\x91\x02 BI/\xff\x13\x7e" * 8
+
+
+def test_a_raster_image_xobject_is_not_scanned_for_inline_images():
+    """Ein /Subtype /Image-Strom, der NICHT von /Contents aus erreicht wird,
+    wird per `Do` als Pixelraster gezeichnet -- ein "BI" darin ist Rauschen,
+    kein Operator. Ihn zu scannen hiesse rund 1 von 264 gueltigen Dokumenten
+    mit 200-KB-Raster grundlos abzulehnen."""
+    body = _pdf_with_image_xobject(_LOOKS_LIKE_BI, as_page_contents=False)
+    assert validate_pdf(body).extension == "pdf"
+
+
+def test_claiming_subtype_image_on_a_content_stream_does_not_buy_an_exemption():
+    """Der Gegentest, und der eigentliche Grund fuer die strukturelle
+    Bestimmung: dieselben Bytes, dasselbe /Subtype /Image -- aber als
+    /Contents der Seite. Der Renderer fuehrt sie aus, also wird gescannt."""
+    body = _pdf_with_image_xobject(
+        b"q\nBI /W 65535 /H 65535 /F /DCT\nID \xff\xd8 EI\nQ\n", as_page_contents=True
+    )
+    with pytest.raises(BinaryValidationError, match="inline image"):
+        validate_pdf(body)
+
+
+def test_subtype_image_inside_a_contents_array_is_still_scanned():
+    """/Contents darf ein ARRAY sein. Auch dann ist jedes Element
+    Inhaltsstrom -- die Elemente des Arrays muessen mitgezaehlt werden."""
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=100, height=100)
+    hostile = zlib.compress(b"q\nBI /W 65535 /H 65535 /F /DCT\nID \xff\xd8 EI\nQ\n", 9)
+    stream = StreamObject()
+    stream[NameObject("/Subtype")] = NameObject("/Image")
+    stream[NameObject("/Filter")] = NameObject("/FlateDecode")
+    stream[NameObject("/Length")] = NumberObject(len(hostile))
+    stream._data = hostile
+    page[NameObject("/Contents")] = ArrayObject([writer._add_object(stream)])
+    out = BytesIO()
+    writer.write(out)
+    with pytest.raises(BinaryValidationError, match="inline image"):
+        validate_pdf(out.getvalue())

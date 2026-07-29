@@ -333,11 +333,29 @@ _PDF_ACTION_MESSAGES = {
 # "BI" muss als OPERATOR erkannt werden, nicht als Teilzeichenkette: ein
 # Lieferschein mit dem Wort "KABINE" ist kein Inline-Bild. Der Operator steht
 # deshalb am Strom-/Zeilenanfang oder hinter einem Trenner, und ihm folgt ein
-# Schluesselname, ein Array oder ein Dictionary.
-_INLINE_IMAGE_OPERATOR = re.compile(rb"(?:^|[\s\]>)])BI[\s/\[<]")
-# Laengster Treffer der Regex minus eins: so viele Bytes muessen beim
-# schrittweisen Scannen vom vorigen Block mitgenommen werden, damit ein
-# "BI", das auf der Blockgrenze zerfaellt, trotzdem gesehen wird.
+# Schluesselname, ein Array, ein Dictionary oder ein Kommentar.
+#
+# Die Trennerklassen folgen der PDF-Spezifikation, NICHT Pythons `\s`. ISO
+# 32000-1 Tabelle 1 kennt sechs Whitespace-Bytes: NUL 0x00, TAB 0x09, LF 0x0A,
+# FF 0x0C, CR 0x0D, SP 0x20. Pythons `\s` fuer Bytes ist
+# [ \t\n\r\f\v] -- es fehlt NUL und es enthaelt zusaetzlich VT 0x0B, das PDF
+# gar nicht als Whitespace kennt. Die erste Fassung dieser Regex war deshalb
+# umgehbar: `q\x00BI /W 65535 ...` wurde von jedem konformen Renderer wie
+# `q BI ...` tokenisiert, aber von der Pruefung nicht gesehen. `\s` bleibt
+# zusaetzlich stehen (VT ueberdeckt nur mehr, nie weniger); NUL und das
+# Kommentarzeichen "%" -- das ein Token ebenfalls beendet -- sind explizit
+# aufgenommen.
+_PDF_WHITESPACE = b"\x00\x09\x0a\x0c\x0d\x20"
+_INLINE_IMAGE_OPERATOR = re.compile(rb"(?:^|[\x00\s\]>)])BI[\x00\s/\[<%]")
+# Laengster moeglicher Treffer (4 Bytes) minus eins: so viele Bytes muessen
+# beim schrittweisen Scannen vom vorigen Block mitgenommen werden, damit ein
+# "BI", das auf der Blockgrenze zerfaellt, trotzdem gesehen wird. Genauer:
+# `carry` traegt die letzten Bytes des letzten INFLATE-BLOCKS, nicht des
+# bisherigen Stroms -- bei `_INFLATE_STEP_BYTES` = 1 MiB ist jeder Block weit
+# groesser als 3 Bytes, der Unterschied ist also unerreichbar. Das "^" der
+# Regex verankert ausserdem am Anfang jedes `carry + plain`-Puffers, nicht am
+# Stromanfang; das kann nur zu frueh anschlagen (wenn `carry` leer ist), nie
+# zu spaet.
 _INLINE_IMAGE_CARRY = 3
 
 
@@ -354,16 +372,22 @@ def _pdf_nodes(root):
 
     Der Zaehler ist kein Feinschliff: ein PDF mit Millionen kreuzverlinkter
     Objekte waere sonst ein CPU-Verbrauchsangriff auf den Validator selbst.
+
+    Geliefert wird `(dictionary, idnum)`; `idnum` ist die Objektnummer, ueber
+    die der Knoten erreicht wurde, oder None bei einem direkten Objekt. Die
+    Nummer ist die einzige faelschungssichere Identitaet eines Streams -- sie
+    wird gebraucht, um Inhaltsstroeme von Rasterbildern zu unterscheiden.
     """
-    stack = [root]
+    stack = [(root, None)]
     seen_objects: set[int] = set()
     visited = 0
     while stack:
-        value = stack.pop()
+        value, idnum = stack.pop()
         if isinstance(value, IndirectObject):
             if value.idnum in seen_objects:
                 continue
             seen_objects.add(value.idnum)
+            idnum = value.idnum
             try:
                 value = value.get_object()
             except Exception as exc:
@@ -372,10 +396,10 @@ def _pdf_nodes(root):
             visited += 1
             if visited > MAX_PDF_OBJECTS:
                 raise BinaryValidationError("PDF object graph is too large")
-            yield value
-            stack.extend(value.values())
+            yield value, idnum
+            stack.extend((child, None) for child in value.values())
         elif isinstance(value, (list, tuple)):
-            stack.extend(value)
+            stack.extend((child, None) for child in value)
 
 
 def _reject_active_pdf_constructs(node: DictionaryObject) -> None:
@@ -393,7 +417,7 @@ def _reject_active_pdf_constructs(node: DictionaryObject) -> None:
         raise BinaryValidationError(message)
 
 
-def _bounded_inflate(data: bytes, budget: int) -> int:
+def _bounded_inflate(data: bytes, budget: int, *, scan: bool = True) -> int:
     """Dekomprimiert einen Flate-Stream und meldet die erzeugte Byte-Menge,
     OHNE sie je vollstaendig im Speicher zu halten.
 
@@ -416,8 +440,9 @@ def _bounded_inflate(data: bytes, budget: int) -> int:
     try:
         while True:
             plain = decompressor.decompress(chunk, _INFLATE_STEP_BYTES)
-            _reject_inline_images(carry + plain)
-            carry = plain[-_INLINE_IMAGE_CARRY:]
+            if scan:
+                _reject_inline_images(carry + plain)
+                carry = plain[-_INLINE_IMAGE_CARRY:]
             produced += len(plain)
             if produced > budget:
                 return produced
@@ -438,6 +463,35 @@ _NON_EXPANDING_DECODERS: dict[str, Callable[[bytes], bytes]] = {
 assert set(_NON_EXPANDING_DECODERS) == _PDF_NON_EXPANDING_FILTERS
 
 
+def _content_stream_idnums(root) -> set[int]:
+    """Objektnummern aller Streams, die als SEITENINHALT ausgefuehrt werden.
+
+    Das ist der faelschungssichere Unterscheider zwischen "wird als
+    Programmtext ausgefuehrt" und "wird als Rasterbild gezeichnet": nicht das
+    frei waehlbare /Subtype, sondern die STRUKTURELLE POSITION im Objektgraph
+    -- Wert des /Contents einer /Page oder Element dieses Arrays. Ueber diese
+    Position kann ein Angreifer nicht luegen, ohne den Strom tatsaechlich zum
+    Inhaltsstrom zu machen.
+
+    Verglichen wird ueber die Objektnummer und nicht ueber die Objektidentitaet
+    im Speicher: ein Cache-Miss im Parser wuerde sonst still dazu fuehren, dass
+    ein Inhaltsstrom als Bild durchginge.
+    """
+    idnums: set[int] = set()
+    for node, _ in _pdf_nodes(root):
+        if str(node.get("/Type", "")) != "/Page" or "/Contents" not in node:
+            continue
+        entry = node.raw_get("/Contents")
+        candidates = [entry]
+        resolved = entry.get_object() if isinstance(entry, IndirectObject) else entry
+        if isinstance(resolved, (list, tuple)):
+            candidates.extend(resolved)
+        for candidate in candidates:
+            if isinstance(candidate, IndirectObject):
+                idnums.add(candidate.idnum)
+    return idnums
+
+
 def _decode_non_expanding(name: str, data: bytes) -> bytes:
     """Dekodiert einen der beiden nicht expandierenden Filter.
 
@@ -453,10 +507,34 @@ def _decode_non_expanding(name: str, data: bytes) -> bytes:
         raise BinaryValidationError("PDF stream is not decodable") from exc
 
 
-def _consume_stream_budget(node: DictionaryObject, remaining: int) -> int:
+def _is_executable_as_content(node: DictionaryObject, is_page_content: bool) -> bool:
+    """Kann dieser Strom ueberhaupt einen BI-Operator AUSFUEHREN?
+
+    Ja, wenn er Seiteninhalt ist (strukturell nachgewiesen, siehe
+    `_content_stream_idnums`) -- und ja, solange er nicht ausdruecklich ein
+    Rasterbild ist. Ein Strom mit /Subtype /Image, der NICHT von /Contents aus
+    erreicht wird, wird von jedem konformen Renderer per `Do` als Pixelraster
+    gezeichnet; ein "BI" darin ist Bildrauschen, kein Operator.
+
+    Die Richtung ist entscheidend: die Behauptung "/Subtype /Image" allein
+    befreit nicht vom Scan -- ein Angreifer koennte sie sonst einfach auf
+    seinen Inhaltsstrom schreiben. Erst die strukturelle Position entscheidet.
+    Umgekehrt fuehrt eine Behauptung "/Subtype /Form" nur zu MEHR Pruefung.
+    """
+    if is_page_content:
+        return True
+    return str(node.get("/Subtype", "")) != "/Image"
+
+
+def _consume_stream_budget(
+    node: DictionaryObject, remaining: int, *, is_page_content: bool = True
+) -> int:
     """Prueft Filter und Expansion EINES Streams und gibt das Restbudget
     zurueck. Das Budget ist bewusst global ueber alle Streams: viele kleine
-    Bomben sind dieselbe Bombe."""
+    Bomben sind dieselbe Bombe.
+
+    `is_page_content` ist absichtlich fail-closed vorbelegt: wer diese
+    Funktion ohne die Angabe aufruft, bekommt die strengere Pruefung."""
     raw = node.get("/Filter")
     if isinstance(raw, IndirectObject):
         raw = raw.get_object()
@@ -476,28 +554,38 @@ def _consume_stream_budget(node: DictionaryObject, remaining: int) -> int:
     data = getattr(node, "_data", b"") or b""
     if not isinstance(data, (bytes, bytearray)):
         raise BinaryValidationError("PDF parser rejected input")
-    # Jeder DEKODIERTE Strom wird auf Inline-Bilder geprueft, nicht nur die
-    # rohe Datei. Ein Inhaltsstrom darf selbst komprimiert oder kodiert sein;
-    # ein Rohbyte-Scan allein waere die Abwehr an einer Stelle und ihre
-    # Luecke in der Schwester daneben.
+    # Jeder DEKODIERTE Strom, der als Inhalt ausgefuehrt werden kann, wird auf
+    # Inline-Bilder geprueft -- nicht nur die rohe Datei. Ein Inhaltsstrom darf
+    # selbst komprimiert oder kodiert sein; ein Rohbyte-Scan allein waere die
+    # Abwehr an einer Stelle und ihre Luecke in der Schwester daneben.
+    #
+    # Ausgenommen sind ausschliesslich Rasterbilder, die strukturell KEIN
+    # Inhalt sind (siehe `_is_executable_as_content`). Das ist kein Nachlassen,
+    # sondern die Beseitigung eines echten Fehlalarms: der Operator ist nur
+    # vier Bytes lang, in zufaelligen Bilddaten trifft das Muster mit rund
+    # 1,9e-8 pro Byte -- ein 600-KB-Raster wuerde so etwa eines von hundert
+    # gueltigen Dokumenten grundlos ablehnen.
+    scan = _is_executable_as_content(node, is_page_content)
     if not names:
         # Unkodiert: dieselben Bytes stehen so auch in der Datei, der
         # Rohbyte-Scan hat sie also bereits gesehen. Trotzdem auch hier --
         # diese Pruefung darf sich nicht darauf verlassen, dass der Nachbar
         # sie schon gemacht hat.
-        _reject_inline_images(bytes(data))
+        if scan:
+            _reject_inline_images(bytes(data))
         produced = len(data)
     elif names[0] in _PDF_NON_EXPANDING_FILTERS:
         # ASCIIHex/ASCII85 expandieren nie ueber ihre Eingabelaenge hinaus,
         # verbergen ein Inline-Bild vor einem Rohbyte-Scan aber genauso
         # wirksam wie Flate. Die Ausgabe ist durch die Eingabelaenge
         # gebunden, das Dekodieren am Stueck ist hier also unbedenklich.
-        _reject_inline_images(_decode_non_expanding(names[0], bytes(data)))
+        if scan:
+            _reject_inline_images(_decode_non_expanding(names[0], bytes(data)))
         produced = len(data)
     else:
         # Flate: der Scan sitzt in `_bounded_inflate` selbst, weil der
         # Klartext dort bewusst nie am Stueck existiert.
-        produced = _bounded_inflate(bytes(data), remaining)
+        produced = _bounded_inflate(bytes(data), remaining, scan=scan)
     if produced > remaining:
         raise BinaryValidationError("PDF stream expands beyond the allowed budget")
     return remaining - produced
@@ -559,7 +647,7 @@ def validate_pdf(body: bytes) -> ValidatedBinary:
     # 1. Benannte aktive Konstrukte im gesamten erreichbaren Graphen. Laeuft
     #    VOR der Katalog-Allowlist, damit ein JavaScript-PDF "JavaScript"
     #    hoert und nicht das vagere "catalog key is not allowed: /Names".
-    for node in _pdf_nodes(catalog):
+    for node, _ in _pdf_nodes(catalog):
         _reject_active_pdf_constructs(node)
     # 2. Die eigentliche Absicherung: Allowlist des Katalogs ...
     unexpected = sorted(str(key) for key in catalog.keys() if str(key) not in _PDF_CATALOG_KEYS)
@@ -568,10 +656,15 @@ def validate_pdf(body: bytes) -> ValidatedBinary:
     # 3. ... und der Formen darunter, inklusive Filter- und
     #    Expansionsbudget jedes erreichbaren Streams.
     remaining = MAX_PDF_EXPANDED_BYTES
-    for node in _pdf_nodes(catalog):
+    # Welche Stroeme werden als Seiteninhalt AUSGEFUEHRT? Strukturell
+    # bestimmt, nicht aus dem frei waehlbaren /Subtype geraten.
+    content_idnums = _content_stream_idnums(catalog)
+    for node, idnum in _pdf_nodes(catalog):
         _check_pdf_shape(node)
         if isinstance(node, StreamObject):
-            remaining = _consume_stream_budget(node, remaining)
+            remaining = _consume_stream_budget(
+                node, remaining, is_page_content=idnum in content_idnums
+            )
     return _result(body, "application/pdf", "pdf")
 
 
