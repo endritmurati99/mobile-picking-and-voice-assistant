@@ -239,14 +239,19 @@ class PickingAssistantIntegrationJobResources(models.Model):
             raise ValidationError("Job has no active processing lease.")
         receipt = receipts.browse(row[0])
         receipt.invalidate_recordset()
-        # Unter der Sperre neu lesen statt dem Vorher-Zustand zu glauben.
-        if (
-            receipt.job_record_id.id != self.id
-            or receipt.state != "processing"
-            or not receipt.processing_lease_expires_at
-            or receipt.processing_lease_expires_at <= now
-        ):
-            raise ValidationError("Job has no active processing lease.")
+        # Unter der Sperre neu lesen statt dem Vorher-Zustand zu glauben --
+        # und zwar durch DIE Lease-Primitive, nicht durch eine hier
+        # nachgebaute zweite Meinung. `require_token=False`, weil dieser
+        # RPC-Vertrag kein Lease-Token entgegennimmt (zweite Haelfte von
+        # Review-Befund #5, siehe `_assert_active_lease`).
+        receipts._assert_active_lease(
+            self,
+            receipt,
+            generation=requested,
+            supplied_token=False,
+            now=now,
+            require_token=False,
+        )
         return receipt
 
     @api.model

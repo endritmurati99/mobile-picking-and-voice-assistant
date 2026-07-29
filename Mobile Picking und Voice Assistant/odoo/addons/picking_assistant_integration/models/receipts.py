@@ -120,6 +120,50 @@ class PickingAssistantEventReceipt(models.Model):
         "UNIQUE(event_id)", "Event receipt must be unique."
     )
 
+    def _assert_active_lease(
+        self, job, receipt, generation, supplied_token, now, require_token=True
+    ):
+        """Die einzige Stelle, die eine Processing-Lease fuer gueltig erklaert.
+
+        MUSS unter gehaltenen Row-Locks und nach `invalidate_recordset()`
+        aufgerufen werden -- ohne Lock liest sie einen Wert, der beim
+        Zurueckkehren schon falsch sein kann.
+
+        Geprueft wird ALLES, nicht eine Teilmenge: Zugehoerigkeit, Generation,
+        Zustand, Token und Ablauf. Frueher pruefte `api_accept_event` den
+        Ablauf und `api_apply_callback` nicht -- genau das Muster, das dieser
+        Review-Durchgang wiederholt gefunden hat.
+
+        `require_token=False` ist die EINE benannte, greppbare Ausnahme: die
+        Ressourcenrouten (`_require_current_generation` in `resources.py`)
+        bekommen ueber ihren RPC-Vertrag heute gar kein Lease-Token
+        mitgeliefert, koennen also nur "dieser Job hat eine laufende Lease"
+        fragen statt "du BIST der Lease-Inhaber". Das ist die zweite Haelfte
+        von Review-Befund #5 und braucht eine Vertragsaenderung an der
+        n8n-Schnittstelle; bis dahin laufen auch diese Aufrufer durch DIESE
+        Funktion, damit Zustand und Ablauf nirgends zweitgemeint werden.
+        """
+        if receipt.job_record_id.id != job.id:
+            raise ValidationError("Receipt does not belong to this job.")
+        if generation != job.delivery_generation:
+            raise ValidationError("Delivery generation mismatch.")
+        if receipt.state != "processing":
+            raise ValidationError("Processing lease mismatch.")
+        if not receipt.processing_lease_token:
+            raise ValidationError("Processing lease mismatch.")
+        if require_token:
+            if not supplied_token:
+                raise ValidationError("Processing lease mismatch.")
+            if not secrets.compare_digest(
+                receipt.processing_lease_token, supplied_token
+            ):
+                raise ValidationError("Processing lease mismatch.")
+        if (
+            not receipt.processing_lease_expires_at
+            or receipt.processing_lease_expires_at <= now
+        ):
+            raise ValidationError("Processing lease has expired.")
+
     def _lock_existing(self, event_id):
         self.sudo().flush_model()
         self.env.cr.execute(
@@ -229,12 +273,22 @@ class PickingAssistantEventReceipt(models.Model):
             or outbox.payload_fingerprint != payload_fingerprint
         ):
             raise ValidationError("Outbox event changed during acceptance.")
-        # 7. deduplicate active processing and completed receipts.
-        lease_active = (
-            receipt.state == "processing"
-            and receipt.processing_lease_expires_at
-            and receipt.processing_lease_expires_at > now
-        )
+        # 7. deduplicate active processing and completed receipts. "Is there a
+        # live lease" is asked of the ONE primitive, not re-derived here: the
+        # dedup answer and the callback answer must never drift apart. The
+        # primitive raises, so the boolean is its absence of a complaint.
+        try:
+            self._assert_active_lease(
+                job,
+                receipt,
+                generation=job.delivery_generation,
+                supplied_token=False,
+                now=now,
+                require_token=False,
+            )
+            lease_active = True
+        except ValidationError:
+            lease_active = False
         if lease_active or receipt.state == "completed":
             return {
                 "accepted": True,
@@ -385,20 +439,19 @@ class PickingAssistantCallbackReceipt(models.Model):
                 raise ValidationError("Callback fingerprint conflict.")
             return json.loads(existing.response_body)
 
-        # Generation and lease token must match the locked job/receipt.
-        if generation != job.delivery_generation:
-            raise ValidationError("Delivery generation mismatch.")
-        supplied_token = callback.get("processing_lease_token") or ""
-        if (
-            receipt.state != "processing"
-            or not receipt.processing_lease_token
-            or not secrets.compare_digest(
-                receipt.processing_lease_token, supplied_token
-            )
-        ):
-            raise ValidationError("Processing lease mismatch.")
-
+        # Generation, ownership, state, token AND expiry must match the locked
+        # job/receipt. Every one of those questions is answered by the single
+        # primitive on the receipt model -- this call site used to answer four
+        # of the five itself and silently skipped the expiry.
         now = fields.Datetime.now()
+        receipts._assert_active_lease(
+            job,
+            receipt,
+            generation=generation,
+            supplied_token=callback.get("processing_lease_token") or "",
+            now=now,
+        )
+
         if sequence == job.sequence:
             raise ValidationError("Callback sequence conflict.")
         if sequence < job.sequence:
