@@ -787,14 +787,24 @@ PRE_ACCEPTANCE_ALLOWED_TYPES: frozenset[str] = frozenset({
 # the boundary. ALLOWLIST, never a denylist: an unlisted or invented type fails
 # closed.
 #
-# DERIVED, not imagined. Every entry is a type a committed, passing v2 workflow
-# actually runs on the dominated true branch:
+# DERIVED, not imagined. Two entries are types a committed, passing v2 workflow
+# actually runs on the dominated true branch; the third is called out below as
+# the single deliberate exemption and says why:
 #   - CUSTOM.pwrSignedHttpRequest -- "Publish Artifact" and "Status Callback"
 #     in tests/fixtures/v2_adversarial/task15_reference_graph.json.
-#   - n8n-nodes-pwr.pwrSignedHttpRequest -- the other committed spelling of the
-#     same node, used by valid_v2_workflow() in tests/test_import_workflows.py.
-#     Both are already SIGNED_HTTP_TYPES; dropping one would reject a workflow
-#     the importer harness proves good.
+#   - n8n-nodes-pwr.pwrSignedHttpRequest -- the ONE entry not observed in a
+#     post-acceptance position by any committed workflow. It is here for
+#     REGISTRATION SYMMETRY, not because a test covers it: it is the other
+#     spelling of the very same custom node, and both spellings are already in
+#     SIGNED_HTTP_TYPES, so both are subject to the identical target, host and
+#     ABSOLUTE_URL_RE constraints further down -- the attack surface is
+#     byte-identical either way. Listing only one would make the same node
+#     permitted or forbidden depending purely on whether the n8n install
+#     registered it under the "CUSTOM." or the package prefix, which is an
+#     inconsistency, not a security property. Do NOT delete this on the
+#     grounds that no test exercises it; that is expected, and
+#     test_post_acceptance_allowlist_is_derived_from_the_reference_workflow
+#     names it as the single deliberate exemption.
 #   - n8n-nodes-base.respondToWebhook -- "Respond Accepted" in the reference
 #     graph is dominated by the true branch too, and must be able to answer.
 # Nothing is pre-added "in case Task 15 needs it": a speculative entry is a
@@ -1531,6 +1541,16 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
                 # gate itself is never dominated by its own output and so is
                 # correctly out of scope, and a node on a side path is already
                 # obligation 7's rejection, not this one's.
+                #
+                # DO NOT "unify" this with obligation 7's _dominated_by call to
+                # save a traversal. The arguments genuinely differ: obligation 7
+                # passes `effect_nodes`, which has the skeleton (trigger, gates,
+                # acceptance, pre-acceptance builders, every respondToWebhook)
+                # subtracted; obligation 10 passes every node reachable from the
+                # trigger. Reusing obligation 7's result would silently narrow
+                # this check back to effect-classified nodes, so a
+                # respondToWebhook-typed node -- or anything else the skeleton
+                # exempts -- would stop being type-checked here.
                 post_acceptance = _dominated_by(
                     connections,
                     process_gate_name,

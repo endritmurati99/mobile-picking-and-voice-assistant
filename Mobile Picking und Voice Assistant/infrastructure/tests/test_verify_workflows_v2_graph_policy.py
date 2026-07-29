@@ -19,6 +19,8 @@ import pytest
 from infrastructure.scripts.workflow_verifier import (
     POST_ACCEPTANCE_ALLOWED_TYPES,
     SIGNED_HTTP_TYPES,
+    _dominated_by,
+    _reachable_node_names,
     verify_v2_workflow,
 )
 
@@ -93,19 +95,85 @@ def test_post_acceptance_allowlist_rejects_an_invented_type():
     assert any("not permitted after acceptance" in error.lower() for error in errors), errors
 
 
-def test_post_acceptance_allowlist_is_derived_from_the_reference_workflow():
-    """Guard against a speculative entry: every listed type must be in use.
+SIGNED_HTTP_ALTERNATE_SPELLING = "n8n-nodes-pwr.pwrSignedHttpRequest"
 
-    A type on the allowlist that no committed passing workflow actually runs is
-    a permanent hole with no offsetting benefit. `n8n-nodes-pwr.pwrSignedHttp
-    Request` is the spelling used by `valid_v2_workflow()` in
-    test_import_workflows.py rather than by this fixture, so it is checked
-    against SIGNED_HTTP_TYPES instead of against the graph.
+
+def _types_dominated_by_the_true_branch():
+    """The reference graph's post-acceptance node types.
+
+    Computed with the SAME `_dominated_by(..., output_index=0, ...)` call that
+    obligation 10 makes, over the same every-namespace reachable set rooted at
+    the trigger -- so if obligation 10's notion of "after acceptance" ever
+    changes, this guard changes with it instead of silently drifting apart.
+    """
+    reference = _load("task15_reference_graph.json")
+    connections = reference["connections"]
+    by_name = {node["name"]: node for node in reference["nodes"]}
+    dominated = _dominated_by(
+        connections,
+        "Process Gate",
+        0,
+        set(_reachable_node_names(connections, ["Webhook"])) & set(by_name),
+        trigger_name="Webhook",
+    )
+    assert dominated, "the reference graph has an empty true branch; guard is vacuous"
+    return {by_name[name]["type"] for name in dominated}
+
+
+def test_post_acceptance_allowlist_is_derived_from_the_reference_workflow():
+    """Guard against a speculative entry: every listed type must run POST-acceptance.
+
+    "In use somewhere in the reference graph" is too weak to be this guard: the
+    graph also contains `n8n-nodes-base.set`, `n8n-nodes-base.if`, the webhook
+    and the signature gate, all of them PRE-acceptance. A first version of this
+    test compared against every node type in the file, so adding `set` to
+    POST_ACCEPTANCE_ALLOWED_TYPES -- precisely the speculative widening this
+    guard exists to catch -- kept the suite green (fix round 1, finding 2).
+
+    So the comparison set is computed with the SAME `_dominated_by` call
+    obligation 10 makes, against the same graph: the types that actually run on
+    the process gate's true branch, and nothing else.
+
+    The one exemption is the alternate spelling of the signed-request node,
+    which is justified by registration symmetry rather than by observation --
+    see the comment on POST_ACCEPTANCE_ALLOWED_TYPES. It is named explicitly
+    here so the exemption cannot silently grow to cover a second entry.
+    """
+    types_after_acceptance = _types_dominated_by_the_true_branch()
+    permitted = types_after_acceptance | {SIGNED_HTTP_ALTERNATE_SPELLING}
+    assert POST_ACCEPTANCE_ALLOWED_TYPES <= permitted, sorted(
+        POST_ACCEPTANCE_ALLOWED_TYPES - permitted
+    )
+    # And the exemption really is the alternate spelling of a type that IS
+    # observed, not a free pass for an unrelated node.
+    assert SIGNED_HTTP_ALTERNATE_SPELLING in SIGNED_HTTP_TYPES
+    assert types_after_acceptance & SIGNED_HTTP_TYPES
+
+
+def test_the_derivation_guard_rejects_a_pre_acceptance_only_type():
+    """Guard the guard: the negative control finding 2 was actually about.
+
+    Every type below IS present in the reference graph but only BEFORE
+    acceptance. The old guard compared against every node type in the file and
+    so accepted all of them; this asserts both halves -- that they really are in
+    the graph (or the control proves nothing) and that widening
+    POST_ACCEPTANCE_ALLOWED_TYPES with any one of them now FAILS the guard.
     """
     reference = _load("task15_reference_graph.json")
     types_in_reference = {node["type"] for node in reference["nodes"]}
-    for node_type in POST_ACCEPTANCE_ALLOWED_TYPES:
-        assert node_type in types_in_reference | SIGNED_HTTP_TYPES, node_type
+    permitted = _types_dominated_by_the_true_branch() | {SIGNED_HTTP_ALTERNATE_SPELLING}
+
+    for pre_acceptance_only in (
+        "n8n-nodes-base.set",
+        "n8n-nodes-base.if",
+        "n8n-nodes-base.webhook",
+        "CUSTOM.pwrSignatureGate",
+    ):
+        # Half one: the old, too-weak guard really would have accepted this.
+        assert pre_acceptance_only in types_in_reference, pre_acceptance_only
+        # Half two: the new guard does not.
+        widened = POST_ACCEPTANCE_ALLOWED_TYPES | {pre_acceptance_only}
+        assert not widened <= permitted, pre_acceptance_only
 
 
 def _mutations(reference, mutated, path="$"):
