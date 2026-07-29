@@ -156,6 +156,17 @@ head `1e240f5`). "Verified" means read in the code by a second reviewer, not mer
   behind the `odoo19-trial` compose profile. Every plan has been corrected; any earlier claim of a
   green v19 suite obtained with `compose exec odoo` tested the wrong addon.
 
+### Deployment obligation created by remediation lane R3
+
+- **Compose `secrets:` must set `uid`, `gid` and `mode`.** R3 Task 3 moved the credential-file
+  permission check into the container, immediately before the read, using `lstat`. It requires the
+  mounted secret to be a regular file, mode `0400`, owned by the `node` runtime user.
+  `docker-compose.yml` currently declares **no `secrets:` block at all**, and Docker's default for
+  mounted secrets is root-owned `0444` — which the new check rejects on both counts. Whoever wires
+  the compose `secrets:` block (Task 15, or whoever deploys first) must set `uid`, `gid` and `mode`
+  explicitly, or credential provisioning will refuse to start. This is a deliberate fail-closed
+  choice, not an oversight: a secret readable by every process in the container is not a secret.
+
 ### Carried forward from earlier task reviews
 
 - `_transition()` accepts `queued -> retry_scheduled` without the recovery side effects — see §3.3.

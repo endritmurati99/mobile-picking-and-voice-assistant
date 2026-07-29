@@ -471,7 +471,15 @@ git commit -m "fix(n8n): resolve legacy callbacks through a service-authorized w
 
 ### Task 3: Close the binary validation boundary
 
-Findings #9a and #9b (Important). `_consume_stream_budget` inspects `/Filter` on stream *objects*
+**SCOPE REDUCED 2026-07-29: this task is finding #9a only.** The Odoo half (#9b — removing
+`PDF_ACTIVE_MARKERS` from `resources.py` and replacing it with an attestation requirement) moved to
+**R2 Task 9**. Lane R2 owns `odoo/addons/picking_assistant_integration/models/resources.py` — it
+edited that file in its Task 1 and will again in its Task 8 — and it owns the Odoo container
+exclusively, because the container mounts the main tree's addon path and a worktree's changes are
+invisible to it. Two lanes editing that file concurrently is a guaranteed conflict. Do not touch
+`odoo/` in this task; the steps below that mention it are superseded.
+
+Finding #9a (Important). `_consume_stream_budget` inspects `/Filter` on stream *objects*
 only. An inline image inside a content stream (`BI ... ID <data> EI`) carries its own abbreviated
 filter and dimension keys and never becomes a stream object, so a 586-byte PDF declaring
 `/F /DCT` at 65535 x 65535 passes. Separately, `resources.py:469` guards the Odoo write path with

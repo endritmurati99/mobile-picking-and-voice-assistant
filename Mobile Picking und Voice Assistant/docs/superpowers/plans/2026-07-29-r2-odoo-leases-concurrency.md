@@ -747,6 +747,40 @@ all pass the check before the first failure is booked. The limit bounds rounds, 
   - `api_finish_login_attempt(login_key, source_ip_hmac, attempt_token, succeeded) -> dict` returning the same `_state_payload` shape as `api_record_login_result`
   `api_check_login` and `api_record_login_result` stay for backwards compatibility but are no longer called by the backend.
 
+**MANDATORY ADDITION, added 2026-07-29 by Task 3's re-review — this is a requirement of this task,
+not a note.** `_lock_or_create` (`models/auth_throttle.py:49-56`) carries a live defect of the same
+snapshot class Task 3 found in `_reserve`:
+
+```python
+except IntegrityError:
+    # re-SELECT ... FOR UPDATE
+    return self.browse(row[0])       # row is None -> TypeError
+```
+
+Odoo pins cursors to REPEATABLE READ, so after the savepoint rollback the re-SELECT runs under the
+loser's original snapshot, which predates the winner's commit. It finds nothing, and
+`browse(row[0])` raises `TypeError: 'NoneType' object is not subscriptable`.
+
+This is on the **login path**: `backend/app/services/auth_sessions.py:163-173` calls
+`api_record_login_result` on both the failed and the successful branch. Two concurrent attempts for
+the same `(login_key, source_ip_hmac)` when no throttle row exists yet produce a raw `TypeError`,
+which Odoo's `retrying` wrapper does not retry — it is not a serialization or deadlock failure — so
+it surfaces. Two consequences: a 500 where a clean 401 belongs, and the losing attempt's failure is
+**not counted**, because the whole transaction rolls back.
+
+The window is narrow — it exists only at row-creation time, and once the row is committed the first
+SELECT finds it — so it is at most one uncounted failure per `(login, ip)` pair, not a general
+throttle bypass. It is still a live defect on an authentication path.
+
+Fix it here, using the same mechanism Task 3 established: classify on `exc.diag.constraint_name`
+against the table's unique constraint rather than re-SELECTing, and pin that constant against
+`pg_constraint` with a test. **A two-transaction test using `CommittedConcurrencyCase` is required**
+— a single-cursor test cannot reach this branch, which is why it survived until now.
+
+Note also that `_lock_or_create` has two `FOR UPDATE` statements followed by `browse(row[0])` with
+no `invalidate_recordset()` (`auth_throttle.py:30-37`, `50-56`). It is the last remaining exception
+to this lane's global constraint; close it in the same commit.
+
 - [ ] **Step 1: Write the failing tests**
 
 Append to `odoo/addons/picking_assistant_integration/tests/test_session_throttle.py`, converting
@@ -1026,6 +1060,19 @@ terminal state. Add the reasoning as a comment:
         # zurueck, den der Watchdog zwar auf retry setzt, fuer den es aber
         # nichts mehr zu liefern gibt.
 ```
+
+- [ ] **Step 3b: Carry the `skipped` counter through to the backend watchdog**
+
+Added 2026-07-29 from Task 2's re-review. Task 2 made lease recovery skip a poisoned candidate
+instead of aborting the whole batch, and justified that with "a persistent non-zero `skipped` is
+something you can alert on". That justification is currently hollow: the Odoo RPC returns
+`{"recovered": n, "skipped": m}`, but `backend/app/services/outbox_dispatcher.py:224` builds
+`WatchdogStats(recovered=int(result.get("recovered", 0)))` and discards `skipped` entirely. Nothing
+breaks — the dict is tolerant — but an orphaned receipt is invisible to everything outside Odoo's
+own log.
+
+Add `skipped` to `WatchdogStats`, carry it through, and log at warning level when it is non-zero.
+Add a test asserting a non-zero `skipped` from the RPC reaches the stats object.
 
 - [ ] **Step 4: Make the watchdog fail closed**
 
