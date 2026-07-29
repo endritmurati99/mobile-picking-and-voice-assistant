@@ -39,15 +39,22 @@ def _v2_spec_dict(workflow_spec) -> dict:
     }
 
 
-def run_v2_checks(registry_path: Path) -> list[str]:
+def run_v2_checks(registry_path: Path) -> tuple[list[str], list[str]]:
+    """Return (errors, skipped). `skipped` names every workflow that did not
+    get the v2 checks applied, and why -- a silent `continue` here reads as
+    "covered everything" when it is really "covered everything generation
+    == 'v2'", which is exactly the bypass finding #12 describes.
+    """
     errors: list[str] = []
+    skipped: list[str] = []
     try:
         registry = load_registry(registry_path)
     except (ValueError, OSError) as exc:
-        return [f"workflow registry: {exc}"]
+        return [f"workflow registry: {exc}"], skipped
 
     for workflow_spec in registry.workflows:
         if workflow_spec.generation != "v2":
+            skipped.append(f"{workflow_spec.file} (generation {workflow_spec.generation})")
             continue
         workflow_path = ROOT / "n8n" / "workflows" / workflow_spec.file
         try:
@@ -57,7 +64,7 @@ def run_v2_checks(registry_path: Path) -> list[str]:
             continue
         errors.extend(verify_v2_workflow(data, _v2_spec_dict(workflow_spec)))
 
-    return errors
+    return errors, skipped
 
 
 def main() -> int:
@@ -76,10 +83,11 @@ def main() -> int:
     args = parser.parse_args()
 
     errors, warnings, summary = validate_contracts()
-    v2_errors = run_v2_checks(args.registry)
+    v2_errors, skipped = run_v2_checks(args.registry)
     errors = [*errors, *v2_errors]
     summary["errors"] = errors
     summary["v2_errors"] = v2_errors
+    summary["v2_skipped"] = skipped
 
     if args.json:
         print(json.dumps(summary, indent=2))
@@ -100,6 +108,14 @@ def main() -> int:
         f"against {len(summary['backend_contracts'])} backend webhook contract(s) "
         f"+ {len(summary['n8n_callback_endpoints'])} n8n callback endpoint(s)."
     )
+
+    if skipped:
+        print(f"Skipped v2 checks for {len(skipped)} workflow(s) (not generation v2):")
+        for entry in skipped:
+            print(f"  [SKIP] {entry}")
+    else:
+        print("No workflows skipped v2 checks.")
+
     return 1 if errors else 0
 
 

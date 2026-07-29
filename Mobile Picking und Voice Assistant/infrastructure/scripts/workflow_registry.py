@@ -8,6 +8,24 @@ from pathlib import Path
 
 DEFAULT_REGISTRY_PATH = Path(__file__).resolve().parents[2] / "n8n" / "workflow-registry.json"
 
+KNOWN_GENERATIONS = ("v1", "v2")
+
+# v1 ist eingefroren. Diese Dateien existierten, bevor die v2-Kette gebaut
+# wurde, und duerfen bleiben; neue v1-Eintraege sind verboten, weil v1 keine
+# der v2-Pruefungen durchlaeuft. Ein offenes Generationsfeld war ein
+# Fail-open: "v2-typo" hat jede einzelne v2-Pruefung stillschweigend
+# uebersprungen.
+GRANDFATHERED_V1_FILES = frozenset({
+    "batch-confirmed.json",
+    "daily-report.json",
+    "error-trigger.json",
+    "pick-confirmed.json",
+    "quality-alert-ai-evaluation.json",
+    "quality-alert-created.json",
+    "shortage-reported.json",
+    "voice-exception-query.json",
+})
+
 
 @dataclass(frozen=True)
 class CredentialBinding:
@@ -108,6 +126,17 @@ def load_registry(
     }
     workflows: list[WorkflowSpec] = []
     for value in raw.get("workflows") or []:
+        generation = value["generation"]
+        if generation not in KNOWN_GENERATIONS:
+            raise ValueError(
+                f"{value['file']}: unknown generation {generation!r}; "
+                f"expected one of {KNOWN_GENERATIONS}"
+            )
+        if generation == "v1" and value["file"] not in GRANDFATHERED_V1_FILES:
+            raise ValueError(
+                f"{value['file']}: new v1 entries are forbidden (not grandfathered); "
+                "new workflows must be v2"
+            )
         bindings = tuple(
             CredentialBinding(
                 node=item["node"],
@@ -172,12 +201,13 @@ def load_registry(
                 raise ValueError(f"{workflow.file}: credential type mismatch")
 
     root = workflow_root or path.parent / "workflows"
-    disk = {item.name for item in root.glob("*.json")}
-    if set(files) != disk:
-        raise ValueError(
-            f"registry/disk mismatch: missing={sorted(disk - set(files))}, "
-            f"unknown={sorted(set(files) - disk)}"
-        )
+    if root.is_dir():
+        disk = {item.name for item in root.glob("*.json")}
+        if set(files) != disk:
+            raise ValueError(
+                f"registry/disk mismatch: missing={sorted(disk - set(files))}, "
+                f"unknown={sorted(set(files) - disk)}"
+            )
     return WorkflowRegistry(credentials=credential_types, workflows=tuple(workflows))
 
 
