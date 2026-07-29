@@ -1,15 +1,23 @@
 import base64
 import binascii
 import json
+import logging
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
+from dotenv import dotenv_values
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+logger = logging.getLogger(__name__)
+
+# Kept in one place so the dotenv path `reject_removed_env_vars` inspects can
+# never drift from the one `Settings.model_config` actually reads.
+_ENV_FILE = ".env"
 
 # Odoo retains request nonces for 900 seconds (see the addon's nonce model).
 # The backend must never be configured to expect a longer memory than Odoo has,
@@ -22,13 +30,51 @@ ODOO_NONCE_RETENTION_SECONDS = 900
 _REMOVED_ENV_VARS = ("CORS_ORIGINS",)
 
 
-def reject_removed_env_vars(environ: Mapping[str, str]) -> None:
+def reject_removed_env_vars(environ: Mapping[str, str], *, env_file: str | None = _ENV_FILE) -> None:
+    """Fail closed on a removed setting in either source `Settings` reads.
+
+    `pydantic-settings`' dotenv source parses `env_file` directly -- it never
+    populates `os.environ` -- so checking only `environ` misses a stale
+    `CORS_ORIGINS=` line left behind in `.env`. `env_file` is read the same
+    way `Settings.model_config` reads it, so a removed key sitting quietly in
+    the dotenv file fails closed exactly like one exported in the real
+    process environment.
+    """
+    combined: dict[str, str | None] = dict(environ)
+    if env_file:
+        dotenv_path = Path(env_file)
+        if dotenv_path.is_file():
+            combined.update(dotenv_values(dotenv_path))
     for name in _REMOVED_ENV_VARS:
-        if name in environ:
+        if name in combined:
             raise ValueError(
                 f"{name} was removed. Configure PWA_ORIGINS instead; it is the "
                 "single origin list and it is validated in production."
             )
+
+
+def reject_wildcard_origins_with_credentials(
+    origins: tuple[str, ...], *, allow_credentials: bool
+) -> None:
+    """Refuse a wildcard origin combined with credentialed CORS, in every
+    runtime profile -- not only production.
+
+    Starlette's `CORSMiddleware` (as of 0.46.2) does NOT fall back to a safe
+    wildcard when `allow_credentials=True`: it echoes back the request's
+    `Origin` header and still sends `Access-Control-Allow-Credentials: true`.
+    `PWA_ORIGINS=\"*\"` with credentialed CORS therefore lets any origin read
+    authenticated responses (e.g. the `pwr_session` cookie) from a victim's
+    browser. This must hold regardless of `runtime_profile`, since an
+    operator can set the wildcard on a `development` or `test` box that is
+    still reachable on the LAN.
+    """
+    if allow_credentials and "*" in origins:
+        raise ValueError(
+            "Wildcard PWA origin ('*') is forbidden while allow_credentials=True, "
+            "in every runtime profile: Starlette does not apply a safe-wildcard "
+            "fallback for credentialed CORS, so '*' would let any origin read "
+            "authenticated responses."
+        )
 
 
 @dataclass(frozen=True)
@@ -43,7 +89,7 @@ class OdooProfile:
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
     odoo_url: str = "http://odoo:8069"
     odoo_db: str = "picking"
@@ -129,6 +175,26 @@ class Settings(BaseSettings):
                 f"of {ODOO_NONCE_RETENTION_SECONDS}s"
             )
         return self
+
+
+def warn_non_production_runtime_profile(candidate: Settings) -> None:
+    """Log one WARNING line whenever the active profile is not `production`.
+
+    Finding #2 (round 1 fix): the deployed stack never set RUNTIME_PROFILE at
+    all, so the Literal-typed field silently kept its `development` default
+    with nothing surfacing that fact. A missing/wrong profile must never fail
+    a running container's startup (operators depend on it), but it must not
+    be silent either -- this makes the effective posture visible in the logs
+    every time the process starts.
+    """
+    if candidate.runtime_profile != "production":
+        logger.warning(
+            "RUNTIME_PROFILE is %r, not 'production' (mobile_header_grace_mode=%s). "
+            "If this is meant to be a production deployment, RUNTIME_PROFILE was "
+            "not set correctly -- set it explicitly to 'production'.",
+            candidate.runtime_profile,
+            candidate.mobile_header_grace_mode,
+        )
 
 
 reject_removed_env_vars(os.environ)
@@ -266,3 +332,4 @@ def validate_runtime_security(candidate: Settings) -> None:
 
 
 validate_runtime_security(settings)
+warn_non_production_runtime_profile(settings)

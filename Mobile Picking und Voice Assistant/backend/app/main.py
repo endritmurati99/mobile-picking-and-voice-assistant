@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import settings, parse_origins
+from app.config import settings, parse_origins, reject_wildcard_origins_with_credentials
 from app.routers import auth, cluster, demo, health, instances, integration, llm, n8n_internal, obsidian, pickings, quality, scan, voice
 # Task 10: eigene Importzeile, damit parallele Branches die Zeile oben nicht anfassen muessen.
 from app.routers import n8n_v2
@@ -98,9 +98,13 @@ app = FastAPI(
     lifespan=build_lifespan(settings),
 )
 
+_pwa_origins = parse_origins(settings.pwa_origins)
+# Unconditional, in every runtime profile -- see reject_wildcard_origins_with_credentials.
+reject_wildcard_origins_with_credentials(_pwa_origins, allow_credentials=True)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=list(parse_origins(settings.pwa_origins)),
+    allow_origins=list(_pwa_origins),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
