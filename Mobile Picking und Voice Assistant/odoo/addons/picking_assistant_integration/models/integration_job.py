@@ -1,9 +1,12 @@
 import json
+import logging
 from datetime import timedelta
 from uuid import uuid4
 
 from odoo import api, fields, models
 from odoo.exceptions import ValidationError
+
+_logger = logging.getLogger(__name__)
 
 JOB_STATES = [
     ("queued", "Queued"),
@@ -299,19 +302,28 @@ class PickingAssistantIntegrationJob(models.Model):
         SAME locked batch as the minute cron and returns ONLY counts — never
         lease tokens or any other row data."""
         self.env["picking.assistant.api.mixin"]._require_api_service()
-        return {"recovered": self._recover_stalled_jobs_batch(limit)}
+        return self._recover_stalled_jobs_batch(limit)
 
     @api.model
     def _cron_recover_stalled_jobs(self, limit=200):
         """Every minute: recover event receipts whose processing lease expired
         without a terminal callback. Bumps the delivery generation and returns
         the same outbox event (unchanged envelope) to pending."""
-        recovered = self._recover_stalled_jobs_batch(limit)
-        self._report_cron_progress(recovered)
+        counts = self._recover_stalled_jobs_batch(limit)
+        # Beide Zahlen sind verarbeitete Kandidaten; ein uebersprungener wird
+        # in dieser Runde nicht noch einmal angefasst.
+        self._report_cron_progress(counts["recovered"] + counts["skipped"])
 
     @api.model
     def _recover_stalled_jobs_batch(self, limit=200):
-        """Locked recovery batch shared by the cron and the guarded API."""
+        """Locked recovery batch shared by the cron and the guarded API.
+
+        Liefert `{"recovered": n, "skipped": m}`. `skipped` zaehlt Kandidaten,
+        deren Recovery sich geweigert hat -- heute praktisch nur der
+        verwaiste Receipt ohne Outbox-Zeile. Ein dauerhaft von Null
+        verschiedenes `skipped` ist alarmierbar; ein Cron, der jede Minute
+        fliegt, ist Laerm, den der Betrieb stummschaltet.
+        """
         now = fields.Datetime.now()
         receipts = self.env["picking.assistant.event.receipt"].sudo()
         outboxes = self.env["picking.assistant.outbox"].sudo()
@@ -329,6 +341,7 @@ class PickingAssistantIntegrationJob(models.Model):
         )
         candidates = self.env.cr.fetchall()
         recovered = 0
+        skipped = 0
         for receipt_id, job_record_id in candidates:
             self.env.cr.execute(
                 "SELECT id FROM picking_assistant_integration_job "
@@ -354,7 +367,33 @@ class PickingAssistantIntegrationJob(models.Model):
                 # Der Watchdog hat keine eigene Recovery-Logik: er sucht die
                 # Kandidaten und sperrt sie, die vier Effekte macht die EINE
                 # Recovery-Funktion.
-                self._recover_expired_lease(job, receipt, now)
+                #
+                # Savepoint pro KANDIDAT, nicht pro Batch. Verlangt war
+                # Atomaritaet je Recovery: entweder alle vier Effekte oder
+                # keiner. Liesse man die Weigerung aus der Schleife heraus,
+                # stuerbe der ganze Batch -- und der vergiftete Kandidat steht
+                # deterministisch VORN, weil der Kandidaten-Scan nach
+                # `processing_lease_expires_at` sortiert und ein Receipt genau
+                # dann verwaist ist, wenn er alt genug fuer die Retention war.
+                # Eine einzige solche Zeile wuerde jede Minute jede Recovery
+                # verhindern -- und Recovery ist inzwischen der einzige Ausgang
+                # aus einer abgelaufenen Lease.
+                try:
+                    with self.env.cr.savepoint():
+                        self._recover_expired_lease(job, receipt, now)
+                except ValidationError:
+                    # Odoo setzt den ORM-Cache beim Savepoint-Rollback NICHT
+                    # zurueck. Ohne dies liefen die zurueckgerollten Job- und
+                    # Receipt-Werte in die naechsten Schleifendurchlaeufe.
+                    self.env.invalidate_all()
+                    _logger.error(
+                        "lease recovery refused for receipt %s on job %s",
+                        receipt_id,
+                        job_record_id,
+                        exc_info=True,
+                    )
+                    skipped += 1
+                    continue
             else:
                 # Job already terminal/retry_scheduled: only release the
                 # stale receipt lease, never touch generation or outbox.
@@ -368,7 +407,7 @@ class PickingAssistantIntegrationJob(models.Model):
                     }
                 )
             recovered += 1
-        return recovered
+        return {"recovered": recovered, "skipped": skipped}
 
     @api.model
     def _cron_cleanup_ephemeral(self, limit=1000):

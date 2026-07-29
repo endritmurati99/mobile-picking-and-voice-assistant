@@ -227,7 +227,7 @@ class TestReceiptsAndCallbacks(IntegrationCase):
         ).api_recover_stalled_jobs(10)
         # Counts only: the guarded watchdog batch must never expose lease
         # tokens or any other row data over RPC.
-        self.assertEqual(result, {"recovered": 1})
+        self.assertEqual(result, {"recovered": 1, "skipped": 0})
         self.assertEqual(receipt.state, "retryable")
         self.assertFalse(receipt.processing_lease_token)
         self.assertEqual(self.job.state, "retry_scheduled")
@@ -239,4 +239,4 @@ class TestReceiptsAndCallbacks(IntegrationCase):
         result = self.env["picking.assistant.integration.job"].with_user(
             self.api_user
         ).api_recover_stalled_jobs(10)
-        self.assertEqual(result, {"recovered": 0})
+        self.assertEqual(result, {"recovered": 0, "skipped": 0})

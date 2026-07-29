@@ -158,6 +158,70 @@ class TestWatchdogAndAuditCleanup(IntegrationCase):
         self.assertEqual(outbox.state, "pending")
         self.assertEqual(outbox.envelope_text, '{"schema_version":"v2"}')
 
+    def test_one_poisoned_candidate_does_not_deny_recovery_to_the_others(self):
+        """Fix round 2, finding 1: denial of recovery.
+
+        An orphaned receipt (its outbox row purged by retention) makes
+        `_recover_expired_lease` raise. If that raise escapes the batch, the
+        WHOLE batch dies -- and the poison row is deterministically FIRST,
+        because the candidate scan orders by `processing_lease_expires_at` and
+        a receipt is orphaned precisely because it is old enough for retention
+        to have removed its outbox row. One such row would starve every
+        candidate, this minute and every minute after, and the cron is now the
+        only exit from an expired lease.
+
+        Per-recovery atomicity was what the previous round asked for, not
+        per-batch: the savepoint gives back all three writes of the poisoned
+        candidate and nothing else.
+        """
+        orphan_job, orphan_outbox = self._enqueue("9")
+        self._accept(
+            orphan_job,
+            orphan_outbox,
+            "123e4567-e89b-42d3-a456-426614174070",
+            "123e4567-e89b-42d3-a456-426614174071",
+        )
+        orphan_receipt = self.env["picking.assistant.event.receipt"].search(
+            [("event_id", "=", orphan_outbox.event_id)]
+        )
+        healthy_job, healthy_outbox = self._enqueue("a")
+        self._accept(
+            healthy_job,
+            healthy_outbox,
+            "123e4567-e89b-42d3-a456-426614174072",
+            "123e4567-e89b-42d3-a456-426614174073",
+        )
+        healthy_receipt = self.env["picking.assistant.event.receipt"].search(
+            [("event_id", "=", healthy_outbox.event_id)]
+        )
+        now = fields.Datetime.now()
+        # The orphan sorts to the head of the batch, exactly as it would in
+        # production -- it is old enough that retention took its outbox row.
+        orphan_receipt.write(
+            {"processing_lease_expires_at": now - timedelta(days=40)}
+        )
+        healthy_receipt.write(
+            {"processing_lease_expires_at": now - timedelta(seconds=1)}
+        )
+        orphan_outbox.unlink()
+
+        result = self.env["picking.assistant.integration.job"].with_user(
+            self.api_user
+        ).api_recover_stalled_jobs(10)
+
+        self.env.invalidate_all()
+        self.assertEqual(result, {"recovered": 1, "skipped": 1})
+        # The healthy candidate behind the poison row still recovers fully.
+        self.assertEqual(healthy_job.state, "retry_scheduled")
+        self.assertEqual(healthy_job.delivery_generation, 2)
+        self.assertEqual(healthy_receipt.state, "retryable")
+        self.assertEqual(healthy_outbox.state, "pending")
+        # The poisoned candidate is rolled back whole, not partially applied.
+        self.assertEqual(orphan_job.state, "queued")
+        self.assertEqual(orphan_job.delivery_generation, 1)
+        self.assertEqual(orphan_receipt.state, "processing")
+        self.assertTrue(orphan_receipt.processing_lease_token)
+
     def test_recovery_rejects_states_it_may_not_recover_from(self):
         """Renamed with `_watchdog_retry_scheduled`, which no longer exists:
         the watchdog has no recovery edge of its own any more, it calls the
