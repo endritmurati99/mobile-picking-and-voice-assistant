@@ -2,7 +2,10 @@ from copy import deepcopy
 
 import pytest
 
-from infrastructure.scripts.workflow_verifier import verify_v2_workflow
+from infrastructure.scripts.workflow_verifier import (
+    ACCEPTANCE_TARGET_PATH,
+    verify_v2_workflow,
+)
 
 SPEC = {
     "file": "fixture.json",
@@ -94,7 +97,19 @@ def test_v2_rejects_normal_http_node_for_internal_callback(v2_fixture, verify):
     assert any("PWR Signed HTTP Request" in error for error in errors)
 
 
-def test_v2_accepts_registered_artifact_path_template(v2_fixture, verify):
+def test_v2_rejects_artifact_call_standing_in_for_acceptance(v2_fixture, verify):
+    """INVERTED (whole-branch review finding #3, Critical).
+
+    This test used to assert `errors == []` for a graph whose only signed
+    request after the Signature Gate is an ARTIFACT call. That pinned the
+    hole in place: the old verifier only asked whether the first node after
+    the gate was *some* PWR Signed HTTP Request, never whether it targeted
+    the acceptance route, so an artifact call counted as "acceptance" and
+    every business effect behind it ran ungated.
+
+    The path template itself is still legitimate -- what is rejected is a
+    workflow in which nothing at all calls ACCEPTANCE_TARGET_PATH.
+    """
     v2_fixture["nodes"][2]["parameters"]["target"] = "/api/internal/n8n/v2/artifacts/evt-123/status"
     # A well-formed event/callback node references event_id, odoo_instance,
     # and at least one delivery/lease/idempotency field.
@@ -103,7 +118,10 @@ def test_v2_accepts_registered_artifact_path_template(v2_fixture, verify):
     v2_fixture["nodes"][2]["parameters"]["eventIdField"] = "event_id"
     v2_fixture["nodes"][2]["parameters"]["odooInstanceField"] = "odoo_instance"
     errors = verify(v2_fixture, ARTIFACT_SPEC)
-    assert errors == []
+    assert any(ACCEPTANCE_TARGET_PATH in error for error in errors), errors
+    # The artifact path template still resolves -- the rejection is about the
+    # missing acceptance call, not about an unregistered target.
+    assert not any("not a registered target" in error for error in errors), errors
 
 
 def test_v2_rejects_mismatching_resolved_segment(v2_fixture, verify):

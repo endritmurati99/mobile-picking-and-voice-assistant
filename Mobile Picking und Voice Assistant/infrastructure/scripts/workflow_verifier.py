@@ -747,6 +747,47 @@ OUTBOUND_ALLOWED_TYPES = SIGNED_HTTP_TYPES
 # call, regardless of what that node type is called.
 ABSOLUTE_URL_RE = re.compile(r"\b[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s'\"\\]+")
 
+# --- v2 graph policy ------------------------------------------------------
+# Identity is the node TYPE, never the node name. A node merely *named*
+# "Respond to Webhook" on the rejection path is an attack, not a typo.
+RESPOND_TO_WEBHOOK_TYPE = "n8n-nodes-base.respondToWebhook"
+# The one route a v2 workflow must call before it is allowed to do anything.
+# Derived from the backend, not invented here: app/main.py mounts
+# routers/n8n_v2.py at "/api", the router itself carries prefix "/internal",
+# and that module's V2 constant adds "/n8n/v2" -- so the served path is
+# "/api/internal/n8n/v2/events/accept". Keep this literal in step with
+# backend/app/routers/n8n_v2.py; a verifier pinned to a path the backend
+# does not serve would reject every real workflow.
+ACCEPTANCE_TARGET_PATH = "/api/internal/n8n/v2/events/accept"
+# Between the Signature Gate and the acceptance call, ONLY side-effect-free
+# payload builders may run. ALLOWLIST, never a denylist: a node type nobody
+# thought of (a community node, a new n8n core node, an LLM node) must fail
+# closed by not appearing here, instead of sailing through because someone
+# forgot to add it to a forbidden set. Code/Function nodes are on this list
+# because they cannot reach the network without tripping the separate
+# ABSOLUTE_URL_RE outbound scan -- that pairing is what makes them "builders".
+PRE_ACCEPTANCE_ALLOWED_TYPES: frozenset[str] = frozenset({
+    "n8n-nodes-base.set",
+    "n8n-nodes-base.code",
+    "n8n-nodes-base.function",
+    "n8n-nodes-base.functionItem",
+    "n8n-nodes-base.noOp",
+    "n8n-nodes-base.itemLists",
+    "n8n-nodes-base.merge",
+    "n8n-nodes-base.dateTime",
+    "n8n-nodes-base.renameKeys",
+    "n8n-nodes-base.splitOut",
+})
+# Node types that can express the mandatory "process == true" branch point.
+PROCESS_GATE_TYPES: frozenset[str] = frozenset({
+    "n8n-nodes-base.if",
+    "n8n-nodes-base.switch",
+    "n8n-nodes-base.filter",
+})
+PROCESS_FIELD_RE = re.compile(r"\bprocess\b", re.IGNORECASE)
+PROCESS_TRUE_RE = re.compile(r"\btrue\b", re.IGNORECASE)
+WEBHOOK_PATH_PREFIX = "/webhook/"
+
 
 def _webhook_nodes(nodes: list[dict]) -> list[dict]:
     return [node for node in nodes if node.get("type") == WEBHOOK_TYPE]
@@ -816,6 +857,99 @@ def _reachable_node_names_main_only(connections: dict, start_names: list[str]) -
     return seen
 
 
+def _has_outgoing_edges(connections: dict, node_name: str) -> bool:
+    for connection_type_edges in (connections.get(node_name) or {}).values():
+        for output_edges in connection_type_edges or []:
+            for edge in output_edges or []:
+                if edge.get("node"):
+                    return True
+    return False
+
+
+def _connections_without_output(
+    connections: dict, source_name: str, output_index: int
+) -> dict:
+    """`connections` with one single "main" output of one node cut away.
+
+    Only the one output list is replaced; every other block is shared by
+    reference and never mutated, so this is cheap and side-effect free.
+    """
+    pruned: dict = {}
+    for name, block in connections.items():
+        if name != source_name:
+            pruned[name] = block
+            continue
+        new_block: dict = {}
+        for connection_type, outputs in (block or {}).items():
+            outputs = list(outputs or [])
+            if connection_type == "main" and output_index < len(outputs):
+                outputs[output_index] = []
+            new_block[connection_type] = outputs
+        pruned[name] = new_block
+    return pruned
+
+
+def _dominated_by(
+    connections: dict,
+    gate_name: str | None,
+    output_index: int,
+    node_names: set[str],
+    *,
+    trigger_name: str | None,
+) -> set[str]:
+    """Return the subset of `node_names` reachable ONLY through that output.
+
+    This is DOMINATION, not reachability: a node is dominated by an output
+    when EVERY path from the trigger to that node passes through it. It is
+    computed by removing that output's edges and asking what is still
+    reachable FROM THE TRIGGER -- anything still reachable has another way
+    in, so it is not dominated.
+
+    `trigger_name` is keyword-only and mandatory on purpose. The previous
+    round of this verifier rooted the traversal at the gate instead of the
+    trigger, which made every node hung off the Webhook before the gate
+    invisible. Rooting at the single entry point every request actually
+    goes through is the whole point of the check.
+    """
+    if not trigger_name or not gate_name:
+        return set()
+    pruned = _connections_without_output(connections, gate_name, output_index)
+    still_reachable = _reachable_node_names(pruned, [trigger_name])
+    return {name for name in node_names if name not in still_reachable}
+
+
+def _normalized_webhook_paths(spec: dict[str, Any]) -> set[str]:
+    """Every spelling of the registry's webhook paths.
+
+    The registry writes bare paths ("pick-confirmed"); an n8n Webhook node's
+    `path` parameter is bare too, while the Signature Gate's `expectedTarget`
+    is the full request target ("/webhook/pick-confirmed"). Both forms are
+    generated here so a literal comparison against the registry entry works
+    whichever spelling the registry happens to use.
+    """
+    paths: set[str] = set()
+    for raw in spec.get("webhook_paths") or []:
+        if not isinstance(raw, str) or not raw:
+            continue
+        if raw.startswith(WEBHOOK_PATH_PREFIX):
+            bare = raw[len(WEBHOOK_PATH_PREFIX):]
+        else:
+            bare = raw.lstrip("/")
+        paths.update({raw, bare, WEBHOOK_PATH_PREFIX + bare})
+    return paths
+
+
+def _is_process_true_gate(node: dict[str, Any]) -> bool:
+    """A branch node that explicitly tests the backend's `process` decision
+    against true. Static JSON matching only -- see the KNOWN, ACCEPTED
+    LIMITS note on verify_v2_workflow.
+    """
+    if node.get("type") not in PROCESS_GATE_TYPES:
+        return False
+    blob = _node_text_blob(node)
+    return bool(PROCESS_FIELD_RE.search(blob) and PROCESS_TRUE_RE.search(blob))
+
+
 def _reverse_adjacency(connections: dict) -> dict[str, set[str]]:
     """Reverse adjacency across every connection namespace -- see
     _reachable_node_names for why "main"-only would miss real edges.
@@ -874,6 +1008,14 @@ def _target_matches_template(target_segments: list[str], template_segments: list
 
 
 def _is_registered_target(target: str, spec: dict[str, Any]) -> bool:
+    # The acceptance route is a protocol constant every v2 workflow must
+    # call, not a per-workflow registry entry, so it is registered by
+    # definition. It is not thereby unguarded: the graph policy below
+    # requires EXACTLY ONE signed request to carry it, reachable from the
+    # gate's accepted output, and treats it as an event target for the
+    # event_id/odoo_instance/idempotency field check.
+    if target == ACCEPTANCE_TARGET_PATH:
+        return True
     if target in (spec.get("callback_paths") or []):
         return True
     target_segments = target.split("/")
@@ -906,13 +1048,33 @@ def _combined_text_blob(nodes_by_name: dict[str, dict], names: set[str]) -> str:
 def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[str]:
     """Verify the v2-generation invariants for a single workflow.
 
-    Enforces: exactly one Webhook trigger, with authentication/rawBody set,
-    no non-'main' outbound connection on the trigger itself, and PWR
-    Signature Gate being the mandatory first node after it; the rejection
-    output only ever reaching "Respond to Webhook"; the very first node
-    reached after the Signature Gate's accepted output must itself be a
-    PWR Signed HTTP Request (no model/carrier/Odoo/callback/business node
-    may run before acceptance completes); every node reachable from the
+    Der Verifier beweist den Graphen, er tastet ihn nicht ab. Acht Pflichten:
+
+     1. Genau ein Webhook-Knoten, mit dem Registry-Pfad und Methode POST.
+     2. Genau ein Signature Gate, mit literalem expectedMethod und
+        expectedTarget, die exakt zum Registry-Eintrag passen.
+     3. Der Rejection-Ausgang erreicht ausschliesslich einen terminalen
+        Knoten vom TYP Respond to Webhook -- ein gleichnamiger Knoten
+        anderen Typs ist ein Angriff, kein Tippfehler.
+     4. Vor Acceptance sind nur Knoten aus PRE_ACCEPTANCE_ALLOWED_TYPES
+        erlaubt, also seiteneffektfreie Builder. Allowlist, nie Denylist.
+     5. Genau ein Signed Request zeigt auf ACCEPTANCE_TARGET_PATH.
+     6. Danach existiert ein explizites Gate auf process == true.
+     7. Jeder Modell-, Carrier-, Callback- und Artifact-Knoten wird vom
+        True-Zweig dieses Gates DOMINIERT -- Erreichbarkeit genuegt nicht,
+        denn ein Nebenpfad um das Gate herum ist ebenfalls erreichbar.
+     8. Der False-Zweig endet ohne Wirkung.
+
+    Bis 2026-07 pruefte diese Funktion nur, dass der EINE Knoten hinter dem
+    akzeptierten Gate-Ausgang irgendein PWR Signed HTTP Request ist. Ein
+    Graph aus Gate -> Signed Request -> Business Effect kam damit durch:
+    weder die Acceptance-Route noch das process-Gate noch die Dominanz der
+    Wirkungen wurden je geprueft (Whole-Branch-Review Finding #3, Critical).
+
+    Enforces additionally: exactly one Webhook trigger, with
+    authentication/rawBody set, no non-'main' outbound connection on the
+    trigger itself, and PWR Signature Gate being the mandatory first node
+    after it; every node reachable from the
     Webhook trigger through ANY connection namespace (main, ai, tool, ...)
     -- not just "main" -- must be on the ordinary main execution path,
     rooted at the trigger itself so a pre-Gate branch is just as visible
@@ -986,6 +1148,23 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
                 f"{file_name}: Webhook '{webhook.get('name')}' must set options.rawBody=true"
             )
 
+        # Obligation 1: the trigger carries the REGISTRY's path and POST.
+        # A workflow listening on a path the registry never declared is a
+        # second, unreviewed ingress.
+        registry_paths = _normalized_webhook_paths(spec)
+        webhook_path = params.get("path")
+        if _is_unresolved_expression(webhook_path) or webhook_path not in registry_paths:
+            errors.append(
+                f"{file_name}: Webhook '{webhook.get('name')}' path '{webhook_path}' does "
+                f"not literally match a registry webhook_path "
+                f"{sorted(spec.get('webhook_paths') or [])}"
+            )
+        if params.get("httpMethod") != "POST":
+            errors.append(
+                f"{file_name}: Webhook '{webhook.get('name')}' must set httpMethod=POST "
+                f"(found '{params.get('httpMethod')}')"
+            )
+
         # The trigger itself may not have any non-"main" outbound
         # connection -- e.g. an "ai" edge straight off the Webhook -- this
         # is rejected outright regardless of where it leads.
@@ -1015,32 +1194,187 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
                     f"(found: {found})"
                 )
 
-        rejected_targets = _first_output_targets(connections, gate.get("name"), output_index=1)
+        gate_name = gate.get("name")
+        gate_params = gate.get("parameters") or {}
+
+        # Obligation 2: the gate's expectations are LITERAL and match the
+        # registry. A gate that verifies a signature over a target other
+        # than the one this workflow is registered for verifies nothing
+        # useful -- a signature minted for another route would satisfy it.
+        expected_method = gate_params.get("expectedMethod")
+        if _is_unresolved_expression(expected_method) or expected_method != "POST":
+            errors.append(
+                f"{file_name}: Signature Gate '{gate_name}' must set a literal "
+                f"expectedMethod=POST (found '{expected_method}')"
+            )
+        expected_target = gate_params.get("expectedTarget")
+        if (
+            _is_unresolved_expression(expected_target)
+            or expected_target not in _normalized_webhook_paths(spec)
+        ):
+            errors.append(
+                f"{file_name}: Signature Gate '{gate_name}' expectedTarget "
+                f"'{expected_target}' must literally match this workflow's registry "
+                f"webhook path {sorted(spec.get('webhook_paths') or [])}"
+            )
+
+        # Obligation 3: the rejection output reaches exactly one TERMINAL
+        # node, and that node's TYPE is respondToWebhook. Matching on the
+        # conventional name RESPOND_TO_WEBHOOK_NODE alone is exactly the
+        # hole a node merely *named* "Respond to Webhook" walks through.
+        rejected_targets = _first_output_targets(connections, gate_name, output_index=1)
         rejected_reachable = _reachable_node_names(connections, rejected_targets)
+        if len(rejected_targets) != 1:
+            found = ", ".join(rejected_targets) if rejected_targets else "none"
+            errors.append(
+                f"{file_name}: the Signature Gate's rejection output must reach exactly "
+                f"one terminal node of type '{RESPOND_TO_WEBHOOK_TYPE}' (conventionally "
+                f"named '{RESPOND_TO_WEBHOOK_NODE}'); found: {found}"
+            )
         for name in sorted(rejected_reachable):
-            if name != RESPOND_TO_WEBHOOK_NODE and by_name.get(name) is not None:
+            node = by_name.get(name)
+            if node is None:
+                continue
+            if node.get("type") != RESPOND_TO_WEBHOOK_TYPE:
                 errors.append(
-                    f"{file_name}: rejection path reaches '{name}', only "
-                    f"'{RESPOND_TO_WEBHOOK_NODE}' is allowed"
+                    f"{file_name}: rejection path reaches '{name}' of type "
+                    f"'{node.get('type')}'; only a node of type "
+                    f"'{RESPOND_TO_WEBHOOK_TYPE}' is allowed there -- identity is the "
+                    "node type, never its name"
+                )
+            elif _has_outgoing_edges(connections, name):
+                errors.append(
+                    f"{file_name}: rejection path node '{name}' is not terminal; the "
+                    "rejection branch must end at the response and do nothing else"
                 )
 
-        # Nothing -- no model, carrier, Odoo, callback, or other business
-        # node -- may run before acceptance: the very first node reached
-        # from the Signature Gate's accepted (verified) output must itself
-        # be a PWR Signed HTTP Request. This mirrors the Webhook->Gate check
-        # above one hop further down the graph.
-        accepted_targets = _first_output_targets(connections, gate.get("name"), output_index=0)
-        first_accepted_node = by_name.get(accepted_targets[0]) if accepted_targets else None
-        if len(accepted_targets) != 1 or (
-            first_accepted_node is None or first_accepted_node.get("type") not in SIGNED_HTTP_TYPES
-        ):
-            found = ", ".join(accepted_targets) if accepted_targets else "none"
+        # Obligations 4-8 -- see the block comment on verify_v2_workflow.
+        accepted_targets = _first_output_targets(connections, gate_name, output_index=0)
+        accepted_reachable = _reachable_node_names(connections, accepted_targets)
+
+        # Obligation 5: EXACTLY ONE signed request carries the acceptance
+        # route, and it is reachable from the gate's accepted output.
+        acceptance_nodes = [
+            node
+            for node in nodes
+            if node.get("type") in SIGNED_HTTP_TYPES
+            and (node.get("parameters") or {}).get("target") == ACCEPTANCE_TARGET_PATH
+        ]
+        acceptance = None
+        if len(acceptance_nodes) != 1:
             errors.append(
-                f"{file_name}: node(s) '{found}' run before acceptance; the first node "
-                "reached from the Signature Gate's accepted output must be a PWR Signed "
-                "HTTP Request that returns process=true -- no model, carrier, Odoo, "
-                "callback, or other business node may run first"
+                f"{file_name}: exactly one PWR Signed HTTP Request must target the "
+                f"acceptance route '{ACCEPTANCE_TARGET_PATH}' (found "
+                f"{len(acceptance_nodes)}); a v2 workflow may only act on an event the "
+                "backend has explicitly accepted"
             )
+        elif acceptance_nodes[0].get("name") not in accepted_reachable:
+            errors.append(
+                f"{file_name}: the acceptance node '{acceptance_nodes[0].get('name')}' is "
+                "not reachable from the Signature Gate's accepted output"
+            )
+        else:
+            acceptance = acceptance_nodes[0]
+
+        if acceptance is not None:
+            acceptance_name = acceptance.get("name")
+
+            # Obligation 4: everything strictly between the gate's accepted
+            # output and the acceptance call -- i.e. reachable from the gate
+            # AND able to reach acceptance -- must be a side-effect-free
+            # builder from the ALLOWLIST. An unlisted type fails closed.
+            pre_acceptance = (
+                accepted_reachable
+                & _backward_reachable_node_names(connections, acceptance_name)
+            ) - {acceptance_name}
+            for name in sorted(pre_acceptance):
+                node = by_name.get(name)
+                if node is None:
+                    continue
+                if node.get("type") not in PRE_ACCEPTANCE_ALLOWED_TYPES:
+                    errors.append(
+                        f"{file_name}: node '{name}' ({node.get('type')}) may not "
+                        f"run before acceptance; only side-effect-free builder types "
+                        f"{sorted(PRE_ACCEPTANCE_ALLOWED_TYPES)} may run between the "
+                        "Signature Gate and the acceptance call -- no model, carrier, "
+                        "Odoo, callback, or other business node may run first"
+                    )
+
+            # Obligation 6: an explicit gate on process == true follows.
+            after_acceptance = _reachable_node_names(
+                connections, _first_output_targets(connections, acceptance_name)
+            )
+            process_gates = [
+                by_name[name]
+                for name in sorted(after_acceptance)
+                if name in by_name and _is_process_true_gate(by_name[name])
+            ]
+            if len(process_gates) != 1:
+                errors.append(
+                    f"{file_name}: exactly one explicit gate on process == true must "
+                    f"follow the acceptance call '{acceptance_name}' (found "
+                    f"{len(process_gates)}); every business effect must be gated on the "
+                    "backend's process decision, not merely sequenced after acceptance"
+                )
+            elif webhook is not None:
+                process_gate_name = process_gates[0].get("name")
+                trigger_name = webhook.get("name")
+
+                # Which nodes must be gated? ALLOWLIST again: the control
+                # skeleton is enumerated, and EVERYTHING else reachable from
+                # the trigger counts as an effect. A node type nobody thought
+                # of therefore has to be dominated, rather than being exempt
+                # because it wasn't on a hand-maintained effects list.
+                skeleton = {
+                    trigger_name,
+                    gate_name,
+                    acceptance_name,
+                    process_gate_name,
+                } | pre_acceptance | {
+                    node.get("name")
+                    for node in nodes
+                    if node.get("type") == RESPOND_TO_WEBHOOK_TYPE
+                }
+                effect_nodes = {
+                    name
+                    for name in _reachable_node_names(connections, [trigger_name])
+                    if name in by_name
+                } - skeleton
+
+                # Obligation 7: DOMINATION, not reachability.
+                undominated = sorted(
+                    effect_nodes
+                    - _dominated_by(
+                        connections,
+                        process_gate_name,
+                        0,
+                        effect_nodes,
+                        trigger_name=trigger_name,
+                    )
+                )
+                if undominated:
+                    errors.append(
+                        f"{file_name}: node(s) {undominated} are not dominated by the "
+                        f"true branch of the process gate '{process_gate_name}'; they "
+                        "are still reachable from the trigger with that branch cut away, "
+                        "so a side path runs them whatever the backend decided -- "
+                        "reachability through the gate is not domination by it"
+                    )
+
+                # Obligation 8: the false branch ends without effect.
+                false_reachable = _reachable_node_names(
+                    connections,
+                    _first_output_targets(connections, process_gate_name, output_index=1),
+                )
+                for name in sorted(false_reachable):
+                    node = by_name.get(name)
+                    if node is None or node.get("type") == RESPOND_TO_WEBHOOK_TYPE:
+                        continue
+                    errors.append(
+                        f"{file_name}: the process gate's false branch reaches '{name}' "
+                        f"({node.get('type')}); when the backend answers process == "
+                        "false the false branch must end without effect"
+                    )
 
     if webhook is not None:
         # Rooted at the TRIGGER, not the gate: a hidden branch attached
