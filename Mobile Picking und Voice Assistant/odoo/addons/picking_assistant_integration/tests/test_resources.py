@@ -453,24 +453,32 @@ class TestGuardedNonceReservation(ResourceCase):
                 self.job.job_id,
                 1,
             )
-        # ... und eine veraltete Generation kommt gar nicht erst zum Zug.
-        with self.assertRaises(ValidationError):
-            nonces.api_reserve_request_nonce(
-                "n8n_to_backend",
-                "n2b-test",
-                "123e4567-e89b-42d3-a456-426614174071",
-                False,
-                self.job.job_id,
-                99,
-            )
-        with self.assertRaises(ValidationError):
-            nonces.api_reserve_request_nonce(
-                "n8n_to_backend",
-                "n2b-test",
+        # ... und eine veraltete Generation wird abgelehnt.
+        #
+        # Seit Task 3 laeuft die Reservierung VOR der Generationspruefung
+        # (LOCK_ORDER beginnt mit "nonce"). Der Schutz ist damit nicht die
+        # Reihenfolge, sondern die Transaktionsgrenze: der Fehlschlag rollt die
+        # Reservierung mit zurueck. `assertRaises` legt dafuer denselben
+        # Savepoint um den Block, den der RPC-Dispatcher um den Request legt --
+        # die Nonce darf danach nicht existieren, und genau das wird geprueft.
+        for stale_nonce, job_id, generation in (
+            ("123e4567-e89b-42d3-a456-426614174071", self.job.job_id, 99),
+            (
                 "123e4567-e89b-42d3-a456-426614174072",
-                False,
                 "00000000-0000-4000-8000-000000000099",
                 1,
+            ),
+        ):
+            with self.assertRaises(ValidationError):
+                nonces.api_reserve_request_nonce(
+                    "n8n_to_backend", "n2b-test", stale_nonce, False, job_id,
+                    generation,
+                )
+            self.assertFalse(
+                self.env["picking.assistant.webhook.nonce"]
+                .sudo()
+                .search_count([("nonce", "=", stale_nonce)]),
+                "a rejected reservation left its nonce behind",
             )
 
     def test_reservation_without_a_job_keeps_the_task_8_behaviour(self):

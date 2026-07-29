@@ -14,37 +14,10 @@ from .concurrency_common import CommittedConcurrencyCase
 
 @tagged("post_install", "-at_install")
 class TestLeaseExpiry(CommittedConcurrencyCase):
-    def _job_with_expired_lease(self):
-        """Commit a job whose receipt holds a lease that expired one second ago."""
-        env = self.env
-        job = self.track(
-            env["picking.assistant.integration.job"].create(self._job_values())
-        )
-        receipt = self.track(
-            env["picking.assistant.event.receipt"].create(
-                self._receipt_values(job, state="processing")
-            )
-        )
-        self.track(
-            env["picking.assistant.outbox"].create(
-                self._outbox_values(job, receipt)
-            )
-        )
-        now = fields.Datetime.now()
-        receipt.write(
-            {
-                "processing_lease_token": "stale-token",
-                "processing_lease_expires_at": now - timedelta(seconds=1),
-            }
-        )
-        job.write(
-            {
-                "processing_lease_token": "stale-token",
-                "processing_lease_expires_at": now - timedelta(seconds=1),
-            }
-        )
-        env.cr.commit()
-        return job, receipt
+    # `_job_with_expired_lease` used to live here. It moved to
+    # `concurrency_common.py` next to `_job_with_live_lease`, which Task 3
+    # needed: two builders for the same fixture differing in one number is
+    # exactly the drift the base class warns about.
 
     def test_callback_with_an_expired_lease_is_refused(self):
         job, receipt = self._job_with_expired_lease()

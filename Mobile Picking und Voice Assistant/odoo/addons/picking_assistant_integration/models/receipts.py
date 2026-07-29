@@ -33,6 +33,16 @@ CALLBACK_STATUSES = {
 }
 NONCE_DIRECTIONS = ("backend_to_n8n", "n8n_to_backend")
 
+# Eine globale Sperr-Reihenfolge, ausnahmslos, in jedem Pfad. Zwei Pfade mit
+# entgegengesetzter Reihenfolge sind ein Deadlock-Zyklus, und Postgres loest
+# den mit 40P01 auf -- also mit einem 500er unter genau der Last, fuer die das
+# System gebaut wurde.
+#
+# Die Nonce steht bewusst VORNE: schlaegt eine spaetere Validierung fehl, rollt
+# die gesamte RPC-Transaktion inklusive Nonce-Reservierung zurueck, es wird
+# also keine Nonce verbrannt.
+LOCK_ORDER = ("nonce", "job", "receipt", "outbox")
+
 
 class PickingAssistantWebhookNonce(models.Model):
     _name = "picking.assistant.webhook.nonce"
@@ -233,13 +243,32 @@ class PickingAssistantEventReceipt(models.Model):
         acceptance_nonce,
     ):
         self.env["picking.assistant.api.mixin"]._require_api_service()
+        nonces = self.env["picking.assistant.webhook.nonce"]
+        # 2. LOCK_ORDER[0] -- "nonce". Diese beiden Reservierungen standen
+        # frueher HINTER der Job-Sperre, waehrend `api_apply_callback` sie vor
+        # seiner Job-Sperre macht. Zwei Requests mit derselben Nonce hielten
+        # damit je eine Haelfte eines Zyklus, und Postgres brach einen von
+        # beiden mit 40P01 ab (Review-Befund #6).
+        #
+        # Dass eine spaetere Validierung hier nun eine Nonce "verbraucht" hat,
+        # ist kein Verlust: der RPC-Dispatcher rollt bei ValidationError die
+        # gesamte Transaktion zurueck, die Reservierung verschwindet mit ihr.
+        # Ein Test, der `api_accept_event` direkt aufruft, muss diese
+        # Transaktionsgrenze selbst nachbilden (siehe
+        # test_wrong_job_id_causes_no_nonce_or_receipt_write).
+        nonces._reserve(
+            "n8n_to_backend", acceptance_key_id, acceptance_nonce, event_id=event_id
+        )
+        # Jede Wiederverwendung der Ingress-Nonce wird abgelehnt.
+        nonces._reserve(
+            "backend_to_n8n", ingress_key_id, ingress_nonce, event_id=event_id
+        )
         outboxes = self.env["picking.assistant.outbox"].sudo()
         jobs = self.env["picking.assistant.integration.job"].sudo()
-        # 2. resolve identifiers WITHOUT locks, then acquire locks in the
-        # global job -> receipt -> outbox order (multi-table FOR UPDATE OF
-        # implies no portable acquisition order). The fingerprint/linkage
-        # check below is a lock-free early reject so mismatches fail before
-        # any nonce write; the authoritative recheck happens under the
+        # 3. resolve identifiers WITHOUT locks, then acquire the remaining
+        # locks in LOCK_ORDER (multi-table FOR UPDATE OF implies no portable
+        # acquisition order). The fingerprint/linkage check below is a
+        # lock-free early reject; the authoritative recheck happens under the
         # outbox lock further down (readonly=True fields are not enforced
         # against privileged ORM writes, so the early read can go stale).
         outboxes.flush_model()
@@ -254,6 +283,7 @@ class PickingAssistantEventReceipt(models.Model):
             raise ValidationError("Unknown outbox event.")
         outbox = outboxes.browse(row[0])
         job = jobs.browse(row[1])
+        # 4. LOCK_ORDER[1] -- "job".
         self.env.cr.execute(
             "SELECT id FROM picking_assistant_integration_job "
             "WHERE id = %s FOR UPDATE",
@@ -262,24 +292,15 @@ class PickingAssistantEventReceipt(models.Model):
         # Re-read both records post-lock instead of trusting pre-lock cache.
         job.invalidate_recordset()
         outbox.invalidate_recordset()
-        # 3. reject before any create/write when a supplied value differs.
+        # 5. reject before any create/write when a supplied value differs.
         if job.job_id != job_id:
             raise ValidationError("Job ID mismatch.")
         if outbox.payload_fingerprint != payload_fingerprint:
             raise ValidationError("Payload fingerprint mismatch.")
         if int(delivery_generation) != job.delivery_generation:
             raise ValidationError("Delivery generation mismatch.")
-        nonces = self.env["picking.assistant.webhook.nonce"]
-        # 4. reserve the n8n -> backend acceptance nonce.
-        nonces._reserve(
-            "n8n_to_backend", acceptance_key_id, acceptance_nonce, event_id=event_id
-        )
-        # 5. reserve the backend -> n8n ingress nonce; every reuse is rejected.
-        nonces._reserve(
-            "backend_to_n8n", ingress_key_id, ingress_nonce, event_id=event_id
-        )
         now = fields.Datetime.now()
-        # 6. create or lock the event receipt.
+        # 6. LOCK_ORDER[2] -- "receipt": create or lock the event receipt.
         receipt = self._lock_existing(event_id)
         if not receipt:
             try:
@@ -300,7 +321,7 @@ class PickingAssistantEventReceipt(models.Model):
                 receipt = self._lock_existing(event_id)
         else:
             receipt.write({"last_received_at": now})
-        # 6b. third lock in the global job -> receipt -> outbox order, then
+        # 6b. LOCK_ORDER[3] -- "outbox", then
         # revalidate the outbox from the row under lock: a concurrent
         # privileged write may have changed linkage or fingerprint since the
         # lock-free early check, and the acceptance decision rests on them.

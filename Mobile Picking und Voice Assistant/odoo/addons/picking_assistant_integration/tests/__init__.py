@@ -6,3 +6,4 @@ from . import test_crons_retention
 from . import test_resources
 from . import concurrency_common
 from . import test_lease_expiry
+from . import test_lock_order

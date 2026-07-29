@@ -582,10 +582,18 @@ class PickingAssistantWebhookNonceResources(models.Model):
         Generationsbindung.
 
         Optional, weil die Acceptance-/Callback-Routen (Task 8/10) ohne Job
-        aufrufen und sich nicht aendern duerfen. Sobald ein `job_id`
-        mitkommt -- so rufen die Ressourcenrouten auf -- werden Job und
-        aktuelle Generation VOR der Reservierung geprueft, damit eine
-        veraltete Generation nicht einmal eine Nonce verbrennen kann.
+        aufrufen und sich nicht aendern duerfen.
+
+        REIHENFOLGE: Nonce zuerst, dann Job und Receipt -- `LOCK_ORDER` aus
+        `receipts.py`, ausnahmslos. Diese Methode sperrte frueher Job und
+        Receipt VOR der Reservierung, also genau andersherum als
+        `api_apply_callback`; zwei Requests mit derselben Nonce auf demselben
+        Job konnten damit einen Zyklus bilden, den Postgres mit 40P01 abraeumt.
+        Das war die vierte Fassung derselben Reihenfolge in diesem Addon und
+        stand hier, weil eine veraltete Generation "nicht einmal eine Nonce
+        verbrennen" sollte. Sie verbrennt auch jetzt keine: schlaegt die
+        Generationspruefung fehl, rollt der RPC-Dispatcher die ganze
+        Transaktion inklusive Reservierung zurueck.
 
         Bewusst NICHT uebernommen: ein vom Aufrufer geliefertes `expires_at`.
         Die Retention gehoert dem Store (900s > die geforderten 600s); ein
@@ -593,9 +601,10 @@ class PickingAssistantWebhookNonceResources(models.Model):
         stellen.
         """
         self.env["picking.assistant.api.mixin"]._require_api_service()
+        reserved = super().api_reserve_request_nonce(
+            direction, key_id, nonce, event_id=event_id
+        )
         if job_id:
             job = self.env["picking.assistant.integration.job"]._locked_job(job_id)
             job._require_current_generation(delivery_generation)
-        return super().api_reserve_request_nonce(
-            direction, key_id, nonce, event_id=event_id
-        )
+        return reserved

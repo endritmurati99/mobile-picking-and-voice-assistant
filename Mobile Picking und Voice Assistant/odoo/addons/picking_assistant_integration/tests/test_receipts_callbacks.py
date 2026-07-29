@@ -4,7 +4,7 @@ from unittest.mock import patch
 from odoo import fields
 from odoo.exceptions import AccessError, ValidationError
 
-from ..models.receipts import PickingAssistantWebhookNonce
+from ..models.receipts import PickingAssistantEventReceipt
 from .common import IntegrationCase
 
 
@@ -80,6 +80,12 @@ class TestReceiptsAndCallbacks(IntegrationCase):
         self.assertEqual(receipts.search_count([]), 1)
 
     def test_wrong_job_id_causes_no_nonce_or_receipt_write(self):
+        """Since Task 3 the nonce is reserved FIRST (LOCK_ORDER), so this is
+        no longer "the method never got that far" -- it is "the failure rolls
+        the reservation back with everything else". Odoo's `assertRaises`
+        wraps the block in a savepoint, which is the same transaction boundary
+        the RPC dispatcher applies to a ValidationError, so the assertion below
+        still measures what production does."""
         receipts = self.env["picking.assistant.event.receipt"].with_user(
             self.api_user
         )
@@ -101,21 +107,24 @@ class TestReceiptsAndCallbacks(IntegrationCase):
 
     def test_acceptance_revalidates_outbox_under_lock(self):
         """readonly=True does not stop privileged ORM writes, so the
-        acceptance decision must re-check the outbox from the row under
-        lock. Simulate a concurrent privileged fingerprint change landing
-        between the early lock-free check and the outbox lock (the nonce
-        reservation sits exactly in that window)."""
+        acceptance decision must re-check the outbox from the row under lock.
+        Simulate a concurrent privileged fingerprint change landing between the
+        early lock-free check and the outbox lock.
+
+        The tamper used to hang off `_reserve`, because the nonce reservation
+        sat in that window. Task 3 moved the reservation to the FRONT of the
+        method (LOCK_ORDER starts at "nonce"), so a tamper there now lands
+        before the early check and would be caught by it -- the test would
+        still go green while covering nothing. `_lock_existing` is what sits in
+        the window now, so that is what carries the tamper."""
         receipts = self.env["picking.assistant.event.receipt"].with_user(
             self.api_user
         )
-        real_reserve = PickingAssistantWebhookNonce._reserve
+        real_lock_existing = PickingAssistantEventReceipt._lock_existing
         outbox_id = self.outbox.id
 
-        def reserve_then_tamper(model_self, direction, key_id, nonce,
-                                event_id=False):
-            record = real_reserve(
-                model_self, direction, key_id, nonce, event_id=event_id
-            )
+        def lock_then_tamper(model_self, event_id):
+            record = real_lock_existing(model_self, event_id)
             model_self.env.cr.execute(
                 "UPDATE picking_assistant_outbox "
                 "SET payload_fingerprint = %s WHERE id = %s",
@@ -124,9 +133,11 @@ class TestReceiptsAndCallbacks(IntegrationCase):
             return record
 
         with patch.object(
-            PickingAssistantWebhookNonce, "_reserve", reserve_then_tamper
+            PickingAssistantEventReceipt, "_lock_existing", lock_then_tamper
         ):
-            with self.assertRaises(ValidationError):
+            with self.assertRaisesRegex(
+                ValidationError, "Outbox event changed during acceptance"
+            ):
                 receipts.api_accept_event(
                     self.outbox.event_id,
                     self.job.job_id,
