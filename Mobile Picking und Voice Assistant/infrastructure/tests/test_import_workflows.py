@@ -193,6 +193,98 @@ esac
 """
 
 
+# ---------------------------------------------------------------------------
+# A minimal but GENUINELY v2-contract-compliant workflow. Both harnesses use
+# it, because `import` and `activate-test` now both run the contract gate
+# against the fixture registry -- previously the gate silently validated the
+# repo's eight v1 workflows instead, so a fixture that satisfies none of the
+# nine v2 obligations sailed through. It satisfies all nine: one headerAuth
+# POST webhook on the registered path, the Signature Gate as the mandatory
+# first node with literal expectations, a terminal respondToWebhook on the
+# rejection output, exactly one signed request on the acceptance route, and a
+# process == true gate dominated by it whose false branch ends without effect.
+# ---------------------------------------------------------------------------
+
+V2_WEBHOOK_NODE = "PWR Webhook"
+SMOKE_WEBHOOK_PATH = "/webhook/pwr/v2/smoke"
+ACCEPTANCE_TARGET_PATH = "/api/internal/n8n/v2/events/accept"
+
+
+def valid_v2_workflow(name):
+    return {
+        "name": name,
+        "nodes": [
+            {
+                "name": V2_WEBHOOK_NODE,
+                "type": "n8n-nodes-base.webhook",
+                "parameters": {
+                    "authentication": "headerAuth",
+                    "httpMethod": "POST",
+                    "path": "pwr/v2/smoke",
+                    "options": {"rawBody": True},
+                },
+            },
+            {
+                "name": "PWR Signature Gate",
+                "type": "n8n-nodes-pwr.pwrSignatureGate",
+                "parameters": {
+                    "expectedMethod": "POST",
+                    "expectedTarget": SMOKE_WEBHOOK_PATH,
+                },
+            },
+            {
+                "name": "PWR Accept Event",
+                "type": "n8n-nodes-pwr.pwrSignedHttpRequest",
+                "parameters": {
+                    "target": ACCEPTANCE_TARGET_PATH,
+                    "method": "POST",
+                    "host": "backend",
+                    "body": {
+                        "event_id": "={{ $json.event_id }}",
+                        "odoo_instance": "={{ $json.odoo_instance }}",
+                        "idempotency_key": "={{ $json.event_id }}",
+                    },
+                },
+            },
+            {
+                "name": "Process Gate",
+                "type": "n8n-nodes-base.if",
+                "parameters": {
+                    "conditions": {
+                        "conditions": [
+                            {
+                                "leftValue": "={{ $json.process }}",
+                                "rightValue": True,
+                                "operator": {"type": "boolean", "operation": "equal"},
+                            }
+                        ]
+                    }
+                },
+            },
+            {
+                "name": "Reject Response",
+                "type": "n8n-nodes-base.respondToWebhook",
+                "parameters": {},
+            },
+        ],
+        "connections": {
+            V2_WEBHOOK_NODE: {
+                "main": [[{"node": "PWR Signature Gate", "type": "main", "index": 0}]]
+            },
+            "PWR Signature Gate": {
+                "main": [
+                    [{"node": "PWR Accept Event", "type": "main", "index": 0}],
+                    [{"node": "Reject Response", "type": "main", "index": 0}],
+                ]
+            },
+            "PWR Accept Event": {
+                "main": [[{"node": "Process Gate", "type": "main", "index": 0}]]
+            },
+            "Process Gate": {"main": [[], []]},
+        },
+    }
+
+
 def _make_secret_dir(tmp_path):
     """A synthetic stand-in for the host's /run/secrets.
 
@@ -246,14 +338,14 @@ def docker_harness(tmp_path):
                     "name": "Foundation Smoke Test",
                     "generation": "v2",
                     "event_names": [],
-                    "webhook_paths": [],
-                    "callback_paths": [],
+                    "webhook_paths": [SMOKE_WEBHOOK_PATH],
+                    "callback_paths": [ACCEPTANCE_TARGET_PATH],
                     "authentication": "native_header_hmac",
                     "managed": True,
                     "production_activation": False,
                     "test_only": True,
                     "activation_order": None,
-                    "allowed_target_hosts": [],
+                    "allowed_target_hosts": ["backend"],
                     "credential_bindings": [],
                 }
             ],
@@ -261,8 +353,7 @@ def docker_harness(tmp_path):
         encoding="utf-8",
     )
     (workflows_dir / "smoke-test.json").write_text(
-        json.dumps({"name": "Foundation Smoke Test", "nodes": [], "connections": {}}),
-        encoding="utf-8",
+        json.dumps(valid_v2_workflow("Foundation Smoke Test")), encoding="utf-8"
     )
 
     state_dir = tmp_path / "docker-state"
@@ -469,7 +560,7 @@ exec "$REAL_PYTHON" "$@"
 ERROR_TRIGGER_FILE = "error-trigger.json"
 BOUND_WORKFLOW_FILE = "smoke-test.json"
 BOUND_WORKFLOW_NAME = "Foundation Smoke Test"
-BOUND_NODE_NAME = "PWR Webhook"
+BOUND_NODE_NAME = V2_WEBHOOK_NODE
 
 # The exact operation set a successful `import` legitimately performs:
 # credential verification (twice: the verify gate and the metadata read),
@@ -510,14 +601,14 @@ def tmp_registry(tmp_path):
                     "name": BOUND_WORKFLOW_NAME,
                     "generation": "v2",
                     "event_names": [],
-                    "webhook_paths": [],
-                    "callback_paths": [],
+                    "webhook_paths": [SMOKE_WEBHOOK_PATH],
+                    "callback_paths": [ACCEPTANCE_TARGET_PATH],
                     "authentication": "native_header_hmac",
                     "managed": True,
                     "production_activation": False,
                     "test_only": True,
                     "activation_order": 2,
-                    "allowed_target_hosts": [],
+                    "allowed_target_hosts": ["backend"],
                     "credential_bindings": [
                         {
                             "node": BOUND_NODE_NAME,
@@ -535,12 +626,7 @@ def tmp_registry(tmp_path):
         encoding="utf-8",
     )
     (workflows_dir / BOUND_WORKFLOW_FILE).write_text(
-        json.dumps({
-            "name": BOUND_WORKFLOW_NAME,
-            "nodes": [{"name": BOUND_NODE_NAME, "type": "n8n-nodes-base.webhook"}],
-            "connections": {},
-        }),
-        encoding="utf-8",
+        json.dumps(valid_v2_workflow(BOUND_WORKFLOW_NAME)), encoding="utf-8"
     )
 
     backup_dir = tmp_path / "import-backup"
@@ -560,10 +646,28 @@ def tmp_registry(tmp_path):
         encoding="utf-8",
     )
 
+    def break_bound_workflow_contract():
+        """Remove the Signature Gate, violating v2 obligation 2.
+
+        The gate must abort the import on this -- but only if it verifies
+        THIS registry's workflows. Reading the repo registry instead (the old
+        behaviour) validates eight unrelated v1 files, passes, and imports
+        this one unverified. `smoke-test.json` does not exist in the repo at
+        all, so its name appearing in the failure is the proof.
+        """
+        broken = valid_v2_workflow(BOUND_WORKFLOW_NAME)
+        broken["nodes"] = [
+            node for node in broken["nodes"] if node["name"] != "PWR Signature Gate"
+        ]
+        (workflows_dir / BOUND_WORKFLOW_FILE).write_text(
+            json.dumps(broken), encoding="utf-8"
+        )
+
     return {
         "registry_path": registry_path,
         "workflows_dir": workflows_dir,
         "backup_dir": backup_dir,
+        "break_bound_workflow_contract": break_bound_workflow_contract,
     }
 
 
@@ -783,3 +887,30 @@ def test_optional_previous_hmac_secret_may_be_absent(mocked_docker, tmp_registry
         credentials=[{"id": "id-1", "name": "pwr.v2.inbound-header", "type": "httpHeaderAuth"}],
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_contract_violation_in_the_fixture_registry_aborts_the_import(
+    mocked_docker, tmp_registry
+):
+    """The contract gate must verify the registry this run actually imports.
+
+    `verify-workflows.py` defaults to the repo registry and never reads the
+    environment, so without an explicit --registry the gate happily validated
+    the repo's eight v1 workflows and then let the run import a completely
+    different registry's workflows having verified none of them.
+    """
+    tmp_registry["break_bound_workflow_contract"]()
+    result = _run_importer(
+        mocked_docker,
+        tmp_registry,
+        credentials=[{"id": "id-1", "name": "pwr.v2.inbound-header", "type": "httpHeaderAuth"}],
+    )
+    assert result.returncode != 0
+    assert "Workflow validation failed" in result.stdout
+    assert BOUND_WORKFLOW_FILE in result.stdout, (
+        "the gate must report the FIXTURE registry's workflow, not the repo's"
+    )
+    assert "v2 workflow has no PWR Signature Gate node" in result.stdout
+    assert mocked_docker["log_ops"]() == [], (
+        "a failing contract gate must abort before anything reaches docker"
+    )

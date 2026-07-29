@@ -20,7 +20,6 @@ from infrastructure.scripts.workflow_registry import (  # noqa: E402
     load_registry,
 )
 from infrastructure.scripts.workflow_verifier import (  # noqa: E402
-    ROOT,
     validate_contracts,
     verify_v2_workflow,
 )
@@ -56,7 +55,13 @@ def run_v2_checks(registry_path: Path) -> tuple[list[str], list[str]]:
         if workflow_spec.generation != "v2":
             skipped.append(f"{workflow_spec.file} (generation {workflow_spec.generation})")
             continue
-        workflow_path = ROOT / "n8n" / "workflows" / workflow_spec.file
+        # Resolved relative to the registry being verified, not to the repo
+        # root: verifying registry X while reading workflow files belonging
+        # to registry Y is the same vacuous gate as not passing --registry
+        # at all. For the default registry (n8n/workflow-registry.json)
+        # this is the identical path, which is also how load_registry
+        # locates the files for its own registry/disk consistency check.
+        workflow_path = registry_path.parent / "workflows" / workflow_spec.file
         try:
             data = json.loads(workflow_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:

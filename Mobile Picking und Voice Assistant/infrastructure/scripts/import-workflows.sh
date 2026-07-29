@@ -93,7 +93,12 @@ run_verify_workflows() {
   echo "=== Verifying workflow contracts ==="
   (
     cd "$ROOT_DIR"
-    python "$VERIFY_PY"
+    # --registry is mandatory here, exactly as for every other registry
+    # consumer in this script: verify-workflows.py falls back to the default
+    # registry and never reads the environment, so without it the contract
+    # gate would validate the repo's workflows and then let this run import
+    # a completely different registry's workflows unverified.
+    python "$VERIFY_PY" --registry "$REGISTRY_PATH"
   )
 }
 
@@ -305,18 +310,28 @@ stage_workflow_file() {
   local credential_metadata_file="$4"
   local output_file="$5"
 
+  # The bindings come from credential_bindings_json (line 79), the one
+  # helper that already passes --registry correctly. Re-invoking
+  # workflow_registry.py inline here is what created the defect where this
+  # staging step silently read the DEFAULT registry: two call sites, one of
+  # them wrong. There is now exactly one invocation to get right.
+  local bindings_json
+  if ! bindings_json="$(credential_bindings_json "$file_name")"; then
+    echo "ERROR: could not resolve credential bindings for $file_name" >&2
+    exit 1
+  fi
+
   python - "$WORKFLOW_DIR/$file_name" "$state_file" "$file_name" \
     "$error_workflow_id" "$credential_metadata_file" "$STAGE_PY" \
-    "$REGISTRY_PY" "$output_file" "$REGISTRY_PATH" <<'PY'
+    "$bindings_json" "$output_file" <<'PY'
 import json
 import subprocess
 import sys
 
 (
     source_path, state_path, file_name, error_workflow_id,
-    credential_metadata_path, stage_py, registry_py, output_path,
-    registry_path,
-) = sys.argv[1:10]
+    credential_metadata_path, stage_py, bindings_json, output_path,
+) = sys.argv[1:9]
 
 with open(source_path, encoding="utf-8") as handle:
     source = json.load(handle)
@@ -325,20 +340,7 @@ with open(state_path, encoding="utf-8") as handle:
 with open(credential_metadata_path, encoding="utf-8") as handle:
     credential_metadata = json.load(handle)
 
-# --registry must be passed explicitly (and, as everywhere else in this
-# script, AFTER the subcommand): without it argparse falls back to the
-# default registry, so this staging step would read the real repo registry
-# even when the rest of the run is pointed at another one via REGISTRY_PATH.
-bindings_result = subprocess.run(
-    ["python", registry_py, "credential-bindings", file_name, "--registry", registry_path],
-    capture_output=True, text=True,
-)
-if bindings_result.returncode != 0:
-    # Only workflow_registry.py's own message (file/credential names) is
-    # forwarded -- never its stdout.
-    sys.stderr.write(bindings_result.stderr)
-    raise SystemExit(1)
-bindings = json.loads(bindings_result.stdout)
+bindings = json.loads(bindings_json)
 
 # Wire format for credential_index: a list of
 # {"logical_name", "credential_type", "credentials"} rows (JSON object keys
