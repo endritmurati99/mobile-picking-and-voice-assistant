@@ -786,6 +786,20 @@ PROCESS_GATE_TYPES: frozenset[str] = frozenset({
 })
 PROCESS_FIELD_RE = re.compile(r"\bprocess\b", re.IGNORECASE)
 PROCESS_TRUE_RE = re.compile(r"\btrue\b", re.IGNORECASE)
+# Comparison operators that mean "equals true". ALLOWLIST: an operator that
+# is not on this list fails closed. Checking only that the blob mentions
+# `process` and `true` is not enough -- flipping "equal" to "notEqual"
+# inverts the entire gate, so every effect runs precisely when the backend
+# answered process == false. Covers both the n8n v1 IF shape
+# ({"operation": "equal"}) and the v2 shape ({"operator": {"operation": ...}}).
+PROCESS_TRUE_OPERATIONS: frozenset[str] = frozenset({
+    "equal",
+    "equals",
+    "equalto",
+    "is",
+    "istrue",
+    "true",
+})
 WEBHOOK_PATH_PREFIX = "/webhook/"
 
 
@@ -939,15 +953,56 @@ def _normalized_webhook_paths(spec: dict[str, Any]) -> set[str]:
     return paths
 
 
-def _is_process_true_gate(node: dict[str, Any]) -> bool:
-    """A branch node that explicitly tests the backend's `process` decision
-    against true. Static JSON matching only -- see the KNOWN, ACCEPTED
-    LIMITS note on verify_v2_workflow.
+def _operation_values(value: Any) -> list[str]:
+    """Every "operation"/"operator" string anywhere in a parameter tree.
+
+    n8n writes the comparison two ways depending on node version: v1 IF uses
+    {"value1": ..., "operation": "equal", "value2": true}, v2 uses
+    {"leftValue": ..., "operator": {"type": "boolean", "operation": "true"}}.
+    Collecting recursively handles both without hard-coding either shape.
+    """
+    found: list[str] = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in ("operation", "operator") and isinstance(item, str):
+                found.append(item)
+            else:
+                found.extend(_operation_values(item))
+    elif isinstance(value, list):
+        for item in value:
+            found.extend(_operation_values(item))
+    return found
+
+
+def _gate_mentions_process(node: dict[str, Any]) -> bool:
+    """A branch node that talks about the backend's `process` decision at all
+    -- used to tell "there is no gate here" apart from "there is a gate here
+    and its operator is wrong", which are very different findings.
     """
     if node.get("type") not in PROCESS_GATE_TYPES:
         return False
-    blob = _node_text_blob(node)
-    return bool(PROCESS_FIELD_RE.search(blob) and PROCESS_TRUE_RE.search(blob))
+    return bool(PROCESS_FIELD_RE.search(_node_text_blob(node)))
+
+
+def _is_process_true_gate(node: dict[str, Any]) -> bool:
+    """A branch node that explicitly tests the backend's `process` decision
+    against TRUE -- including the operator's semantics, not merely the
+    presence of the words `process` and `true`.
+
+    Static JSON matching only, and the operator allowlist is the boundary of
+    what that can prove -- see the KNOWN, ACCEPTED LIMITS note on
+    verify_v2_workflow.
+    """
+    if not _gate_mentions_process(node):
+        return False
+    if not PROCESS_TRUE_RE.search(_node_text_blob(node)):
+        return False
+    operations = _operation_values(node.get("parameters") or {})
+    if not operations:
+        # No discoverable comparison at all: fail closed rather than assume
+        # the gate means what its node type suggests.
+        return False
+    return all(operation.lower() in PROCESS_TRUE_OPERATIONS for operation in operations)
 
 
 def _reverse_adjacency(connections: dict) -> dict[str, set[str]]:
@@ -1048,7 +1103,7 @@ def _combined_text_blob(nodes_by_name: dict[str, dict], names: set[str]) -> str:
 def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[str]:
     """Verify the v2-generation invariants for a single workflow.
 
-    Der Verifier beweist den Graphen, er tastet ihn nicht ab. Acht Pflichten:
+    Der Verifier beweist den Graphen, er tastet ihn nicht ab. Neun Pflichten:
 
      1. Genau ein Webhook-Knoten, mit dem Registry-Pfad und Methode POST.
      2. Genau ein Signature Gate, mit literalem expectedMethod und
@@ -1064,6 +1119,10 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
         True-Zweig dieses Gates DOMINIERT -- Erreichbarkeit genuegt nicht,
         denn ein Nebenpfad um das Gate herum ist ebenfalls erreichbar.
      8. Der False-Zweig endet ohne Wirkung.
+     9. Die Acceptance DOMINIERT das process-Gate. Ohne diese Pflicht genuegt
+        eine zweite Kante am Gate vorbei an der Acceptance: die Wirkungen
+        blieben formal vom True-Zweig dominiert, das Gate entschiede aber
+        ueber Items, die das Backend nie gesehen hat.
 
     Bis 2026-07 pruefte diese Funktion nur, dass der EINE Knoten hinter dem
     akzeptierten Gate-Ausgang irgendein PWR Signed HTTP Request ist. Ein
@@ -1102,11 +1161,10 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
 
     KNOWN, ACCEPTED LIMITS (do not mistake this for a data-flow analyzer):
     this module does static JSON/text substring matching, nothing more.
-    Two classes of bypass are known and explicitly out of scope until a
-    real fix is possible (a JS AST pass over Code-node bodies, or
-    verification against a live, executing workflow -- neither exists yet,
-    and no v2 workflow exists in the registry until Task 15 lands the
-    smoke workflow):
+    These bypasses are known and explicitly out of scope until a real fix is
+    possible (a JS AST pass over Code-node bodies, or verification against a
+    live, executing workflow -- neither exists yet, and no v2 workflow exists
+    in the registry until Task 15 lands the smoke workflow):
       - Renamed/case-varied field names (e.g. "photoCount" instead of
         "photo_count", or "eventId" instead of "event_id") silently dodge
         every regex-based token check in this module.
@@ -1116,6 +1174,31 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
         only ever sees the literal JSON the workflow file contains. This
         also covers a dynamically-built outbound URL: the outbound
         allowlist check below only catches a LITERAL absolute URL string.
+      - GATING IS NOT BLOCKING. Obligations 7 and 9 prove WHERE a node sits
+        in the graph, never WHAT it is allowed to be. After acceptance there
+        is NO node-type allowlist: an "n8n-nodes-base.executeCommand" running
+        a shell command, an "@n8n/n8n-nodes-langchain.openAi" node, or an
+        unknown community node carrying its own host/path parameters all
+        pass, provided they are dominated by the process gate's true branch.
+        The only post-acceptance net is ABSOLUTE_URL_RE, which needs a
+        LITERAL absolute URL and so sees none of the three. Such a node runs
+        only when the backend answered process == true -- that is the whole
+        guarantee, and it is a real one, but it is not containment. A
+        post-acceptance node-type allowlist is tracked as separate work.
+      - `_is_process_true_gate` proves the gate's OPERATOR is one of
+        PROCESS_TRUE_OPERATIONS; it does not prove the gate's operands. A
+        gate comparing some other field, or one whose left-hand side is an
+        expression that merely mentions `process`, satisfies it.
+      - `_dominated_by` is called with output index 0 for the true branch and
+        obligation 8 reads index 1 for the false branch. Both are hard-coded.
+        That is correct for an "n8n-nodes-base.if" node and for any gate
+        whose true branch is its first output; a "switch" that puts its
+        accepting branch on some other output would make both checks look at
+        the wrong edges. See the Task 15 handoff note in the task-1 report.
+      - Every node of type RESPOND_TO_WEBHOOK_TYPE is exempt from domination
+        regardless of where it sits, so an extra respond node on a side path
+        around the process gate passes. It carries no business effect, so the
+        impact is bounded to responding early; accepted deliberately.
     """
     errors: list[str] = []
     nodes = workflow.get("nodes") or []
@@ -1316,9 +1399,51 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
                     f"{len(process_gates)}); every business effect must be gated on the "
                     "backend's process decision, not merely sequenced after acceptance"
                 )
+                # Distinguish "no gate at all" from "a gate whose operator is
+                # inverted", which is far more dangerous and far easier to miss
+                # in review than a missing gate.
+                for name in sorted(after_acceptance):
+                    node = by_name.get(name)
+                    if node is None or not _gate_mentions_process(node):
+                        continue
+                    if _is_process_true_gate(node):
+                        continue
+                    operations = sorted(
+                        set(_operation_values(node.get("parameters") or {}))
+                    )
+                    errors.append(
+                        f"{file_name}: gate '{name}' tests the backend's process "
+                        f"decision with operation(s) {operations or 'none'}, which do "
+                        f"not mean 'equals true'; only {sorted(PROCESS_TRUE_OPERATIONS)} "
+                        "are accepted -- an inverted operator runs every effect "
+                        "precisely when the backend answered process == false"
+                    )
             elif webhook is not None:
                 process_gate_name = process_gates[0].get("name")
                 trigger_name = webhook.get("name")
+
+                # Obligation 9: acceptance must DOMINATE the process gate.
+                # Obligations 5 and 6 together only establish that acceptance
+                # exists and that a process gate follows it -- neither forbids
+                # a second edge running the gate on items that never reached
+                # the backend. With an allowlisted Code builder passing the
+                # webhook body through, `process` is then attacker-supplied and
+                # every effect stays "dominated by the true branch" while being
+                # ungated in substance. Same trigger-rooted cut as obligation 7.
+                if not _dominated_by(
+                    connections,
+                    acceptance_name,
+                    0,
+                    {process_gate_name},
+                    trigger_name=trigger_name,
+                ):
+                    errors.append(
+                        f"{file_name}: the process gate '{process_gate_name}' is not "
+                        f"dominated by the acceptance call '{acceptance_name}'; it is "
+                        "still reachable from the trigger with acceptance's output cut "
+                        "away, so it decides on items the backend never accepted and "
+                        "its `process` value can come straight from the request body"
+                    )
 
                 # Which nodes must be gated? ALLOWLIST again: the control
                 # skeleton is enumerated, and EVERYTHING else reachable from
