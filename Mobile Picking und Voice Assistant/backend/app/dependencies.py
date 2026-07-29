@@ -284,6 +284,22 @@ def get_mobile_workflow_service(
     return MobileWorkflowService(odoo)
 
 
+def get_legacy_n8n_workflow_service(
+    odoo: OdooClient = Depends(get_odoo_client),
+) -> MobileWorkflowService:
+    """Workflow-Service fuer die fuenf Legacy-n8n-Callbacks (Service-zu-Service).
+
+    Diese Routen sind ueber `require_n8n_callback_secret` autorisiert und sehen
+    NIE einen Browser-Cookie. Sie duerfen deshalb nicht ueber
+    `get_request_odoo_client_or_grace` laufen: der wirft in production 401,
+    bevor der Handler ueberhaupt erreicht wird, und liesse im Development
+    `X-Odoo-Instance` die Idempotenz-Buchfuehrung auf eine andere Instanz
+    umlenken, waehrend der Business-Write ueber `get_odoo_client` fest auf
+    `local` schreibt. Beide Haelften benutzen jetzt denselben Client.
+    """
+    return MobileWorkflowService(odoo)
+
+
 def resolve_legacy_header_identity(
     picker_user_id: str | None = Header(default=None, alias="X-Picker-User-Id"),
     device_id: str | None = Header(default=None, alias="X-Device-Id"),
