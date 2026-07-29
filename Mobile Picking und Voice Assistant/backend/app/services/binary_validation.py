@@ -39,6 +39,7 @@ from typing import Callable
 
 from PIL import Image, UnidentifiedImageError
 from pypdf import PdfReader
+from pypdf.filters import ASCII85Decode, ASCIIHexDecode
 from pypdf.generic import DictionaryObject, IndirectObject, StreamObject
 
 MAX_IMAGE_BYTES = 15 * 1024 * 1024
@@ -316,6 +317,38 @@ _PDF_ACTION_MESSAGES = {
 }
 
 
+# Inline-Bilder leben INNERHALB eines Inhaltsstroms (BI ... ID <daten> EI) und
+# werden nie zu Stream-Objekten. Der Objektgraph mit seiner Filter-Allowlist und
+# seinem Expansionsbudget sieht sie deshalb nie: ein Inline-Bild traegt seinen
+# eigenen abgekuerzten Filter (/F /DCT) und seine eigenen /W und /H, und ein
+# 586-Byte-PDF darf so 65535x65535 behaupten.
+#
+# Unter der geltenden Politik -- ein Filter ist nur erlaubt, wenn seine
+# Expansion GEBUNDEN geprueft werden kann -- werden Inline-Bilder rundheraus
+# abgelehnt. Sie spaeter wieder zuzulassen hiesse: den Inhaltsstrom dekodieren
+# und die INTRINSISCHEN Bildmasse pruefen. Es darf NIE heissen, den
+# deklarierten /W und /H zu glauben -- das ist genau der Fehler, an dem
+# /DCTDecode und /CCITTFaxDecode schon einmal gescheitert sind.
+#
+# "BI" muss als OPERATOR erkannt werden, nicht als Teilzeichenkette: ein
+# Lieferschein mit dem Wort "KABINE" ist kein Inline-Bild. Der Operator steht
+# deshalb am Strom-/Zeilenanfang oder hinter einem Trenner, und ihm folgt ein
+# Schluesselname, ein Array oder ein Dictionary.
+_INLINE_IMAGE_OPERATOR = re.compile(rb"(?:^|[\s\]>)])BI[\s/\[<]")
+# Laengster Treffer der Regex minus eins: so viele Bytes muessen beim
+# schrittweisen Scannen vom vorigen Block mitgenommen werden, damit ein
+# "BI", das auf der Blockgrenze zerfaellt, trotzdem gesehen wird.
+_INLINE_IMAGE_CARRY = 3
+
+
+def _reject_inline_images(content: bytes) -> None:
+    if _INLINE_IMAGE_OPERATOR.search(content):
+        raise BinaryValidationError(
+            "PDF contains an inline image; artifact PDFs must use bounded "
+            "FlateDecode stream objects"
+        )
+
+
 def _pdf_nodes(root):
     """Alle erreichbaren Dictionaries ab `root`, zyklensicher und gedeckelt.
 
@@ -369,13 +402,23 @@ def _bounded_inflate(data: bytes, budget: int) -> int:
     wird also in 1-MiB-Schritten dekodiert und nach jedem Schritt gegen das
     Budget geprueft -- eine 200-KB-Datei, die sich auf 200 MB entfaltet,
     fliegt nach wenigen Schritten raus, statt vorher den Speicher zu fuellen.
+
+    Der Inline-Bild-Scan laeuft aus genau demselben Grund HIER, Schritt fuer
+    Schritt, und nicht beim Aufrufer auf dem fertigen Klartext: den fertigen
+    Klartext gibt es bewusst nie am Stueck. `carry` traegt die letzten Bytes
+    jedes Schritts in den naechsten, damit ein "BI" auf der Schrittgrenze
+    nicht zerfaellt.
     """
     decompressor = zlib.decompressobj()
     produced = 0
     chunk = data
+    carry = b""
     try:
         while True:
-            produced += len(decompressor.decompress(chunk, _INFLATE_STEP_BYTES))
+            plain = decompressor.decompress(chunk, _INFLATE_STEP_BYTES)
+            _reject_inline_images(carry + plain)
+            carry = plain[-_INLINE_IMAGE_CARRY:]
+            produced += len(plain)
             if produced > budget:
                 return produced
             if decompressor.eof:
@@ -385,6 +428,28 @@ def _bounded_inflate(data: bytes, budget: int) -> int:
                 # Eingabe erschoepft, aber der Strom endete nie sauber.
                 raise BinaryValidationError("PDF stream is truncated")
     except zlib.error as exc:
+        raise BinaryValidationError("PDF stream is not decodable") from exc
+
+
+_NON_EXPANDING_DECODERS: dict[str, Callable[[bytes], bytes]] = {
+    "/ASCII85Decode": lambda data: bytes(ASCII85Decode.decode(data)),
+    "/ASCIIHexDecode": lambda data: bytes(ASCIIHexDecode.decode(data)),
+}
+assert set(_NON_EXPANDING_DECODERS) == _PDF_NON_EXPANDING_FILTERS
+
+
+def _decode_non_expanding(name: str, data: bytes) -> bytes:
+    """Dekodiert einen der beiden nicht expandierenden Filter.
+
+    Ein Filter ohne Dekodierer waere ein KeyError, kein stilles
+    Durchwinken -- die Tabelle wird gegen `_PDF_NON_EXPANDING_FILTERS`
+    behauptet, damit beide Mengen nicht auseinanderlaufen koennen.
+    """
+    try:
+        return _NON_EXPANDING_DECODERS[name](data)
+    except BinaryValidationError:
+        raise
+    except Exception as exc:
         raise BinaryValidationError("PDF stream is not decodable") from exc
 
 
@@ -411,9 +476,27 @@ def _consume_stream_budget(node: DictionaryObject, remaining: int) -> int:
     data = getattr(node, "_data", b"") or b""
     if not isinstance(data, (bytes, bytearray)):
         raise BinaryValidationError("PDF parser rejected input")
-    if not names or names[0] in _PDF_NON_EXPANDING_FILTERS:
+    # Jeder DEKODIERTE Strom wird auf Inline-Bilder geprueft, nicht nur die
+    # rohe Datei. Ein Inhaltsstrom darf selbst komprimiert oder kodiert sein;
+    # ein Rohbyte-Scan allein waere die Abwehr an einer Stelle und ihre
+    # Luecke in der Schwester daneben.
+    if not names:
+        # Unkodiert: dieselben Bytes stehen so auch in der Datei, der
+        # Rohbyte-Scan hat sie also bereits gesehen. Trotzdem auch hier --
+        # diese Pruefung darf sich nicht darauf verlassen, dass der Nachbar
+        # sie schon gemacht hat.
+        _reject_inline_images(bytes(data))
+        produced = len(data)
+    elif names[0] in _PDF_NON_EXPANDING_FILTERS:
+        # ASCIIHex/ASCII85 expandieren nie ueber ihre Eingabelaenge hinaus,
+        # verbergen ein Inline-Bild vor einem Rohbyte-Scan aber genauso
+        # wirksam wie Flate. Die Ausgabe ist durch die Eingabelaenge
+        # gebunden, das Dekodieren am Stueck ist hier also unbedenklich.
+        _reject_inline_images(_decode_non_expanding(names[0], bytes(data)))
         produced = len(data)
     else:
+        # Flate: der Scan sitzt in `_bounded_inflate` selbst, weil der
+        # Klartext dort bewusst nie am Stueck existiert.
         produced = _bounded_inflate(bytes(data), remaining)
     if produced > remaining:
         raise BinaryValidationError("PDF stream expands beyond the allowed budget")
@@ -448,6 +531,10 @@ def validate_pdf(body: bytes) -> ValidatedBinary:
     if not body.startswith(_PDF_VERSIONS):
         raise BinaryValidationError("PDF magic or version is not allowed")
     _reject_trailing_pdf_bytes(body)
+    # Reiner Bytescan, vor dem Parser: ein unkomprimierter Inhaltsstrom mit
+    # Inline-Bild stirbt hier, ohne dass irgendetwas geparst wurde. Die
+    # komprimierte Variante faengt spaeter `_bounded_inflate` ab.
+    _reject_inline_images(body)
     try:
         reader = PdfReader(BytesIO(body), strict=True)
     except Exception as exc:
@@ -608,10 +695,17 @@ def precheck_artifact(kind: str, body: bytes, *, declared_mime: str) -> None:
 
 
 def _precheck_pdf(body: bytes) -> None:
-    """Magic, erlaubte Version und Revisionsdisziplin -- reine Bytescans."""
+    """Magic, erlaubte Version, Revisionsdisziplin und der Inline-Bild-Scan
+    -- alles reine Bytescans, linear, ohne Parser und ohne Dekompression, und
+    damit richtig in Phase 1 aufgehoben: ein Inline-Bild im Klartext kostet
+    weder eine Nonce noch einen Parserlauf. Der Fall, den nur der teure
+    Durchlauf sieht -- ein Inline-Bild in einem KOMPRIMIERTEN Inhaltsstrom --
+    bleibt bewusst dort; ihn hier zu erledigen hiesse dekomprimieren, und
+    genau das darf vor der Nonce nicht passieren."""
     if not body.startswith(_PDF_VERSIONS):
         raise BinaryValidationError("PDF magic or version is not allowed")
     _reject_trailing_pdf_bytes(body)
+    _reject_inline_images(body)
 
 
 def _precheck_zpl(body: bytes) -> None:

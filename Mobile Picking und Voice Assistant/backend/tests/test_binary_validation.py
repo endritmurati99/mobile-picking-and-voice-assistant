@@ -566,3 +566,125 @@ def test_precheck_passes_what_only_the_full_parse_can_reject():
 def test_precheck_accepts_the_legitimate_artifacts():
     precheck_artifact("pdf", pdf_bytes(), declared_mime="application/pdf")
     precheck_artifact("zpl", ZPL_LABEL, declared_mime="application/zpl")
+
+
+# ==========================================================================
+# Regression #9a: Inline-Bilder im Inhaltsstream (BI ... ID <data> EI)
+# ==========================================================================
+
+
+def _content_stream_pdf(content: bytes, *, compress: bool = False) -> bytes:
+    """Einseitiges PDF mit GENAU diesem Inhaltsstream, roh oder Flate-gepackt.
+
+    `compress=True` ist der eigentliche Punkt von #9a: der Inhaltsstream ist
+    dann im Datei-Byte-Strom nicht mehr lesbar, ein reiner Rohbyte-Scan sieht
+    das Inline-Bild also gar nicht.
+    """
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=100, height=100)
+    stream = StreamObject()
+    data = zlib.compress(content, 9) if compress else content
+    if compress:
+        stream[NameObject("/Filter")] = NameObject("/FlateDecode")
+    stream[NameObject("/Length")] = NumberObject(len(data))
+    stream._data = data
+    page[NameObject("/Contents")] = writer._add_object(stream)
+    out = BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def _inline_image_content(filter_abbreviation: bytes = b"") -> bytes:
+    """Kleinster Inhaltsstrom, der ein Inline-Bild traegt.
+
+    Inline-Bilder werden nie zu Stream-Objekten, der Objektgraph mit seiner
+    Filter-Allowlist und seinem Expansionsbudget sieht sie deshalb nie. Die
+    deklarierten /W und /H sind hier absichtlich absurd: sie zeigen, dass der
+    Deklaration nicht zu trauen ist.
+    """
+    declared_filter = b"/F " + filter_abbreviation + b" " if filter_abbreviation else b""
+    return (
+        b"q\n"
+        b"BI /W 65535 /H 65535 /CS /RGB /BPC 8 " + declared_filter + b"\n"
+        b"ID \xff\xd8\xff\xe0 EI\n"
+        b"Q\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "abbreviation", [b"/DCT", b"/CCF", b"/AHx", b"/A85", b"/RL", b"/LZW", b"/Fl"]
+)
+def test_inline_images_are_rejected_regardless_of_filter(abbreviation):
+    body = _content_stream_pdf(_inline_image_content(abbreviation))
+    with pytest.raises(BinaryValidationError, match="inline image"):
+        validate_pdf(body)
+
+
+def test_inline_image_without_a_filter_is_also_rejected():
+    body = _content_stream_pdf(_inline_image_content())
+    with pytest.raises(BinaryValidationError, match="inline image"):
+        validate_pdf(body)
+
+
+def test_inline_image_is_rejected_in_the_cheap_phase_before_any_parsing():
+    """Die Abweisung muss in der billigen Phase fallen -- vor der
+    Nonce-Reservierung und vor dem teuren Parserlauf."""
+    body = _content_stream_pdf(_inline_image_content(b"/DCT"))
+    with pytest.raises(BinaryValidationError, match="inline image"):
+        precheck_artifact("pdf", body, declared_mime="application/pdf")
+
+
+def test_inline_image_inside_a_compressed_content_stream_is_rejected():
+    """DER KERN von #9a: der Rohbyte-Scan allein genuegt nicht. Ein
+    Inhaltsstream darf selbst Flate-komprimiert sein, das Inline-Bild steckt
+    dann in den komprimierten Bytes. Der Test beweist zuerst, dass der
+    Rohbyte-Pfad hier NICHTS sieht, und verlangt die Abweisung trotzdem."""
+    from app.services.binary_validation import _reject_inline_images
+
+    body = _content_stream_pdf(_inline_image_content(b"/DCT"), compress=True)
+    # Beweis, dass hier wirklich der dekodierte Pfad greift und nicht der rohe:
+    _reject_inline_images(body)
+    with pytest.raises(BinaryValidationError, match="inline image"):
+        validate_pdf(body)
+
+
+def test_inline_image_straddling_an_inflate_chunk_boundary_is_rejected():
+    """Der dekodierte Strom wird in 1-MiB-Schritten geprueft. Ein "BI", das
+    genau auf der Schrittgrenze zerfaellt, darf nicht durchrutschen."""
+    from app.services.binary_validation import _INFLATE_STEP_BYTES, _reject_inline_images
+
+    content = b"\n" * (_INFLATE_STEP_BYTES - 1) + _inline_image_content(b"/DCT")
+    body = _content_stream_pdf(content, compress=True)
+    _reject_inline_images(body)
+    with pytest.raises(BinaryValidationError, match="inline image"):
+        validate_pdf(body)
+
+
+def test_the_letters_bi_inside_ordinary_text_do_not_trip_the_check():
+    """"BI" muss als OPERATOR erkannt werden, nicht als Teilzeichenkette: ein
+    Lieferschein mit dem Wort "KABINE" ist kein Inline-Bild."""
+    content = b"BT /F1 12 Tf (KABINE BID BIG ABI) Tj ET\n"
+    assert validate_pdf(_content_stream_pdf(content)).extension == "pdf"
+    assert validate_pdf(_content_stream_pdf(content, compress=True)).extension == "pdf"
+
+
+def test_inline_image_operator_discriminates_operator_from_substring():
+    from app.services.binary_validation import _reject_inline_images
+
+    for harmless in (
+        b"(KABINE) Tj",
+        b"BID BIG ABI OBI",
+        b"/BitsPerComponent 8",
+        b"BI",
+        b"xBI /W",
+    ):
+        _reject_inline_images(harmless)
+    for hostile in (
+        b"BI /W 1",
+        b"q\nBI /W 1",
+        b"] BI<</W 1>>",
+        b"> BI [",
+        b") BI\n",
+    ):
+        with pytest.raises(BinaryValidationError, match="inline image"):
+            _reject_inline_images(hostile)
