@@ -51,6 +51,8 @@ from uuid import uuid4
 from odoo import api, fields, models
 from odoo.exceptions import ValidationError
 
+from .receipts import LEASE_REFUSED_MESSAGE
+
 # Allowlist der Artefaktarten: Art -> erlaubter MIME-Typ. Spiegelt bewusst
 # `binary_validation._ARTIFACT_KINDS` im Backend: das Backend prueft den
 # Inhalt, diese Schicht prueft unabhaengig davon noch einmal Art und Typ,
@@ -205,13 +207,23 @@ class IrAttachment(models.Model):
 class PickingAssistantIntegrationJobResources(models.Model):
     _inherit = "picking.assistant.integration.job"
 
-    def _require_current_generation(self, generation):
+    def _require_current_generation(self, generation, source_event_id=None):
         """Die EINE Gate-Funktion beider Ressourcenzugriffe.
 
         Sie steht bewusst nicht zweimal ausgeschrieben in `api_get_job_media`
         und `api_store_job_artifact`: genau so entsteht der Fehler, dass eine
         Pruefung in der einen Funktion verschaerft wird und in der anderen
         veraltet.
+
+        `source_event_id` bindet die Lease an das Event des Aufrufers statt an
+        irgendeine laufende Lease des Jobs (Fix-Runde 1, Befund 2). Ohne diese
+        Bindung genuegte es, dass IRGENDEIN Worker am selben Job gerade
+        arbeitet: Job J mit Receipts fuer A und B, W1s Lease auf A abgelaufen,
+        W2s Lease auf B lebendig -- `ORDER BY id LIMIT 1` fand B und liess W1
+        durch. Wer die Event-ID hat, MUSS sie mitgeben; `api_store_job_artifact`
+        bekommt sie ohnehin. `api_get_job_media` und die Nonce-Reservierung
+        haben sie in ihrem RPC-Vertrag nicht und bleiben bis zu einer
+        Vertragsaenderung bei der schwaecheren Frage.
         """
         self.ensure_one()
         try:
@@ -227,16 +239,23 @@ class PickingAssistantIntegrationJobResources(models.Model):
         receipts = self.env["picking.assistant.event.receipt"].sudo()
         receipts.flush_model()
         now = fields.Datetime.now()
-        self.env.cr.execute(
-            "SELECT id FROM picking_assistant_event_receipt "
-            "WHERE job_record_id = %s AND state = 'processing' "
-            "AND processing_lease_expires_at > %s "
-            "ORDER BY id LIMIT 1 FOR UPDATE",
-            (self.id, now),
-        )
+        if source_event_id:
+            self.env.cr.execute(
+                "SELECT id FROM picking_assistant_event_receipt "
+                "WHERE job_record_id = %s AND event_id = %s FOR UPDATE",
+                (self.id, source_event_id),
+            )
+        else:
+            self.env.cr.execute(
+                "SELECT id FROM picking_assistant_event_receipt "
+                "WHERE job_record_id = %s AND state = 'processing' "
+                "AND processing_lease_expires_at > %s "
+                "ORDER BY id LIMIT 1 FOR UPDATE",
+                (self.id, now),
+            )
         row = self.env.cr.fetchone()
         if not row:
-            raise ValidationError("Job has no active processing lease.")
+            raise ValidationError(LEASE_REFUSED_MESSAGE)
         receipt = receipts.browse(row[0])
         receipt.invalidate_recordset()
         # Unter der Sperre neu lesen statt dem Vorher-Zustand zu glauben --
@@ -369,7 +388,9 @@ class PickingAssistantIntegrationJobResources(models.Model):
         if mimetype != expected_mimetype:
             raise ValidationError("Artifact mimetype does not match its kind.")
         job = self._locked_job(job_id)
-        job._require_current_generation(generation)
+        # An das EIGENE Event gebunden, nicht an irgendeine laufende Lease des
+        # Jobs (Fix-Runde 1, Befund 2).
+        job._require_current_generation(generation, source_event_id=source_event_id)
         # Dritte Sperre in der globalen Reihenfolge job -> receipt -> outbox.
         outboxes = self.env["picking.assistant.outbox"].sudo()
         outboxes.flush_model()

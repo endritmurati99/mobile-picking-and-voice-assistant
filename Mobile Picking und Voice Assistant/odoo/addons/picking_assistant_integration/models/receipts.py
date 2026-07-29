@@ -1,4 +1,5 @@
 import json
+import logging
 import secrets
 from datetime import timedelta
 
@@ -8,6 +9,13 @@ from odoo import api, fields, models
 from odoo.exceptions import ValidationError
 
 from .integration_job import TERMINAL_STATES
+
+_logger = logging.getLogger(__name__)
+
+# Der EINE Text, den ein abgelehnter Lease-Zugriff nach aussen sieht. Ein
+# eigener Text pro Grund waere ein Orakel: der Aufrufer koennte daran ablesen,
+# ob er den Token erraten hat oder nur zu spaet kam.
+LEASE_REFUSED_MESSAGE = "Processing lease mismatch."
 
 # Replay-window retention for webhook nonces. The spec floor is 600 seconds;
 # keep the stored window strictly above it.
@@ -142,27 +150,46 @@ class PickingAssistantEventReceipt(models.Model):
         von Review-Befund #5 und braucht eine Vertragsaenderung an der
         n8n-Schnittstelle; bis dahin laufen auch diese Aufrufer durch DIESE
         Funktion, damit Zustand und Ablauf nirgends zweitgemeint werden.
+
+        REIHENFOLGE UND TEXT SIND SICHERHEITSRELEVANT (Fix-Runde 1, Befund 1).
+        Der Ablauf wird VOR dem Token-Vergleich geprueft, und jeder Fehlschlag
+        nach aussen traegt denselben Text. Stuende der Token-Vergleich vorn und
+        haette der Ablauf einen eigenen Text, waere "abgelaufen" nur bei einem
+        RICHTIGEN Token erreichbar -- also ein positives Signal auf einen
+        geratenen Token. Der konkrete Grund bleibt serverseitig im
+        Debug-Log, mit Receipt-ID und NIEMALS mit dem Token.
         """
+
+        def refuse(reason):
+            _logger.debug(
+                "processing lease refused (%s) for receipt %s on job %s",
+                reason,
+                receipt.id,
+                job.id,
+            )
+            raise ValidationError(LEASE_REFUSED_MESSAGE)
+
         if receipt.job_record_id.id != job.id:
-            raise ValidationError("Receipt does not belong to this job.")
+            refuse("receipt does not belong to this job")
         if generation != job.delivery_generation:
-            raise ValidationError("Delivery generation mismatch.")
+            refuse("delivery generation mismatch")
         if receipt.state != "processing":
-            raise ValidationError("Processing lease mismatch.")
+            refuse("receipt is not in state processing")
         if not receipt.processing_lease_token:
-            raise ValidationError("Processing lease mismatch.")
-        if require_token:
-            if not supplied_token:
-                raise ValidationError("Processing lease mismatch.")
-            if not secrets.compare_digest(
-                receipt.processing_lease_token, supplied_token
-            ):
-                raise ValidationError("Processing lease mismatch.")
+            refuse("receipt holds no lease token")
+        # Ablauf zuerst, Token danach: siehe Docstring.
         if (
             not receipt.processing_lease_expires_at
             or receipt.processing_lease_expires_at <= now
         ):
-            raise ValidationError("Processing lease has expired.")
+            refuse("lease expired")
+        if require_token:
+            if not supplied_token:
+                refuse("no lease token supplied")
+            if not secrets.compare_digest(
+                receipt.processing_lease_token, supplied_token
+            ):
+                refuse("lease token mismatch")
 
     def _lock_existing(self, event_id):
         self.sudo().flush_model()

@@ -238,6 +238,40 @@ class TestArtifactStorage(ResourceCase):
         with self.assertRaises(ValidationError):
             self.store()
 
+    def test_artifact_binds_to_its_own_event_not_to_any_live_lease(self):
+        """Fix-Runde 1, Befund 2: die zweite Haelfte von Review-Befund #5,
+        soweit sie ohne Vertragsaenderung schliessbar ist.
+
+        Das Gate suchte sich mit `ORDER BY id LIMIT 1` IRGENDEINE laufende
+        Lease des Jobs. Job J hat Receipts fuer Event A und B; Worker W1 haelt
+        eine abgelaufene Lease auf A, Worker W2 eine laufende auf B. W1 rief
+        `api_store_job_artifact(source_event_id=A)` -- das Gate fand B und
+        liess ihn durch. `api_store_job_artifact` bekommt `source_event_id`
+        aber bereits mitgeliefert, also wird die Lease jetzt an genau DIESES
+        Event gebunden.
+        """
+        now = fields.Datetime.now()
+        own_receipt = self.env["picking.assistant.event.receipt"].sudo().search(
+            [("event_id", "=", self.outbox.event_id)]
+        )
+        own_receipt.write(
+            {"processing_lease_expires_at": now - timedelta(seconds=1)}
+        )
+        # Fremdes, aber lebendes Receipt am selben Job.
+        self.env["picking.assistant.event.receipt"].sudo().create(
+            {
+                "event_id": "6f1c0f0e-6a3c-4f2a-9d2b-2f4a4a6f0b11",
+                "job_record_id": self.job.id,
+                "payload_fingerprint": "a" * 64,
+                "delivery_generation": self.job.delivery_generation,
+                "state": "processing",
+                "processing_lease_token": "someone-elses-live-token",
+                "processing_lease_expires_at": now + timedelta(minutes=5),
+            }
+        )
+        with self.assertRaises(ValidationError):
+            self.store()
+
     def test_api_service_group_is_required(self):
         with self.assertRaises(AccessError):
             self.env["picking.assistant.integration.job"].with_user(
@@ -282,6 +316,20 @@ class TestMediaAccess(ResourceCase):
     def test_stale_generation_cannot_read_media(self):
         self.bind_media()
         self.job.sudo().write({"delivery_generation": 2})
+        with self.assertRaises(ValidationError):
+            self.jobs.api_get_job_media(self.job.job_id, "media-1", 1)
+
+    def test_expired_processing_lease_cannot_read_media(self):
+        """Fix-Runde 1, Befund 3: die Ressourcenroute laeuft seit dieser Task
+        durch `_assert_active_lease`. Ohne diesen Test waere der Umbau des
+        Gates von KEINEM Test durch den echten RPC-Eingang beruehrt."""
+        self.bind_media()
+        receipt = self.env["picking.assistant.event.receipt"].sudo().search(
+            [("event_id", "=", self.outbox.event_id)]
+        )
+        receipt.write(
+            {"processing_lease_expires_at": fields.Datetime.now() - timedelta(seconds=1)}
+        )
         with self.assertRaises(ValidationError):
             self.jobs.api_get_job_media(self.job.job_id, "media-1", 1)
 
