@@ -127,8 +127,8 @@ head `1e240f5`). "Verified" means read in the code by a second reviewer, not mer
 | 14 | Compose mounts only `init-n8n-db.sql`, which requires the `n8n_app` role that the unmounted `init-db-roles.sh` would create, and runs against `POSTGRES_DB=postgres` | Important | R4 | yes — `docker-compose.yml:31` |
 | 15 | The migration does not meet its own reversibility contract: existing roles unhardened, compose checked by global grep, demotion immediately after a stub-satisfiable verifier | Important | R4 | no |
 | 16 | Credential file permissions are checked on host paths and read from container paths; the Node side checks neither mode, owner, symlink nor regular-file | Important | R3 | no |
-| M1 | `session.py:111` can return a concurrently revoked or expired session once more during role marking | Minor | R2 | no |
-| M2 | The nonce GC deletes at most 1000 rows per ten minutes and reports no remainder | Minor | R2 | no |
+| M1 | ~~`session.py:111` can return a concurrently revoked or expired session once more during role marking~~ **RE-SEVERITY 2026-07-30: the description understated it. `api_mark_roles_checked` had NO revocation or expiry check at all — it reproduces with no concurrency whatsoever.** A session revoked minutes earlier on a separate committed transaction is silently re-blessed, handed back via `_api_payload()` with `roles`/`expires_at`/`revoked_at`, and has a fresh `roles_checked_at` **plus the caller's requested roles written onto it**. So: revoked session stays usable, and role escalation is writable onto a dead session. | ~~Minor~~ **High** | R2 | **yes — pre-image of `session.py:214-261`, verified by the Task 7 reviewer** |
+| M2 | The nonce GC deletes at most 1000 rows per ten minutes and reports no remainder | Minor | R2 | **yes — verified during Task 7** |
 | M3 | Product images are anonymous and instance-selectable under the default-on development grace | Minor | R1 (closed by #1) | yes |
 
 ### Closed by remediation (status 2026-07-30)
