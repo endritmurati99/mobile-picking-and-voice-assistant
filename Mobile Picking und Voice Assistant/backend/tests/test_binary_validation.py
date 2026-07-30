@@ -1352,3 +1352,677 @@ def test_one_raster_shared_by_two_pages_is_still_exempt():
     out = BytesIO()
     writer.write(out)
     assert validate_pdf(out.getvalue()).extension == "pdf"
+
+
+# --------------------------------------------------------------------------
+# Review-Runde 4, Critical (FINDING 1): die Kantenbuchhaltung lief nicht ueber
+# ARRAYS. Abgeleitet wird hier nicht aus der gemeldeten Form, sondern aus dem
+# Objektmodell von ISO 32000-1, 7.3: es gibt genau zwei Container, in denen
+# eine Referenz stecken kann (Array 7.3.6, Dictionary/Stream 7.3.7/7.3.8), und
+# Referenzen (7.3.10) koennen darin beliebig tief und selbst indirekt liegen.
+# Jede Kombination davon ist unten ein Dokument.
+# --------------------------------------------------------------------------
+
+
+def _raw_pdf(objects: list[bytes]) -> bytes:
+    """Ein PDF mit korrekter xref-Tabelle aus fertigen Objektkoerpern.
+
+    Fuer Formen, die pypdfs Writer nicht schreiben KANN -- ein indirektes
+    Objekt, dessen Wert selbst eine Referenz ist, faltet der Writer zusammen.
+    """
+    body = b"%PDF-1.7\n"
+    offsets = []
+    for index, payload in enumerate(objects, start=1):
+        offsets.append(len(body))
+        body += b"%d 0 obj\n" % index + payload + b"\nendobj\n"
+    start = len(body)
+    body += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    for offset in offsets:
+        body += b"%010d 00000 n \n" % offset
+    return body + b"trailer\n<</Size %d/Root 1 0 R>>\nstartxref\n%d\n%%%%EOF\n" % (
+        len(objects) + 1,
+        start,
+    )
+
+
+def _hostile_raster_stream_body(compress: bool) -> bytes:
+    payload = zlib.compress(HOSTILE_CONTENT, 9) if compress else HOSTILE_CONTENT
+    return (
+        b"<</Type/XObject/Subtype/Image"
+        + (b"/Filter/FlateDecode" if compress else b"")
+        + b"/Length %d>>stream\n" % len(payload)
+        + payload
+        + b"\nendstream"
+    )
+
+
+def _raster_slot(page, reference) -> None:
+    xobjects = DictionaryObject()
+    xobjects[NameObject("/Im0")] = reference
+    resources = DictionaryObject()
+    resources[NameObject("/XObject")] = xobjects
+    page[NameObject("/Resources")] = resources
+
+
+def _c1_indirect_contents_array(*, compress: bool = True) -> bytes:
+    """A5, die gemeldete Form: /Contents ist eine indirekte Referenz auf ein
+    ARRAY. ISO 32000-1, Tabelle 30: /Contents darf ein Stream, ein Array von
+    Streams oder eine indirekte Referenz auf beides sein. Die Kante war
+    unsichtbar, weil die Karte bei jedem aufgeloesten Nicht-Dictionary abbrach
+    -- der Strom sah aus, als haenge er nur im Bildplatz."""
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=100, height=100)
+    hostile = _stream(writer, HOSTILE_CONTENT, dict(RASTER_KEYS), compress=compress)
+    page[NameObject("/Contents")] = writer._add_object(ArrayObject([hostile]))
+    _raster_slot(page, hostile)
+    out = BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def _c2_nested_indirect_arrays(*, compress: bool = True) -> bytes:
+    """Array im Array, beide indirekt (7.3.6: Arrays duerfen Arrays enthalten)."""
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=100, height=100)
+    hostile = _stream(writer, HOSTILE_CONTENT, dict(RASTER_KEYS), compress=compress)
+    inner = writer._add_object(ArrayObject([hostile]))
+    page[NameObject("/Contents")] = writer._add_object(ArrayObject([inner]))
+    _raster_slot(page, hostile)
+    out = BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def _c3_direct_array_holding_an_indirect_array(*, compress: bool = True) -> bytes:
+    """Direktes Array, dessen Element ein INDIREKTES Array ist -- die Mischform,
+    die eine Regel "nur direkte Arrays durchlaufen" genau verpasst."""
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=100, height=100)
+    hostile = _stream(writer, HOSTILE_CONTENT, dict(RASTER_KEYS), compress=compress)
+    inner = writer._add_object(ArrayObject([hostile]))
+    page[NameObject("/Contents")] = ArrayObject([inner])
+    _raster_slot(page, hostile)
+    out = BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def _c4_page_only_reachable_through_an_indirect_kids_array(
+    *, compress: bool = True
+) -> bytes:
+    """Ein DICTIONARY, das nur ueber ein indirektes Array erreichbar ist.
+
+    /Kids ist eine indirekte Referenz auf das Array; die zweite Seite darin
+    fuehrt den Strom als Inhalt aus. Bei 0e58053 verlor die Karte an dieser
+    Kante den GESAMTEN Seitenbaum -- der Strom wurde damals zufaellig
+    gescannt, weil ohne Seitenbaum auch kein /XObject-Platz sichtbar war. Die
+    Karte war also nicht streng, sondern blind; das ist der Unterschied, den
+    der Obermengen-Test unten festhaelt."""
+    writer = PdfWriter()
+    host = writer.add_blank_page(width=100, height=100)
+    hostile = _stream(writer, HOSTILE_CONTENT, dict(RASTER_KEYS), compress=compress)
+    _raster_slot(host, hostile)
+    host[NameObject("/Contents")] = _flate_stream(
+        writer, b"q 100 0 0 100 0 0 cm /Im0 Do Q\n", {}
+    )
+    pages = writer._root_object["/Pages"]
+    victim = DictionaryObject()
+    victim[NameObject("/Type")] = NameObject("/Page")
+    victim[NameObject("/MediaBox")] = ArrayObject(
+        [NumberObject(0), NumberObject(0), NumberObject(100), NumberObject(100)]
+    )
+    victim[NameObject("/Parent")] = pages.indirect_reference
+    victim[NameObject("/Contents")] = hostile
+    kids = ArrayObject(list(pages["/Kids"]) + [writer._add_object(victim)])
+    pages[NameObject("/Kids")] = writer._add_object(kids)
+    pages[NameObject("/Count")] = NumberObject(2)
+    out = BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def _c5_indirect_array_inside_the_xobject_dictionary(*, compress: bool = True) -> bytes:
+    """Wie der Array-Element-Fall aus Runde 3, aber das Array ist indirekt --
+    das Sentinel-Etikett muss auch dann greifen."""
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=100, height=100)
+    hostile = _stream(writer, HOSTILE_CONTENT, dict(RASTER_KEYS), compress=compress)
+    xobjects = DictionaryObject()
+    xobjects[NameObject("/Im0")] = writer._add_object(ArrayObject([hostile]))
+    resources = DictionaryObject()
+    resources[NameObject("/XObject")] = xobjects
+    page[NameObject("/Resources")] = resources
+    page[NameObject("/Contents")] = _flate_stream(writer, b"q Q\n", {})
+    out = BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def _c6_self_referential_indirect_array(*, compress: bool = True) -> bytes:
+    """Ein indirektes Array, das SICH SELBST enthaelt, und daneben den Strom.
+
+    Kein Angriff auf die Befreiung, sondern auf den Durchlauf: ohne
+    Zyklenschutz im Array-Zweig laeuft der Validator endlos. Der Strom haengt
+    zugleich im Bildplatz, damit der Fall trotzdem eine Aussage ueber die
+    Befreiung macht."""
+    return _raw_pdf(
+        [
+            b"<</Type/Catalog/Pages 2 0 R>>",
+            b"<</Type/Pages/Count 1/Kids[3 0 R]>>",
+            b"<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]"
+            b"/Resources<</XObject<</Im0 5 0 R>>>>/Contents 4 0 R>>",
+            b"[4 0 R 5 0 R]",
+            _hostile_raster_stream_body(compress),
+        ]
+    )
+
+
+CONTAINER_ATTACKS = {
+    "c1-indirect-contents-array": _c1_indirect_contents_array,
+    "c2-nested-indirect-arrays": _c2_nested_indirect_arrays,
+    "c3-direct-array-holding-an-indirect-array": _c3_direct_array_holding_an_indirect_array,
+    "c4-page-only-behind-an-indirect-kids-array": (
+        _c4_page_only_reachable_through_an_indirect_kids_array
+    ),
+    "c5-indirect-array-inside-the-xobject-dictionary": (
+        _c5_indirect_array_inside_the_xobject_dictionary
+    ),
+    "c6-self-referential-indirect-array": _c6_self_referential_indirect_array,
+}
+
+
+@pytest.mark.parametrize("attack", sorted(CONTAINER_ATTACKS))
+@pytest.mark.parametrize("compress", [False, True])
+def test_no_container_can_hide_the_edge_that_makes_a_stream_content(attack, compress):
+    """c1, c2 und c3 wurden bei 0e58053 AKZEPTIERT (679/724/683 B roh)."""
+    body = CONTAINER_ATTACKS[attack](compress=compress)
+    with pytest.raises(BinaryValidationError, match="inline image"):
+        validate_pdf(body)
+
+
+@pytest.mark.parametrize("attack", sorted(CONTAINER_ATTACKS))
+def test_the_exemption_set_is_empty_for_every_container_attack(attack):
+    """Dieselbe Aussage eine Ebene tiefer -- damit ein spaeterer Umbau nicht
+    aus einem anderen Grund abweist und die Befreiung still wieder oeffnet."""
+    from pypdf import PdfReader
+
+    from app.services.binary_validation import _exempt_raster_idnums
+
+    reader = PdfReader(BytesIO(CONTAINER_ATTACKS[attack]()), strict=True)
+    assert _exempt_raster_idnums(reader.trailer["/Root"].get_object()) == set()
+
+
+def test_a_legitimate_indirect_contents_array_keeps_its_raster_exemption():
+    """Gegenprobe, und die wichtigste: /Contents als indirektes Array von zwei
+    Inhaltsstroemen ist voellig gewoehnliches PDF. Das Rasterbild daneben muss
+    befreit BLEIBEN -- sonst waere aus dem Schliessen der Luecke ein Fehlalarm
+    auf echten Dokumenten geworden."""
+    writer = PdfWriter()
+    raster = _flate_stream(
+        writer,
+        _LOOKS_LIKE_BI,
+        {
+            "/Type": NameObject("/XObject"),
+            "/Subtype": NameObject("/Image"),
+            "/Width": NumberObject(4),
+            "/Height": NumberObject(4),
+        },
+    )
+    for _ in range(2):
+        page = writer.add_blank_page(width=100, height=100)
+        _raster_slot(page, raster)
+        parts = ArrayObject(
+            [
+                _flate_stream(writer, b"q 100 0 0 100 0 0 cm /Im0 Do Q\n", {}),
+                _flate_stream(writer, b"q 1 0 0 1 10 10 cm 0 0 5 5 re f Q\n", {}),
+            ]
+        )
+        page[NameObject("/Contents")] = writer._add_object(parts)
+    out = BytesIO()
+    writer.write(out)
+    body = out.getvalue()
+    assert validate_pdf(body).extension == "pdf"
+
+    from pypdf import PdfReader
+
+    from app.services.binary_validation import _exempt_raster_idnums
+
+    reader = PdfReader(BytesIO(body), strict=True)
+    assert _exempt_raster_idnums(reader.trailer["/Root"].get_object()) == {
+        raster.idnum
+    }
+
+
+# --------------------------------------------------------------------------
+# Review-Runde 4, der eigentliche Ertrag: die Erreichbarkeit der
+# Kantenbuchhaltung MUSS eine Obermenge der Knotenliste sein. Dreimal wurde
+# eine einzelne Form geschlossen und die Beziehung blieb ungeprueft; hier wird
+# die Beziehung selbst behauptet.
+# --------------------------------------------------------------------------
+
+
+class _FakeDocument:
+    """Minimaler Ersatz fuer einen Reader: loest Objektnummern aus einer Tabelle
+    auf. Damit sind Formen pruefbar, die pypdf gar nicht parst."""
+
+    def __init__(self, objects: dict):
+        self._objects = objects
+
+    def get_object(self, reference):
+        return self._objects[reference.idnum]
+
+
+def _iso_container_cases():
+    """Jeder Container aus ISO 32000-1, 7.3, in dem eine Referenz stecken kann.
+
+    Erwartet wird jeweils die Etikettenmenge, die `_labelled_children` fuer das
+    Ziel-Dictionary aufspannen MUSS. Die Tabelle ist die Ableitung selbst -- wer
+    einen Containertyp streicht, streicht hier eine Zeile und sieht ROT.
+    """
+    target = DictionaryObject()
+    target[NameObject("/Marker")] = NameObject("/Target")
+    docs = {}
+
+    def indirect(number, value):
+        docs[number] = value
+        return IndirectObject(number, 0, _FakeDocument(docs))
+
+    reference = indirect(1, target)
+    cases = [
+        ("7.3.7 direct dictionary value", target, {"/Contents"}),
+        ("7.3.10 indirect dictionary value", reference, {"/Contents"}),
+        ("7.3.6 direct array", ArrayObject([reference]), {"<array element>"}),
+        (
+            "7.3.6 nested direct arrays",
+            ArrayObject([ArrayObject([ArrayObject([reference])])]),
+            {"<array element>"},
+        ),
+        ("7.3.6+7.3.10 indirect array", indirect(2, ArrayObject([reference])), {"<array element>"}),
+        (
+            "7.3.6+7.3.10 indirect array of indirect arrays",
+            indirect(3, ArrayObject([indirect(4, ArrayObject([reference]))])),
+            {"<array element>"},
+        ),
+        (
+            "7.3.6 direct array holding an indirect array",
+            ArrayObject([indirect(5, ArrayObject([reference]))]),
+            {"<array element>"},
+        ),
+        (
+            "7.3.10 reference chain to a dictionary",
+            indirect(6, IndirectObject(1, 0, _FakeDocument(docs))),
+            {"/Contents"},
+        ),
+        (
+            "7.3.10 reference chain to an array",
+            indirect(7, IndirectObject(2, 0, _FakeDocument(docs))),
+            {"<array element>"},
+        ),
+        # Nicht-Container: 7.3.2 Boolean, 7.3.3 Zahl, 7.3.4 String, 7.3.5 Name,
+        # 7.3.9 Null koennen keine Referenz enthalten.
+        ("7.3.3 number", NumberObject(42), set()),
+        ("7.3.5 name", NameObject("/Nothing"), set()),
+        ("7.3.4 string", TextStringObject("nothing"), set()),
+    ]
+    return [(name, value, expected, target) for name, value, expected in cases]
+
+
+@pytest.mark.parametrize(
+    "case", _iso_container_cases(), ids=[case[0] for case in _iso_container_cases()]
+)
+def test_every_iso_container_that_can_hide_a_reference_spans_an_edge(case):
+    _, value, expected, target = case
+    from app.services.binary_validation import _labelled_children
+
+    edges = list(_labelled_children("/Contents", value))
+    found = {
+        label
+        for label, link in edges
+        if (link is target or getattr(link, "idnum", None) == 1)
+    }
+    assert found == expected
+
+
+def _graph_corpus() -> dict:
+    """Alles, was dieses Modul an Dokumenten bauen kann -- feindlich und echt."""
+    corpus = {
+        "minimal": pdf_bytes(),
+        "content-stream": _content_stream_pdf(b"q Q\n", compress=True),
+        "raster-xobject": _pdf_with_image_xobject(_LOOKS_LIKE_BI, as_page_contents=False),
+    }
+    for name, builder in ALIASED_SLOT_ATTACKS.items():
+        corpus[name] = builder()
+    for name, builder in CONTAINER_ATTACKS.items():
+        corpus[name] = builder()
+    return corpus
+
+
+GRAPH_CORPUS = _graph_corpus()
+
+
+@pytest.mark.parametrize("document", sorted(GRAPH_CORPUS))
+def test_the_reference_map_reaches_every_node_the_node_walk_reaches(document):
+    """DIE Invariante dieser Runde. Drei Runden lang wurde eine gemeldete Form
+    geschlossen und die Beziehung zwischen den beiden Durchlaeufen blieb
+    unbehauptet -- jedes Mal fand die naechste Runde eine Form, die der eine
+    Durchlauf sah und der andere nicht. Was `_pdf_nodes` erreicht, MUSS die
+    Kantenbuchhaltung auch erreichen; andernfalls wird eine Befreiung auf einem
+    unvollstaendigen Graphen erteilt, und der Interpreter widerlegt sie."""
+    from pypdf import PdfReader
+
+    from app.services.binary_validation import _pdf_nodes, _pdf_reference_map
+
+    reader = PdfReader(BytesIO(GRAPH_CORPUS[document]), strict=True)
+    catalog = reader.trailer["/Root"].get_object()
+    _, _, dictionaries = _pdf_reference_map(catalog)
+
+    walked = set()
+    for node, idnum in _pdf_nodes(catalog):
+        key = ("idnum", idnum) if idnum is not None else ("direct", id(node))
+        assert key in dictionaries, (
+            f"{document}: {key} ({node.get('/Type', '<no /Type>')}) is reachable for "
+            "the node walk but invisible to the edge accounting"
+        )
+        walked.add(key)
+    # Und in die andere Richtung, damit die Obermenge keine echte Obermenge
+    # wird: beide Sichten kommen aus DEMSELBEN Durchlauf.
+    assert set(dictionaries) == walked
+
+
+def test_both_traversals_are_views_of_the_same_walk():
+    """Warum die Invariante oben nicht bloss zufaellig gilt: es gibt nur EINEN
+    Durchlauf. Wird `_pdf_walk` manipuliert, muessen BEIDE Konsumenten das
+    sehen. Wer einem von ihnen wieder einen eigenen Durchlauf gibt, faellt hier
+    durch -- und nicht erst in der naechsten Review-Runde."""
+    from pypdf import PdfReader
+
+    import app.services.binary_validation as module
+
+    reader = PdfReader(BytesIO(GRAPH_CORPUS["raster-xobject"]), strict=True)
+    catalog = reader.trailer["/Root"].get_object()
+    complete = {
+        record[1] for record in module._pdf_walk(catalog) if record[0] == module._PDF_NODE
+    }
+    assert len(complete) > 2
+
+    original = module._pdf_walk
+    dropped = sorted(complete, key=str)[-1]
+
+    def crippled(root):
+        for record in original(root):
+            if record[0] == module._PDF_NODE and record[1] == dropped:
+                continue
+            yield record
+
+    try:
+        module._pdf_walk = crippled
+        nodes = {
+            ("idnum", idnum) if idnum is not None else ("direct", id(node))
+            for node, idnum in module._pdf_nodes(catalog)
+        }
+        _, _, dictionaries = module._pdf_reference_map(catalog)
+    finally:
+        module._pdf_walk = original
+
+    assert dropped not in nodes
+    assert dropped not in dictionaries
+    assert nodes == set(dictionaries)
+
+
+def test_a_reference_chain_is_followed_to_its_last_indirect_link():
+    """ISO 32000-1, 7.3.10: der Wert eines indirekten Objekts darf selbst eine
+    Referenz sein. Die Kante muss am LETZTEN Glied haengen, sonst steht ein
+    Zwischenglied als eigener Knoten zwischen Kante und Ziel und schluckt
+    dessen Etiketten."""
+    from app.services.binary_validation import _node_identity, _resolve_reference
+
+    target = DictionaryObject()
+    docs: dict = {}
+    document = _FakeDocument(docs)
+    docs[3] = target
+    docs[2] = IndirectObject(3, 0, document)
+    docs[1] = IndirectObject(2, 0, document)
+
+    link, resolved = _resolve_reference(IndirectObject(1, 0, document), lambda: None)
+    assert resolved is target
+    assert _node_identity(link) == ("idnum", 3)
+
+    # Eine Kette im Kreis liefert kein Ziel -- die strenge Richtung: ohne Ziel
+    # gibt es keinen Knoten, der eine Befreiung bekommen koennte.
+    docs[9] = IndirectObject(9, 0, document)
+    assert _resolve_reference(IndirectObject(9, 0, document), lambda: None) == (None, None)
+
+
+def test_pypdf_refuses_an_indirect_object_whose_value_is_a_reference():
+    """Dokumentiert, warum die Kette oben nur als Unit-Test auftaucht: pypdf
+    5.9 kann sie nicht aufloesen und `validate_pdf` weist sie deshalb schon am
+    Parser ab. Das ist fail-closed, aber KEIN Verlass -- `_resolve_reference`
+    folgt der Kette trotzdem, damit ein tolerantere Parser keine Luecke
+    aufmacht. Sollte diese Erwartung eines Tages kippen, sagt der Test es."""
+    body = _raw_pdf(
+        [
+            b"<</Type/Catalog/Pages 2 0 R>>",
+            b"<</Type/Pages/Count 1/Kids[3 0 R]>>",
+            b"<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]"
+            b"/Resources<</XObject<</Im0 5 0 R>>>>/Contents 4 0 R>>",
+            b"5 0 R",
+            _hostile_raster_stream_body(False),
+        ]
+    )
+    with pytest.raises(BinaryValidationError):
+        validate_pdf(body)
+
+
+def test_the_graph_step_budget_stops_an_indirect_array_cross_product():
+    """`MAX_PDF_OBJECTS` deckelt nur Dictionaries. Ohne den zweiten Deckel
+    genuegen 96 KB, um 400 Dictionaries auf dieselbe Kette von 1200 indirekten
+    Arrays zeigen zu lassen: 480.000 Schritte ohne einen einzigen zusaetzlichen
+    Knoten. Gemessen: mit Deckel 0,24 s, ohne Deckel 20 s bei 10 Mio. Schritten
+    -- ein CPU-Verbrauchsangriff auf den Validator selbst."""
+    from app.services.binary_validation import MAX_PDF_GRAPH_STEPS
+
+    carriers, chain = 400, 1200
+    first_chain = 4 + carriers
+    annots = b"[" + b" ".join(b"%d 0 R" % (4 + i) for i in range(carriers)) + b"]"
+    objects = [
+        b"<</Type/Catalog/Pages 2 0 R>>",
+        b"<</Type/Pages/Count 1/Kids[3 0 R]>>",
+        b"<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]/Annots" + annots + b">>",
+    ]
+    objects += [
+        b"<</Subtype/Link/Rect[0 0 1 1]/QuadPoints %d 0 R>>" % first_chain
+    ] * carriers
+    objects += [
+        b"[%d 0 R]" % (first_chain + index + 1) if index < chain - 1 else b"[0 0 1 1]"
+        for index in range(chain)
+    ]
+    assert carriers * chain > MAX_PDF_GRAPH_STEPS
+    with pytest.raises(BinaryValidationError, match="object graph is too large"):
+        validate_pdf(_raw_pdf(objects))
+
+
+def _independent_reachability(root) -> dict:
+    """Erreichbarkeit, hier im TEST nachgebaut und bewusst naiv.
+
+    Warum das noetig ist: seit `_pdf_nodes` und `_pdf_reference_map` beide auf
+    `_pdf_walk` sitzen, ist "die Kanten erreichen mindestens die Knoten"
+    zwischen ihnen per Konstruktion wahr -- ein Loch IM gemeinsamen Durchlauf
+    wuerde beide Sichten gleichzeitig verkleinern und faellt zwischen ihnen
+    nicht auf. Dieses Orakel ist deshalb vom Modul unabhaengig und direkt aus
+    ISO 32000-1, 7.3 geschrieben: Dictionary-Werte, Array-Elemente (beliebig
+    tief, direkt wie indirekt) und Referenzketten. Es kennt keine Deckel und
+    keine Befreiung -- es sagt nur, welche Dictionaries eine konforme
+    Anwendung erreichen kann.
+    """
+    found: dict = {}
+
+    def key_of(value):
+        if isinstance(value, IndirectObject):
+            return ("idnum", value.idnum)
+        return ("direct", id(value))
+
+    def visit(value, open_arrays: frozenset) -> None:
+        link = value
+        guard: set = set()
+        while isinstance(link, IndirectObject):
+            if link.idnum in guard:
+                return
+            guard.add(link.idnum)
+            resolved = link.get_object()
+            if isinstance(resolved, IndirectObject):
+                link = resolved
+                continue
+            target = resolved
+            break
+        else:
+            target = link
+        key = key_of(link)
+        if isinstance(target, DictionaryObject):
+            if key in found:
+                return
+            found[key] = target
+            for child in target.values():
+                visit(child, open_arrays)
+        elif isinstance(target, (list, tuple)):
+            if key in open_arrays:
+                return
+            for element in target:
+                visit(element, open_arrays | {key})
+
+    visit(root, frozenset())
+    return found
+
+
+@pytest.mark.parametrize("document", sorted(GRAPH_CORPUS))
+def test_the_reference_map_reaches_everything_an_independent_walk_reaches(document):
+    """Der Obermengen-Test mit Zaehnen: gegen ein Orakel, das nicht aus dem
+    Modul kommt. Genau hier waere jede der drei vorigen Runden aufgeflogen."""
+    from pypdf import PdfReader
+
+    from app.services.binary_validation import _pdf_reference_map
+
+    reader = PdfReader(BytesIO(GRAPH_CORPUS[document]), strict=True)
+    catalog = reader.trailer["/Root"].get_object()
+    oracle = _independent_reachability(catalog)
+    _, _, dictionaries = _pdf_reference_map(catalog)
+    missing = {
+        key: str(node.get("/Type", "<no /Type>")) for key, node in oracle.items()
+        if key not in dictionaries
+    }
+    assert not missing, (
+        f"{document}: reachable for a conforming interpreter, invisible to the "
+        f"edge accounting: {missing}"
+    )
+
+
+def _independent_edges(root) -> list:
+    """Dieselbe naive Erreichbarkeit wie oben, aber als KANTENLISTE.
+
+    Dient dem Nachweis der Vorbedingung, die der Phase-1-Hebel in seinem
+    eigenen Docstring behauptet: "ein Strom, den Phase 3 nicht scannt, ist
+    nachweislich kein Inhalt". Der Nachweis darf nicht aus derselben
+    Kantenbuchhaltung stammen, die die Befreiung erteilt -- sonst prueft die
+    Regel sich selbst.
+    """
+    edges: list = []
+    expanded: set = set()
+
+    def key_of(value):
+        if isinstance(value, IndirectObject):
+            return ("idnum", value.idnum)
+        return ("direct", id(value))
+
+    def visit(parent, label, value, open_arrays: frozenset) -> None:
+        link = value
+        guard: set = set()
+        while isinstance(link, IndirectObject):
+            if link.idnum in guard:
+                return
+            guard.add(link.idnum)
+            resolved = link.get_object()
+            if isinstance(resolved, IndirectObject):
+                link = resolved
+                continue
+            target = resolved
+            break
+        else:
+            target = link
+        key = key_of(link)
+        if isinstance(target, DictionaryObject):
+            edges.append((parent, label, key))
+            if key in expanded:
+                return
+            expanded.add(key)
+            for name, child in target.items():
+                visit(key, str(name), child, frozenset())
+        elif isinstance(target, (list, tuple)):
+            if key in open_arrays:
+                return
+            for element in target:
+                visit(parent, "<array element>", element, open_arrays | {key})
+
+    visit(None, "<root>", root, frozenset())
+    return edges
+
+
+@pytest.mark.parametrize("document", sorted(GRAPH_CORPUS))
+def test_every_stream_phase_three_skips_is_provably_not_content(document):
+    """FINDING 3, die Vorbedingung des Phase-1-Hebels, unabhaengig nachgerechnet.
+
+    Der Hebel darf Stream-Nutzdaten in Phase 1 ueberspringen, WEIL Phase 3
+    jeden Strom scannt, der Inhalt sein koennte. Bei 0e58053 war das falsch:
+    ein befreiter Strom mit unkomprimiertem Inhalt war in beiden Phasen
+    unsichtbar. Hier wird fuer jedes Dokument des Korpus geprueft, dass jeder
+    von Phase 3 uebersprungene Strom AUF DER UNABHAENGIGEN Kantenliste nur
+    ueber /Resources -> /XObject erreichbar ist -- also nur per `Do` als
+    Pixelraster gezeichnet und nie als Inhalt ausgefuehrt werden kann."""
+    from pypdf import PdfReader
+
+    from app.services.binary_validation import _exempt_raster_idnums
+
+    reader = PdfReader(BytesIO(GRAPH_CORPUS[document]), strict=True)
+    catalog = reader.trailer["/Root"].get_object()
+    edges = _independent_edges(catalog)
+
+    def labels_of(key):
+        return {label for _, label, child in edges if child == key}
+
+    def parents_of(key):
+        return {parent for parent, _, child in edges if child == key}
+
+    for idnum in _exempt_raster_idnums(catalog):
+        key = ("idnum", idnum)
+        incoming = labels_of(key)
+        assert incoming, f"{document}: exempt stream {idnum} has no incoming edge"
+        assert all(label.startswith("/") for label in incoming), (
+            f"{document}: exempt stream {idnum} is reached as {incoming}"
+        )
+        assert not incoming & {"/Contents", "/CharProcs", "/Pattern"}
+        for holder in parents_of(key):
+            assert labels_of(holder) == {"/XObject"}, (
+                f"{document}: exempt stream {idnum} hangs in {labels_of(holder)}"
+            )
+            for owner in parents_of(holder):
+                assert labels_of(owner) == {"/Resources"}
+
+
+def test_the_exemption_is_not_vacuously_empty_across_the_corpus():
+    """Gegenprobe zum Test darueber: waere die Befreiung ueberall leer, waere
+    seine Aussage wertlos (und der Scan-Fehlalarm auf Rastern zurueck)."""
+    from pypdf import PdfReader
+
+    from app.services.binary_validation import _exempt_raster_idnums
+
+    reader = PdfReader(BytesIO(GRAPH_CORPUS["raster-xobject"]), strict=True)
+    assert _exempt_raster_idnums(reader.trailer["/Root"].get_object())
+
+
+@pytest.mark.parametrize("attack", sorted(CONTAINER_ATTACKS))
+def test_the_container_attacks_are_a_phase_three_catch_not_a_phase_one_one(attack):
+    """Der Vertrag der Phasenteilung, an genau den Formen, die ihn brachen: die
+    unkomprimierte Variante darf Phase 1 passieren (sie ueberspringt
+    Stream-Nutzdaten) und MUSS in Phase 3 auffallen."""
+    body = CONTAINER_ATTACKS[attack](compress=False)
+    precheck_artifact("pdf", body, declared_mime="application/pdf")
+    with pytest.raises(BinaryValidationError, match="inline image"):
+        validate_artifact("pdf", body, declared_mime="application/pdf")

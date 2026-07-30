@@ -47,6 +47,13 @@ MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 MAX_IMAGE_PIXELS = 24_000_000
 MAX_PDF_PAGES = 20
 MAX_PDF_OBJECTS = 20_000
+# Zweiter Deckel derselben Art, auf die Schritte durch Arrays und
+# Referenzketten. `MAX_PDF_OBJECTS` deckelt nur die Dictionaries; ein
+# Angreifer koennte sonst 20.000 Dictionaries auf dieselbe lange Kette
+# indirekter Arrays zeigen lassen und ein Kreuzprodukt erzwingen, ohne einen
+# einzigen zusaetzlichen Knoten. Reichlich bemessen: ein echtes
+# 20-Seiten-Dokument braucht einige Tausend Schritte.
+MAX_PDF_GRAPH_STEPS = 16 * MAX_PDF_OBJECTS
 # Gesamtbudget fuer ALLE dekomprimierten Streams eines PDF zusammen. Ein
 # 10-MiB-PDF darf sich damit gut dreifach entfalten -- eine Bombe, die aus
 # 200 KB 200 MB macht, nicht.
@@ -412,7 +419,17 @@ def _reject_inline_images_outside_streams(body: bytes) -> None:
     Warum das sicher ist: Phase 1 ist fuer diese Abwehr nicht tragend. Jeder
     Strom, den sie im Klartext saehe, wird in Phase 3 ohnehin gescannt (Zweig
     "kein Filter"), und ein Strom, den Phase 3 nicht scannt, ist nachweislich
-    kein Inhalt (siehe `_exempt_raster_idnums`). Phase 1 darf deshalb LOCKER
+    kein Inhalt (siehe `_exempt_raster_idnums`).
+
+    Diese Vorbedingung war zweimal FALSCH, waehrend sie hier behauptet wurde:
+    ein befreiter Strom mit unkomprimiertem Inhalt war in beiden Phasen
+    unsichtbar (A2u bei 879037f, A5 bei 0e58053). Beide Male lag die Ursache in
+    der Befreiung, nicht im Hebel, und beide Male war der Graph unvollstaendig.
+    Sie wird deshalb nicht mehr nur behauptet, sondern geprueft, und zwar gegen
+    eine vom Modul UNABHAENGIGE Kantenliste:
+    `test_every_stream_phase_three_skips_is_provably_not_content`.
+
+    Phase 1 darf deshalb LOCKER
     sein -- und muss es sein, denn sie laeuft ueber die komprimierten Bytes
     von Rasterbildern. Das Vier-Byte-Muster trifft dort rein zufaellig mit
     rund 3e-8 pro Byte; ein 200-KB-Raster wuerde so etwa eines von 160
@@ -447,36 +464,24 @@ def _reject_inline_images_outside_streams(body: bytes) -> None:
 def _pdf_nodes(root):
     """Alle erreichbaren Dictionaries ab `root`, zyklensicher und gedeckelt.
 
-    Der Zaehler ist kein Feinschliff: ein PDF mit Millionen kreuzverlinkter
-    Objekte waere sonst ein CPU-Verbrauchsangriff auf den Validator selbst.
-
     Geliefert wird `(dictionary, idnum)`; `idnum` ist die Objektnummer, ueber
     die der Knoten erreicht wurde, oder None bei einem direkten Objekt. Die
     Nummer ist die einzige faelschungssichere Identitaet eines Streams -- sie
     wird gebraucht, um Inhaltsstroeme von Rasterbildern zu unterscheiden.
+
+    Diese Funktion ist bewusst nur noch eine SICHT auf `_pdf_walk`. Sie hatte
+    einmal einen eigenen Durchlauf, und der lief ueber Arrays, waehrend
+    `_pdf_reference_map` das nicht tat -- ein indirektes Array unter /Contents
+    war fuer die Kantenbuchhaltung unsichtbar und der Strom darin bekam eine
+    Befreiung, die ein Interpreter durch Ausfuehren widerlegt. Zwei
+    Erreichbarkeitsbegriffe koennen auseinanderlaufen; einer kann es nicht.
     """
-    stack = [(root, None)]
-    seen_objects: set[int] = set()
-    visited = 0
-    while stack:
-        value, idnum = stack.pop()
-        if isinstance(value, IndirectObject):
-            if value.idnum in seen_objects:
-                continue
-            seen_objects.add(value.idnum)
-            idnum = value.idnum
-            try:
-                value = value.get_object()
-            except Exception as exc:
-                raise BinaryValidationError("PDF parser rejected input") from exc
-        if isinstance(value, DictionaryObject):
-            visited += 1
-            if visited > MAX_PDF_OBJECTS:
-                raise BinaryValidationError("PDF object graph is too large")
-            yield value, idnum
-            stack.extend((child, None) for child in value.values())
-        elif isinstance(value, (list, tuple)):
-            stack.extend((child, None) for child in value)
+    for record in _pdf_walk(root):
+        if record[0] != _PDF_NODE:
+            continue
+        _, key, node = record
+        kind, ident = key
+        yield node, (ident if kind == "idnum" else None)
 
 
 def _reject_active_pdf_constructs(node: DictionaryObject) -> None:
@@ -572,35 +577,162 @@ def _node_identity(value):
     return ("direct", id(value))
 
 
-def _labelled_children(key: str, value):
-    """Die Kanten, die EIN Schluessel-Wert-Paar in den Graphen aufspannt.
+def _resolve_reference(value, budget):
+    """Folgt einer Referenzkette bis zum letzten indirekten Glied.
 
-    Ein Wert direkt am Schluessel traegt dessen Namen als Etikett. Ein Verweis
-    in einem (auch verschachtelten) direkten Array traegt das Array-Sentinel:
-    ein Array-Element ist niemals ein sauberer /Resources -> /XObject-Platz,
-    und es als solchen zu zaehlen waere genau die Art Beweisloch, die hier
-    keine Befreiung mehr erzeugen darf.
+    ISO 32000-1, 7.3.10: der WERT eines indirekten Objekts darf jedes Objekt
+    sein -- auch selbst wieder eine indirekte Referenz. `5 0 obj 6 0 R endobj`
+    ist gueltiges PDF, und `get_object()` loest genau ein Glied auf. Wer nur
+    einmal aufloest, sieht bei einer Kette ein Nicht-Dictionary und verliert
+    den ganzen Teilbaum dahinter -- derselbe Fehler wie beim indirekten Array.
+
+    Rueckgabe `(link, target)`: `target` ist das aufgeloeste Objekt, `link` das
+    LETZTE indirekte Glied der Kette (oder das direkte Objekt selbst). Die
+    Kantenidentitaet haengt an `link`, damit ein Zwischenglied nicht als
+    eigener Knoten zwischen Kante und Ziel steht und dessen Etiketten schluckt.
+    `(None, None)` heisst: hier ist nichts, was Kanten aufspannen kann -- eine
+    Kette im Kreis. Das ist die strenge Richtung: ohne Ziel gibt es keinen
+    Knoten, der befreit werden koennte.
     """
-    if isinstance(value, (IndirectObject, DictionaryObject)):
-        yield key, value
-    elif isinstance(value, (list, tuple)):
-        stack = list(value)
-        while stack:
-            element = stack.pop()
-            if isinstance(element, (IndirectObject, DictionaryObject)):
-                yield _ARRAY_ELEMENT_LABEL, element
-            elif isinstance(element, (list, tuple)):
-                stack.extend(element)
+    seen: set[int] = set()
+    current = value
+    while isinstance(current, IndirectObject):
+        budget()
+        if current.idnum in seen:
+            return None, None
+        seen.add(current.idnum)
+        try:
+            resolved = current.get_object()
+        except Exception as exc:
+            raise BinaryValidationError("PDF parser rejected input") from exc
+        if isinstance(resolved, IndirectObject):
+            current = resolved
+            continue
+        return current, resolved
+    return value, value
+
+
+def _labelled_children(key: str, value, budget=None):
+    """Alle Kanten, die EIN Schluessel-Wert-Paar in den Graphen aufspannt.
+
+    Abgeleitet aus dem Objektmodell von ISO 32000-1, 7.3, nicht aus einem
+    beobachteten Angriff. Dort gibt es genau zwei Container, in denen sich eine
+    Referenz verstecken kann:
+
+      * Array (7.3.6) -- "may contain any combination of ... including other
+        arrays", also beliebig verschachtelt, und selbst als indirektes Objekt
+        speicherbar;
+      * Dictionary (7.3.7), inklusive Stream (7.3.8), dessen Dictionary ein
+        gewoehnliches Dictionary ist.
+
+    Alles andere (Boolean 7.3.2, Zahl 7.3.3, String 7.3.4, Name 7.3.5, Null
+    7.3.9) kann keine Referenz enthalten und spannt deshalb keine Kante auf.
+    Referenzen (7.3.10) koennen in beiden Containern und in beliebiger
+    Verschachtelung stehen, und beide Container koennen ueber eine Kette von
+    Referenzen erreicht werden.
+
+    Arrays sind hier TRANSPARENT: sie tragen keine eigene Kante, sondern
+    reichen die Kanten ihrer Elemente an das umgebende Dictionary weiter,
+    etikettiert mit dem Array-Sentinel. Das ist die Stelle, an der es dreimal
+    geklemmt hat -- ein Array (direkt ODER indirekt, flach ODER verschachtelt)
+    darf einen Verweis nicht verschlucken. Und das Sentinel ist notwendig, weil
+    ein Array-Element niemals ein sauberer /Resources -> /XObject-Platz ist.
+    """
+    if budget is None:
+
+        def budget() -> None:
+            return None
+
+    stack: list[tuple[str, object]] = [(key, value)]
+    seen_arrays: set[tuple] = set()
+    while stack:
+        label, item = stack.pop()
+        budget()
+        link, target = _resolve_reference(item, budget)
+        if target is None:
+            continue
+        if isinstance(target, DictionaryObject):
+            # Streams eingeschlossen: StreamObject IST ein DictionaryObject.
+            yield label, link
+        elif isinstance(target, (list, tuple)):
+            marker = _node_identity(link)
+            if marker in seen_arrays:
+                # Ein indirektes Array darf sich selbst enthalten.
+                continue
+            seen_arrays.add(marker)
+            stack.extend((_ARRAY_ELEMENT_LABEL, element) for element in target)
+
+
+_PDF_NODE = "node"
+_PDF_EDGE = "edge"
+
+
+def _pdf_walk(root):
+    """DIE Erreichbarkeitsdefinition des Objektgraphen -- genau eine, fuer alle.
+
+    Warum das ein eigener Generator ist und nicht zwei Durchlaeufe: es gab
+    zwei, und sie sind auseinandergelaufen. `_pdf_nodes` folgte Arrays,
+    `_pdf_reference_map` brach bei jedem aufgeloesten Nicht-Dictionary ab. Ein
+    `/Contents <indirekte Referenz auf ein Array>` war damit fuer die
+    Kantenbuchhaltung unsichtbar: der Strom darin sah aus, als haenge er nur im
+    /XObject-Platz, bekam die Raster-Befreiung -- und wurde vom Interpreter als
+    Seiteninhalt ausgefuehrt. Solange beide Konsumenten ihre Erreichbarkeit aus
+    DIESEM Generator ziehen, ist die Kantenmenge per Konstruktion eine
+    Obermenge der Knotenmenge; ein Test haelt die Beziehung zusaetzlich fest.
+
+    Ereignisse:
+      * `(_PDF_NODE, key, dictionary)` -- einmal je erreichbarem Dictionary
+      * `(_PDF_EDGE, parent_key, label, key)` -- JEDE Referenzkante, auch die
+        zweite auf denselben Knoten; genau daran ist Aliasing sichtbar.
+
+    Zwei Deckel, beide gegen CPU-Verbrauch am Validator selbst:
+    `MAX_PDF_OBJECTS` auf den Dictionaries (unveraendert) und
+    `MAX_PDF_GRAPH_STEPS` auf den Schritten durch Arrays und Referenzketten --
+    ohne den zweiten koennte ein Angreifer 20.000 Dictionaries auf dieselbe
+    lange Kette indirekter Arrays zeigen lassen und ein Kreuzprodukt erzwingen.
+    """
+    steps = 0
+
+    def budget() -> None:
+        nonlocal steps
+        steps += 1
+        if steps > MAX_PDF_GRAPH_STEPS:
+            raise BinaryValidationError("PDF object graph is too large")
+
+    root_link, root_value = _resolve_reference(root, budget)
+    if root_value is None:
+        return
+    root_key = _node_identity(root_link)
+    yield (_PDF_EDGE, None, _ROOT_LABEL, root_key)
+    stack = [(root_key, root_value)]
+    expanded = {root_key}
+    visited = 0
+    while stack:
+        key, value = stack.pop()
+        if isinstance(value, IndirectObject):
+            _, value = _resolve_reference(value, budget)
+        if not isinstance(value, DictionaryObject):
+            continue
+        visited += 1
+        if visited > MAX_PDF_OBJECTS:
+            raise BinaryValidationError("PDF object graph is too large")
+        yield (_PDF_NODE, key, value)
+        for name, child in value.items():
+            for label, target in _labelled_children(str(name), child, budget):
+                child_key = _node_identity(target)
+                yield (_PDF_EDGE, key, label, child_key)
+                if child_key not in expanded:
+                    expanded.add(child_key)
+                    stack.append((child_key, target))
 
 
 def _pdf_reference_map(root):
     """Wie jeder erreichbare Knoten erreicht wird -- ALLE eingehenden Kanten.
 
-    `_pdf_nodes` besucht jedes Objekt einmal und verliert damit gerade die
-    Information, um die es hier geht: dass dasselbe Dictionary MEHRFACH und
-    unter VERSCHIEDENEN Schluesseln eingehaengt sein kann. Dieser Durchlauf
-    expandiert jeden Knoten ebenfalls nur einmal (Zyklen, CPU-Deckel), notiert
-    aber jede Kante, auch die zu bereits gesehenen Knoten.
+    Eine reine Sicht auf `_pdf_walk`, wie `_pdf_nodes`. Der Unterschied zu
+    `_pdf_nodes` ist nur, dass hier die Kanten mitgeschrieben werden: dass
+    dasselbe Dictionary MEHRFACH und unter VERSCHIEDENEN Etiketten eingehaengt
+    sein kann, ist genau die Information, die eine Knotenliste verliert.
 
     Rueckgabe:
       * `labels[k]`       -- alle Etiketten, unter denen k erreicht wird
@@ -610,33 +742,15 @@ def _pdf_reference_map(root):
     labels: dict[tuple, set[str]] = {}
     parents: dict[tuple, set[tuple]] = {}
     dictionaries: dict[tuple, DictionaryObject] = {}
-
-    root_key = _node_identity(root)
-    labels[root_key] = {_ROOT_LABEL}
-    stack = [(root_key, root)]
-    expanded = {root_key}
-    visited = 0
-    while stack:
-        key, value = stack.pop()
-        if isinstance(value, IndirectObject):
-            try:
-                value = value.get_object()
-            except Exception as exc:
-                raise BinaryValidationError("PDF parser rejected input") from exc
-        if not isinstance(value, DictionaryObject):
-            continue
-        visited += 1
-        if visited > MAX_PDF_OBJECTS:
-            raise BinaryValidationError("PDF object graph is too large")
-        dictionaries[key] = value
-        for name, child in value.items():
-            for label, target in _labelled_children(str(name), child):
-                child_key = _node_identity(target)
-                labels.setdefault(child_key, set()).add(label)
-                parents.setdefault(child_key, set()).add(key)
-                if child_key not in expanded:
-                    expanded.add(child_key)
-                    stack.append((child_key, target))
+    for record in _pdf_walk(root):
+        if record[0] == _PDF_NODE:
+            _, key, node = record
+            dictionaries[key] = node
+        else:
+            _, parent_key, label, key = record
+            labels.setdefault(key, set()).add(label)
+            if parent_key is not None:
+                parents.setdefault(key, set()).add(parent_key)
     return labels, parents, dictionaries
 
 
@@ -674,6 +788,15 @@ def _exempt_raster_idnums(root) -> set[int]:
     Befreiung, und der Strom wird gescannt.
 
     Ueber die Objektnummer, nicht ueber `id()`: siehe `_node_identity`.
+
+    Und die Regel ist nur so gut wie der Graph, auf dem sie rechnet. Dreimal
+    war der Graph unvollstaendig -- zuletzt fehlten ihm Arrays, sodass ein
+    `/Contents <indirekte Referenz auf ein Array>` keine Kante beitrug und der
+    Seiteninhalt als Rasterbild durchging. Die Erreichbarkeit kommt deshalb aus
+    `_pdf_walk`, das aus dem Containermodell von ISO 32000-1, 7.3 abgeleitet ist
+    (siehe `_labelled_children`), und zwei Tests halten das fest:
+    `test_every_iso_container_that_can_hide_a_reference_spans_an_edge` und
+    `test_the_reference_map_reaches_everything_an_independent_walk_reaches`.
     """
     labels, parents, dictionaries = _pdf_reference_map(root)
 
