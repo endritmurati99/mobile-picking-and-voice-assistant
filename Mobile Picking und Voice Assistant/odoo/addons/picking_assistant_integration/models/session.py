@@ -1,6 +1,8 @@
 import json
 from datetime import timedelta
 
+import psycopg2
+
 from odoo import api, fields, models
 from odoo.exceptions import ValidationError
 
@@ -110,13 +112,47 @@ class PickingAssistantSession(models.Model):
     @api.model
     def api_mark_roles_checked(self, session_id, roles):
         self.env["picking.assistant.api.mixin"]._require_api_service()
-        session = self.sudo().search([("session_id", "=", session_id)], limit=1)
+        sessions = self.sudo()
+        session = sessions.search([("session_id", "=", session_id)], limit=1)
         if not session:
+            return False
+        # Minor M1: re-check revocation/expiry under a row lock. The old
+        # code wrote the new roles and handed the session back
+        # unconditionally, with no revocation or expiry check at all --
+        # a session revoked (or already expired) between resolution and
+        # this call still got new roles written and a live payload
+        # returned. Same SELECT ... FOR UPDATE + savepoint pattern as every
+        # other lock site in this addon (outbox.py, receipts.py,
+        # integration_job.py): under REPEATABLE READ, losing this lock to a
+        # concurrent transaction that has ALREADY committed does not
+        # block-then-return-the-new-tuple, it raises SerializationFailure
+        # (SQLSTATE 40001) right at this statement. The savepoint contains
+        # that failure to this one statement so it cannot swallow an
+        # unrelated 40001 later in the transaction.
+        try:
+            with self.env.cr.savepoint():
+                self.env.cr.execute(
+                    "SELECT id FROM picking_assistant_session WHERE id = %s "
+                    "FOR UPDATE",
+                    (session.id,),
+                )
+                # Fetched INSIDE the savepoint: `RELEASE SAVEPOINT` on
+                # `with`-exit would otherwise clobber this pending result.
+                found = self.env.cr.fetchone()
+        except psycopg2.errors.SerializationFailure as exc:
+            raise ValidationError(
+                "Session changed during role marking."
+            ) from exc
+        if not found:
+            return False
+        session.invalidate_recordset()
+        now = fields.Datetime.now()
+        if session.revoked_at or not session.expires_at or session.expires_at <= now:
             return False
         session.write(
             {
                 "roles_json": json.dumps(sorted(set(roles))),
-                "roles_checked_at": fields.Datetime.now(),
+                "roles_checked_at": now,
             }
         )
         return session._api_payload()

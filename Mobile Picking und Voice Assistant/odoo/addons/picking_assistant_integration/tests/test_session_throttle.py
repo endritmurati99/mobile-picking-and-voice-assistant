@@ -1,3 +1,4 @@
+import json
 import threading
 import traceback
 from datetime import timedelta
@@ -77,6 +78,69 @@ class TestSessionAndThrottle(IntegrationCase):
                 "4ddb2442-e58a-47fe-9a6f-1ec1d779ef88", "2" * 64
             )
         )
+
+    def test_role_marking_rejects_a_revoked_session(self):
+        """Cover for minor M1. Deterministic, no concurrency needed: the old
+        `api_mark_roles_checked` wrote the new roles and handed the session
+        back unconditionally -- it never checked `revoked_at` or
+        `expires_at` at all, concurrently or otherwise."""
+        model = self.env["picking.assistant.session"].with_user(self.api_user)
+        session_id = "6a13d222-1111-4444-8888-000000000001"
+        expires_at = fields.Datetime.now() + timedelta(hours=8)
+        model.api_create_session(
+            session_id,
+            "4" * 64,
+            "5" * 64,
+            self.picker.id,
+            "device-99",
+            ["picker"],
+            fields.Datetime.to_string(expires_at),
+        )
+        self.env["picking.assistant.session"].sudo().search(
+            [("session_id", "=", session_id)]
+        ).write({"revoked_at": fields.Datetime.now()})
+
+        result = model.api_mark_roles_checked(session_id, ["picker", "supervisor"])
+        self.assertFalse(result, "a revoked session must not survive role marking")
+
+    def test_role_marking_rejects_an_expired_session(self):
+        """Cover for minor M1's other half: expiry, not just revocation."""
+        model = self.env["picking.assistant.session"].with_user(self.api_user)
+        session_id = "6a13d222-1111-4444-8888-000000000002"
+        expires_at = fields.Datetime.now() + timedelta(hours=8)
+        model.api_create_session(
+            session_id,
+            "6" * 64,
+            "7" * 64,
+            self.picker.id,
+            "device-99",
+            ["picker"],
+            fields.Datetime.to_string(expires_at),
+        )
+        self.env["picking.assistant.session"].sudo().search(
+            [("session_id", "=", session_id)]
+        ).write({"expires_at": fields.Datetime.now() - timedelta(seconds=1)})
+
+        result = model.api_mark_roles_checked(session_id, ["picker"])
+        self.assertFalse(result, "an expired session must not survive role marking")
+
+    def test_role_marking_updates_roles_for_a_live_session(self):
+        """Happy path: the fix must not reject a session that is neither
+        revoked nor expired."""
+        model = self.env["picking.assistant.session"].with_user(self.api_user)
+        session_id = "6a13d222-1111-4444-8888-000000000003"
+        expires_at = fields.Datetime.now() + timedelta(hours=8)
+        model.api_create_session(
+            session_id,
+            "8" * 64,
+            "9" * 64,
+            self.picker.id,
+            "device-99",
+            ["picker"],
+            fields.Datetime.to_string(expires_at),
+        )
+        result = model.api_mark_roles_checked(session_id, ["picker", "supervisor"])
+        self.assertEqual(sorted(result["roles"]), ["picker", "supervisor"])
 
 
 # Empirically the buggy `_lock_or_create` raised on the very first attempt
@@ -398,3 +462,141 @@ class TestThrottleConcurrency(CommittedConcurrencyCase):
                     ]
                 )
             )
+
+
+# Same reasoning as `_RACE_ATTEMPTS` above: one clean interleaving proves
+# nothing about a race, and `run_concurrently` needs two REAL transactions
+# for `revoke` and `mark` to ever contend for the same row at all.
+_ROLE_MARKING_RACE_ATTEMPTS = 8
+
+
+@tagged("post_install", "-at_install")
+class TestSessionRoleMarkingConcurrency(CommittedConcurrencyCase):
+    """Defense-in-depth for minor M1 under actual concurrent contention.
+
+    IMPORTANT, established empirically with a negative control (revert only
+    `session.py`'s fix and re-run this class): this specific race does
+    **not** discriminate the pre-fix code from the fix. Every one of 4
+    measured runs (32 attempts total) came back with the SAME result on
+    both sides of the fix -- `mark`'s write, guarded or not, collided with
+    `revoke`'s write and Postgres itself raised `SerializationFailure` on
+    the LOSING statement, because REPEATABLE READ rejects ANY UPDATE
+    against a row a concurrently-committed transaction has already changed,
+    not only a `SELECT ... FOR UPDATE`. A barrier-synchronised start simply
+    never produces the interleaving the bug needs (mark's read completing,
+    then its write landing AFTER revoke has already committed, with no
+    conflicting write on mark's own side) -- that specific gap only exists
+    with the un-guarded code, and closing it is exactly what the lock adds,
+    but the two naked UPDATEs from `revoke` and the OLD `mark` already
+    fight each other head-on before either commits.
+
+    The REAL, DISCRIMINATING regression cover for M1 is
+    `TestSessionAndThrottle.test_role_marking_rejects_a_revoked_session`
+    and `..._rejects_an_expired_session` above: they revoke/expire the
+    session on the SAME transaction/cursor `mark` reads from (no race
+    needed -- REPEATABLE READ trivially allows a transaction to see its
+    own uncommitted writes), which reproduces exactly the "resolved once,
+    stale by the time roles are marked" defect from the finding. Those two
+    tests fail on the pre-fix code (confirmed) and pass after the fix
+    (confirmed); THIS test passes on both, always.
+
+    What this test still proves, and is kept for: the fix's `FOR UPDATE` +
+    savepoint pattern converts a real, driver-raised 40001 into a
+    `ValidationError` rather than leaking a raw `psycopg2` exception past
+    the RPC boundary, and never lets a session that ends up revoked walk
+    away with a live payload -- exactly the invariant a reviewer would
+    otherwise have to trust by reading the code.
+    """
+
+    def test_role_marking_rechecks_revocation_under_lock(self):
+        """See the class docstring for what this test does and does not
+        discriminate.
+
+        Harness hazard #1: `revoke` and `mark` below take only pre-
+        materialised primitives (`session_pk`, `session_id`, `api_user_id`)
+        -- never a `self.env`-bound recordset -- so each worker's lazy ORM
+        field access runs on ITS OWN cursor, not the outer environment's.
+
+        Harness hazard #2: both sides of this race take a lock on the SAME
+        row (`revoke` via the ORM's implicit UPDATE lock, `mark` via its
+        explicit `FOR UPDATE`), so under REPEATABLE READ either one can
+        lose with a driver-raised `SerializationFailure` -- a first version
+        of this test asserted "revoke never fails", which is exactly the
+        untested-assumption trap the harness notes warn about, and it was
+        caught by a real GREEN-run failure, not by inspection. The
+        assertion below does not guess which side wins: it re-reads the
+        row's COMMITTED state after the race and checks the one thing that
+        must never be true regardless of interleaving -- a session that
+        ended up revoked must never have handed back a live role-marking
+        payload.
+        """
+        api_user_id = self.api_user_id
+        outcomes = {"revoked_and_falsy_or_raised": 0, "not_revoked_and_dict": 0}
+        bad_attempts = []
+
+        for attempt in range(_ROLE_MARKING_RACE_ATTEMPTS):
+            session_id = "race-session-%d-%s" % (attempt, uuid4().hex)
+            session = self.track(
+                self.env["picking.assistant.session"].sudo().create(
+                    {
+                        "session_id": session_id,
+                        "token_hash": uuid4().hex,
+                        "csrf_hash": uuid4().hex,
+                        "user_id": api_user_id,
+                        "device_id": "device-race",
+                        "roles_json": json.dumps(["picker"]),
+                        "expires_at": fields.Datetime.now() + timedelta(hours=1),
+                    }
+                )
+            )
+            session_pk = session.id
+            self.env.cr.commit()
+
+            def revoke(env):
+                env["picking.assistant.session"].sudo().browse(session_pk).write(
+                    {"revoked_at": fields.Datetime.now()}
+                )
+
+            def mark(env):
+                return (
+                    env["picking.assistant.session"]
+                    .with_user(api_user_id)
+                    .api_mark_roles_checked(session_id, ["picker", "supervisor"])
+                )
+
+            results = self.run_concurrently(revoke, mark)
+            revoke_result, marked = results
+
+            for result in results:
+                if isinstance(result, Exception) and not isinstance(
+                    result,
+                    (psycopg2.errors.SerializationFailure, ValidationError),
+                ):
+                    self.fail(
+                        "unexpected exception from the race: %r\n%s"
+                        % (result, getattr(result, "pwr_traceback", ""))
+                    )
+
+            session.invalidate_recordset()
+            ended_revoked = bool(session.revoked_at)
+            marked_is_live_payload = isinstance(marked, dict)
+
+            if marked_is_live_payload and ended_revoked:
+                bad_attempts.append(
+                    (attempt, revoke_result, marked, ended_revoked)
+                )
+            outcomes[
+                "not_revoked_and_dict"
+                if marked_is_live_payload
+                else "revoked_and_falsy_or_raised"
+            ] += 1
+
+        self.assertFalse(
+            bad_attempts,
+            "role marking returned a live payload for a session that ended "
+            "up revoked in %d/%d attempts -- minor M1 is not fixed: %r"
+            % (len(bad_attempts), _ROLE_MARKING_RACE_ATTEMPTS, bad_attempts),
+        )
+        self.assertEqual(
+            sum(outcomes.values()), _ROLE_MARKING_RACE_ATTEMPTS
+        )

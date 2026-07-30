@@ -135,6 +135,30 @@ class PickingAssistantWebhookNonce(models.Model):
             "expires_at": fields.Datetime.to_string(record.expires_at),
         }
 
+    @api.model
+    def _gc_expired(self, batch_size=500):
+        """Delete one batch of expired nonces and report what is left.
+
+        Minor M2: this used to be an inline `search(..., limit=1000)` +
+        `unlink()` inside `_cron_cleanup_ephemeral` (integration_job.py)
+        that always reported `remaining=0` to `ir.cron`, no matter how many
+        expired rows were still sitting there after the cap. At roughly
+        1.67 expired nonces/second (900s retention informs the arrival
+        rate) a sustained load can outrun a single 1000-row batch every ten
+        minutes, and the operator had no signal that the backlog was
+        growing. Same `search_count(domain) - len(stale)` pattern as
+        `auth_throttle._gc_expired_throttle` and
+        `session._gc_expired_sessions`, computed BEFORE the delete so the
+        rows about to be unlinked are not double counted."""
+        now = fields.Datetime.now()
+        domain = [("expires_at", "<=", now)]
+        nonces = self.sudo()
+        stale = nonces.search(domain, limit=batch_size)
+        remaining = nonces.search_count(domain) - len(stale)
+        if stale:
+            stale.unlink()
+        return {"deleted": len(stale), "remaining": max(remaining, 0)}
+
 
 class PickingAssistantEventReceipt(models.Model):
     _name = "picking.assistant.event.receipt"

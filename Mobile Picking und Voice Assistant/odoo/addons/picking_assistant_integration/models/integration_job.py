@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from datetime import timedelta
 from uuid import uuid4
 
@@ -45,6 +46,10 @@ RETENTION_EVENT_RECEIPT_DAYS = 90
 RETENTION_CALLBACK_RECEIPT_DAYS = 90
 RETENTION_JOB_DAYS = 90
 SESSION_GC_GRACE_DAYS = 7
+# Minor M2: bound how long a single ten-minute cron tick may spend draining
+# the nonce backlog. Long enough to clear a real burst in one run, short
+# enough that the cron thread is never mistaken for a hang.
+NONCE_GC_TIME_BUDGET_SECONDS = 30
 
 
 class PickingAssistantIntegrationJob(models.Model):
@@ -477,15 +482,35 @@ class PickingAssistantIntegrationJob(models.Model):
     def _cron_cleanup_ephemeral(self, limit=1000):
         """Every ten minutes: purge expired nonces, throttle rows, and stale
         sessions. Nonces are only removed after their expires_at, which is
-        always >= 600 seconds past reservation (replay-window retention)."""
+        always >= 600 seconds past reservation (replay-window retention).
+
+        Minor M2: the nonce step used to be a single capped batch that
+        always reported `remaining=0`, so a backlog above the cap grew with
+        no signal at all. It now drains `_gc_expired` in a loop -- bounded
+        by `NONCE_GC_TIME_BUDGET_SECONDS`, not by an unconditional single
+        pass -- and logs a warning if it still exits with rows pending."""
         now = fields.Datetime.now()
         size = max(1, int(limit))
         removed = 0
-        nonces = self.env["picking.assistant.webhook.nonce"].sudo().search(
-            [("expires_at", "<=", now)], limit=size
-        )
-        removed += len(nonces)
-        nonces.unlink()
+        nonce_model = self.env["picking.assistant.webhook.nonce"]
+        nonce_remaining = 0
+        deadline = time.monotonic() + NONCE_GC_TIME_BUDGET_SECONDS
+        while True:
+            result = nonce_model._gc_expired(batch_size=size)
+            removed += result["deleted"]
+            nonce_remaining = result["remaining"]
+            if not nonce_remaining or not result["deleted"]:
+                break
+            if time.monotonic() >= deadline:
+                break
+        if nonce_remaining:
+            _logger.warning(
+                "nonce GC exited with %d expired row(s) still pending after "
+                "the %ss time budget; the next run will continue draining "
+                "the backlog",
+                nonce_remaining,
+                NONCE_GC_TIME_BUDGET_SECONDS,
+            )
         throttles = self.env["picking.assistant.auth.throttle"].sudo().search(
             [("expires_at", "<=", now)], limit=size
         )
@@ -506,7 +531,7 @@ class PickingAssistantIntegrationJob(models.Model):
         )
         removed += len(sessions)
         sessions.unlink()
-        self._report_cron_progress(removed)
+        self._report_cron_progress(removed, remaining=nonce_remaining)
 
     @api.model
     def _cron_cleanup_audit(self, limit=1000):

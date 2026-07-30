@@ -73,6 +73,75 @@ class TestNonceReplayAndRetention(IntegrationCase):
             (record.expires_at - record.received_at).total_seconds(), 600
         )
 
+    def _expired_nonces(self, count):
+        """Commit `count` already-expired nonce rows in one bulk create."""
+        now = fields.Datetime.now()
+        model = self.env["picking.assistant.webhook.nonce"].sudo()
+        values = [
+            {
+                "direction": "n8n_to_backend",
+                "key_id": "gc-test",
+                "nonce": "expired-%d" % index,
+                "received_at": now - timedelta(seconds=2000),
+                "expires_at": now - timedelta(seconds=1),
+            }
+            for index in range(count)
+        ]
+        return model.create(values)
+
+    def test_nonce_gc_reports_what_it_could_not_delete(self):
+        """Silent truncation reads as 'cleaned up' when it is not. Cover for
+        M2: the pre-fix `_cron_cleanup_ephemeral` deleted one capped batch of
+        expired nonces and always reported `remaining=0` to `ir.cron`, no
+        matter how many expired rows were left over the cap."""
+        self._expired_nonces(count=1200)
+
+        result = self.env["picking.assistant.webhook.nonce"]._gc_expired(
+            batch_size=500
+        )
+
+        self.assertEqual(result["deleted"], 500)
+        self.assertGreater(result["remaining"], 0)
+        self.assertEqual(result["remaining"], 700)
+
+    def test_nonce_gc_drains_a_backlog_across_batches(self):
+        """The cron must keep calling `_gc_expired` until the backlog is
+        gone, not stop after one capped pass."""
+        self._expired_nonces(count=1200)
+        model = self.env["picking.assistant.webhook.nonce"]
+
+        remaining = None
+        for _ in range(10):
+            result = model._gc_expired(batch_size=500)
+            remaining = result["remaining"]
+            if not remaining:
+                break
+
+        self.assertEqual(remaining, 0)
+        self.assertEqual(model.sudo().search_count([("key_id", "=", "gc-test")]), 0)
+
+    def test_cleanup_ephemeral_cron_drains_the_nonce_backlog_and_warns(self):
+        """End-to-end: `_cron_cleanup_ephemeral` itself must loop the nonce
+        GC to completion (limit=500 against a 1200-row backlog needs at
+        least 3 batches) and log a warning only if it still could not finish
+        inside its time budget. Here it must finish and NOT warn."""
+        self._expired_nonces(count=1200)
+
+        with self.assertNoLogs(
+            "odoo.addons.picking_assistant_integration.models.integration_job",
+            level="WARNING",
+        ):
+            self.env["picking.assistant.integration.job"]._cron_cleanup_ephemeral(
+                limit=500
+            )
+
+        self.assertEqual(
+            self.env["picking.assistant.webhook.nonce"].sudo().search_count(
+                [("key_id", "=", "gc-test")]
+            ),
+            0,
+        )
+
     def test_cleanup_ephemeral_keeps_unexpired_nonces(self):
         now = fields.Datetime.now()
         model = self.env["picking.assistant.webhook.nonce"].sudo()
