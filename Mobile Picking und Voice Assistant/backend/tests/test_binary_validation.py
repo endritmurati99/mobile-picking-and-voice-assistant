@@ -22,6 +22,7 @@ from pypdf import PdfWriter
 from pypdf.generic import (
     ArrayObject,
     DictionaryObject,
+    IndirectObject,
     NameObject,
     NumberObject,
     StreamObject,
@@ -1076,3 +1077,278 @@ def test_a_page_without_type_does_not_escape_the_page_key_allowlist():
     writer.write(out)
     with pytest.raises(BinaryValidationError, match="page key is not allowed"):
         validate_pdf(out.getvalue())
+
+
+# --------------------------------------------------------------------------
+# Review-Runde 3, Critical: die Befreiung entschuldigte ALIASIERTE
+# Dictionaries. Ein Dictionary, das gleichzeitig das /Resources -> /XObject-
+# Dictionary und etwas anderes ist, stellte seinen ganzen Inhalt frei.
+# --------------------------------------------------------------------------
+
+RASTER_KEYS = {"/Type": NameObject("/XObject"), "/Subtype": NameObject("/Image")}
+
+
+def _stream(writer, payload: bytes, extra: dict, *, compress: bool = True):
+    """Ein Stream-Objekt, roh oder Flate-gepackt, als indirekter Verweis."""
+    if compress:
+        return _flate_stream(writer, payload, extra)
+    stream = StreamObject()
+    for key, value in extra.items():
+        stream[NameObject(key)] = value
+    stream[NameObject("/Length")] = NumberObject(len(payload))
+    stream._data = payload
+    return writer._add_object(stream)
+
+
+def _a1_charprocs_is_the_xobject_dict(*, compress: bool = True) -> bytes:
+    """A1: das /CharProcs eines Typ-3-Fonts IST das /XObject-Dictionary.
+
+    Vollstaendig konformer Typ-3-Font. Der Glyphenstrom traegt /Type /XObject
+    und /Subtype /Image, ist aber ein INHALTSSTROM -- ein Interpreter fuehrt
+    ihn beim Zeichnen von "a" aus. Die vorige Befreiung uebersprang beim
+    Gegenzaehlen alle Verweise des /XObject-Dictionarys, und weil dieses
+    Dictionary hier das /CharProcs IST, galt der Glyphenverweis als "kein
+    weiterer Verweis".
+    """
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=100, height=100)
+    glyph = _stream(writer, HOSTILE_CONTENT, dict(RASTER_KEYS), compress=compress)
+    procs = DictionaryObject()
+    procs[NameObject("/a")] = glyph
+    procs_ref = writer._add_object(procs)
+
+    font = DictionaryObject()
+    font[NameObject("/Type")] = NameObject("/Font")
+    font[NameObject("/Subtype")] = NameObject("/Type3")
+    font[NameObject("/FontBBox")] = ArrayObject(
+        [NumberObject(0), NumberObject(0), NumberObject(10), NumberObject(10)]
+    )
+    font[NameObject("/FontMatrix")] = ArrayObject(
+        [
+            NumberObject(1), NumberObject(0), NumberObject(0),
+            NumberObject(1), NumberObject(0), NumberObject(0),
+        ]
+    )
+    font[NameObject("/CharProcs")] = procs_ref
+    font[NameObject("/Encoding")] = DictionaryObject()
+    font[NameObject("/FirstChar")] = NumberObject(97)
+    font[NameObject("/LastChar")] = NumberObject(97)
+    font[NameObject("/Widths")] = ArrayObject([NumberObject(1000)])
+
+    fonts = DictionaryObject()
+    fonts[NameObject("/F0")] = writer._add_object(font)
+    resources = DictionaryObject()
+    resources[NameObject("/Font")] = fonts
+    # DER ALIAS: dasselbe Dictionary ist /CharProcs UND /XObject-Dictionary.
+    resources[NameObject("/XObject")] = procs_ref
+    page[NameObject("/Resources")] = resources
+    page[NameObject("/Contents")] = _flate_stream(writer, b"BT /F0 12 Tf (a) Tj ET\n", {})
+    out = BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def _a2_page_is_the_xobject_dict(*, compress: bool = True) -> bytes:
+    """A2: das Seiten-Dictionary selbst haengt als /Resources -> /XObject.
+
+    Damit zaehlt sein eigenes /Contents nicht mehr als "weiterer Verweis" --
+    der Inhaltsstrom der Seite wurde vom Scan befreit. `compress=False` ist
+    zugleich der Nachweis, dass Phase 1 hier nichts abfaengt: sie ueberspringt
+    Stream-Nutzdaten, dieser Fall war also in BEIDEN Phasen unsichtbar.
+    """
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=100, height=100)
+    page[NameObject("/Contents")] = _stream(
+        writer, HOSTILE_CONTENT, dict(RASTER_KEYS), compress=compress
+    )
+    resources = DictionaryObject()
+    # DER ALIAS.
+    resources[NameObject("/XObject")] = page.indirect_reference
+    page[NameObject("/Resources")] = resources
+    out = BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def _a3_pattern_is_the_xobject_dict(*, compress: bool = True) -> bytes:
+    """A3: ein /Pattern-Dictionary IST das /XObject-Dictionary."""
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=100, height=100)
+    extra = dict(RASTER_KEYS)
+    extra.update(
+        {
+            "/PatternType": NumberObject(1),
+            "/PaintType": NumberObject(1),
+            "/TilingType": NumberObject(1),
+            "/BBox": ArrayObject(
+                [NumberObject(0), NumberObject(0), NumberObject(10), NumberObject(10)]
+            ),
+            "/XStep": NumberObject(10),
+            "/YStep": NumberObject(10),
+            "/Resources": DictionaryObject(),
+        }
+    )
+    patterns = DictionaryObject()
+    patterns[NameObject("/P0")] = _stream(writer, HOSTILE_CONTENT, extra, compress=compress)
+    patterns_ref = writer._add_object(patterns)
+    resources = DictionaryObject()
+    resources[NameObject("/Pattern")] = patterns_ref
+    # DER ALIAS.
+    resources[NameObject("/XObject")] = patterns_ref
+    page[NameObject("/Resources")] = resources
+    page[NameObject("/Contents")] = _flate_stream(
+        writer, b"/Pattern cs /P0 scn 0 0 100 100 re f\n", {}
+    )
+    out = BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def _a4_xobject_dict_on_a_non_resources_parent(*, compress: bool = True) -> bytes:
+    """A4: das /XObject-Dictionary haengt an etwas, das kein /Resources ist.
+
+    Kein Alias, sondern die zweite Haelfte derselben Regel: die Befreiung darf
+    nur ein ECHTER /Resources -> /XObject-Platz erteilen. Ohne diese Klausel
+    genuegt es, den Schluessel /XObject an ein beliebiges Dictionary zu haengen.
+    """
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=100, height=100)
+    holder = DictionaryObject()
+    holder[NameObject("/Im0")] = _stream(
+        writer, HOSTILE_CONTENT, dict(RASTER_KEYS), compress=compress
+    )
+    carrier = DictionaryObject()
+    carrier[NameObject("/Type")] = NameObject("/Font")
+    carrier[NameObject("/Subtype")] = NameObject("/Type1")
+    carrier[NameObject("/BaseFont")] = NameObject("/Helvetica")
+    carrier[NameObject("/XObject")] = writer._add_object(holder)
+    fonts = DictionaryObject()
+    fonts[NameObject("/F0")] = writer._add_object(carrier)
+    resources = DictionaryObject()
+    resources[NameObject("/Font")] = fonts
+    page[NameObject("/Resources")] = resources
+    page[NameObject("/Contents")] = _flate_stream(writer, b"BT /F0 12 Tf (x) Tj ET\n", {})
+    out = BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+ALIASED_SLOT_ATTACKS = {
+    "a1-charprocs-is-the-xobject-dict": _a1_charprocs_is_the_xobject_dict,
+    "a2-page-is-the-xobject-dict": _a2_page_is_the_xobject_dict,
+    "a3-pattern-is-the-xobject-dict": _a3_pattern_is_the_xobject_dict,
+    "a4-xobject-dict-on-a-non-resources-parent": _a4_xobject_dict_on_a_non_resources_parent,
+}
+
+
+@pytest.mark.parametrize("attack", sorted(ALIASED_SLOT_ATTACKS))
+@pytest.mark.parametrize("compress", [False, True])
+def test_an_aliased_raster_slot_earns_no_exemption(attack, compress):
+    """Alle vier Formen wurden von `validate_pdf` bei 879037f AKZEPTIERT."""
+    body = ALIASED_SLOT_ATTACKS[attack](compress=compress)
+    with pytest.raises(BinaryValidationError, match="inline image"):
+        validate_pdf(body)
+
+
+@pytest.mark.parametrize("attack", sorted(ALIASED_SLOT_ATTACKS))
+def test_the_exemption_set_is_empty_for_every_aliased_slot(attack):
+    """Dieselbe Aussage eine Ebene tiefer, damit ein spaeterer Umbau nicht aus
+    Versehen an einer anderen Stelle abweist und die Befreiung still oeffnet:
+    fuer diese Dokumente darf `_exempt_raster_idnums` NICHTS befreien."""
+    from pypdf import PdfReader
+
+    from app.services.binary_validation import _exempt_raster_idnums
+
+    reader = PdfReader(BytesIO(ALIASED_SLOT_ATTACKS[attack]()), strict=True)
+    catalog = reader.trailer["/Root"].get_object()
+    assert _exempt_raster_idnums(catalog) == set()
+
+
+def test_the_alias_is_only_visible_because_edges_key_on_the_object_number():
+    """Warum die Kantenbuchhaltung auf der OBJEKTNUMMER keyt und nicht auf
+    `id()`: zwei Vorkommen von "6 0 R" in der Datei sind zwei verschiedene
+    Python-Objekte. Mit `id()` bleiben ihre Etiketten getrennt, das Dictionary
+    sieht an jeder Stelle unaliast aus -- und genau diese Vermischung war der
+    Bruch der Moduldisziplin, den die vorige Fassung begangen hat."""
+    from pypdf import PdfReader
+
+    from app.services.binary_validation import (
+        _node_identity,
+        _pdf_reference_map,
+    )
+    import app.services.binary_validation as module
+
+    reader = PdfReader(BytesIO(_a1_charprocs_is_the_xobject_dict()), strict=True)
+    catalog = reader.trailer["/Root"].get_object()
+
+    labels, _, _ = _pdf_reference_map(catalog)
+    assert {"/CharProcs", "/XObject"} in [set(value) for value in labels.values()]
+
+    original = module._node_identity
+    try:
+        module._node_identity = lambda value: ("id", id(value))
+        blind, _, _ = _pdf_reference_map(catalog)
+    finally:
+        module._node_identity = original
+    assert all(len(value) == 1 for value in blind.values())
+
+    # Und die Eigenschaft selbst, direkt behauptet: zwei verschiedene
+    # IndirectObject-Instanzen auf dasselbe Objekt sind EIN Knoten.
+    first = ArrayObject()
+    reference_a = reader.pages[0].raw_get("/Contents")
+    reference_b = IndirectObject(reference_a.idnum, reference_a.generation, reader)
+    assert reference_a is not reference_b
+    assert _node_identity(reference_a) == _node_identity(reference_b)
+    assert _node_identity(reference_a) == ("idnum", reference_a.idnum)
+    assert _node_identity(first) != _node_identity(ArrayObject())
+
+
+def test_an_array_element_inside_an_xobject_dictionary_earns_no_exemption():
+    """Ein Array-Element ist kein Bildplatz. Es als solchen zu zaehlen waere
+    wieder ein Beweisloch, das zur Befreiung wird."""
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=100, height=100)
+    xobjects = DictionaryObject()
+    xobjects[NameObject("/Im0")] = ArrayObject(
+        [_flate_stream(writer, HOSTILE_CONTENT, dict(RASTER_KEYS))]
+    )
+    resources = DictionaryObject()
+    resources[NameObject("/XObject")] = xobjects
+    page[NameObject("/Resources")] = resources
+    page[NameObject("/Contents")] = _flate_stream(writer, b"q Q\n", {})
+    out = BytesIO()
+    writer.write(out)
+    with pytest.raises(BinaryValidationError, match="inline image"):
+        validate_pdf(out.getvalue())
+
+
+def test_one_raster_shared_by_two_pages_is_still_exempt():
+    """Gegenprobe zur strengeren Regel: ein Rasterbild, das ZWEI Seiten
+    benutzen, wird ueber zwei verschiedene /Resources -> /XObject-Plaetze
+    erreicht. Beide Plaetze sind unaliast, die Befreiung bleibt -- sonst waere
+    aus der Verscharfung ein Fehlalarm auf voellig gueltigen Dokumenten
+    geworden."""
+    writer = PdfWriter()
+    reference = _flate_stream(
+        writer,
+        _LOOKS_LIKE_BI,
+        {
+            "/Type": NameObject("/XObject"),
+            "/Subtype": NameObject("/Image"),
+            "/Width": NumberObject(4),
+            "/Height": NumberObject(4),
+        },
+    )
+    for _ in range(2):
+        page = writer.add_blank_page(width=100, height=100)
+        xobjects = DictionaryObject()
+        xobjects[NameObject("/Im0")] = reference
+        resources = DictionaryObject()
+        resources[NameObject("/XObject")] = xobjects
+        page[NameObject("/Resources")] = resources
+        page[NameObject("/Contents")] = _flate_stream(
+            writer, b"q 100 0 0 100 0 0 cm /Im0 Do Q\n", {}
+        )
+    out = BytesIO()
+    writer.write(out)
+    assert validate_pdf(out.getvalue()).extension == "pdf"

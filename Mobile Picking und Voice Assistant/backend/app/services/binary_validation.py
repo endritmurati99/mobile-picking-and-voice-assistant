@@ -540,24 +540,104 @@ _NON_EXPANDING_DECODERS: dict[str, Callable[[bytes], bytes]] = {
 assert set(_NON_EXPANDING_DECODERS) == _PDF_NON_EXPANDING_FILTERS
 
 
-def _resolved(value):
-    return value.get_object() if isinstance(value, IndirectObject) else value
+# Kanten-Etiketten, die KEIN Dictionary-Schluessel sind. Ein PDF-Name beginnt
+# immer mit "/", diese Sentinels bewusst nicht -- sie koennen deshalb mit
+# keinem echten Schluessel kollidieren, und "ist ein Schluessel" ist an
+# `startswith("/")` ablesbar.
+_ARRAY_ELEMENT_LABEL = "<array element>"
+_ROOT_LABEL = "<root>"
 
 
-def _outgoing_references(node: DictionaryObject):
-    """Alle Objektverweise, die DIREKT an diesem Knoten haengen.
+def _node_identity(value):
+    """Faelschungssichere Identitaet eines Knotens fuer die Kantenbuchhaltung.
 
-    Direkte (nicht indirekte) Arrays werden mitverfolgt, weil ein Verweis
-    darin genauso ein Verweis dieses Knotens ist. Verschachtelte direkte
-    Dictionaries nicht -- die sind im Graphen eigene Knoten.
+    Indirekte Objekte werden ueber die OBJEKTNUMMER gefuehrt, nicht ueber
+    `id()`. `get_object()` darf bei einem Cache-Miss ein zweites Python-Objekt
+    fuer dasselbe PDF-Objekt liefern; eine Identitaetspruefung saehe dann zwei
+    Knoten, wo einer ist, wuerde also Kanten uebersehen und eine Befreiung zu
+    Unrecht erteilen. Genau das war der Fehler der vorigen Fassung.
+
+    Direkte Objekte haben keine Objektnummer und brauchen auch keine: ein
+    direktes Dictionary steht an GENAU EINER syntaktischen Stelle der Datei und
+    ist damit per Konstruktion unaliasbar. `id()` ist hier zulaessig, weil das
+    Objekt in seinem Elternknoten gespeichert bleibt, also waehrend des ganzen
+    Durchlaufs lebt und identisch ist -- es gibt kein `get_object()` und damit
+    keinen Cache dazwischen. Und selbst wenn zwei verschiedene direkte
+    Dictionaries dieselbe Identitaet erhielten, verschmelzen nur ihre
+    Etikettenmengen: MEHR Etiketten bedeutet eine strengere, nie eine laxere
+    Entscheidung.
     """
-    stack = list(node.values())
+    if isinstance(value, IndirectObject):
+        return ("idnum", value.idnum)
+    return ("direct", id(value))
+
+
+def _labelled_children(key: str, value):
+    """Die Kanten, die EIN Schluessel-Wert-Paar in den Graphen aufspannt.
+
+    Ein Wert direkt am Schluessel traegt dessen Namen als Etikett. Ein Verweis
+    in einem (auch verschachtelten) direkten Array traegt das Array-Sentinel:
+    ein Array-Element ist niemals ein sauberer /Resources -> /XObject-Platz,
+    und es als solchen zu zaehlen waere genau die Art Beweisloch, die hier
+    keine Befreiung mehr erzeugen darf.
+    """
+    if isinstance(value, (IndirectObject, DictionaryObject)):
+        yield key, value
+    elif isinstance(value, (list, tuple)):
+        stack = list(value)
+        while stack:
+            element = stack.pop()
+            if isinstance(element, (IndirectObject, DictionaryObject)):
+                yield _ARRAY_ELEMENT_LABEL, element
+            elif isinstance(element, (list, tuple)):
+                stack.extend(element)
+
+
+def _pdf_reference_map(root):
+    """Wie jeder erreichbare Knoten erreicht wird -- ALLE eingehenden Kanten.
+
+    `_pdf_nodes` besucht jedes Objekt einmal und verliert damit gerade die
+    Information, um die es hier geht: dass dasselbe Dictionary MEHRFACH und
+    unter VERSCHIEDENEN Schluesseln eingehaengt sein kann. Dieser Durchlauf
+    expandiert jeden Knoten ebenfalls nur einmal (Zyklen, CPU-Deckel), notiert
+    aber jede Kante, auch die zu bereits gesehenen Knoten.
+
+    Rueckgabe:
+      * `labels[k]`       -- alle Etiketten, unter denen k erreicht wird
+      * `parents[k]`      -- die Identitaeten aller Dictionaries, die k verweisen
+      * `dictionaries[k]` -- das aufgeloeste Dictionary zu k
+    """
+    labels: dict[tuple, set[str]] = {}
+    parents: dict[tuple, set[tuple]] = {}
+    dictionaries: dict[tuple, DictionaryObject] = {}
+
+    root_key = _node_identity(root)
+    labels[root_key] = {_ROOT_LABEL}
+    stack = [(root_key, root)]
+    expanded = {root_key}
+    visited = 0
     while stack:
-        value = stack.pop()
+        key, value = stack.pop()
         if isinstance(value, IndirectObject):
-            yield value
-        elif isinstance(value, (list, tuple)):
-            stack.extend(value)
+            try:
+                value = value.get_object()
+            except Exception as exc:
+                raise BinaryValidationError("PDF parser rejected input") from exc
+        if not isinstance(value, DictionaryObject):
+            continue
+        visited += 1
+        if visited > MAX_PDF_OBJECTS:
+            raise BinaryValidationError("PDF object graph is too large")
+        dictionaries[key] = value
+        for name, child in value.items():
+            for label, target in _labelled_children(str(name), child):
+                child_key = _node_identity(target)
+                labels.setdefault(child_key, set()).add(label)
+                parents.setdefault(child_key, set()).add(key)
+                if child_key not in expanded:
+                    expanded.add(child_key)
+                    stack.append((child_key, target))
+    return labels, parents, dictionaries
 
 
 def _exempt_raster_idnums(root) -> set[int]:
@@ -565,54 +645,68 @@ def _exempt_raster_idnums(root) -> set[int]:
 
     Die Regel ist bewusst positiv formuliert, und das ist der Kern: befreit
     wird nur, was BEWIESEN kein Inhalt ist -- nicht alles, wofuer der Beweis
-    "ist Inhalt" gerade nicht gelang. Die fruehere, umgekehrte Fassung ("kein
-    /Page/Contents und /Subtype /Image -> befreit") war ein Rueckschritt: sie
-    verwandelte jedes Beweisloch in eine Befreiung, und /Subtype ist frei
-    waehlbar. Eine Seite ohne /Type, ein Kachelmuster (/PatternType 1) und ein
-    Typ-3-Glyph (/CharProcs) sind alle Inhalt, tragen aber kein
-    /Page-/Contents-Paar -- mit /Subtype /Image bestueckt kamen sie durch.
+    "ist Inhalt" gerade nicht gelang. Die erste Fassung ("kein /Page/Contents
+    und /Subtype /Image -> befreit") verwandelte jedes Beweisloch in eine
+    Befreiung. Die zweite drehte das um, pruefte den PLATZ aber nicht auf
+    Aliasing: sie merkte sich das /Resources -> /XObject-Dictionary und
+    ueberging beim Gegenzaehlen ALLE seine ausgehenden Verweise. Ein
+    Dictionary, das gleichzeitig /XObject-Dictionary und etwas anderes ist,
+    bekam damit seinen ganzen Inhalt freigestellt: das /CharProcs eines
+    Typ-3-Fonts, ein /Pattern-Dictionary oder das Seiten-Dictionary selbst --
+    dessen /Contents dann als "kein weiterer Verweis" galt.
 
-    Befreit ist deshalb nur ein Strom, der
-      * ueber /Resources -> /XObject als Wert eingehaengt ist,
-      * /Type /XObject UND /Subtype /Image traegt, und
-      * AUSSCHLIESSLICH so erreichbar ist -- taucht dieselbe Objektnummer
-        irgendwo sonst im Graphen auf, faellt die Befreiung weg.
+    Befreit ist deshalb nur ein Strom, bei dem der ganze PLATZ unaliast ist:
 
-    Verglichen wird ueber die Objektnummer, nicht ueber die Objektidentitaet
-    im Speicher: ein Cache-Miss im Parser darf einen Inhaltsstrom nicht still
-    zum Rasterbild degradieren.
+      * er traegt /Type /XObject UND /Subtype /Image,
+      * JEDE eingehende Kante kommt aus einem "reinen" /XObject-Dictionary
+        und ist eine Schluesselkante (kein Array-Element, keine Wurzel),
+      * ein reines /XObject-Dictionary ist ein Dictionary, das AUSSCHLIESSLICH
+        als Wert des Schluessels /XObject erreicht wird und dessen saemtliche
+        Eltern reine /Resources-Dictionaries sind,
+      * ein reines /Resources-Dictionary wird AUSSCHLIESSLICH als Wert des
+        Schluessels /Resources erreicht.
+
+    Damit gilt: der einzige Weg zu einem befreiten Strom fuehrt ueber
+    /Resources -> /XObject, also ueber einen Bildplatz. Ein Interpreter kann
+    ihn nur per `Do` als Pixelraster zeichnen; als Inhalt ausgefuehrt wird er
+    nie. Sobald irgendein Glied der Kette zusaetzlich unter einem anderen
+    Schluessel haengt -- /CharProcs, /Pattern, /Kids, /Contents --, faellt die
+    Befreiung, und der Strom wird gescannt.
+
+    Ueber die Objektnummer, nicht ueber `id()`: siehe `_node_identity`.
     """
-    raster_slot: set[int] = set()
-    xobject_dictionaries: set[int] = set()
-    for node, _ in _pdf_nodes(root):
-        resources = _resolved(node.get("/Resources"))
-        if not isinstance(resources, DictionaryObject):
-            continue
-        xobjects = _resolved(resources.get("/XObject"))
-        if not isinstance(xobjects, DictionaryObject):
-            continue
-        xobject_dictionaries.add(id(xobjects))
-        for reference in xobjects.values():
-            if not isinstance(reference, IndirectObject):
-                continue
-            target = _resolved(reference)
-            if (
-                isinstance(target, DictionaryObject)
-                and str(target.get("/Type", "")) == "/XObject"
-                and str(target.get("/Subtype", "")) == "/Image"
-            ):
-                raster_slot.add(reference.idnum)
+    labels, parents, dictionaries = _pdf_reference_map(root)
 
-    other_reference: set[int] = set()
-    for node, _ in _pdf_nodes(root):
-        if id(node) in xobject_dictionaries:
-            # Die Verweise dieses Dictionaries SIND die Bildplaetze. Alles
-            # darin, was kein Rasterbild ist, steht ohnehin nicht in
-            # `raster_slot` und wird deshalb gescannt.
+    def reached_solely_as(key, label: str) -> bool:
+        return labels.get(key) == {label}
+
+    resource_dicts = {key for key in dictionaries if reached_solely_as(key, "/Resources")}
+    xobject_dicts = {
+        key
+        for key in dictionaries
+        if reached_solely_as(key, "/XObject")
+        and parents.get(key)
+        and parents[key] <= resource_dicts
+    }
+
+    exempt: set[int] = set()
+    for key, node in dictionaries.items():
+        kind, idnum = key
+        # Nur indirekte Stroeme koennen ueberhaupt befreit werden -- der
+        # Scan-Aufrufer kennt einen Strom an seiner Objektnummer.
+        if kind != "idnum" or not isinstance(node, StreamObject):
             continue
-        for reference in _outgoing_references(node):
-            other_reference.add(reference.idnum)
-    return raster_slot - other_reference
+        if str(node.get("/Type", "")) != "/XObject":
+            continue
+        if str(node.get("/Subtype", "")) != "/Image":
+            continue
+        incoming = parents.get(key, set())
+        if not incoming or not incoming <= xobject_dicts:
+            continue
+        if not all(label.startswith("/") for label in labels.get(key, set())):
+            continue
+        exempt.add(idnum)
+    return exempt
 
 
 def _decode_non_expanding(name: str, data: bytes) -> bytes:
