@@ -234,11 +234,34 @@ the time of writing.
   lease tokens in those three log sinks, or add path redaction at the Caddy and uvicorn layers and cap n8n
   execution-data retention. Raised by the Task 8 re-reviewer, which insisted it be written down before #5b is
   ever marked closed.
-- **`models/resources.py` has four `FOR UPDATE` sites and no SQLSTATE-40001 classification.** Pre-existing
-  from the Task 1/3 era, confirmed absent at `ad8df7c` as well. Every other locking model in the addon
-  carries the lane pattern (`receipts.py:436`/`742`, `integration_job.py:266`, `outbox.py:233`,
-  `session.py:128`). Task 8 edited one of these lock statements and widened it to multi-row without adding
-  the pattern. Lane-level cleanup, not a Task 8 defect.
+- **40001 classification holds at 6 of 17 blocking `FOR UPDATE` sites — and the gap is NOT confined to
+  `resources.py`.** An earlier version of this entry said the rule held everywhere except `resources.py`.
+  **That was wrong**, and the R2 whole-branch review corrected it with a full census at HEAD (excluding
+  `SKIP LOCKED`, which cannot raise 40001):
+  *Classified:* `integration_job.py:277`, `outbox.py:245`, `receipts.py:450`, `receipts.py:754`,
+  `session.py:136`, and `auth_throttle.py:76` (deliberately unclassified with its reasoning in the code —
+  the login path wants Odoo's transparent retry).
+  *Unclassified:* `outbox.py:111` (`_owned_lease`, the ack/nack hot path), `outbox.py:227` (requeue's job
+  lock), `receipts.py:327` (`_lock_existing`), `receipts.py:393` (acceptance job lock), `receipts.py:618`
+  and `:628` (callback job + receipt locks), and `resources.py:317`, `:332`, `:366`, `:489`.
+  So the rule is broken **inside `receipts.py` and `outbox.py` — the two files where the pattern was
+  invented.** Anyone who "fixes `resources.py`" per the old entry would have believed the rule then held.
+  **Calibration:** an unclassified real 40001 carries a driver-populated `pgcode`, so Odoo's `retrying()`
+  retries the RPC transparently — this is not a 500 in the ordinary case. The defect is **inconsistency**:
+  the same logical race yields a silent retry at `receipts.py:393` and a clean 409 at `receipts.py:450`,
+  in the same call graph, with nothing recording why. Fix by classifying the remaining eleven **or** by
+  adding a one-line deliberate-choice comment at each, the way `auth_throttle.py:84-92` does.
+
+- **The R2 Odoo half cannot ship without the backend half.** `api_get_job_media` and
+  `api_store_job_artifact` now take `processing_lease_token` positionally with **no default**, so the
+  pre-branch backend callers break on **every** call to both binary routes. It is fail-closed — Odoo
+  serialises the server-side `TypeError` into an error envelope, `OdooClient._json_rpc` raises
+  `OdooAPIError`, and the routes return a clean 409 rather than a 500 — but it is a total outage of those
+  two routes until both halves ship together. Merging the branch is safe; deploying the addon alone is not.
+- **`odoo/addons18/` still serves the live stack and still carries the unfixed `_lock_or_create` defect.**
+  The lease fix's v18 divergence is recorded above; the **throttle** fix's is not. Until `addons18` is
+  actually deleted per the Odoo-19-only decision, production is running the login path R2 Task 5 proved
+  defective — including the M1 session-revocation hole, which was re-severitied to High.
 
 ### Deployment obligation created by remediation lane R3
 
@@ -253,7 +276,11 @@ the time of writing.
 
 ### Carried forward from earlier task reviews
 
-- `_transition()` accepts `queued -> retry_scheduled` without the recovery side effects — see §3.3.
+- ~~`_transition()` accepts `queued -> retry_scheduled` without the recovery side effects — see §3.3.~~
+  **CLOSED by R2 Task 2**, which removed that edge from `TRANSITIONS` outright (`integration_job.py:32-36`).
+  R2 Task 6 later tried to add a `queued -> review_required` edge; its review proved no caller could reach
+  it and it was reverted. Net change to the frozen table across all eight R2 tasks: one removal, zero
+  additions.
 - The ZPL command allowlist exists in both backend Python and the Odoo addon. Deliberate
   second-boundary defence, real drift risk. Either generate both from one declarative source or
   add a test that fails when they diverge.
