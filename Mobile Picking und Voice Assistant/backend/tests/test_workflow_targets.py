@@ -104,3 +104,56 @@ def test_real_repository_registry_is_loadable(tmp_path):
     )
     targets = load_event_targets(repo_registry)
     assert isinstance(targets, dict)
+
+
+def test_unknown_generation_is_rejected_rather_than_skipped(tmp_path):
+    """The silent skip is finding #12 in a second reader of the same file."""
+    registry = tmp_path / "workflow-registry.json"
+    registry.write_text(
+        json.dumps(
+            {
+                "schema_version": "v1",
+                "workflows": [
+                    {
+                        "file": "x.json",
+                        "generation": "v2-typo",
+                        "webhook_paths": ["pwr-v2-smoke"],
+                        "event_names": ["pwr.v2.smoke"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="generation"):
+        load_event_targets(registry)
+
+
+def test_grandfathered_v1_entries_are_still_skipped_without_error(tmp_path):
+    """v1 entries legitimately have no v2 target; they must not raise."""
+    registry = tmp_path / "workflow-registry.json"
+    registry.write_text(
+        json.dumps(
+            {
+                "schema_version": "v1",
+                "workflows": [
+                    {"file": "pick-confirmed.json", "generation": "v1", "webhook_paths": []}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert load_event_targets(registry) == {}
+
+
+def test_known_generations_is_imported_not_copied():
+    """Step 3 of the brief: the allowlist must be one shared declaration, not
+    a value independently retyped in this module. If a future edit replaces
+    the import with a locally copied tuple, this identity check catches the
+    drift even before the two lists' contents diverge."""
+    import app.services.workflow_targets as workflow_targets
+    from infrastructure.scripts.workflow_registry import (
+        KNOWN_GENERATIONS as registry_known_generations,
+    )
+
+    assert workflow_targets.KNOWN_GENERATIONS is registry_known_generations
