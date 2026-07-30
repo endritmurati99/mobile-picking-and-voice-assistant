@@ -3,7 +3,9 @@
 Regression cover for whole-branch review finding #7.
 """
 
-from odoo.exceptions import AccessError
+import psycopg2
+
+from odoo.exceptions import AccessError, ValidationError
 
 from .concurrency_common import CommittedConcurrencyCase
 
@@ -22,20 +24,114 @@ class TestRequeueConcurrency(CommittedConcurrencyCase):
             .api_requeue_dead(outbox.event_id, supervisor.id, "second"),
         )
 
-        succeeded = [r for r in results if isinstance(r, dict)]
+        winners = [r for r in results if isinstance(r, dict)]
+        losers = [r for r in results if isinstance(r, Exception)]
+        # `isinstance(r, dict)` alone is not a positive control: it is
+        # satisfied by ANY loser outcome whatsoever -- a clean
+        # `ValidationError`, a raw `psycopg2.errors.SerializationFailure`,
+        # even an `AttributeError` from a typo. Postgres's own REPEATABLE
+        # READ already forbids the second write from silently succeeding, so
+        # that half of the assertion holds even with `FOR UPDATE` and the
+        # revalidation removed entirely. Pinning the loser's exception TYPE
+        # is what actually exercises this method's classification: it must
+        # be the same clean `ValidationError` a caller gets from the
+        # lock-free path, not the raw driver error `outbox.py` classifies by
+        # SQLSTATE 40001 (`psycopg2.errors.SerializationFailure`).
         self.assertEqual(
-            len(succeeded), 1, "exactly one requeue may win; the other must find no dead row"
+            len(winners), 1, "exactly one requeue may win; the other must find no dead row"
         )
-        # `run_concurrently` commits `self.cr` before starting the workers,
-        # which (Odoo runs REPEATABLE READ, per Task 3) pins a snapshot on
-        # this class-level cursor from BEFORE either worker wrote anything.
-        # Nothing after that point touches `self.cr` again on this path, so
-        # without this commit `tearDownClass`'s cleanup would be the first
-        # statement on that stale snapshot -- and its DELETE of the row the
-        # winning worker updated would itself read as a concurrent update and
-        # fail with the very SerializationFailure this test proves the
-        # application code no longer leaks to a caller.
+        self.assertEqual(len(losers), 1)
+        self.assertIsInstance(
+            losers[0],
+            ValidationError,
+            "the losing requeue must be refused cleanly, not leak a raw "
+            "psycopg2 error: %r" % (losers[0],),
+        )
+        self.assertNotIsInstance(losers[0], psycopg2.Error)
+
+    def test_two_requeues_do_not_deadlock_with_accept_event(self):
+        """`api_requeue_dead` and `api_accept_event` both take job THEN
+        outbox. `test_lock_order.py` covers accept-vs-callback,
+        accept-vs-accept and accept-vs-nonce reservation; nothing there pairs
+        requeue with acceptance.
+
+        Scope decision, recorded rather than papered over: this test shares
+        only the JOB row between the two workers, not the outbox row. A
+        genuine two-resource race (both workers also fighting over the SAME
+        outbox row) is what a true cycle test needs -- but `api_requeue_dead`
+        WRITES the outbox row it locks when it wins, and `api_accept_event`'s
+        own outbox `FOR UPDATE` (`receipts.py` :368-372) has no SQLSTATE
+        40001 classification of its own. Whichever worker loses the outbox
+        race would then surface a raw, untranslated `SerializationFailure`
+        from INSIDE `api_accept_event` roughly half the time (whichever side
+        loses the earlier job-lock race also loses the outbox race, since
+        both take the same two locks in the same order) -- a real,
+        pre-existing gap, but in `receipts.py`, not `outbox.py`, and
+        therefore out of this task's scope per review (classification here
+        was scoped to the outbox lock in `api_requeue_dead` only). Sharing
+        the outbox row would make this test flaky for a reason that has
+        nothing to do with the lock-ordering claim under test.
+
+        Consequence, checked empirically rather than assumed: with only ONE
+        resource genuinely shared, no ordering of the other (unshared)
+        locks can ever form a two-resource cycle -- that's what "cycle"
+        means. Verified by temporarily inverting `api_requeue_dead` to
+        outbox-then-job and re-running this test: it stayed green across 3
+        runs (see fix-round-1 report), confirming this test cannot, by
+        construction, catch a lock-order inversion in `api_requeue_dead`.
+        What it DOES verify is the positive control below: both entry
+        points really lock the SAME job row concurrently and both still
+        complete -- which is the part of the docstring's claim ("this path
+        cannot form a lock-order cycle") that a dynamic test can check at
+        all; the rest of the claim (both paths take job before outbox) is a
+        static fact, confirmed by reading `outbox.py` and `receipts.py`
+        side by side, not by this test.
+
+        The accepted event already carries a LIVE processing lease
+        (`_job_with_live_lease`, the same fixture `test_lock_order.py` uses):
+        `api_accept_event` then takes its early-return, dedup path and never
+        writes the job row either, so this test's own job lock never risks
+        the same unclassified-write conflict on that resource.
+        """
+        job, live_receipt = self._job_with_live_lease()
+        dead_receipt = self.track(
+            self.env["picking.assistant.event.receipt"].create(
+                self._receipt_values(job, state="processing")
+            )
+        )
+        dead_outbox = self.track(
+            self.env["picking.assistant.outbox"].create(
+                self._outbox_values(job, dead_receipt, state="dead")
+            )
+        )
+        supervisor = self._active_supervisor()
         self.env.cr.commit()
+
+        results = self.run_concurrently(
+            lambda env: env["picking.assistant.outbox"]
+            .with_user(self.api_user_id)
+            .api_requeue_dead(dead_outbox.event_id, supervisor.id, "reason"),
+            lambda env: self._accept_event(job, live_receipt, env=env),
+        )
+
+        deadlocks = [
+            r
+            for r in results
+            if isinstance(r, psycopg2.Error)
+            and getattr(r, "pgcode", None) == "40P01"
+        ]
+        self.assertFalse(
+            deadlocks, "requeue and accept must not deadlock: %r" % (results,)
+        )
+        # Positive control: both workers really contended for the same job
+        # row (not "no deadlock" by two workers that never overlapped) --
+        # the requeue is on a different event than the acceptance, so
+        # nothing but the shared job lock could make either one fail, and
+        # both must succeed.
+        self.assertIsInstance(results[0], dict)
+        self.assertEqual(results[0]["state"], "pending")
+        self.assertIsInstance(results[1], dict)
+        self.assertEqual(results[1]["process"], False)
 
     def test_requeue_clears_the_dispatcher_lease(self):
         outbox = self._dead_outbox_row(lease_owner="held-by-a-dispatcher")
@@ -44,7 +140,6 @@ class TestRequeueConcurrency(CommittedConcurrencyCase):
         self.env["picking.assistant.outbox"].with_user(
             self.api_user_id
         ).api_requeue_dead(outbox.event_id, supervisor.id, "reason")
-        self.env.cr.commit()
 
         outbox.invalidate_recordset()
         self.assertEqual(outbox.state, "pending")
@@ -61,14 +156,6 @@ class TestRequeueConcurrency(CommittedConcurrencyCase):
             self.env["picking.assistant.outbox"].with_user(
                 self.api_user_id
             ).api_requeue_dead(outbox.event_id, supervisor.id, "reason")
-        # A raised AccessError leaves this shared, class-level cursor mid
-        # statement (nothing written, but nothing closed either). The next
-        # test method reuses the SAME cursor -- an uncommitted read left open
-        # here would pin its REPEATABLE READ snapshot behind this point, and
-        # the outbox row the concurrency test locks later would then look
-        # "concurrently updated" relative to a snapshot that is older than it
-        # has any reason to be.
-        self.env.cr.commit()
 
     def test_share_user_with_the_group_is_refused(self):
         outbox = self._dead_outbox_row()
@@ -80,5 +167,3 @@ class TestRequeueConcurrency(CommittedConcurrencyCase):
             self.env["picking.assistant.outbox"].with_user(
                 self.api_user_id
             ).api_requeue_dead(outbox.event_id, supervisor.id, "reason")
-        # See the comment in test_archived_supervisor_is_refused.
-        self.env.cr.commit()

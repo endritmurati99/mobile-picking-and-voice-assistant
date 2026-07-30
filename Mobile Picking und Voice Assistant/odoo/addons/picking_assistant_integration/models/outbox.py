@@ -1,5 +1,7 @@
 from datetime import timedelta
 
+import psycopg2
+
 from odoo import api, fields, models
 from odoo.exceptions import AccessError, ValidationError
 from odoo.tools import SQL
@@ -225,14 +227,33 @@ class PickingAssistantOutbox(models.Model):
             "WHERE id = %s FOR UPDATE",
             (job.id,),
         )
-        # 4. LOCK_ORDER[3] -- "outbox".
-        self.env.cr.execute(
-            "SELECT id FROM picking_assistant_outbox WHERE id = %s FOR UPDATE",
-            (record.id,),
-        )
-        # 5. Revalidate from the locked row, not the pre-lock cache: another
-        # requeue may have already won the race and moved the row out of
-        # `dead` before this statement's lock was granted.
+        # 4. LOCK_ORDER[3] -- "outbox". Under Odoo's REPEATABLE READ (Task 3),
+        # a losing `FOR UPDATE` against a row a concurrent transaction has
+        # ALREADY updated and committed does not block-then-return the new
+        # tuple: it raises `SerializationFailure` (SQLSTATE 40001) right at
+        # this statement. That is the authoritative signal that this requeue
+        # lost the race -- classify it by the driver's error class, the same
+        # way `_reserve` classifies a nonce replay by constraint name, rather
+        # than re-reading a row under a snapshot Task 3 already showed is
+        # stale. The savepoint contains the failure so the caller sees a
+        # clean refusal instead of a raw psycopg2 error escaping the RPC
+        # boundary.
+        try:
+            with self.env.cr.savepoint():
+                self.env.cr.execute(
+                    "SELECT id FROM picking_assistant_outbox WHERE id = %s "
+                    "FOR UPDATE",
+                    (record.id,),
+                )
+        except psycopg2.errors.SerializationFailure as exc:
+            raise ValidationError("Dead outbox event not found.") from exc
+        # 5. Revalidate from the locked row, not the pre-lock cache. This is
+        # defensive-only under the race above (a `FOR UPDATE` that succeeds
+        # here did so without SQLSTATE 40001, which under REPEATABLE READ
+        # means no concurrent committed write happened -- so the row must
+        # still read `dead`); it stays because the brief mandates it and
+        # because it is the only guard left if a future caller acquires this
+        # lock some other way.
         record.invalidate_recordset()
         if record.state != "dead":
             raise ValidationError("Dead outbox event not found.")

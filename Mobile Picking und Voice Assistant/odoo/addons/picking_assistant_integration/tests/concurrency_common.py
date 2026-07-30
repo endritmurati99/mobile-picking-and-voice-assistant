@@ -151,6 +151,18 @@ class CommittedConcurrencyCase(BaseCase):
         connection like any other, and any row it still holds from a fixture
         write would be a lock the workers wait on forever -- a hang that looks
         exactly like the bug under test.
+
+        It is committed again at the end, for a different reason. Odoo runs
+        REPEATABLE READ (Task 3), and `self.cr` -- shared by every test method
+        AND by `tearDownClass` -- would otherwise sit on the snapshot this
+        opening commit pins, taken from BEFORE either worker wrote anything.
+        If nothing else touches `self.cr` before cleanup, `tearDownClass`'s
+        `unlink()` becomes the first statement on that stale snapshot: it
+        targets a row a worker just updated and committed, and Postgres
+        raises the exact `SerializationFailure` this class exists to let
+        tests provoke -- except now from the harness's own teardown, not from
+        the code under test. Refreshing the snapshot here, once, fixes every
+        subclass instead of asking each test to remember it.
         """
         self.cr.commit()
         barrier = threading.Barrier(len(callables))
@@ -188,6 +200,7 @@ class CommittedConcurrencyCase(BaseCase):
                 thread.is_alive(),
                 "a concurrent worker did not finish:\n%s" % _all_thread_stacks(),
             )
+        self.cr.commit()
         return results
 
     # ------------------------------------------------------------------
