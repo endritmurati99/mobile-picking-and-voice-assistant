@@ -84,10 +84,16 @@ SPEC = {
     "file": "task15_reference_graph.json",
     "name": "pwr.v2.smoke",
     "generation": "v2",
-    "webhook_paths": ["/webhook/pwr-v2-smoke"],
+    # CORRECTED (whole-branch review): a BARE kebab path, and
+    # authentication="native_header_hmac". `load_registry` rejects any v2 entry
+    # whose authentication is not native_header_hmac, and the backend's second
+    # reader (app/services/workflow_targets.py) matches
+    # ^[a-z0-9][a-z0-9-]*$ against webhook_paths[0] and prefixes "/webhook/"
+    # itself, so "/webhook/pwr-v2-smoke" makes load_event_targets RAISE.
+    "webhook_paths": ["pwr-v2-smoke"],
     "callback_paths": ["/api/n8n/v2/jobs/callback"],
     "allowed_target_hosts": ["backend"],
-    "authentication": "headerAuth",
+    "authentication": "native_header_hmac",
     "managed": True,
 }
 
@@ -695,4 +701,14 @@ git commit -m "fix(n8n): reject unknown generations in the registry's second rea
 - [ ] The `task15_reference_graph.json` fixture is accepted, and all six mutations are rejected with a message naming the right cause
 - [ ] Adversarial review: `codex exec --sandbox read-only "<diff brief>"`, focused on: can any graph reach an effect without passing the process gate's true branch; can any generation string still skip a check; does the importer/stager pair now agree on every key; is any CLI output reachable from an exception
 - [ ] Update the debt register in `docs/superpowers/parallel/2026-07-23-program-status.md` — mark #3, #12, #13, #16 closed with their commit hashes
-- [ ] Record the Task 15 handoff obligations: the smoke workflow's registry path must match `^/webhook/[a-z0-9][a-z0-9-]*$` (no underscores), `host` is mandatory for v2 target validation and needs a concrete value such as `backend` in `allowed_target_hosts`, and the verifier must be re-run against the real workflow once it exists
+- [ ] Record the Task 15 handoff obligations (see the corrected list below)
+
+### Task 15 handoff (corrected by the whole-branch fix wave)
+
+1. **The registry `webhook_paths` entry is a BARE kebab path — `pwr-v2-smoke`, not `/webhook/pwr-v2-smoke`.** The earlier wording of this line (`^/webhook/[a-z0-9][a-z0-9-]*$`) was wrong and would have produced a registry entry that crashes the backend. `backend/app/services/workflow_targets.py` applies `_ALLOWED_PATH = ^[a-z0-9][a-z0-9-]*$` to `webhook_paths[0]` and prefixes `/webhook/` itself, so a leading `/webhook/` makes `load_event_targets` raise `ValueError` — and because `app.dependencies` imports it at module scope, that is a backend that does not start. Underscores remain forbidden. The n8n Webhook node's own `path` parameter is bare too. `_normalized_webhook_paths()` in the verifier tolerates either spelling, so the verifier will NOT catch this for you; only the backend will, at startup.
+2. **`authentication` must be `native_header_hmac`** for every v2 entry — `load_registry` rejects anything else. (The n8n Webhook *node* separately needs `parameters.authentication = "headerAuth"`; these are two different fields and both are checked, by two different readers.)
+3. **`host` is mandatory for v2 target validation** and needs a concrete value such as `backend` in `allowed_target_hosts`.
+4. **`generation` must be exactly `"v2"`.** The allowlist is declared once, in `backend/app/services/workflow_generations.py`, and read by both `infrastructure/scripts/workflow_registry.py` and the backend. Do not retype it.
+5. **Re-run the verifier against the real workflow once it exists** — the whole proof set is currently built against `infrastructure/tests/fixtures/v2_adversarial/task15_reference_graph.json`.
+6. **`POST_ACCEPTANCE_ALLOWED_TYPES` cannot express a workflow that shapes an artifact body after the gate — this is a known, deliberate gap, and closing it is Task 15's decision to make in ONE reviewed commit.** The set is `{CUSTOM.pwrSignedHttpRequest, n8n-nodes-pwr.pwrSignedHttpRequest, n8n-nodes-base.respondToWebhook}`: it was derived from what the reference graph actually uses rather than speculated, which was correct, and the whole-branch review confirmed a plain `n8n-nodes-base.set` on the true branch is rejected. If the smoke workflow needs to build a response or artifact body downstream of acceptance, the widening must arrive as its own commit with its own rejection tests, not as a panic edit when the gate goes red.
+   **A post-gate `set`/`code` node is NOT equivalent to its pre-gate counterpart.** `PRE_ACCEPTANCE_ALLOWED_TYPES` may contain side-effect-free builders cheaply, because nothing upstream of the trust decision is trusted anyway. Post-gate, a Code node sits *downstream of the trust decision*: whatever it emits is already inside the region the graph policy exists to protect, and arbitrary JavaScript there can re-derive a target, re-shape a signed body, or fabricate the fields a later effect keys off. Any widening therefore needs its own argument about what the node may not do, not a copy of the pre-gate reasoning.
