@@ -276,4 +276,13 @@ class PickingAssistantAuthThrottle(models.Model):
         remaining = self.sudo().search_count(domain) - len(stale)
         if stale:
             stale.unlink()
-        self.env["ir.cron"]._commit_progress(len(stale), remaining=max(remaining, 0))
+        # Durch den Guard, nicht daran vorbei (I2). `ir.cron._commit_progress`
+        # committet den Cursor AUCH ausserhalb eines Cron-Laufs -- auf einem
+        # Test-Cursor ist das genau die Kontamination, die diese Lane in Task 1
+        # eine Runde gekostet hat. `_report_cron_progress` (integration_job.py)
+        # meldet nur, wenn `ir_cron_progress_id` im Kontext steht; dieser
+        # Aufruf war eine der zwei letzten Umgehungen -- und ausgerechnet eine
+        # der beiden, die der Docstring von `_gc_expired` als Vorbild nennt.
+        self.env["picking.assistant.integration.job"]._report_cron_progress(
+            len(stale), remaining=max(remaining, 0)
+        )

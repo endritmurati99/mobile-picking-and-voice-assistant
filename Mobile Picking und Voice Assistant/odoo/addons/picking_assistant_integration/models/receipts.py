@@ -320,6 +320,15 @@ class PickingAssistantEventReceipt(models.Model):
         Addon. Eine Regel mit einer Ausnahme ist keine Regel -- der naechste
         Aufrufer, der den Receipt vor dem Lock schon einmal angefasst hat,
         laese sonst den Vor-Lock-Zustand.
+
+        40001-Wahl (I1): TRANSPARENTER RETRY, bewusst nicht klassifiziert. Der
+        einzige Aufrufer ist `api_accept_event` -- ein RPC-Pfad, also greift
+        Odoos `retrying()`. Verlorener Lock heisst hier "ein nebenlaeufiges
+        Accept hat diesen Receipt schon geschrieben"; das ist KEINE Ablehnung,
+        sondern genau der Fall, den Schritt 7 (Dedup) beantworten soll -- und
+        das kann er erst mit einem frischen Snapshot. Der Retry rollt die bis
+        dahin reservierten Nonces mit der Transaktion zurueck und vergibt sie
+        neu, verbrennt also nichts.
         """
         self.sudo().flush_model()
         self.env.cr.execute(
@@ -388,6 +397,17 @@ class PickingAssistantEventReceipt(models.Model):
         outbox = outboxes.browse(row[0])
         job = jobs.browse(row[1])
         # 4. LOCK_ORDER[1] -- "job".
+        #
+        # 40001-Wahl (I1): TRANSPARENTER RETRY -- und das ist der Unterschied
+        # zum klassifizierten Outbox-Lock in Schritt 6b, den der Review zu
+        # Recht als unerklaerte Inkonsistenz gelesen hat. Hier ist noch NICHTS
+        # ueber die Annahme entschieden: laeuft der RPC mit frischem Snapshot
+        # neu, liest er die Job-Zeile in ihrem neuen Zustand und antwortet
+        # endgueltig -- Annahme, oder eine benannte fachliche Ablehnung
+        # ("Delivery generation mismatch."). Dort dagegen IST der
+        # nebenlaeufige Commit auf die Outbox-Zeile bereits die fachliche
+        # Antwort ("Outbox event changed during acceptance"), weil genau ihre
+        # Verknuepfung und ihr Fingerprint die Annahmeentscheidung tragen.
         self.env.cr.execute(
             "SELECT id FROM picking_assistant_integration_job "
             "WHERE id = %s FOR UPDATE",
@@ -613,6 +633,18 @@ class PickingAssistantCallbackReceipt(models.Model):
         jobs.flush_model()
         receipts.flush_model()
         self.sudo().flush_model()
+        # 40001-Wahl (I1) fuer BEIDE Locks dieses Abschnitts (job, receipt):
+        # TRANSPARENTER RETRY, bewusst nicht klassifiziert. Ein Callback ist
+        # der eine Pfad im Addon, dessen Wiederholung ausdruecklich vorgesehen
+        # ist: die `callback_id`-Dedup weiter unten gibt einem Replay die
+        # gespeicherte Antwort zurueck. Ein Retry mit frischem Snapshot ist
+        # damit entweder ein sauberes Replay oder eine endgueltige fachliche
+        # Antwort aus `_assert_active_lease` bzw. der Sequenzpruefung.
+        # Klassifizieren wuerde diese Antworten durch ein pauschales
+        # "changed during ..." ersetzen, das nicht sagt, was tatsaechlich gilt.
+        # Der Outbox-Lock im retry_scheduled-Zweig weiter unten ist der
+        # Gegenfall und deshalb klassifiziert: dort ist die Outbox-Zeile das
+        # Objekt der Entscheidung selbst.
         self.env.cr.execute(
             "SELECT id FROM picking_assistant_integration_job "
             "WHERE job_id = %s FOR UPDATE",
@@ -722,7 +754,22 @@ class PickingAssistantCallbackReceipt(models.Model):
                         }
                     )
                 else:  # retry_scheduled
-                    if job.state == "queued":
+                    # Dieselbe Menge wie in beiden Geschwisterzweigen oben
+                    # (`:685`, `:706`) -- ein Retry EINES RETRYS ist der
+                    # Normalfall, kein Sonderfall: `_recover_expired_lease`
+                    # setzt den Job auf `retry_scheduled`, die Outbox liefert
+                    # erneut aus, `api_accept_event` vergibt eine frische Lease
+                    # und setzt den Receipt auf `processing`, ruehrt `job.state`
+                    # aber NICHT an. Meldet der Worker danach wieder
+                    # `retry_scheduled`, ohne dass ein `running`-Callback
+                    # dazwischen lag, stand hier `== "queued"` und
+                    # `_transition("retry_scheduled")` lief aus
+                    # `retry_scheduled` gegen TRANSITIONS["retry_scheduled"] ==
+                    # {"running"} -- ein PERMANENTER 409 fuer diesen Job. Die
+                    # Tabelle bleibt unangetastet; hier fehlte nur der Hop.
+                    # Der Fail-Closed-Zweig unten (`review_required`) erbte
+                    # denselben Defekt und ist damit mitgeheilt.
+                    if job.state in ("queued", "retry_scheduled"):
                         job._transition("running", sequence=sequence)
                     # Third lock in the global job -> receipt -> outbox order,
                     # taken and checked BEFORE the job/receipt are moved to

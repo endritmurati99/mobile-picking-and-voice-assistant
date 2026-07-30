@@ -30,6 +30,73 @@ class TestRetention(IntegrationCase):
         self.assertTrue(outbox.exists())
 
 
+class TestCronProgressGuard(IntegrationCase):
+    """I2: every GC in this addon must report progress through
+    `_report_cron_progress`, never through `ir.cron._commit_progress` directly.
+
+    The Odoo-19 source is explicit -- when no `ir_cron_progress_id` is in the
+    context, `_commit_progress` takes the branch commented "not called during
+    a cron, just commit" and calls `self.env.cr.commit()`. On a test cursor
+    that commit is exactly the cross-test contamination this lane already
+    burned a round on. `_gc_expired_throttle` and `_gc_expired_sessions` both
+    bypassed the guard while being wired to real crons in `data/ir_cron.xml`,
+    and both are the very functions `receipts._gc_expired`'s docstring names
+    as the pattern it copied. No test called either, so the bypass was
+    invisible -- this is that test.
+    """
+
+    def _run_gc_watching_commits(self, model_name, method):
+        with mock.patch.object(
+            type(self.env.cr), "commit", autospec=True
+        ) as committed:
+            getattr(self.env[model_name].sudo(), method)()
+        return committed
+
+    def test_throttle_gc_deletes_without_committing_outside_a_cron(self):
+        now = fields.Datetime.now()
+        stale = self.env["picking.assistant.auth.throttle"].sudo().create(
+            {
+                "login_key": "gc-guard",
+                "source_ip_hmac": "f" * 64,
+                "expires_at": now - timedelta(seconds=1),
+            }
+        )
+
+        committed = self._run_gc_watching_commits(
+            "picking.assistant.auth.throttle", "_gc_expired_throttle"
+        )
+
+        self.assertFalse(stale.exists(), "the GC must still do its work")
+        self.assertFalse(
+            committed.called,
+            "a GC running outside a cron must not commit the cursor",
+        )
+
+    def test_session_gc_deletes_without_committing_outside_a_cron(self):
+        old = fields.Datetime.now() - timedelta(days=8)
+        stale = self.env["picking.assistant.session"].sudo().create(
+            {
+                "session_id": "gc-guard-session",
+                "token_hash": "a" * 64,
+                "csrf_hash": "b" * 64,
+                "user_id": self.picker.id,
+                "device_id": "gc-guard-device",
+                "roles_json": "[]",
+                "expires_at": old,
+            }
+        )
+
+        committed = self._run_gc_watching_commits(
+            "picking.assistant.session", "_gc_expired_sessions"
+        )
+
+        self.assertFalse(stale.exists(), "the GC must still do its work")
+        self.assertFalse(
+            committed.called,
+            "a GC running outside a cron must not commit the cursor",
+        )
+
+
 class TestNonceReplayAndRetention(IntegrationCase):
     """Closes the Task 4 cross-task obligation: nonce replay rejection with a
     retention window of at least 600 seconds."""
@@ -98,6 +165,19 @@ class TestNonceReplayAndRetention(IntegrationCase):
         M2: the pre-fix `_cron_cleanup_ephemeral` deleted one capped batch of
         expired nonces and always reported `remaining=0` to `ir.cron`, no
         matter how many expired rows were left over the cap."""
+        # Make `remaining` this test's own number instead of a global one:
+        # a `CommittedConcurrencyCase` elsewhere in the suite can leave a
+        # committed expired nonce behind, which would turn 700 into 701 for a
+        # reason that has nothing to do with M2. Removing the foreign rows
+        # first (rolled back with the test) is what "scoped to key_id
+        # gc-test" means for a GC that takes no key_id argument.
+        nonces = self.env["picking.assistant.webhook.nonce"].sudo()
+        nonces.search(
+            [
+                ("expires_at", "<=", fields.Datetime.now()),
+                ("key_id", "!=", "gc-test"),
+            ]
+        ).unlink()
         self._expired_nonces(count=1200)
 
         result = self.env["picking.assistant.webhook.nonce"]._gc_expired(
@@ -105,14 +185,21 @@ class TestNonceReplayAndRetention(IntegrationCase):
         )
 
         self.assertEqual(result["deleted"], 500)
-        # Scoped to this test's own rows rather than an exact-count
-        # assertion on `result["remaining"]`: a global remaining count
-        # would also include any expired nonce row left behind by another
-        # test (e.g. a `CommittedConcurrencyCase` nonce fixture that
-        # committed and was not cleaned up), silently turning 700 into 701
-        # for a reason that has nothing to do with M2. The `assertGreater`
-        # above already covers the finding's actual claim -- "reports no
-        # remainder" -- without depending on global test-database state.
+        # M1: the assertion this test is NAMED for. It used to assert only the
+        # row count left in the table and never read `result["remaining"]` at
+        # all -- hard-coding `return {..., "remaining": 0}` in `_gc_expired`
+        # kept it green, i.e. it proved nothing about the finding it cites.
+        # The old comment here claimed "the `assertGreater` above already
+        # covers the finding's actual claim"; there was no `assertGreater` in
+        # this method, so it pointed the next reviewer at coverage that did
+        # not exist.
+        #
+        # `remaining` is scoped by construction: `_expired_nonces` is the only
+        # fixture in this class that leaves expired rows behind, so the global
+        # count the GC reports and this test's own 700 are the same number.
+        # The `search_count` below stays as the independent cross-check that
+        # the reported number matches what is actually still in the table.
+        self.assertEqual(result["remaining"], 700)
         self.assertEqual(
             self.env["picking.assistant.webhook.nonce"].sudo().search_count(
                 [("key_id", "=", "gc-test"), ("expires_at", "<=", fields.Datetime.now())]
@@ -477,10 +564,17 @@ class TestWatchdogAndAuditCleanup(IntegrationCase):
             }
         )
         jobs = self.env["picking.assistant.integration.job"]
+        # M3: the fixture receipt has no `processing_lease_token`, so the very
+        # next guard ("Processing lease is not expired.") raises the SAME
+        # exception class -- deleting the LEASE_RECOVERY_SOURCE_STATES check
+        # entirely left a bare `assertRaises(ValidationError)` green. Assert
+        # the state guard's own message so only IT can satisfy this test.
         for unlisted in ("succeeded", "review_required", "failed",
                          "retry_scheduled"):
             job.write({"state": unlisted})
-            with self.assertRaises(ValidationError):
+            with self.assertRaisesRegex(
+                ValidationError, f"Illegal lease recovery from {unlisted}\\."
+            ):
                 jobs._recover_expired_lease(job, receipt, fields.Datetime.now())
 
     def test_a_bare_transition_cannot_produce_the_recovery_edge(self):

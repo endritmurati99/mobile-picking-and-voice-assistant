@@ -206,4 +206,10 @@ class PickingAssistantSession(models.Model):
         remaining = self.sudo().search_count(domain) - len(stale)
         if stale:
             stale.unlink()
-        self.env["ir.cron"]._commit_progress(len(stale), remaining=max(remaining, 0))
+        # Durch den Guard, nicht daran vorbei (I2) -- siehe die identische
+        # Begruendung in `auth_throttle._gc_expired_throttle`.
+        # `ir.cron._commit_progress` committet den Cursor auch ausserhalb eines
+        # Cron-Laufs; `_report_cron_progress` meldet nur im echten Cron.
+        self.env["picking.assistant.integration.job"]._report_cron_progress(
+            len(stale), remaining=max(remaining, 0)
+        )

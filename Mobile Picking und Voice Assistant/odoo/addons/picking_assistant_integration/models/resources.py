@@ -311,6 +311,18 @@ class PickingAssistantIntegrationJobResources(models.Model):
         receipts = self.env["picking.assistant.event.receipt"].sudo()
         receipts.flush_model()
         now = fields.Datetime.now()
+        # 40001-Wahl (I1) fuer BEIDE Receipt-Locks unten: TRANSPARENTER RETRY,
+        # bewusst nicht klassifiziert. Beide Aufrufer sind RPC-Routen
+        # (`api_get_job_media`, `api_store_job_artifact`, `_bind_job_media`),
+        # also greift Odoos `retrying()`; geschrieben wurde bis hierher
+        # nichts. Ein verlorener Lock heisst "der Watchdog oder ein neues
+        # Accept hat die Lease nebenan gerade angefasst" -- ob das den Zugriff
+        # verbietet, entscheidet erst `_assert_active_lease` auf dem frischen
+        # Stand. Der Retry liefert genau diese Antwort: Zugriff, oder das
+        # unveraenderte LEASE_REFUSED_MESSAGE. Klassifizieren wuerde hier
+        # ausserdem ein neues Ablehnungs-Orakel schaffen ("changed" vs.
+        # "mismatch"), also genau die Unterscheidung, die LEASE_REFUSED_MESSAGE
+        # nach aussen absichtlich einebnet.
         if source_event_id:
             self.env.cr.execute(
                 "SELECT id FROM picking_assistant_event_receipt "
@@ -358,7 +370,14 @@ class PickingAssistantIntegrationJobResources(models.Model):
     def _locked_job(self, job_id):
         """Job anhand seiner oeffentlichen job_id sperren und danach neu
         lesen. Gleiche Reihenfolge und gleiches Muster wie in Task 8
-        (job -> receipt -> outbox), damit keine Sperrinversion entsteht."""
+        (job -> receipt -> outbox), damit keine Sperrinversion entsteht.
+
+        40001-Wahl (I1): TRANSPARENTER RETRY, bewusst nicht klassifiziert. Das
+        ist der ERSTE Lock jeder Ressourcenroute -- nichts ist entschieden,
+        nichts geschrieben, und alle Aufrufer sind RPC-Routen unter Odoos
+        `retrying()`. Der Retry liest die Job-Zeile frisch und faellt danach
+        auf die richtige benannte Antwort ("Job not found.", "Stale delivery
+        generation.", LEASE_REFUSED_MESSAGE)."""
         jobs = self.sudo()
         jobs.flush_model()
         self.env.cr.execute(
@@ -482,6 +501,15 @@ class PickingAssistantIntegrationJobResources(models.Model):
             generation, processing_lease_token, source_event_id=source_event_id
         )
         # Dritte Sperre in der globalen Reihenfolge job -> receipt -> outbox.
+        #
+        # 40001-Wahl (I1): TRANSPARENTER RETRY, bewusst nicht klassifiziert --
+        # anders als die beiden Outbox-Locks in `receipts.py` und
+        # `integration_job.py`, die eine Zustellung UMSCHREIBEN. Hier wird die
+        # Outbox-Zeile nur gelesen, um die Existenz und die Zugehoerigkeit des
+        # Quell-Events zu belegen; der Artefakt-Anhang entsteht danach. Bis
+        # hierher ist nichts geschrieben, der Retry unter `retrying()` liest
+        # frisch und kommt entweder durch oder bei "Source event not found."
+        # heraus.
         outboxes = self.env["picking.assistant.outbox"].sudo()
         outboxes.flush_model()
         self.env.cr.execute(

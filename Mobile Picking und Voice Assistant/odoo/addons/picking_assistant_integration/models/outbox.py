@@ -105,6 +105,17 @@ class PickingAssistantOutbox(models.Model):
         """Lock the outbox row, then verify ownership AND that the lease is
         still live. Checking without the lock (or without expiry) would let an
         expired or superseded worker overwrite a newer worker's lease."""
+        # 40001-Wahl (I1): TRANSPARENTER RETRY, bewusst nicht klassifiziert.
+        # Ein verlorenes `FOR UPDATE` heisst hier nur "jemand hat diese Zeile
+        # nebenlaeufig geschrieben" -- ob die Lease damit weg ist, steht erst
+        # im Ownership-Check acht Zeilen tiefer. Bis hierher wurde in dieser
+        # Transaktion NICHTS geschrieben (ack/nack machen vor `_owned_lease`
+        # nur den Gruppen-Check), der Retry von Odoos `retrying()` laeuft also
+        # mit frischem Snapshot dieselbe Pruefung noch einmal und liefert die
+        # endgueltige Antwort: entweder das Ack gelingt, oder es faellt sauber
+        # auf "Outbox lease is not owned by this worker." Eine Klassifizierung
+        # hier wuerde stattdessen JEDEN Nebenlaeufigkeitstreffer als
+        # Besitzverlust melden, ohne ihn geprueft zu haben.
         self.sudo().flush_model()
         self.env.cr.execute(
             "SELECT id FROM picking_assistant_outbox "
@@ -222,6 +233,15 @@ class PickingAssistantOutbox(models.Model):
         # writes the job row; the lock exists solely so this path cannot form
         # a lock-order cycle with a path that legitimately needs both (e.g.
         # `api_accept_event`).
+        #
+        # 40001-Wahl (I1): TRANSPARENTER RETRY. Dieser Lock trifft eine
+        # Ordnungs-, keine Fachentscheidung -- die Requeue-Entscheidung haengt
+        # ausschliesslich an der Outbox-Zeile, und DEREN Lock 15 Zeilen tiefer
+        # ist klassifiziert. Bis hierher ist nichts geschrieben, ein Retry mit
+        # frischem Snapshot ist also folgenlos und kommt an derselben Stelle
+        # wieder an. Eine Klassifizierung waere schlicht falsch beschriftet:
+        # "Dead outbox event not found." stimmt nicht, wenn ein Fremder nur
+        # die Job-Zeile angefasst hat.
         self.env.cr.execute(
             "SELECT id FROM picking_assistant_integration_job "
             "WHERE id = %s FOR UPDATE",

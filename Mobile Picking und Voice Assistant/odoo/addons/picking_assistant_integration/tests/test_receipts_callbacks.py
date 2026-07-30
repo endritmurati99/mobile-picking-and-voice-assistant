@@ -321,6 +321,75 @@ class TestReceiptsAndCallbacks(IntegrationCase):
         self.assertEqual(self.outbox.state, "pending")
         self.assertEqual(self.outbox.envelope_text, '{"schema_version":"v2"}')
 
+    def test_retry_callback_after_a_recovered_retry_is_not_a_dead_end(self):
+        """A retry OF a retry -- the branch none of the other 123 tests reach.
+
+        `_recover_expired_lease` leaves the job in `retry_scheduled`; the
+        outbox redelivers; `api_accept_event` hands out a fresh lease and moves
+        the RECEIPT to `processing` but never touches `job.state`. If the
+        worker then reports `retry_scheduled` again with no intervening
+        `running` callback, the callback branch must make the same
+        `retry_scheduled -> running` hop its two sibling branches already make
+        (`:685`, `:706`). Without it `_transition` asks the frozen table for a
+        `retry_scheduled -> retry_scheduled` edge that does not exist, and the
+        job is a permanent 409 -- redelivered forever, rejected every time.
+        """
+        self._accept_and_expire_lease()
+        self.env["picking.assistant.integration.job"].with_user(
+            self.api_user
+        ).api_recover_stalled_jobs(10)
+        self.job.invalidate_recordset()
+        self.assertEqual(self.job.state, "retry_scheduled")
+        self.assertEqual(self.job.delivery_generation, 2)
+
+        redelivered = self.env["picking.assistant.event.receipt"].with_user(
+            self.api_user
+        ).api_accept_event(
+            self.outbox.event_id,
+            self.job.job_id,
+            "a" * 64,
+            "b2n-test",
+            "123e4567-e89b-42d3-a456-426614174070",
+            2,
+            "n2b-test",
+            "123e4567-e89b-42d3-a456-426614174071",
+        )
+        self.assertTrue(redelivered["process"])
+        self.job.invalidate_recordset()
+        # The precondition, asserted rather than assumed: acceptance issues a
+        # lease without moving the job out of `retry_scheduled`.
+        self.assertEqual(self.job.state, "retry_scheduled")
+
+        callback = {
+            "callback_id": "8f2b1c44-0f3a-4a55-9c21-6d1e0b4a7799",
+            "source_event_id": self.outbox.event_id,
+            "job_id": self.job.job_id,
+            "sequence": 1,
+            "attempt": 2,
+            "delivery_generation": 2,
+            "processing_lease_token": redelivered["processing_lease_token"],
+            "status": "retry_scheduled",
+            "result": {},
+            "error": {"code": "n8n_side_failure"},
+            "metrics": {},
+        }
+        result = self.env["picking.assistant.callback.receipt"].with_user(
+            self.api_user
+        ).api_apply_callback(
+            callback,
+            "b" * 64,
+            "n2b-test",
+            "123e4567-e89b-42d3-a456-426614174072",
+        )
+
+        self.assertEqual(result["status"], "applied")
+        self.job.invalidate_recordset()
+        self.outbox.invalidate_recordset()
+        self.assertEqual(self.job.state, "retry_scheduled")
+        self.assertEqual(self.job.delivery_generation, 3)
+        self.assertFalse(self.job.processing_lease_token)
+        self.assertEqual(self.outbox.state, "pending")
+
     def test_api_recover_stalled_jobs_with_nothing_due_recovers_zero(self):
         result = self.env["picking.assistant.integration.job"].with_user(
             self.api_user

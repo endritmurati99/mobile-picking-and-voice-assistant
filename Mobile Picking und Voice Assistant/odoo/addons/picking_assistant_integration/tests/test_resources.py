@@ -3,6 +3,8 @@ import hashlib
 import inspect
 from datetime import timedelta
 
+import psycopg2
+
 from odoo import fields
 from odoo.exceptions import AccessError, ValidationError
 
@@ -310,7 +312,7 @@ class TestMediaAccess(ResourceCase):
         self.assertEqual(payload["sha256"], digest(PNG_BYTES))
         self.assertEqual(payload["mimetype"], "image/png")
 
-        other_job, _outbox = self.env[
+        other_job, other_outbox = self.env[
             "picking.assistant.integration.job"
         ]._enqueue_job_event(
             job_type="quality_assessment",
@@ -323,9 +325,22 @@ class TestMediaAccess(ResourceCase):
             payload_fingerprint="a" * 64,
             correlation_id="0b2f7909-4ad9-44c1-8527-e775fe6d4be9",
         )
+        # M2: `other_job` used to be handed straight to `api_get_job_media`
+        # with no event receipt at all, so `_locate_active_receipt` refused it
+        # with LEASE_REFUSED_MESSAGE and the attachment search this test is
+        # NAMED for was never reached -- deleting the `pwr_job_record_id`
+        # clause from that search left the test green. Give `other_job` a live
+        # lease and its own token so the call gets all the way to the search,
+        # and pin the refusal to the search's own message.
+        self.lease(other_job, other_outbox, "80")
         # Dieselbe Referenz unter einem anderen Job ist NICHT dieselbe Datei.
-        with self.assertRaises(ValidationError):
-            self.jobs.api_get_job_media(other_job.job_id, "media-1", 1, self.token)
+        with self.assertRaisesRegex(ValidationError, "Media not found"):
+            self.jobs.api_get_job_media(
+                other_job.job_id,
+                "media-1",
+                other_job.delivery_generation,
+                self.tokens[other_job.id],
+            )
 
     def test_stale_generation_cannot_read_media(self):
         self.bind_media()
@@ -353,9 +368,15 @@ class TestMediaAccess(ResourceCase):
             self.jobs.api_get_job_media(self.job.job_id, "media-9", 1, self.token)
 
     def test_media_reference_is_unique_per_job(self):
+        """M3: `assertRaises(Exception)` admitted the lease gate, a hash
+        mismatch, an `AttributeError` from a rename and even `AssertionError`
+        -- i.e. it could not tell the uniqueness constraint from the test
+        breaking. Pin it to the constraint that actually enforces the
+        invariant."""
         self.bind_media()
-        with self.assertRaises(Exception):
+        with self.assertRaises(psycopg2.errors.UniqueViolation) as caught:
             self.bind_media(media_ref="media-1")
+        self.assertIn("ir_attachment_job_media_unique", str(caught.exception))
 
     def test_api_service_group_is_required_for_media(self):
         self.bind_media()
