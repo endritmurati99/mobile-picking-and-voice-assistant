@@ -1,4 +1,5 @@
 from datetime import timedelta
+from unittest import mock
 
 from odoo import fields
 from odoo.exceptions import ValidationError
@@ -74,7 +75,10 @@ class TestNonceReplayAndRetention(IntegrationCase):
         )
 
     def _expired_nonces(self, count):
-        """Commit `count` already-expired nonce rows in one bulk create."""
+        """Create `count` already-expired nonce rows in one bulk create,
+        inside the current test transaction (NOT committed -- this is an
+        `IntegrationCase`/`TransactionCase` helper, not a
+        `CommittedConcurrencyCase` one; do not reuse it expecting a commit)."""
         now = fields.Datetime.now()
         model = self.env["picking.assistant.webhook.nonce"].sudo()
         values = [
@@ -101,8 +105,20 @@ class TestNonceReplayAndRetention(IntegrationCase):
         )
 
         self.assertEqual(result["deleted"], 500)
-        self.assertGreater(result["remaining"], 0)
-        self.assertEqual(result["remaining"], 700)
+        # Scoped to this test's own rows rather than an exact-count
+        # assertion on `result["remaining"]`: a global remaining count
+        # would also include any expired nonce row left behind by another
+        # test (e.g. a `CommittedConcurrencyCase` nonce fixture that
+        # committed and was not cleaned up), silently turning 700 into 701
+        # for a reason that has nothing to do with M2. The `assertGreater`
+        # above already covers the finding's actual claim -- "reports no
+        # remainder" -- without depending on global test-database state.
+        self.assertEqual(
+            self.env["picking.assistant.webhook.nonce"].sudo().search_count(
+                [("key_id", "=", "gc-test"), ("expires_at", "<=", fields.Datetime.now())]
+            ),
+            700,
+        )
 
     def test_nonce_gc_drains_a_backlog_across_batches(self):
         """The cron must keep calling `_gc_expired` until the backlog is
@@ -120,11 +136,12 @@ class TestNonceReplayAndRetention(IntegrationCase):
         self.assertEqual(remaining, 0)
         self.assertEqual(model.sudo().search_count([("key_id", "=", "gc-test")]), 0)
 
-    def test_cleanup_ephemeral_cron_drains_the_nonce_backlog_and_warns(self):
+    def test_cleanup_ephemeral_cron_drains_the_nonce_backlog(self):
         """End-to-end: `_cron_cleanup_ephemeral` itself must loop the nonce
         GC to completion (limit=500 against a 1200-row backlog needs at
-        least 3 batches) and log a warning only if it still could not finish
-        inside its time budget. Here it must finish and NOT warn."""
+        least 3 batches), not stop after one capped pass. No time-budget
+        patching here -- this exercises the ordinary "backlog fits inside
+        the budget" path, so it must finish and NOT warn."""
         self._expired_nonces(count=1200)
 
         with self.assertNoLogs(
@@ -140,6 +157,47 @@ class TestNonceReplayAndRetention(IntegrationCase):
                 [("key_id", "=", "gc-test")]
             ),
             0,
+        )
+
+    def test_cleanup_ephemeral_cron_warns_when_it_cannot_drain_in_time(self):
+        """Cover for M2's *warning* signal specifically -- fix round 1,
+        finding 1. The previous version of this test only exercised the
+        "finished, do not warn" path under `test_cleanup_ephemeral_cron_...`
+        (then misleadingly named "...and_warns") and nothing anywhere
+        asserted the warning actually fires; deleting the warning entirely
+        left the suite green.
+
+        `NONCE_GC_TIME_BUDGET_SECONDS` is patched to 0 so the drain loop's
+        own deadline check trips after exactly one batch: with a 1200-row
+        backlog and `limit=500`, that first batch deletes 500 and leaves
+        700 -- deterministic, not a race. The cron must then log a WARNING
+        naming the pending count instead of exiting silently."""
+        self._expired_nonces(count=1200)
+
+        with mock.patch(
+            "odoo.addons.picking_assistant_integration.models.integration_job"
+            ".NONCE_GC_TIME_BUDGET_SECONDS",
+            0,
+        ):
+            with self.assertLogs(
+                "odoo.addons.picking_assistant_integration.models.integration_job",
+                level="WARNING",
+            ) as cm:
+                self.env[
+                    "picking.assistant.integration.job"
+                ]._cron_cleanup_ephemeral(limit=500)
+
+        self.assertTrue(
+            any("700" in message for message in cm.output),
+            "the warning must carry the pending count (700): %r" % (cm.output,),
+        )
+        self.assertEqual(
+            self.env["picking.assistant.webhook.nonce"].sudo().search_count(
+                [("key_id", "=", "gc-test")]
+            ),
+            700,
+            "only the first batch should have run before the patched "
+            "time budget tripped",
         )
 
     def test_cleanup_ephemeral_keeps_unexpired_nonces(self):
