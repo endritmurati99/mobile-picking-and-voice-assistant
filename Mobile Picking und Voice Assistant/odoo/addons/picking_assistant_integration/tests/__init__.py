@@ -7,3 +7,4 @@ from . import test_resources
 from . import concurrency_common
 from . import test_lease_expiry
 from . import test_lock_order
+from . import test_requeue_concurrency

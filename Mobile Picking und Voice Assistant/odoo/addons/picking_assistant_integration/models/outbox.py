@@ -170,24 +170,79 @@ class PickingAssistantOutbox(models.Model):
 
     @api.model
     def api_requeue_dead(self, event_id, supervisor_user_id, reason):
+        """Put a dead-lettered event back to `pending`.
+
+        Two supervisors requeuing the same event at once must not both
+        succeed: one would reset a row the other has already reset (and
+        possibly a lease a dispatcher has since re-acquired), delivering the
+        event twice (review finding #7). The fix mirrors the pattern already
+        used by `api_accept_event`: resolve identifiers WITHOUT a lock, take
+        the lock in `LOCK_ORDER` (job ahead of outbox), then revalidate the
+        locked row from the database instead of the pre-lock cache -- Task 3
+        found that a re-SELECT after a conflict is not enough under Odoo's
+        REPEATABLE READ, so the row is validated from the SAME statement that
+        holds the lock, not a second one.
+        """
         self.env["picking.assistant.api.mixin"]._require_api_service()
-        supervisor = self.env["res.users"].sudo().browse(
-            int(supervisor_user_id)
-        ).exists()
-        if not supervisor or not supervisor.has_group(
-            "picking_assistant_integration.group_supervisor"
+        # 1. Resolve and validate the actor BEFORE taking any lock. `.exists()`
+        # alone would accept an archived or a share (portal/public) user that
+        # still carries the group; both must be refused.
+        supervisor = (
+            self.env["res.users"].sudo().browse(int(supervisor_user_id)).exists()
+        )
+        if (
+            not supervisor
+            or not supervisor.active
+            or supervisor.share
+            or not supervisor.has_group(
+                "picking_assistant_integration.group_supervisor"
+            )
         ):
             raise AccessError("Supervisor role required.")
-        record = self.sudo().search(
-            [("event_id", "=", event_id), ("state", "=", "dead")], limit=1
+
+        outboxes = self.sudo()
+        jobs = self.env["picking.assistant.integration.job"].sudo()
+        outboxes.flush_model()
+        # 2. Resolve the dead row's id and its job WITHOUT a lock. This is a
+        # lock-free early reject only; the authoritative check happens below,
+        # under the outbox lock.
+        self.env.cr.execute(
+            "SELECT id, job_record_id FROM picking_assistant_outbox "
+            "WHERE event_id = %s AND state = 'dead'",
+            (event_id,),
         )
-        if not record:
+        row = self.env.cr.fetchone()
+        if not row:
+            raise ValidationError("Dead outbox event not found.")
+        record = outboxes.browse(row[0])
+        job = jobs.browse(row[1])
+        # 3. LOCK_ORDER[1] -- "job", ahead of "outbox". This method never
+        # writes the job row; the lock exists solely so this path cannot form
+        # a lock-order cycle with a path that legitimately needs both (e.g.
+        # `api_accept_event`).
+        self.env.cr.execute(
+            "SELECT id FROM picking_assistant_integration_job "
+            "WHERE id = %s FOR UPDATE",
+            (job.id,),
+        )
+        # 4. LOCK_ORDER[3] -- "outbox".
+        self.env.cr.execute(
+            "SELECT id FROM picking_assistant_outbox WHERE id = %s FOR UPDATE",
+            (record.id,),
+        )
+        # 5. Revalidate from the locked row, not the pre-lock cache: another
+        # requeue may have already won the race and moved the row out of
+        # `dead` before this statement's lock was granted.
+        record.invalidate_recordset()
+        if record.state != "dead":
             raise ValidationError("Dead outbox event not found.")
         record.write(
             {
                 "state": "pending",
                 "attempt_count": 0,
                 "next_attempt_at": fields.Datetime.now(),
+                "lease_owner": False,
+                "lease_expires_at": False,
                 "last_error_code": "manual_requeue",
                 "last_error_message": str(reason)[:500],
             }

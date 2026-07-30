@@ -29,6 +29,7 @@ from odoo.tests.common import BaseCase, get_db_name, new_test_user, tagged
 from ..models.receipts import PROCESSING_LEASE_SECONDS
 
 API_SERVICE_GROUP = "picking_assistant_integration.group_api_service"
+SUPERVISOR_GROUP = "picking_assistant_integration.group_supervisor"
 
 
 def _all_thread_stacks():
@@ -246,6 +247,50 @@ class CommittedConcurrencyCase(BaseCase):
         }
         values.update(overrides)
         return values
+
+    def _dead_outbox_row(self, lease_owner=False, lease_expires_at=False, **overrides):
+        """A committed outbox row already in the terminal `dead` state.
+
+        `lease_owner` / `lease_expires_at` reproduce the row left behind by
+        `api_nack_delivery`'s dead transition, which clears neither field
+        (see `outbox.py`): a requeue that forgets to clear them hands the row
+        back to a lease a dispatcher may still believe it owns.
+        """
+        env = self.env
+        job = self.track(
+            env["picking.assistant.integration.job"].create(self._job_values())
+        )
+        values = {
+            "event_id": str(uuid4()),
+            "job_record_id": job.id,
+            "event_name": "quality.assessment.requested.v1",
+            "envelope_text": '{"schema_version":"v2"}',
+            "payload_fingerprint": "a" * 64,
+            "state": "dead",
+            "attempt_count": 10,
+            "next_attempt_at": fields.Datetime.now(),
+            "lease_owner": lease_owner,
+            "lease_expires_at": lease_expires_at,
+        }
+        values.update(overrides)
+        outbox = self.track(env["picking.assistant.outbox"].create(values))
+        env.cr.commit()
+        return outbox
+
+    def _active_supervisor(self, **overrides):
+        """A committed, active, non-share user carrying the supervisor group."""
+        env = self.env
+        supervisor = self.track(
+            new_test_user(
+                env,
+                login="pwr_supervisor_%s" % uuid4().hex,
+                groups="base.group_user,%s" % SUPERVISOR_GROUP,
+            )
+        )
+        if overrides:
+            supervisor.sudo().write(overrides)
+        env.cr.commit()
+        return supervisor
 
     def _job_with_lease(self, lease_seconds, token="lease-token"):
         """Commit a job whose receipt holds a processing lease.
