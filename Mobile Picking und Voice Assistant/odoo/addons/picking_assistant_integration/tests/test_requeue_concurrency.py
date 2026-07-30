@@ -11,21 +11,43 @@ from .concurrency_common import CommittedConcurrencyCase
 
 # A barrier makes both workers reach their first lock inside each other's
 # window LIKELY, not certain (see `test_lock_order.py`, which this constant
-# and the looping pattern below both mirror). Measured directly: with
-# `api_requeue_dead` inverted to outbox-then-job, a genuine
+# and the looping pattern below both mirror). `test_lock_order.py`'s own
+# races are nonce-forced (both workers deliberately reserve the identical
+# nonce) and deadlock within their first two attempts; this race has no
+# such forcing hook -- both sides simply target the same job and outbox
+# rows and let raw scheduling decide who wins first -- so its per-attempt
+# catch probability is far lower and worth stating as a number, not a
+# qualitative claim.
+#
+# Measured: with `api_requeue_dead` inverted to outbox-then-job, a genuine
 # `psycopg2.errors.DeadlockDetected` (confirmed via its own message, not
 # inferred -- "Process N waits for ShareLock on transaction M; blocked by
 # process M ... CONTEXT: while locking tuple ... in relation
-# picking_assistant_integration_job") appeared in roughly 1 of 6 runs of
-# `DEADLOCK_TEST_ATTEMPTS = 10`, i.e. a rough per-attempt hit rate on the
-# order of 1-2%. `test_lock_order.py`'s own races are nonce-forced (both
-# workers deliberately reserve the identical nonce) and deadlock within
-# their first two attempts; this race has no such forcing hook, so it needs
-# a much larger budget for a comparable single-run catch probability. 30 is
-# a compromise: high enough to make a reintroduced inversion very likely to
-# surface within one CI run, without adding a slow test to a suite already
-# measured in minutes on this environment.
-DEADLOCK_TEST_ATTEMPTS = 30
+# picking_assistant_integration_job") appeared in 1 of 6 runs of 10
+# attempts each (60 barrier-synced races total, 1 hit). That is a measured
+# batch rate of 1/6 per 10 attempts, i.e. a per-attempt hit rate of
+# p = 1 - (1 - 1/6)^(1/10) ~ 0.018 (~1.8%).
+#
+# Single-run catch probability at attempt budget N is 1 - (1-p)^N:
+#   N = 10  (fix-round-2 default):  ~17%
+#   N = 30  (fix-round-2 shipped):  ~42%  -- NOT "very likely", as an
+#           earlier version of this comment incorrectly claimed. Even at
+#           double the measured rate (p ~ 3.6%) it only reaches ~66%.
+#   N = 150 (this constant, fix-round-3):  ~93%
+#
+# 150 was chosen over a deterministic forcing mechanism (e.g. a second
+# barrier between one worker's job-lock and outbox-lock acquisitions,
+# mirroring how `test_lock_order.py` forces its race through a shared
+# nonce instead of raw scheduling) because it needs no new synchronisation
+# machinery to reason about or get wrong, at an acceptable runtime cost:
+# every run of this test already executes `DEADLOCK_TEST_ATTEMPTS` full
+# committed races (job, receipt, outbox, supervisor fixtures each time)
+# unconditionally, and 150 vs. 30 measured as roughly 45s vs. 10s for this
+# one test in this environment -- see the fix-round-3 report for the
+# reasoning this was judged worth the cost, and for the recommendation
+# that a structural harness guard (not built here) is a better long-term
+# fix than tuning this number further.
+DEADLOCK_TEST_ATTEMPTS = 150
 
 
 class TestRequeueConcurrency(CommittedConcurrencyCase):
@@ -128,9 +150,11 @@ class TestRequeueConcurrency(CommittedConcurrencyCase):
         deadlock detector aborting one side. A single barrier-synced
         attempt only makes the two workers' first-lock timing overlap
         LIKELY, not certain (same reasoning as `test_lock_order.py`'s own
-        `ATTEMPTS` loop) -- measured here at roughly a 1-in-6 hit rate per
-        `DEADLOCK_TEST_ATTEMPTS`-sized batch at 10 attempts, hence the
-        larger budget; see the constant's own comment for the measurement.
+        `ATTEMPTS` loop) -- see `DEADLOCK_TEST_ATTEMPTS`'s own comment for
+        the measured per-attempt hit rate and the derived single-run catch
+        probability at the shipped budget (fix round 3 corrected an
+        earlier, unsupported "very likely" claim here to the actual
+        number).
 
         The assertion below checks for "no raw `psycopg2.Error`, on either
         side" rather than filtering for `pgcode == 40P01` alone. The first
