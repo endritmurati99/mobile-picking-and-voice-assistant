@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -233,18 +234,28 @@ class TestReceiptsAndCallbacks(IntegrationCase):
             "processing_lease_token": accepted["processing_lease_token"],
             "status": "retry_scheduled",
             "result": {},
-            "error": False,
+            "error": {"code": "n8n_side_failure"},
             "metrics": {},
         }
         model = self.env["picking.assistant.callback.receipt"].with_user(
             self.api_user
         )
 
-        result = model.api_apply_callback(
-            callback,
-            "b" * 64,
-            "n2b-test",
-            "123e4567-e89b-42d3-a456-426614174092",
+        # This fail-closed path deliberately logs at WARNING; assert it
+        # rather than let it pass as unexplained noise against the suite's
+        # "0 unexpected warnings" invariant.
+        with self.assertLogs(
+            "odoo.addons.picking_assistant_integration.models.receipts",
+            level="WARNING",
+        ) as cm:
+            result = model.api_apply_callback(
+                callback,
+                "b" * 64,
+                "n2b-test",
+                "123e4567-e89b-42d3-a456-426614174092",
+            )
+        self.assertTrue(
+            any("no outbox row" in message for message in cm.output)
         )
 
         self.assertEqual(result["status"], "applied")
@@ -255,6 +266,13 @@ class TestReceiptsAndCallbacks(IntegrationCase):
         )
         self.assertEqual(self.job.state, "review_required")
         self.assertEqual(receipt.state, "completed")
+        # The n8n-supplied failure detail must survive the fail-closed
+        # transition alongside the reason review is needed at all -- merged,
+        # not replaced.
+        self.job.invalidate_recordset()
+        error = json.loads(self.job.error_json)
+        self.assertEqual(error["code"], "n8n_side_failure")
+        self.assertEqual(error["reason"], "missing_outbox_row")
         self.assertFalse(receipt.processing_lease_token)
 
     def _accept_and_expire_lease(self):

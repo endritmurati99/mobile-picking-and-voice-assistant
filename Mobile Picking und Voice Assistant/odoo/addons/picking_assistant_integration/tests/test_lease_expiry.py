@@ -188,9 +188,19 @@ class TestLeaseExpiry(CommittedConcurrencyCase):
         ).unlink()
         self.env.cr.commit()
 
-        outcome = self.env[
-            "picking.assistant.integration.job"
-        ]._recover_expired_lease(job, receipt, fields.Datetime.now())
+        # This fail-closed path deliberately logs at WARNING; assert it
+        # rather than let it pass as unexplained noise against the suite's
+        # "0 unexpected warnings" invariant.
+        with self.assertLogs(
+            "odoo.addons.picking_assistant_integration.models.integration_job",
+            level="WARNING",
+        ) as cm:
+            outcome = self.env[
+                "picking.assistant.integration.job"
+            ]._recover_expired_lease(job, receipt, fields.Datetime.now())
+        self.assertTrue(
+            any("no outbox row" in message for message in cm.output)
+        )
 
         self.assertEqual(outcome, "review_required")
         job.invalidate_recordset()
@@ -200,6 +210,13 @@ class TestLeaseExpiry(CommittedConcurrencyCase):
         self.assertEqual(job.state, "review_required")
         self.assertEqual(receipt.state, "completed")
         self.assertFalse(receipt.processing_lease_token)
+        # `_job_with_expired_lease()` and the outbox unlink above both commit
+        # (`run_concurrently`, used elsewhere in this class, commits `self.cr`
+        # too). This write did not go through that path, but making the
+        # commit explicit here -- rather than relying on it being implicit at
+        # teardown -- keeps the fixture's intent visible and matches every
+        # other committed step in this test.
+        self.env.cr.commit()
 
     def test_a_bare_transition_can_no_longer_reach_retry_scheduled(self):
         """Decision §3.3: recovery is the ONLY producer of that state from

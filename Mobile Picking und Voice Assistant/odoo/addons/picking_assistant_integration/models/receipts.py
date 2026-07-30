@@ -672,14 +672,34 @@ class PickingAssistantCallbackReceipt(models.Model):
                     # job in retry_scheduled with nothing left to deliver --
                     # exactly the failure mode Finding #11 describes, just not
                     # in the cron watchdog. Fail closed instead.
+                    #
+                    # Under Odoo's REPEATABLE READ (Task 3), a losing
+                    # `FOR UPDATE` here against a row a concurrent transaction
+                    # has ALREADY updated and committed does not
+                    # block-then-return the new tuple: it raises
+                    # `SerializationFailure` (SQLSTATE 40001) right at this
+                    # statement, same mechanism as `_recover_expired_lease`'s
+                    # outbox lock (`integration_job.py`) and
+                    # `api_requeue_dead` (`outbox.py`). Classify it by the
+                    # driver's error class rather than let it escape as a raw
+                    # psycopg2 error.
                     outboxes = self.env["picking.assistant.outbox"].sudo()
                     outboxes.flush_model()
-                    self.env.cr.execute(
-                        "SELECT id FROM picking_assistant_outbox "
-                        "WHERE event_id = %s FOR UPDATE",
-                        (source_event_id,),
-                    )
-                    outbox_row = self.env.cr.fetchone()
+                    try:
+                        with self.env.cr.savepoint():
+                            self.env.cr.execute(
+                                "SELECT id FROM picking_assistant_outbox "
+                                "WHERE event_id = %s FOR UPDATE",
+                                (source_event_id,),
+                            )
+                            # Fetched INSIDE the savepoint -- `RELEASE
+                            # SAVEPOINT` on `with` exit would otherwise
+                            # clobber this pending result set.
+                            outbox_row = self.env.cr.fetchone()
+                    except psycopg2.errors.SerializationFailure as exc:
+                        raise ValidationError(
+                            "Outbox event changed during retry scheduling."
+                        ) from exc
                     if not outbox_row:
                         _logger.warning(
                             "callback retry for job %s found no outbox row; "
@@ -690,10 +710,19 @@ class PickingAssistantCallbackReceipt(models.Model):
                             "review_required",
                             sequence=sequence,
                             result=result,
-                            error={"reason": "missing_outbox_row"},
+                            # Merge, not replace: this is the one path that
+                            # ends in human review, so the n8n-supplied
+                            # failure detail must survive alongside the
+                            # reason review is needed at all.
+                            error={**error, "reason": "missing_outbox_row"},
                             metrics=metrics,
                         )
-                        job.write({"processing_lease_token": False})
+                        job.write(
+                            {
+                                "processing_lease_token": False,
+                                "processing_lease_expires_at": False,
+                            }
+                        )
                         receipt.write(
                             {
                                 "state": "completed",

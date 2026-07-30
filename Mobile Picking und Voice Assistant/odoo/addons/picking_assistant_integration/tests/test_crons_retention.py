@@ -212,9 +212,19 @@ class TestWatchdogAndAuditCleanup(IntegrationCase):
         )
         orphan_outbox.unlink()
 
-        result = self.env["picking.assistant.integration.job"].with_user(
-            self.api_user
-        ).api_recover_stalled_jobs(10)
+        # The orphan's fail-closed branch logs at WARNING; assert it rather
+        # than let it pass as unexplained noise against the suite's "0
+        # unexpected warnings" invariant.
+        with self.assertLogs(
+            "odoo.addons.picking_assistant_integration.models.integration_job",
+            level="WARNING",
+        ) as cm:
+            result = self.env["picking.assistant.integration.job"].with_user(
+                self.api_user
+            ).api_recover_stalled_jobs(10)
+        self.assertTrue(
+            any("no outbox row" in message for message in cm.output)
+        )
 
         self.env.invalidate_all()
         self.assertEqual(result, {"recovered": 1, "skipped": 1})
@@ -248,8 +258,18 @@ class TestWatchdogAndAuditCleanup(IntegrationCase):
         )
 
     def test_retention_still_deletes_the_outbox_of_a_terminal_job(self):
+        """Fix round 1, finding 2. `RETENTION_JOB_DAYS` (90) and
+        `RETENTION_DELIVERED_OUTBOX_DAYS` (30) must NOT both be crossed here:
+        at 90 days the job step unlinks the job too, and `job_record_id` is
+        `ondelete="cascade"`, so the outbox row would vanish by cascade
+        whether or not the outbox step's own domain clause works at all --
+        `assertFalse(outbox.exists())` would pass even with a broken clause.
+        40 days is past the 30-day outbox cutoff but well inside the 90-day
+        job cutoff, so the job survives and only the outbox step can be
+        responsible for the deletion; `job.exists()` rules the cascade path
+        out explicitly."""
         job, outbox = self._enqueue("c")
-        old = fields.Datetime.now() - timedelta(days=90)
+        old = fields.Datetime.now() - timedelta(days=40)
         job.write({"state": "failed", "completed_at": old})
         outbox.write({"state": "delivered", "delivered_at": old})
 
@@ -258,6 +278,10 @@ class TestWatchdogAndAuditCleanup(IntegrationCase):
         )
 
         self.assertFalse(outbox.exists())
+        self.assertTrue(
+            job.exists(), "the job must survive -- only the outbox step, not"
+            " the job-cascade path, may be responsible for this deletion"
+        )
 
     def test_watchdog_fails_closed_to_review_required_when_outbox_is_missing(
         self,
@@ -285,8 +309,19 @@ class TestWatchdogAndAuditCleanup(IntegrationCase):
         )
         outbox.unlink()
 
-        self.env["picking.assistant.integration.job"]._cron_recover_stalled_jobs(
-            limit=10
+        # This fail-closed path deliberately logs at WARNING; asserting it
+        # here keeps the suite's "0 unexpected warnings" invariant meaningful
+        # instead of just tolerating noise (mirrors the backend's `caplog`
+        # equivalent in test_outbox_dispatcher.py).
+        with self.assertLogs(
+            "odoo.addons.picking_assistant_integration.models.integration_job",
+            level="WARNING",
+        ) as cm:
+            self.env[
+                "picking.assistant.integration.job"
+            ]._cron_recover_stalled_jobs(limit=10)
+        self.assertTrue(
+            any("no outbox row" in message for message in cm.output)
         )
 
         job.invalidate_recordset()

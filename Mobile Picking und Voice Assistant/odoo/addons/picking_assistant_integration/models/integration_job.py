@@ -3,6 +3,8 @@ import logging
 from datetime import timedelta
 from uuid import uuid4
 
+import psycopg2
+
 from odoo import api, fields, models
 from odoo.exceptions import ValidationError
 
@@ -27,14 +29,7 @@ TERMINAL_STATES = {"succeeded", "review_required", "failed"}
 # Die Kante ist nur noch als NEBENWIRKUNG von `_recover_expired_lease`
 # erlaubt, und dort untrennbar mit allen vier Effekten verbunden.
 TRANSITIONS = {
-    # `queued -> review_required` (Task 6, plan amendment): the ONLY other
-    # caller of this edge, `_recover_expired_lease`'s fail-closed branch, can
-    # run with the job still `queued` -- acceptance hands out the processing
-    # lease before the job ever reaches `running` (the first `running`/
-    # terminal callback is what moves it). A job whose outbox row has gone
-    # missing must be able to reach `review_required` from EITHER lease
-    # recovery source state, not only `running`.
-    "queued": {"running", "review_required"},
+    "queued": {"running"},
     "running": {"succeeded", "review_required", "retry_scheduled", "failed"},
     "retry_scheduled": {"running"},
 }
@@ -255,14 +250,36 @@ class PickingAssistantIntegrationJob(models.Model):
         # Jobs seit Task 6 nicht mehr (siehe `_cron_cleanup_audit`); dieser
         # Zweig bleibt trotzdem als Fail-Closed-Verteidigung fuer jeden
         # anderen Weg, auf dem eine Outbox-Zeile fehlen koennte.
+        #
+        # Der Aufrufer (`_recover_stalled_jobs_batch`) haelt bereits den
+        # Job-Lock, BEVOR diese Funktion aufgerufen wird -- der Outbox-Lock
+        # hier ist also der dritte Lock in LOCK_ORDER (job -> receipt ->
+        # outbox), keine Umkehrung. Unter Odoo's REPEATABLE READ (Task 3)
+        # loest ein verlorenes `FOR UPDATE` gegen eine Zeile, die eine
+        # nebenlaeufige Transaktion bereits geaendert und committet hat,
+        # KEIN Blockieren-dann-neue-Tupel-Lesen aus, sondern sofort
+        # `SerializationFailure` (SQLSTATE 40001) an dieser Anweisung --
+        # derselbe Mechanismus wie bei `api_requeue_dead` (outbox.py) und
+        # `api_accept_event` (receipts.py). Klassifiziert nach der
+        # Fehlerklasse des Treibers statt nach einem erneuten, unter dem
+        # Snapshot ohnehin veralteten SELECT.
         outboxes = self.env["picking.assistant.outbox"].sudo()
         outboxes.flush_model()
-        self.env.cr.execute(
-            "SELECT id FROM picking_assistant_outbox "
-            "WHERE event_id = %s FOR UPDATE",
-            (receipt.event_id,),
-        )
-        outbox_row = self.env.cr.fetchone()
+        try:
+            with self.env.cr.savepoint():
+                self.env.cr.execute(
+                    "SELECT id FROM picking_assistant_outbox "
+                    "WHERE event_id = %s FOR UPDATE",
+                    (receipt.event_id,),
+                )
+                # Innerhalb des Savepoints geholt: `RELEASE SAVEPOINT` bei
+                # `with`-Austritt wuerde sonst das anstehende Ergebnis dieses
+                # SELECTs zerstoeren.
+                outbox_row = self.env.cr.fetchone()
+        except psycopg2.errors.SerializationFailure as exc:
+            raise ValidationError(
+                "Outbox event changed during lease recovery."
+            ) from exc
         if not outbox_row:
             _logger.warning(
                 "lease recovery found no outbox row for job %s; "
@@ -276,7 +293,12 @@ class PickingAssistantIntegrationJob(models.Model):
                 sequence=job.sequence + 1,
                 error={"reason": "missing_outbox_row"},
             )
-            job.write({"processing_lease_token": False})
+            job.write(
+                {
+                    "processing_lease_token": False,
+                    "processing_lease_expires_at": False,
+                }
+            )
             receipt.write(
                 {
                     "state": "completed",
