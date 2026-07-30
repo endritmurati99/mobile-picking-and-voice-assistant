@@ -188,31 +188,20 @@ class PickingAssistantEventReceipt(models.Model):
         "UNIQUE(event_id)", "Event receipt must be unique."
     )
 
-    def _assert_active_lease(
-        self, job, receipt, generation, supplied_token, now, require_token=True
-    ):
-        """Die einzige Stelle, die eine Processing-Lease fuer gueltig erklaert.
+    def _check_lease_state(self, job, receipt, generation, now):
+        """Gemeinsamer Kern beider Lease-Fragen: Zugehoerigkeit, Generation,
+        Zustand und Ablauf. Weder Token-Existenz noch Token-Vergleich gehoeren
+        hierher -- das ist die Grenze zwischen "es gibt eine laufende Lease"
+        (`_assert_lease_state_is_active`) und "DU bist der Lease-Inhaber"
+        (`_assert_active_lease`).
 
         MUSS unter gehaltenen Row-Locks und nach `invalidate_recordset()`
         aufgerufen werden -- ohne Lock liest sie einen Wert, der beim
         Zurueckkehren schon falsch sein kann.
 
-        Geprueft wird ALLES, nicht eine Teilmenge: Zugehoerigkeit, Generation,
-        Zustand, Token und Ablauf. Frueher pruefte `api_accept_event` den
-        Ablauf und `api_apply_callback` nicht -- genau das Muster, das dieser
-        Review-Durchgang wiederholt gefunden hat.
-
-        `require_token=False` ist die EINE benannte, greppbare Ausnahme: die
-        Ressourcenrouten (`_require_current_generation` in `resources.py`)
-        bekommen ueber ihren RPC-Vertrag heute gar kein Lease-Token
-        mitgeliefert, koennen also nur "dieser Job hat eine laufende Lease"
-        fragen statt "du BIST der Lease-Inhaber". Das ist die zweite Haelfte
-        von Review-Befund #5 und braucht eine Vertragsaenderung an der
-        n8n-Schnittstelle; bis dahin laufen auch diese Aufrufer durch DIESE
-        Funktion, damit Zustand und Ablauf nirgends zweitgemeint werden.
-
         REIHENFOLGE UND TEXT SIND SICHERHEITSRELEVANT (Fix-Runde 1, Befund 1).
-        Der Ablauf wird VOR dem Token-Vergleich geprueft, und jeder Fehlschlag
+        Der Ablauf wird VOR jedem Token-Vergleich geprueft (der Aufrufer haengt
+        seinen eigenen Vergleich HINTER diesen Aufruf), und jeder Fehlschlag
         nach aussen traegt denselben Text. Stuende der Token-Vergleich vorn und
         haette der Ablauf einen eigenen Text, waere "abgelaufen" nur bei einem
         RICHTIGEN Token erreichbar -- also ein positives Signal auf einen
@@ -240,13 +229,45 @@ class PickingAssistantEventReceipt(models.Model):
         # Ablauf zuerst, Token danach: siehe Docstring.
         if self._lease_has_expired(receipt, now):
             refuse("lease expired")
-        if require_token:
-            if not supplied_token:
-                refuse("no lease token supplied")
-            if not secrets.compare_digest(
-                receipt.processing_lease_token, supplied_token
-            ):
-                refuse("lease token mismatch")
+        return refuse
+
+    def _assert_lease_state_is_active(self, job, receipt, generation, now):
+        """"Gibt es gerade eine laufende Lease auf diesem Job/dieser
+        Generation" -- OHNE eine Aussage ueber WER sie haelt.
+
+        Einziger Aufrufer: die Dedup-Frage in `api_accept_event`. Dort gibt es
+        (noch) kein Anrufer-Token -- die Lease wird in genau diesem Aufruf
+        allenfalls erst ausgestellt --, die Frage ist also strukturell eine
+        andere als "bist du der Inhaber". Vor Task 8 stand das als
+        `require_token=False` auf derselben Funktion, die die
+        Ressourcenrouten benutzten; das verwischte zwei verschiedene Fragen
+        hinter einem Bool. Jetzt sind es zwei Funktionen mit eigenem Namen.
+        """
+        self._check_lease_state(job, receipt, generation, now)
+
+    def _assert_active_lease(self, job, receipt, generation, supplied_token, now):
+        """Die einzige Stelle, die eine Processing-Lease fuer IHREN INHABER
+        fuer gueltig erklaert. Geprueft wird ALLES, nicht eine Teilmenge:
+        Zugehoerigkeit, Generation, Zustand, Ablauf UND das Token. Frueher
+        pruefte `api_accept_event` den Ablauf und `api_apply_callback`
+        nicht -- genau das Muster, das dieser Review-Durchgang wiederholt
+        gefunden hat.
+
+        Der Token-Vergleich ist ab Task 8 UNBEDINGT: es gibt keinen
+        `require_token`-Parameter mehr. Die Ressourcenrouten
+        (`_require_current_generation` in `resources.py`) bekamen frueher gar
+        kein Lease-Token ueber ihren RPC-Vertrag und liefen deshalb mit
+        `require_token=False` durch diese Funktion -- die zweite Haelfte von
+        Review-Befund #5 (#5b). Der RPC-Vertrag traegt das Token jetzt, und
+        ein benannter, greppbarer Opt-out auf einer Sicherheitsprimitive ist
+        genau die Falle, die der naechste eilige Aufrufer findet -- deshalb
+        ist er entfernt statt nur seltener benutzt.
+        """
+        refuse = self._check_lease_state(job, receipt, generation, now)
+        if not supplied_token:
+            refuse("no lease token supplied")
+        if not secrets.compare_digest(receipt.processing_lease_token, supplied_token):
+            refuse("lease token mismatch")
 
     def _lease_has_expired(self, receipt, now):
         """"Diese Lease existiert, ist aber abgelaufen" -- als EIN Ausdruck.
@@ -435,13 +456,11 @@ class PickingAssistantEventReceipt(models.Model):
         # dedup answer and the callback answer must never drift apart. The
         # primitive raises, so the boolean is its absence of a complaint.
         try:
-            self._assert_active_lease(
+            self._assert_lease_state_is_active(
                 job,
                 receipt,
                 generation=job.delivery_generation,
-                supplied_token=False,
                 now=now,
-                require_token=False,
             )
             lease_active = True
         except ValidationError:
