@@ -3,8 +3,9 @@
 This module holds all verification logic as importable, pure functions.
 ``infrastructure/scripts/verify-workflows.py`` is a thin CLI wrapper around
 ``validate_contracts()`` (legacy v1 contract checks, still applied to every
-workflow file on disk) and ``verify_v2_workflow()`` (the new v2-generation
-invariants, applied per-workflow using the registry's per-file spec).
+workflow file under the verified registry's workflow root) and
+``verify_v2_workflow()`` (the new v2-generation invariants, applied
+per-workflow using the registry's per-file spec).
 """
 from __future__ import annotations
 
@@ -171,7 +172,14 @@ class BackendContract:
 
 @dataclass
 class WorkflowContract:
+    # Display label, repo-relative when the file lies inside the repo and the
+    # bare file name otherwise. Never use it to re-open the file: it is a
+    # label, and the bytes that were parsed live at `path`.
     file: str
+    # The absolute file that was actually read. The v1 checks must read the
+    # workflow belonging to the registry under verification, not the repo's
+    # same-named file.
+    path: Path
     name: str
     webhook_paths: list[str]
     referenced_keys: set[str]
@@ -319,12 +327,31 @@ def extract_backend_callback_path(url: str) -> str | None:
     return parsed.path or None
 
 
-def extract_workflow_contracts() -> tuple[list[WorkflowContract], list[str]]:
+def _workflow_label(file_path: Path) -> str:
+    """Repo-relative label where possible, bare file name otherwise. An
+    alternate workflow root (a registry outside the repo) has no repo-relative
+    form, and `relative_to` would raise instead of labelling it."""
+    try:
+        return file_path.relative_to(ROOT).as_posix()
+    except ValueError:
+        return file_path.name
+
+
+def extract_workflow_contracts(
+    workflow_root: Path | None = None,
+) -> tuple[list[WorkflowContract], list[str]]:
+    """Parse every workflow JSON under `workflow_root` (default: the repo's
+    n8n/workflows). The root is a parameter because the gate may be pointed at
+    another registry via --registry: validating the repo's files while
+    importing someone else's is the same vacuous check as not passing
+    --registry at all.
+    """
     workflows: list[WorkflowContract] = []
     errors: list[str] = []
+    root = workflow_root or WORKFLOW_ROOT
 
-    for file_path in sorted(WORKFLOW_ROOT.glob("*.json")):
-        rel_path = file_path.relative_to(ROOT).as_posix()
+    for file_path in sorted(root.glob("*.json")):
+        rel_path = _workflow_label(file_path)
         try:
             data = json.loads(file_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
@@ -393,6 +420,7 @@ def extract_workflow_contracts() -> tuple[list[WorkflowContract], list[str]]:
         workflows.append(
             WorkflowContract(
                 file=rel_path,
+                path=file_path,
                 name=data.get("name", file_path.stem),
                 webhook_paths=webhook_paths,
                 referenced_keys=referenced_keys,
@@ -552,19 +580,40 @@ def validate_quality_alert_live_path(workflow: WorkflowContract, workflow_data: 
     return errors
 
 
-def validate_contracts() -> tuple[list[str], list[str], dict[str, Any]]:
+def validate_contracts(
+    workflow_root: Path | None = None,
+) -> tuple[list[str], list[str], dict[str, Any]]:
+    """Apply the legacy v1 contract checks to every workflow under
+    `workflow_root` (default: the repo's n8n/workflows).
+
+    `workflow_root` follows --registry exactly as the v2 half does, so both
+    halves of the gate check the bytes the run would actually import. The
+    backend contracts are deliberately NOT parameterised: they are extracted
+    from THIS repo's backend, which is the code the workflows must agree with.
+
+    One check is scoped to the repo's own root: "the backend fires this webhook
+    path, so some workflow must serve it" is a completeness property of the
+    COMPLETE workflow set. An alternate registry is legitimately a subset (the
+    importer's REGISTRY_PATH fixtures hold one workflow), so for an alternate
+    root the missing coverage is reported as a warning instead. Every
+    per-workflow check below applies to every root without exception.
+    """
     errors: list[str] = []
     warnings: list[str] = []
+    root = workflow_root or WORKFLOW_ROOT
+    # Resolved comparison, so a relative --registry that names the repo's own
+    # registry still gets the strict (error) treatment rather than the
+    # subset-tolerant one.
+    is_repo_root = root.resolve() == WORKFLOW_ROOT.resolve()
     backend_contracts = extract_backend_contracts()
-    workflows, workflow_parse_errors = extract_workflow_contracts()
+    workflows, workflow_parse_errors = extract_workflow_contracts(root)
     errors.extend(workflow_parse_errors)
 
     workflow_by_path: dict[str, WorkflowContract] = {}
 
     for workflow in workflows:
         wf_basename = Path(workflow.file).name
-        wf_path = ROOT / workflow.file
-        wf_data = json.loads(wf_path.read_text(encoding="utf-8"))
+        wf_data = json.loads(workflow.path.read_text(encoding="utf-8"))
 
         http_errors, http_warnings = validate_callback_http_nodes(workflow)
         errors.extend(http_errors)
@@ -613,10 +662,17 @@ def validate_contracts() -> tuple[list[str], list[str], dict[str, Any]]:
     for webhook_path, contract in sorted(backend_contracts.items()):
         workflow = workflow_by_path.get(webhook_path)
         if workflow is None:
-            errors.append(
+            message = (
                 f"Backend feuert '{webhook_path}', aber kein passender n8n-Workflow-Webhooks gefunden "
                 f"(Quellen: {', '.join(sorted(contract.sources))})"
             )
+            if is_repo_root:
+                errors.append(message)
+            else:
+                warnings.append(
+                    f"{message} | Vollstaendigkeit wird nur fuer n8n/workflows als "
+                    f"Fehler gemeldet, nicht fuer die alternative Registry unter {root}"
+                )
             continue
 
         missing_keys = sorted(
@@ -848,8 +904,12 @@ def _webhook_node(nodes: list[dict]) -> dict | None:
     return matches[0] if matches else None
 
 
+def _gate_nodes(nodes: list[dict]) -> list[dict]:
+    return [node for node in nodes if node.get("type") in SIGNATURE_GATE_TYPES]
+
+
 def _gate_node(nodes: list[dict]) -> dict | None:
-    return next((node for node in nodes if node.get("type") in SIGNATURE_GATE_TYPES), None)
+    return next(iter(_gate_nodes(nodes)), None)
 
 
 def _first_output_targets(connections: dict, source_name: str | None, output_index: int = 0) -> list[str]:
@@ -1311,10 +1371,22 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
                 "must only use its main output"
             )
 
-    gate = _gate_node(nodes)
+    gates = _gate_nodes(nodes)
+    gate = next(iter(gates), None)
     if gate is None:
         errors.append(f"{file_name}: v2 workflow has no PWR Signature Gate node")
     else:
+        # Obligation 2 says "genau ein" Signature Gate, so count them. Every
+        # check below runs against the first gate only; with a second gate
+        # present, "the node after the gate" and "dominated by the gate's
+        # rejection output" both silently mean "after/dominated by the FIRST
+        # gate", and a graph could route around it through the other one.
+        if len(gates) > 1:
+            names = sorted(str(node.get("name")) for node in gates)
+            errors.append(
+                f"{file_name}: multiple PWR Signature Gates found ({', '.join(names)}); "
+                "exactly one is required"
+            )
         if webhook is not None:
             webhook_targets = _first_output_targets(connections, webhook.get("name"))
             if webhook_targets != [gate.get("name")]:

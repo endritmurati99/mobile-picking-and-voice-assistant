@@ -85,6 +85,22 @@ def test_v2_rejects_business_node_before_gate(v2_fixture, verify):
     assert any("Signature Gate must be first" in error for error in errors)
 
 
+def test_v2_rejects_a_second_signature_gate(v2_fixture, verify):
+    """Obligation 2 says "genau ein Signature Gate", and now the code counts
+    them. With two gates, every gate-relative check ("first node after the
+    gate", "dominated by the gate's rejection output") silently meant "the
+    FIRST gate" -- so the docstring claimed a property the code did not have.
+    """
+    v2_fixture["nodes"].append({
+        "name": "Second Gate",
+        "type": "n8n-nodes-pwr.pwrSignatureGate",
+        "parameters": {},
+    })
+    errors = verify(v2_fixture)
+    assert any("exactly one is required" in error and "Signature Gate" in error
+               for error in errors), errors
+
+
 def test_v2_rejects_normal_http_node_for_internal_callback(v2_fixture, verify):
     v2_fixture["nodes"].append({
         "name": "Unsafe Callback",

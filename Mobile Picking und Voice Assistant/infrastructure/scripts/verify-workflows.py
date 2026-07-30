@@ -2,9 +2,13 @@
 """Thin CLI wrapper around infrastructure.scripts.workflow_verifier.
 
 Applies the legacy v1 contract checks (validate_contracts) to every workflow
-file on disk, then applies the v2-generation invariants (verify_v2_workflow)
-to every workflow the registry marks generation="v2", using the registry as
-the sole source of truth for which files exist and what their v2 spec is.
+file belonging to the registry under verification, then applies the
+v2-generation invariants (verify_v2_workflow) to every workflow the registry
+marks generation="v2", using the registry as the sole source of truth for
+which files exist and what their v2 spec is.
+
+Both halves resolve workflow files relative to --registry, so pointing the
+gate at another registry checks that registry's files rather than the repo's.
 """
 from __future__ import annotations
 
@@ -87,7 +91,14 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    errors, warnings, summary = validate_contracts()
+    # Both halves of the gate read the workflow files belonging to the
+    # registry under verification. The v1 half used to walk the repo's
+    # n8n/workflows regardless of --registry, so an alternate registry's v1
+    # entries got a contract check against the REPO's same-named bytes -- a
+    # gate that reports on files the run would never import.
+    workflow_root = args.registry.parent / "workflows"
+
+    errors, warnings, summary = validate_contracts(workflow_root)
     v2_errors, skipped = run_v2_checks(args.registry)
     errors = [*errors, *v2_errors]
     summary["errors"] = errors

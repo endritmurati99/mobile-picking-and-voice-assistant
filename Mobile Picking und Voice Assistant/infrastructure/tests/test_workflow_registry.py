@@ -108,7 +108,7 @@ def test_a_new_v1_entry_is_rejected(tmp_path):
 
 
 def test_the_grandfathered_v1_files_still_load(tmp_path):
-    from workflow_registry import GRANDFATHERED_V1_FILES
+    from infrastructure.scripts.workflow_registry import GRANDFATHERED_V1_FILES
 
     assert GRANDFATHERED_V1_FILES, "the existing v1 workflows must be listed explicitly"
     registry = tmp_path / "workflow-registry.json"

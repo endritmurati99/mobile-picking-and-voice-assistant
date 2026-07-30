@@ -12,6 +12,7 @@ reject every real workflow.
 """
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -30,17 +31,41 @@ SPEC = {
     "file": "task15_reference_graph.json",
     "name": "pwr.v2.smoke",
     "generation": "v2",
-    "webhook_paths": ["/webhook/pwr-v2-smoke"],
+    # Bare kebab path and native_header_hmac: this SPEC must be a shape a real
+    # registry can actually produce. `load_registry` rejects any v2 entry whose
+    # authentication is not "native_header_hmac", and the backend's second
+    # reader (app/services/workflow_targets.py) RAISES on a webhook_path
+    # spelled "/webhook/..." -- it matches ^[a-z0-9][a-z0-9-]*$ against
+    # paths[0] and prefixes "/webhook/" itself. Proving graph policy against a
+    # registry entry that could never exist proves it for nothing.
+    "webhook_paths": ["pwr-v2-smoke"],
     "callback_paths": ["/api/internal/n8n/v2/callbacks/status"],
     "artifact_path_templates": ["/api/internal/n8n/v2/artifacts/{event_id}/status"],
     "allowed_target_hosts": ["backend"],
-    "authentication": "headerAuth",
+    "authentication": "native_header_hmac",
     "managed": True,
 }
 
 
 def _load(name):
     return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+
+
+def test_the_spec_is_a_shape_a_real_registry_can_produce():
+    """Whole-branch review finding: this SPEC once declared
+    authentication="headerAuth" (which `load_registry` rejects for v2) and a
+    webhook path spelled "/webhook/pwr-v2-smoke" (on which the backend's
+    `load_event_targets` raises). Every rejection below is proven against this
+    SPEC, so if the SPEC is unbuildable the whole proof set is about nothing.
+    Both constraints are restated here rather than imported: this file must not
+    depend on the backend package being importable."""
+    assert SPEC["authentication"] == "native_header_hmac"
+    assert SPEC["webhook_paths"], "a v2 entry declares exactly one webhook path"
+    for path in SPEC["webhook_paths"]:
+        assert re.fullmatch(r"[a-z0-9][a-z0-9-]*", path), (
+            f"{path!r} is not a bare kebab-case path; the backend reader "
+            "prefixes '/webhook/' itself and rejects anything else"
+        )
 
 
 def test_the_task15_reference_graph_is_accepted():

@@ -179,7 +179,10 @@ export async function readSecretFile(path) {
         const raw = await handle.readFile('utf8');
         return raw.trim();
     } finally {
-        await handle.close();
+        // A rejecting close() in a finally block replaces the original error
+        // -- e.g. the "not a regular file" / permission finding above -- with
+        // a close failure. Closing is best-effort; the finding is not.
+        await handle.close().catch(() => {});
     }
 }
 

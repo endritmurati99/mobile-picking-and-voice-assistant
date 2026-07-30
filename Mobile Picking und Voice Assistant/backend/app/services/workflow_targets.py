@@ -11,29 +11,27 @@ hyphens ONLY — underscores are deliberately rejected. Name v2 webhook paths
 kebab-case (e.g. `quality-assessment-v2`), never snake_case.
 
 This is the registry's SECOND reader. `infrastructure/scripts/workflow_registry.py`
-(`load_registry`) is the first, and it is the one that owns `KNOWN_GENERATIONS`.
-Do not redeclare that tuple here — a copy is exactly the drift that let an
-unknown generation string silently skip every v2 check in this reader while
-`load_registry` had already learned to reject it (finding #12, second reader).
-Import it from the single declaration instead, the same way
-`infrastructure/scripts/verify-workflows.py` reaches its sibling modules.
+(`load_registry`) is the first. Both read ONE declaration of the generation
+allowlist, `app.services.workflow_generations` — a copy is exactly the drift
+that let an unknown generation string silently skip every v2 check in this
+reader while `load_registry` had already learned to reject it (finding #12,
+second reader).
+
+That declaration lives under `backend/app/` and NOT under
+`infrastructure/scripts/` because this module must import cleanly inside the
+backend image, where `backend/app/` is the only tree that ships and nothing
+named `infrastructure/` exists. Nothing in this module may reach above
+`backend/` — `app.dependencies` imports `load_event_targets` at module scope,
+so any such import failure takes down `uvicorn app.main:app` at startup.
+`backend/tests/test_workflow_targets.py` guards that with an import performed
+in a reproduction of the container layout.
 """
 import json
 import re
-import sys
 from pathlib import Path
 
 from app.models.events import EVENT_NAMES
-
-# `infrastructure/scripts/` has no `__init__.py`; it is imported as an
-# implicit namespace package the same way infrastructure's own CLI entry
-# points (e.g. verify-workflows.py) reach their sibling modules: put the
-# repo root on sys.path, then import by dotted path.
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
-from infrastructure.scripts.workflow_registry import KNOWN_GENERATIONS  # noqa: E402
+from app.services.workflow_generations import KNOWN_GENERATIONS
 
 # Same allowlisted charset the signed transport enforces on full targets.
 _ALLOWED_PATH = re.compile(r"^[a-z0-9][a-z0-9-]*$")
