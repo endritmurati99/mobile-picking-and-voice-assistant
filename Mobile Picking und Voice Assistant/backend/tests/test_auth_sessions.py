@@ -43,6 +43,8 @@ class FakeOdoo:
         self.calls.append((model, method, args))
         if method == "api_check_login":
             return {"allowed": True, "failure_count": 0, "locked_until": False}
+        if method == "api_begin_login_attempt":
+            return {"allowed": True, "attempt_token": "test-attempt-token"}
         if method == "api_get_picker_principal":
             return {
                 "allowed": self.allowed,
@@ -50,7 +52,7 @@ class FakeOdoo:
                 "picker_name": "Mina Muster",
                 "roles": ["picker"],
             }
-        if method == "api_record_login_result":
+        if method in ("api_record_login_result", "api_finish_login_attempt"):
             return {"allowed": True, "failure_count": 0, "locked_until": False}
         if method == "api_create_session":
             self.session = {
@@ -198,6 +200,17 @@ def _service(odoo: FakeOdoo) -> SessionService:
     )
 
 
+def _login_body(**overrides) -> PickerSessionLoginRequest:
+    values = {
+        "login": "mina",
+        "password": "wrong",
+        "device_id": "123e4567-e89b-42d3-a456-426614174000",
+        "odoo_instance": "o19",
+    }
+    values.update(overrides)
+    return PickerSessionLoginRequest(**values)
+
+
 @pytest.mark.asyncio
 async def test_validate_csrf_accepts_matching_token_and_sends_only_hash():
     token = "s" * 43
@@ -249,3 +262,56 @@ async def test_revoke_sends_only_session_id_to_odoo():
     assert odoo.revoked_session_ids == [principal.session_id]
     revoke_call = next(c for c in odoo.calls if c[1] == "api_revoke_session")
     assert revoke_call[2] == [principal.session_id]
+
+
+@pytest.mark.asyncio
+async def test_login_reserves_before_authenticating():
+    """The expensive authentication must never run before the attempt is
+    booked. Regression cover for finding #10."""
+    calls: list[str] = []
+
+    class RecordingOdoo(FakeOdoo):
+        async def execute_kw(self, model, method, args, kwargs=None):
+            if method in {"api_begin_login_attempt", "api_finish_login_attempt"}:
+                calls.append(method)
+            return await super().execute_kw(model, method, args, kwargs)
+
+        async def authenticate_credentials(self, login, password):
+            calls.append("authenticate")
+            return 0
+
+    service = _service(RecordingOdoo())
+    with pytest.raises(AuthenticationFailed):
+        await service.create_session(
+            _login_body(), source_ip="10.0.0.1", origin="https://picking.test"
+        )
+
+    assert calls == ["api_begin_login_attempt", "authenticate", "api_finish_login_attempt"]
+    assert "api_check_login" not in calls
+    assert "api_record_login_result" not in calls
+
+
+@pytest.mark.asyncio
+async def test_login_releases_the_reservation_when_authentication_raises():
+    """A leaked reservation that never expires is a protection that becomes
+    an outage: the reservation must be released on EVERY exit path,
+    including an unexpected exception from authentication itself, not only
+    the "credentials were wrong" branch."""
+    calls: list[str] = []
+
+    class ExplodingOdoo(FakeOdoo):
+        async def execute_kw(self, model, method, args, kwargs=None):
+            if method in {"api_begin_login_attempt", "api_finish_login_attempt"}:
+                calls.append(method)
+            return await super().execute_kw(model, method, args, kwargs)
+
+        async def authenticate_credentials(self, login, password):
+            raise RuntimeError("Odoo transport exploded")
+
+    service = _service(ExplodingOdoo())
+    with pytest.raises(RuntimeError):
+        await service.create_session(
+            _login_body(), source_ip="10.0.0.1", origin="https://picking.test"
+        )
+
+    assert calls == ["api_begin_login_attempt", "api_finish_login_attempt"]

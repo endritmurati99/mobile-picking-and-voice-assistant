@@ -143,35 +143,44 @@ class SessionService:
         odoo = self._client_factory(body.odoo_instance)
         login_key = body.login.casefold()
         ip_key = source_ip_key(source_ip, self._throttle_secret)
-        throttle = await odoo.execute_kw(
+        # Reserve the attempt BEFORE the expensive authentication runs, and
+        # release it on every exit path from here on -- including exceptions.
+        # The former "check, authenticate, record" sequence was three
+        # separate RPC transactions, so N parallel requests all passed the
+        # check before the first failure was even booked: the limit bounded
+        # rounds, not attempts (finding #10). A reservation that is never
+        # released would turn this protection into an outage, so the whole
+        # authentication step is wrapped in try/finally; `IN_FLIGHT_TTL` on
+        # the Odoo side is the backstop for a crash between here and the
+        # `finally`, not the plan.
+        reservation = await odoo.execute_kw(
             "picking.assistant.auth.throttle",
-            "api_check_login",
+            "api_begin_login_attempt",
             [login_key, ip_key],
         )
-        if not throttle.get("allowed"):
+        if not reservation.get("allowed"):
             raise AuthenticationFailed("Anmeldung fehlgeschlagen.")
+        attempt_token = reservation["attempt_token"]
 
-        uid = await odoo.authenticate_credentials(body.login, body.password)
-        identity = (
-            await odoo.execute_kw(
-                "res.users", "api_get_picker_principal", [uid]
+        succeeded = False
+        try:
+            uid = await odoo.authenticate_credentials(body.login, body.password)
+            identity = (
+                await odoo.execute_kw(
+                    "res.users", "api_get_picker_principal", [uid]
+                )
+                if uid
+                else {"allowed": False}
             )
-            if uid
-            else {"allowed": False}
-        )
-        if not uid or not identity.get("allowed"):
+            if not uid or not identity.get("allowed"):
+                raise AuthenticationFailed("Anmeldung fehlgeschlagen.")
+            succeeded = True
+        finally:
             await odoo.execute_kw(
                 "picking.assistant.auth.throttle",
-                "api_record_login_result",
-                [login_key, ip_key, False],
+                "api_finish_login_attempt",
+                [login_key, ip_key, attempt_token, succeeded],
             )
-            raise AuthenticationFailed("Anmeldung fehlgeschlagen.")
-
-        await odoo.execute_kw(
-            "picking.assistant.auth.throttle",
-            "api_record_login_result",
-            [login_key, ip_key, True],
-        )
         session_id = str(uuid4())
         cookie_token = f"v1.{body.odoo_instance}.{secrets.token_urlsafe(32)}"
         csrf_token = secrets.token_urlsafe(32)
