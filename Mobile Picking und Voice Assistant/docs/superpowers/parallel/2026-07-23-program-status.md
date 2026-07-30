@@ -215,6 +215,31 @@ the time of writing.
   that decision stands. The one-character hardening for a real deployment is
   `${RUNTIME_PROFILE:?set to production for a real deployment}`. Belongs with the deployment work.
 
+### Deployment obligation created by remediation lane R2
+
+- **Lease tokens now appear in access logs and in n8n execution data.** R2 Task 8 closed #5b's Odoo half by
+  carrying the `processing_lease_token` as a **signed path segment**:
+  `GET /instances/{i}/jobs/{j}/leases/{token}/media/{m}` and `POST .../leases/{token}/events/{e}/artifacts/{k}`.
+  The token is genuinely inside the signed bytes — `verify_n8n_to_backend_request` signs against
+  `request.scope["raw_path"]`, and a target mismatch is a 401 — and no application code logs it. But a URL
+  path is logged where a JSON body was not, at three concrete sinks in this repo: Caddy's server-level
+  `log { output stdout }` covering `handle /api/*` (`infrastructure/caddy/Caddyfile:4-6`, `34-37`), uvicorn's
+  access log at `--log-level info` (`docker-compose.yml:162`), and n8n's persisted execution data, which
+  stores the built URL.
+  **This was the right trade on the alternatives available** — extending the shared canonical signature input
+  touches every v2 route's replay primitive, a JSON envelope breaks Task 11's raw-bytes invariant, and a
+  query string is refused outright by `verify_signature` (`hmac_signing.py:88-89`). The blast radius is
+  bounded: the token is a lease-scoped, expiring capability, useless without the HMAC key, and it never
+  reaches a browser. **The obligation is to decide explicitly rather than inherit it silently:** either accept
+  lease tokens in those three log sinks, or add path redaction at the Caddy and uvicorn layers and cap n8n
+  execution-data retention. Raised by the Task 8 re-reviewer, which insisted it be written down before #5b is
+  ever marked closed.
+- **`models/resources.py` has four `FOR UPDATE` sites and no SQLSTATE-40001 classification.** Pre-existing
+  from the Task 1/3 era, confirmed absent at `ad8df7c` as well. Every other locking model in the addon
+  carries the lane pattern (`receipts.py:436`/`742`, `integration_job.py:266`, `outbox.py:233`,
+  `session.py:128`). Task 8 edited one of these lock statements and widened it to multi-row without adding
+  the pattern. Lane-level cleanup, not a Task 8 defect.
+
 ### Deployment obligation created by remediation lane R3
 
 - **Compose `secrets:` must set `uid`, `gid` and `mode`.** R3 Task 3 moved the credential-file
