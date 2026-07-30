@@ -1,3 +1,5 @@
+import threading
+import traceback
 from datetime import timedelta
 from uuid import uuid4
 
@@ -93,36 +95,77 @@ class TestThrottleConcurrency(CommittedConcurrencyCase):
         """Five in-flight attempts consume the budget even before any of them
         has failed. Regression cover for finding #10.
 
-        Under Odoo's REPEATABLE READ (Task 3), eight workers started
-        together on a barrier and contending for the SAME row's `FOR UPDATE`
-        lock can structurally produce at most ONE clean completion per
-        round: every worker's snapshot is taken at (essentially) the same
-        moment, so whichever worker loses the lock wakes up to find its own
-        snapshot already stale against the winner's commit and gets
-        `SerializationFailure` (SQLSTATE 40001), not a delayed look at the
-        updated row -- there is no in-process retry here the way Odoo's own
-        `retrying()` RPC wrapper would provide in production. That makes
-        `len(allowed) <= 5` true in every run regardless of whether the
-        in-flight counting guard is even wired up correctly; it is a smoke
-        test for "no crash under real concurrent load", not a discriminating
-        proof of the 5-slot budget. The budget itself is what
-        `test_an_abandoned_attempt_stops_counting_after_the_ttl` proves,
-        sequentially and deterministically, on a single cursor where the
-        REPEATABLE READ restriction above does not apply -- confirmed by a
-        negative control breaking the same guard condition (see this task's
-        report).
+        Fix round 1, Finding 2: a first version of this test raced eight
+        workers with `run_concurrently` (no retry) against a shared row.
+        Under Odoo's REPEATABLE READ, eight workers started together on a
+        barrier and contending for the SAME row's `FOR UPDATE` lock can
+        structurally produce at most ONE clean completion per round: every
+        loser's snapshot is already stale against the winner's commit and
+        it gets `SerializationFailure`, not a delayed look at the updated
+        row. That made `len(allowed) <= 5` true in EVERY run regardless of
+        whether the in-flight counting guard was even wired up correctly
+        -- and it did not even guard the method's existence: delete
+        `api_begin_login_attempt` and all eight results are
+        `AttributeError`, `allowed` is empty, and `assertLessEqual(0, 5)`
+        still passes green.
+
+        Fixed by giving each worker its own bounded retry loop -- a fresh
+        cursor and environment per attempt, exactly like Odoo's own
+        `retrying()` RPC wrapper does in production, which `run_concurrently`
+        does not provide. That makes the eight workers actually serialise
+        through the row lock instead of dying on the first contention, and
+        the outcome becomes exactly 5 allowed with a correct guard versus 8
+        with it broken -- `assertEqual(len(allowed), 5)` below discriminates
+        both directions, not just "no crash under load".
         """
         login_key, ip_key = "picker@example.com", "hmac-value"
         api_user_id = self.api_user_id
+        worker_count = 8
+        max_tries = 10
 
-        results = self.run_concurrently(
-            *[
-                (lambda env, api_user_id=api_user_id: env["picking.assistant.auth.throttle"]
-                    .with_user(api_user_id)
-                    .api_begin_login_attempt(login_key, ip_key))
-                for _ in range(8)
-            ]
-        )
+        # Match `run_concurrently`'s own discipline: commit the class
+        # cursor first so no fixture write from a previous test is still
+        # held as a lock the workers would wait on.
+        self.cr.commit()
+        barrier = threading.Barrier(worker_count)
+        results = [None] * worker_count
+
+        def worker(index):
+            barrier.wait(timeout=30)
+            last_exc = None
+            for _try in range(max_tries):
+                cr = self.registry.cursor()
+                try:
+                    env = self._env_on(cr)
+                    result = (
+                        env["picking.assistant.auth.throttle"]
+                        .with_user(api_user_id)
+                        .api_begin_login_attempt(login_key, ip_key)
+                    )
+                    cr.commit()
+                    results[index] = result
+                    return
+                except Exception as exc:  # noqa: BLE001 - retry-or-record
+                    cr.rollback()
+                    last_exc = exc
+                    if not isinstance(exc, psycopg2.errors.SerializationFailure):
+                        exc.pwr_traceback = traceback.format_exc()
+                        results[index] = exc
+                        return
+                finally:
+                    cr.close()
+            last_exc.pwr_traceback = "exhausted %d retries" % max_tries
+            results[index] = last_exc
+
+        threads = [
+            threading.Thread(target=worker, args=(i,)) for i in range(worker_count)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+            self.assertFalse(thread.is_alive(), "a retrying worker did not finish")
+        self.cr.commit()
 
         type_errors = [r for r in results if isinstance(r, TypeError)]
         self.assertEqual(
@@ -132,7 +175,16 @@ class TestThrottleConcurrency(CommittedConcurrencyCase):
             % "\n".join(getattr(r, "pwr_traceback", "") for r in results),
         )
         allowed = [r for r in results if isinstance(r, dict) and r["allowed"]]
-        self.assertLessEqual(len(allowed), 5, "in-flight attempts must count against the limit")
+        self.assertEqual(
+            len(allowed),
+            5,
+            "in-flight attempts must count exactly against the limit once "
+            "every worker has been retried to completion; results were %r\n%s"
+            % (
+                results,
+                "\n".join(getattr(r, "pwr_traceback", "") for r in results),
+            ),
+        )
 
         self.track(
             self.env["picking.assistant.auth.throttle"]
@@ -171,6 +223,68 @@ class TestThrottleConcurrency(CommittedConcurrencyCase):
         self.assertEqual(record.in_flight_count, 0)
         self.assertEqual(record.failure_count, 1)
 
+    def test_a_success_resets_the_failure_window(self):
+        """Regression cover for fix round 1, Finding 3.
+
+        `_failure_values` anchors `locked_until` at `window_started_at +
+        FAILURE_WINDOW`. The brief's literal success branch of
+        `api_finish_login_attempt` cleared `failure_count` and
+        `locked_until` but left `window_started_at` stale, so a lockout
+        following a later run of failures silently anchored to the OLD
+        window instead of the new one -- concretely: failures at t=0, a
+        success at t=1 (failure_count reset to 0, window_started_at stays
+        0), then five more failures at t=14min would compute
+        `locked_until = 0 + 15min`, a lockout of about ONE minute instead
+        of a full FAILURE_WINDOW. Four failures, a success, then five more
+        failures must anchor the lockout at the LAST run's start, not the
+        first one's.
+        """
+        login_key, ip_key = "picker5@example.com", "hmac-value"
+        model = self.env["picking.assistant.auth.throttle"]
+        api_model = model.with_user(self.api_user_id)
+
+        for _ in range(4):
+            started = api_model.api_begin_login_attempt(login_key, ip_key)
+            api_model.api_finish_login_attempt(
+                login_key, ip_key, started["attempt_token"], False
+            )
+
+        started = api_model.api_begin_login_attempt(login_key, ip_key)
+        api_model.api_finish_login_attempt(
+            login_key, ip_key, started["attempt_token"], True
+        )
+
+        record = model.sudo().search(
+            [("login_key", "=", login_key), ("source_ip_hmac", "=", ip_key)], limit=1
+        )
+        self.track(record)
+        self.assertFalse(
+            record.window_started_at,
+            "a success must clear the failure window, not just "
+            "failure_count -- a stale window silently shortens the NEXT "
+            "lockout below a full FAILURE_WINDOW",
+        )
+
+        from odoo.addons.picking_assistant_integration.models.auth_throttle import (
+            FAILURE_WINDOW,
+        )
+
+        before_second_run = fields.Datetime.now()
+        for _ in range(5):
+            started = api_model.api_begin_login_attempt(login_key, ip_key)
+            api_model.api_finish_login_attempt(
+                login_key, ip_key, started["attempt_token"], False
+            )
+        record.invalidate_recordset()
+        self.assertTrue(record.locked_until)
+        self.assertGreaterEqual(
+            record.locked_until,
+            before_second_run + FAILURE_WINDOW - timedelta(seconds=5),
+            "the lockout must span a full FAILURE_WINDOW anchored at the "
+            "failure run that actually triggered it, not a stale "
+            "pre-success window",
+        )
+
     def test_an_abandoned_attempt_stops_counting_after_the_ttl(self):
         """A crashed backend must not lock an account out forever."""
         login_key, ip_key = "picker4@example.com", "hmac-value"
@@ -188,26 +302,6 @@ class TestThrottleConcurrency(CommittedConcurrencyCase):
 
         self.assertTrue(api_model.api_begin_login_attempt(login_key, ip_key)["allowed"])
 
-    def test_nonce_style_constraint_name_matches_the_database(self):
-        """`_lock_or_create` classifies a cross-transaction row-creation
-        race by constraint name (mandatory addition, escalated from Task 3's
-        re-review). If Odoo ever renames the constraint, the name check
-        silently stops matching and a raw `TypeError` on `browse(None)`
-        returns -- a 500 instead of a transparent retry, and only under
-        concurrency, so nothing else in the suite would notice."""
-        from odoo.addons.picking_assistant_integration.models.auth_throttle import (
-            THROTTLE_UNIQUE_CONSTRAINT,
-        )
-
-        self.cr.execute(
-            "SELECT conname FROM pg_constraint "
-            "WHERE conrelid = 'picking_assistant_auth_throttle'::regclass "
-            "AND contype = 'u'"
-        )
-        self.assertIn(
-            THROTTLE_UNIQUE_CONSTRAINT, [row[0] for row in self.cr.fetchall()]
-        )
-
     def test_concurrent_row_creation_never_raises_a_raw_typeerror(self):
         """Mandatory addition escalated from Task 3's re-review:
         `_lock_or_create`'s `except IntegrityError` branch used to re-SELECT
@@ -218,10 +312,28 @@ class TestThrottleConcurrency(CommittedConcurrencyCase):
         `retrying()` RPC wrapper does not retry, because it is not a
         serialization or deadlock failure.
 
+        Fix round 1, Finding 1: a first version of the fix classified the
+        conflict by constraint name and raised a Python-constructed
+        `psycopg2.errors.SerializationFailure`. That was insufficient:
+        `retrying()` does not dispatch on exception CLASS, it reads
+        `exc.pgcode`, and a Python-instantiated psycopg2 exception has
+        `pgcode = None` (confirmed: `python -c "import psycopg2.errors;
+        print(psycopg2.errors.SerializationFailure('x').pgcode)"` -> `None`
+        inside the odoo19-trial image). `None` is never in the retried set,
+        so the synthetic exception was re-raised on the first pass -- same
+        two consequences as the original bug, just a different traceback.
+        The actual fix asks Postgres to raise the real thing via
+        `INSERT ... ON CONFLICT DO UPDATE ... RETURNING id`, which forces
+        an EvalPlanQual recheck that Postgres itself turns into a
+        driver-populated `SerializationFailure` (pgcode `40001`) under
+        REPEATABLE READ. This test now asserts on `pgcode` directly,
+        because the exception CLASS alone is exactly the insufficient
+        thing fix round 1 shipped.
+
         This needs two real transactions creating the SAME (login_key,
         source_ip_hmac) row for the first time: on one cursor the loser's
         `SELECT ... FOR UPDATE` sees its own uncommitted INSERT and the
-        `IntegrityError` branch is never reached at all.
+        conflict path is never reached at all.
 
         The loop is required for the same reason `test_lock_order.py`'s is:
         a race is an interleaving, not a state, so one clean pass proves
@@ -264,10 +376,16 @@ class TestThrottleConcurrency(CommittedConcurrencyCase):
                     loser,
                     psycopg2.errors.SerializationFailure,
                     "the losing side of a row-creation race must raise a "
-                    "retryable SerializationFailure, not %r -- Odoo's "
-                    "retrying() wrapper only retries that class, so anything "
-                    "else surfaces to the caller instead of transparently "
-                    "retrying with a fresh snapshot" % (loser,),
+                    "SerializationFailure, not %r" % (loser,),
+                )
+                self.assertEqual(
+                    getattr(loser, "pgcode", None),
+                    "40001",
+                    "the exception CLASS alone is not enough -- fix round 1 "
+                    "shipped a Python-constructed SerializationFailure whose "
+                    "pgcode was None, which Odoo's retrying() does not "
+                    "retry. This must be a driver-populated 40001, i.e. "
+                    "raised by Postgres itself, not synthesised in Python.",
                 )
 
             self.track(

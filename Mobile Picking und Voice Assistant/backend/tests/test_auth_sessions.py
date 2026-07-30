@@ -280,7 +280,8 @@ async def test_login_reserves_before_authenticating():
             calls.append("authenticate")
             return 0
 
-    service = _service(RecordingOdoo())
+    odoo = RecordingOdoo()
+    service = _service(odoo)
     with pytest.raises(AuthenticationFailed):
         await service.create_session(
             _login_body(), source_ip="10.0.0.1", origin="https://picking.test"
@@ -289,6 +290,13 @@ async def test_login_reserves_before_authenticating():
     assert calls == ["api_begin_login_attempt", "authenticate", "api_finish_login_attempt"]
     assert "api_check_login" not in calls
     assert "api_record_login_result" not in calls
+
+    # Recording method names alone would not notice a dropped argument:
+    # the `attempt_token` `api_begin_login_attempt` returned must be the
+    # exact one `api_finish_login_attempt` forwards, or the backend could
+    # silently stop proving it is finishing its own reservation.
+    finish_call = next(c for c in odoo.calls if c[1] == "api_finish_login_attempt")
+    assert finish_call[2][2] == "test-attempt-token"
 
 
 @pytest.mark.asyncio

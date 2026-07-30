@@ -1,9 +1,6 @@
 import secrets
 from datetime import timedelta
 
-import psycopg2
-from psycopg2 import IntegrityError
-
 from odoo import api, fields, models
 
 FAILURE_WINDOW = timedelta(minutes=15)
@@ -16,16 +13,6 @@ ROW_TTL = timedelta(hours=24)
 # muss verfallen -- sonst wuerde ein abgestuerztes Backend einen Account
 # dauerhaft aussperren.
 IN_FLIGHT_TTL = timedelta(seconds=30)
-
-# Der von Odoo vergebene Name der (login_key, source_ip_hmac)-Unique-
-# Constraint. `_lock_or_create` klassifiziert einen INSERT-Konflikt daran,
-# weil das die EINZIGE Information ist, die nicht vom REPEATABLE-READ-
-# Snapshot dieser Transaktion abhaengt (siehe dort). Ein Test haelt diesen
-# Namen gegen den tatsaechlichen Namen in der Datenbank -- laeuft er weg,
-# faellt die Klassifizierung still auf eine rohe psycopg2-Ausnahme zurueck.
-THROTTLE_UNIQUE_CONSTRAINT = (
-    "picking_assistant_auth_throttle_login_key_source_ip_hmac_unique"
-)
 
 
 class PickingAssistantAuthThrottle(models.Model):
@@ -47,6 +34,43 @@ class PickingAssistantAuthThrottle(models.Model):
     )
 
     def _lock_or_create(self, login_key, source_ip_hmac, now):
+        """Get-or-create under real concurrency (mandatory addition,
+        escalated from Task 3's re-review of this method).
+
+        The row-creation half used to be `create()` wrapped in
+        `except IntegrityError`, and on a losing INSERT it re-SELECTed
+        `FOR UPDATE` to hand back the winner's row. That re-SELECT is
+        unheilbar falsch under Odoo's REPEATABLE READ, not just
+        unreliable: this transaction's snapshot was taken BEFORE the
+        winning transaction's commit, so the re-SELECT finds nothing on
+        every attempt, and `browse(row[0])` on `row = None` raised a raw
+        `TypeError: 'NoneType' object is not subscriptable` right on the
+        login path.
+
+        A first fix attempt replaced that with a Python-constructed
+        `psycopg2.errors.SerializationFailure`, reasoning that it was "the
+        class Odoo's `retrying()` wrapper retries". That reasoning was
+        wrong: `retrying()` does not dispatch on exception CLASS, it reads
+        `exc.pgcode`, and a Python-instantiated psycopg2 exception has
+        `pgcode = None` (psycopg2's C layer only populates it from a real
+        libpq result). `None` is never in the retried set, so the
+        synthetic exception was re-raised on the first pass -- same two
+        consequences as the original bug (a 500 where a 401 belongs, the
+        losing attempt's failure not counted), just a different traceback.
+
+        The actual fix asks Postgres to raise the real thing instead of
+        synthesising it: `INSERT ... ON CONFLICT (login_key,
+        source_ip_hmac) DO UPDATE ... RETURNING id`. Per the Postgres
+        manual (`INSERT ... ON CONFLICT DO UPDATE`), the DO UPDATE clause
+        forces an EvalPlanQual recheck against the most recently committed
+        row; under REPEATABLE READ or SERIALIZABLE that recheck cannot
+        silently use a newer row than the transaction's snapshot allows,
+        so Postgres itself raises `SerializationFailure` with SQLSTATE
+        `40001` -- a driver-populated `pgcode`, which `retrying()` DOES
+        retry. The retry runs in a fresh transaction with a fresh
+        snapshot and lands on the ordinary `if row:` branch above. No
+        exception is synthesised anywhere in this method any more.
+        """
         self.env.cr.execute(
             "SELECT id FROM picking_assistant_auth_throttle "
             "WHERE login_key = %s AND source_ip_hmac = %s FOR UPDATE",
@@ -57,58 +81,37 @@ class PickingAssistantAuthThrottle(models.Model):
             record = self.browse(row[0])
             record.invalidate_recordset()
             return record
-        try:
-            with self.env.cr.savepoint():
-                record = self.create(
-                    {
-                        "login_key": login_key,
-                        "source_ip_hmac": source_ip_hmac,
-                        "failure_count": 0,
-                        "expires_at": now + ROW_TTL,
-                    }
-                )
-            record.invalidate_recordset()
-            return record
-        except IntegrityError as exc:
-            # Klassifizieren wie `_reserve` (receipts.py): der Constraint-
-            # Name aus der Diagnose der Ausnahme SELBST ist das einzige
-            # Signal, das nicht vom Snapshot dieser Transaktion abhaengt.
-            #
-            # Anders als bei `_reserve` ist ein Treffer hier aber kein
-            # abzulehnender Replay, sondern eine ANDERE Transaktion, die das
-            # Rennen um genau die Zeile gewonnen hat, die WIR gerade
-            # anlegen wollten. Frueher stand hier ein erneutes
-            # `SELECT ... FOR UPDATE` -- und das ist unter Odoo's REPEATABLE
-            # READ unheilbar falsch, nicht nur unzuverlaessig: der Snapshot
-            # DIESER Transaktion wurde VOR dem Commit der Gewinner-
-            # Transaktion gezogen, ein erneutes SELECT auf demselben Cursor
-            # findet also in KEINEM Fall eine Zeile, egal wie oft man es
-            # wiederholt. `browse(row[0])` auf `row = None` warf ein rohes
-            # `TypeError: 'NoneType' object is not subscriptable` (im Review
-            # von Task 3 eskalierter Fund) -- auf dem Login-Pfad, wo
-            # `retrying()` (Odoo's RPC-Dispatch-Retry) einen `TypeError`
-            # NICHT wiederholt, weil es kein Serialisierungs- oder
-            # Deadlock-Fehler ist. Er surfaced also als 500 statt eines
-            # sauberen 401, und der Fehlschlag der verlierenden Transaktion
-            # wird nicht gebucht, weil ihre gesamte Transaktion zurueckrollt.
-            #
-            # Es gibt innerhalb DIESER Transaktion keinen snapshot-sicheren
-            # Weg, die Zeile des Gewinners zurueckzugeben -- der einzige Ort
-            # mit einem Snapshot, der den Gewinner-Commit sehen KANN, ist
-            # eine neue Transaktion. Also erzwingen wir genau das: eine
-            # `SerializationFailure` (SQLSTATE 40001) ist exakt die Klasse,
-            # die `retrying()` wiederholt. Der Retry laeuft mit frischem
-            # Snapshot erneut durch `_lock_or_create` und faellt dann auf den
-            # normalen `if row:`-Zweig oben, der die inzwischen committete
-            # Zeile sieht.
-            if (
-                getattr(exc.diag, "constraint_name", None)
-                == THROTTLE_UNIQUE_CONSTRAINT
-            ):
-                raise psycopg2.errors.SerializationFailure(
-                    "Login throttle row created concurrently."
-                ) from exc
-            raise
+        # No savepoint/except here on purpose, unlike the sibling lock
+        # sites in `outbox.py:241-249` and `receipts.py:381-399`: those
+        # wrap-and-classify a losing `FOR UPDATE` into a domain
+        # `ValidationError` because the correct business response to
+        # THEIR conflict is a clean rejection. Here the correct response
+        # to a losing INSERT is a transparent retry with fresh state, and
+        # that is exactly what letting the native `SerializationFailure`
+        # propagate to Odoo's `retrying()` RPC wrapper gives us -- wrapping
+        # it into a `ValidationError` would take that retry away.
+        self.env.cr.execute(
+            "INSERT INTO picking_assistant_auth_throttle "
+            "(login_key, source_ip_hmac, failure_count, in_flight_count, "
+            "expires_at, create_uid, write_uid, create_date, write_date) "
+            "VALUES (%s, %s, 0, 0, %s, %s, %s, %s, %s) "
+            "ON CONFLICT (login_key, source_ip_hmac) "
+            "DO UPDATE SET login_key = EXCLUDED.login_key "
+            "RETURNING id",
+            (
+                login_key,
+                source_ip_hmac,
+                now + ROW_TTL,
+                self.env.uid,
+                self.env.uid,
+                now,
+                now,
+            ),
+        )
+        new_id = self.env.cr.fetchone()[0]
+        record = self.browse(new_id)
+        record.invalidate_recordset()
+        return record
 
     def _expire_stale_in_flight(self, record, now):
         """Zero a reservation nobody finished within IN_FLIGHT_TTL.
@@ -239,7 +242,29 @@ class PickingAssistantAuthThrottle(models.Model):
         if not succeeded:
             values.update(self._failure_values(record, now))
         else:
-            values.update({"failure_count": 0, "locked_until": False})
+            # Deviation from the brief's literal values (authorised in fix
+            # round 1 review): the brief's snippet only cleared
+            # `failure_count` and `locked_until` here, leaving
+            # `window_started_at` stale. That is a live bug, not a style
+            # choice: `_failure_values` anchors `locked_until` at
+            # `window_started_at + FAILURE_WINDOW`, so a stale window from
+            # BEFORE this success silently shortens the next lockout --
+            # e.g. failures at t=0, a success at t=1 that does not reset
+            # the window, then five failures at t=14min would lock out
+            # until t=15min: a one-minute lockout instead of a full
+            # fifteen-minute `FAILURE_WINDOW`. The legacy
+            # `api_record_login_result` success branch reset all four
+            # fields for exactly this reason; the backend now calls only
+            # this method, so the same reset belongs here.
+            values.update(
+                {
+                    "failure_count": 0,
+                    "window_started_at": False,
+                    "locked_until": False,
+                    "last_attempt_at": now,
+                    "expires_at": now + ROW_TTL,
+                }
+            )
         record.write(values)
         return self._state_payload(record, now)
 
