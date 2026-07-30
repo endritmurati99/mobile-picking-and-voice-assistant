@@ -134,6 +134,13 @@ class TestLockOrder(CommittedConcurrencyCase):
             acceptance = self._acceptance_args(job, receipt, nonce=shared_nonce)
             job_id = job.job_id
             generation = job.delivery_generation
+            # Plain str, extracted BEFORE the lambda: `receipt` is bound to
+            # this test's own env/cursor, and `run_concurrently` runs each
+            # lambda on its OWN env/cursor. A lazy `receipt.<field>` access
+            # inside the lambda body would read through the wrong cursor
+            # (harness hazard -- see module docstrings elsewhere in this
+            # lane for the false-positive/false-negative consequence).
+            lease_token = receipt.processing_lease_token
 
             results = self.run_concurrently(
                 lambda env: env["picking.assistant.event.receipt"]
@@ -148,6 +155,7 @@ class TestLockOrder(CommittedConcurrencyCase):
                     False,
                     job_id,
                     generation,
+                    lease_token,
                 ),
             )
 

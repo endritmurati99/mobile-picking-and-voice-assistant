@@ -430,6 +430,17 @@ class TestCallerOwnLeaseToken(ResourceCase):
         with self.assertRaises(ValidationError):
             self.jobs.api_get_job_media(self.job.job_id, "media-1", 1, False)
 
+    def test_media_access_refuses_a_non_string_token_with_the_uniform_message(self):
+        """Fix-round-1 review: a JSON-RPC caller can send any type. Before
+        the `isinstance(..., str)` guard, `secrets.compare_digest` raised a
+        raw `TypeError` for a non-string token instead of the uniform
+        `ValidationError(LEASE_REFUSED_MESSAGE)` -- breaking the same-text
+        property `_assert_active_lease`'s own docstring promises."""
+        self.bind_media()
+        with self.assertRaises(ValidationError) as caught:
+            self.jobs.api_get_job_media(self.job.job_id, "media-1", 1, 12345)
+        self.assertEqual(str(caught.exception.args[0]), "Processing lease mismatch.")
+
     def test_media_access_with_the_correct_token_still_succeeds(self):
         """Gegenprobe: die neue Pruefung darf den legitimen Aufrufer nicht
         aussperren."""
@@ -437,14 +448,71 @@ class TestCallerOwnLeaseToken(ResourceCase):
         payload = self.jobs.api_get_job_media(self.job.job_id, "media-1", 1, self.token)
         self.assertEqual(base64.b64decode(payload["content_base64"]), PNG_BYTES)
 
+    def test_higher_id_lease_holder_still_succeeds_when_a_lower_id_lease_is_also_live(self):
+        """Fix-round-1 review, Finding 1: a job can hold more than one live
+        receipt at once (the exact scenario `_require_current_generation`'s
+        own docstring describes). Selection used to be `ORDER BY id LIMIT 1`,
+        so the holder of the receipt with the HIGHER id was refused whenever
+        a receipt with a LOWER id also happened to be live -- even though
+        that holder supplied its own, genuinely correct token. This is the
+        availability regression the fix-round introduced and then closed by
+        selecting the receipt BY the supplied token instead of by id.
+        """
+        self.bind_media()
+        now = fields.Datetime.now()
+        # A second, independent live receipt on the SAME job. Created after
+        # setUp's receipt, so its id is guaranteed higher.
+        second_receipt = self.env["picking.assistant.event.receipt"].sudo().create(
+            {
+                "event_id": "6f1c0f0e-6a3c-4f2a-9d2b-2f4a4a6f0b99",
+                "job_record_id": self.job.id,
+                "payload_fingerprint": "a" * 64,
+                "delivery_generation": self.job.delivery_generation,
+                "state": "processing",
+                "processing_lease_token": "higher-id-holders-own-token",
+                "processing_lease_expires_at": now + timedelta(minutes=5),
+            }
+        )
+        first_receipt = self.env["picking.assistant.event.receipt"].sudo().search(
+            [("event_id", "=", self.outbox.event_id)]
+        )
+        self.assertGreater(
+            second_receipt.id, first_receipt.id, "sanity: fixture assumption"
+        )
+        # The lower-id receipt (self.token, from setUp) is STILL live too --
+        # this is the two-live-leases scenario, not a replacement.
+        # The higher-id holder presents its OWN token and must succeed.
+        payload = self.jobs.api_get_job_media(
+            self.job.job_id, "media-1", 1, "higher-id-holders-own-token"
+        )
+        self.assertEqual(base64.b64decode(payload["content_base64"]), PNG_BYTES)
+        # And the lower-id holder's token must still work too -- neither
+        # holder should be able to lock the other out.
+        payload = self.jobs.api_get_job_media(self.job.job_id, "media-1", 1, self.token)
+        self.assertEqual(base64.b64decode(payload["content_base64"]), PNG_BYTES)
+
     def test_require_token_opt_out_no_longer_exists(self):
         """`require_token` was the ONE named, greppable opt-out on
         `_assert_active_lease`. Task 8 deletes it outright rather than
         leaving it unused -- a named opt-out on a security primitive is
-        exactly what the next hurried caller reaches for."""
+        exactly what the next hurried caller reaches for.
+
+        Checked on all three lease functions, not just `_assert_active_lease`:
+        fix-round-1 review noted a `require_token` added to `_check_lease_state`
+        (the shared core both other two call) would currently slip past a
+        guard that only looked at `_assert_active_lease`."""
         receipts = self.env["picking.assistant.event.receipt"]
-        signature = inspect.signature(receipts._assert_active_lease)
-        self.assertNotIn("require_token", signature.parameters)
+        for name in (
+            "_check_lease_state",
+            "_assert_lease_state_is_active",
+            "_assert_active_lease",
+        ):
+            signature = inspect.signature(getattr(receipts, name))
+            self.assertNotIn(
+                "require_token",
+                signature.parameters,
+                f"{name} grew back a require_token parameter",
+            )
 
     def test_no_call_site_passes_require_token_as_a_keyword(self):
         """Static guard against the opt-out reappearing as a call-site
@@ -545,6 +613,7 @@ class TestGuardedNonceReservation(ResourceCase):
             False,
             self.job.job_id,
             1,
+            self.token,
         )
         self.assertTrue(result["reserved"])
         # Replay derselben Nonce bleibt abgewiesen ...
@@ -556,6 +625,7 @@ class TestGuardedNonceReservation(ResourceCase):
                 False,
                 self.job.job_id,
                 1,
+                self.token,
             )
         # ... und eine veraltete Generation wird abgelehnt.
         #
@@ -576,7 +646,7 @@ class TestGuardedNonceReservation(ResourceCase):
             with self.assertRaises(ValidationError):
                 nonces.api_reserve_request_nonce(
                     "n8n_to_backend", "n2b-test", stale_nonce, False, job_id,
-                    generation,
+                    generation, self.token,
                 )
             self.assertFalse(
                 self.env["picking.assistant.webhook.nonce"]
@@ -584,6 +654,28 @@ class TestGuardedNonceReservation(ResourceCase):
                 .search_count([("nonce", "=", stale_nonce)]),
                 "a rejected reservation left its nonce behind",
             )
+
+    def test_nonce_reservation_refuses_the_wrong_lease_token(self):
+        """Fix-round-1, Finding 3: closing the wire means the nonce
+        reservation is now the AUTHORITATIVE ownership check too, not a
+        weaker "some lease is active" pre-check."""
+        nonces = self.env["picking.assistant.webhook.nonce"].with_user(self.api_user)
+        with self.assertRaises(ValidationError):
+            nonces.api_reserve_request_nonce(
+                "n8n_to_backend",
+                "n2b-test",
+                "123e4567-e89b-42d3-a456-426614174099",
+                False,
+                self.job.job_id,
+                1,
+                "not-the-held-token",
+            )
+        self.assertFalse(
+            self.env["picking.assistant.webhook.nonce"]
+            .sudo()
+            .search_count([("nonce", "=", "123e4567-e89b-42d3-a456-426614174099")]),
+            "a rejected reservation left its nonce behind",
+        )
 
     def test_reservation_without_a_job_keeps_the_task_8_behaviour(self):
         """Task 8/10 rufen ohne Job-Bindung auf; diese Aufrufe duerfen sich

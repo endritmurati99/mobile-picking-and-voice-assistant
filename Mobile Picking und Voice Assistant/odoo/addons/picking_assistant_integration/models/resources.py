@@ -46,6 +46,7 @@ import base64
 import binascii
 import hashlib
 import re
+import secrets
 from uuid import uuid4
 
 from odoo import api, fields, models
@@ -211,9 +212,16 @@ class PickingAssistantIntegrationJobResources(models.Model):
         """Die EINE Gate-Funktion aller Ressourcenzugriffe.
 
         Sie steht bewusst nicht mehrfach ausgeschrieben in `api_get_job_media`,
-        `api_store_job_artifact` und der job-gebundenen Nonce-Reservierung:
-        genau so entsteht der Fehler, dass eine Pruefung in der einen Funktion
-        verschaerft wird und in der anderen veraltet.
+        `api_store_job_artifact` und der job-gebundenen Nonce-Reservierung
+        (`api_reserve_request_nonce`): genau so entsteht der Fehler, dass eine
+        Pruefung in der einen Funktion verschaerft wird und in der anderen
+        veraltet. Seit Fix-Runde 1 traegt auch die Nonce-Reservierung ein
+        echtes `processing_lease_token` -- der v2-Backend-Wire-Rand kennt es
+        zu diesem Zeitpunkt bereits (Pfadsegment, siehe
+        `backend/app/routers/n8n_v2.py`) --, es gibt also keinen separaten,
+        tokenlosen "reicht diese Frage" -Pfad mehr (die vorherige
+        `_require_current_generation_state_only` ist deshalb entfernt statt
+        beibehalten).
 
         `supplied_token` ist seit Task 8 PFLICHT (kein Default) -- der
         Aufrufer muss sich bewusst entscheiden, welches Token er mitgibt,
@@ -232,14 +240,26 @@ class PickingAssistantIntegrationJobResources(models.Model):
         arbeitet: Job J mit Receipts fuer A und B, W1s Lease auf A abgelaufen,
         W2s Lease auf B lebendig -- `ORDER BY id LIMIT 1` fand B und liess W1
         durch. Wer die Event-ID hat, MUSS sie mitgeben; `api_store_job_artifact`
-        bekommt sie ohnehin. `api_get_job_media` und die Nonce-Reservierung
-        haben sie in ihrem RPC-Vertrag nicht und bleiben bei der schwaecheren
-        "irgendeine laufende Lease dieses Jobs"-Frage bezueglich des EVENTS --
-        das Token wird trotzdem in jedem Fall gegen DIE gefundene Lease
-        geprueft.
+        bekommt sie ohnehin. `api_get_job_media` hat sie in ihrem RPC-Vertrag
+        nicht.
+
+        Ohne `source_event_id` waehlt `_locate_active_receipt` das Receipt
+        unter den lebendigen Kandidaten des Jobs jetzt durch `supplied_token`
+        aus (Fix-Runde 1 [Review], Befund 1), NICHT mehr durch `ORDER BY id
+        LIMIT 1`. Ein Job kann mehrere lebendige Leases gleichzeitig haben --
+        genau das Szenario zwei Absaetze weiter oben --, und `ORDER BY id
+        LIMIT 1` waehlte darunter blind die kleinste ID. Haelt der Aufrufer
+        die Lease der GROESSEREN ID, verglich `_assert_active_lease` sein
+        echtes Token gegen das FALSCHE Receipt und wies den rechtmaessigen
+        Inhaber ab -- eine selbst eingefuehrte Verfuegbarkeitsregression.
+        Jetzt sucht `_locate_active_receipt` unter den Kandidaten explizit
+        nach dem Receipt, dessen Token zum mitgegebenen passt (konstant-zeitig
+        vergleichen, siehe dort); erst DANACH bestaetigt `_assert_active_lease`
+        wie gewohnt alle uebrigen Eigenschaften (Zugehoerigkeit, Generation,
+        Zustand, Ablauf, Token) unter dem gehaltenen Lock.
         """
         receipts, receipt, requested, now = self._locate_active_receipt(
-            generation, source_event_id=source_event_id
+            generation, source_event_id=source_event_id, select_by_token=supplied_token
         )
         # Unter der Sperre neu lesen statt dem Vorher-Zustand zu glauben --
         # und zwar durch DIE Lease-Primitive, nicht durch eine hier
@@ -255,36 +275,27 @@ class PickingAssistantIntegrationJobResources(models.Model):
         )
         return receipt
 
-    def _require_current_generation_state_only(self, generation, source_event_id=None):
-        """Dieselbe Generations-/Receipt-Suche wie `_require_current_generation`,
-        aber OHNE Token-Pruefung -- fuer die job-gebundene Nonce-Reservierung
-        (`api_reserve_request_nonce`), die vor dem eigentlichen Ressourcen-
-        zugriff laeuft und selbst noch kein Anrufer-Token kennt.
-
-        Das ist bewusst KEIN Opt-out auf der ownership-pruefenden Gate-
-        Funktion (dafuer stand frueher `require_token=False` auf
-        `_assert_active_lease`, siehe dessen Docstring): diese Funktion
-        beantwortet eine strukturell andere, nicht-autoritative Frage ("laeuft
-        hier gerade ueberhaupt etwas auf dieser Generation"). Die AUTORITATIVE
-        Antwort -- inklusive Token -- gibt danach immer noch
-        `_require_current_generation` selbst, innerhalb von `api_get_job_media`
-        bzw. `api_store_job_artifact`. Ein Aufrufer, der faelschlich glaubt,
-        diese Funktion sei ausreichend fuer einen Ressourcenzugriff, bekommt
-        seinen Fehler also spaetestens dort.
-        """
-        _receipts, receipt, requested, now = self._locate_active_receipt(
-            generation, source_event_id=source_event_id
-        )
-        self.env["picking.assistant.event.receipt"].sudo()._assert_lease_state_is_active(
-            self, receipt, generation=requested, now=now
-        )
-        return receipt
-
-    def _locate_active_receipt(self, generation, source_event_id=None):
+    def _locate_active_receipt(self, generation, source_event_id=None, select_by_token=None):
         """Gemeinsame Suche und Sperre fuer beide Generations-Gates oben:
         Generation validieren, dann das passende Receipt unter Sperre finden.
         Gibt `(receipts_model, receipt, requested_generation, now)` zurueck;
-        die Token-Frage entscheidet ausschliesslich der jeweilige Aufrufer.
+        die ANSCHLIESSENDE Pruefung (Zugehoerigkeit, Zustand, Ablauf, Token)
+        entscheidet ausschliesslich der jeweilige Aufrufer ueber
+        `_assert_active_lease` / `_assert_lease_state_is_active`.
+
+        `select_by_token` entscheidet nur die AUSWAHL unter mehreren
+        lebendigen Kandidaten desselben Jobs, wenn `source_event_id` fehlt --
+        sie ist KEINE Sicherheitspruefung fuer sich (die liefert weiterhin
+        `_assert_active_lease`). Ohne sie waehlte diese Funktion frueher blind
+        per `ORDER BY id LIMIT 1`; haelt ein Job zwei lebendige Leases
+        gleichzeitig, waehlte das die KLEINSTE ID unabhaengig davon, welche
+        der Aufrufer tatsaechlich haelt -- eine selbst eingefuehrte
+        Verfuegbarkeitsregression (Review, Fix-Runde 1). Der Vergleich laeuft
+        deshalb konstant-zeitig ueber ALLE Kandidaten (`secrets.compare_digest`
+        gegen jeden), statt das Token in die SQL-`WHERE`-Klausel zu legen --
+        ein SQL-Stringvergleich waere kein konstant-zeitiger Vergleich und
+        haette denselben Timing-Kanal wieder geoeffnet, den
+        `_assert_active_lease` bewusst per `compare_digest` vermeidet.
         """
         self.ensure_one()
         try:
@@ -306,18 +317,40 @@ class PickingAssistantIntegrationJobResources(models.Model):
                 "WHERE job_record_id = %s AND event_id = %s FOR UPDATE",
                 (self.id, source_event_id),
             )
+            row = self.env.cr.fetchone()
+            if not row:
+                raise ValidationError(LEASE_REFUSED_MESSAGE)
+            receipt = receipts.browse(row[0])
         else:
+            # Alle lebendigen Kandidaten sperren, nicht nur einen -- die
+            # Auswahl unter ihnen passiert erst danach, in Python, unter dem
+            # gehaltenen Lock aller Kandidaten.
             self.env.cr.execute(
-                "SELECT id FROM picking_assistant_event_receipt "
+                "SELECT id, processing_lease_token FROM picking_assistant_event_receipt "
                 "WHERE job_record_id = %s AND state = 'processing' "
                 "AND processing_lease_expires_at > %s "
-                "ORDER BY id LIMIT 1 FOR UPDATE",
+                "ORDER BY id FOR UPDATE",
                 (self.id, now),
             )
-        row = self.env.cr.fetchone()
-        if not row:
-            raise ValidationError(LEASE_REFUSED_MESSAGE)
-        receipt = receipts.browse(row[0])
+            rows = self.env.cr.fetchall()
+            if not rows:
+                raise ValidationError(LEASE_REFUSED_MESSAGE)
+            # Nicht-String-Tokens (ein JSON-RPC-Aufrufer kann alles schicken)
+            # zaehlen hier als "kein Auswahlhinweis" statt einen TypeError aus
+            # `compare_digest` zu werfen -- die Auswahl ist ohnehin nur ein
+            # Hinweis, nicht die Pruefung. `_assert_active_lease` weist einen
+            # falsch typisierten Token unten trotzdem ab (siehe dort).
+            if isinstance(select_by_token, str) and select_by_token:
+                matched_id = None
+                for row_id, row_token in rows:
+                    if row_token and secrets.compare_digest(row_token, select_by_token):
+                        matched_id = row_id
+                        break
+                if matched_id is None:
+                    raise ValidationError(LEASE_REFUSED_MESSAGE)
+                receipt = receipts.browse(matched_id)
+            else:
+                receipt = receipts.browse(rows[0][0])
         receipt.invalidate_recordset()
         return receipts, receipt, requested, now
 
@@ -634,6 +667,7 @@ class PickingAssistantWebhookNonceResources(models.Model):
         event_id=False,
         job_id=False,
         delivery_generation=False,
+        processing_lease_token=False,
     ):
         """Erweitert die Task-8-Reservierung um eine OPTIONALE Job- und
         Generationsbindung.
@@ -656,6 +690,16 @@ class PickingAssistantWebhookNonceResources(models.Model):
         Die Retention gehoert dem Store (900s > die geforderten 600s); ein
         Aufrufer, der sie setzen darf, koennte den Replay-Schutz auf null
         stellen.
+
+        `processing_lease_token` ist erst seit Fix-Runde 1 Teil dieses
+        Vertrags: der v2-Backend-Wire-Rand traegt das Lease-Token jetzt als
+        signiertes Pfadsegment auf den Medien-/Artefakt-Routen (siehe
+        `backend/app/routers/n8n_v2.py`), also kann diese fruehe, replay-
+        verbrennende Pruefung dieselbe AUTORITATIVE Frage stellen wie die
+        eigentliche Ressourcenroute gleich danach -- statt vorher separat
+        eine schwaechere "irgendeine Lease ist aktiv"-Frage zu stellen
+        (das tat frueher `_require_current_generation_state_only`, die mit
+        diesem Fix wieder entfernt ist).
         """
         self.env["picking.assistant.api.mixin"]._require_api_service()
         reserved = super().api_reserve_request_nonce(
@@ -663,9 +707,5 @@ class PickingAssistantWebhookNonceResources(models.Model):
         )
         if job_id:
             job = self.env["picking.assistant.integration.job"]._locked_job(job_id)
-            # Nicht-autoritativ und ohne Token (siehe
-            # `_require_current_generation_state_only`): die AUTORITATIVE,
-            # tokengebundene Pruefung folgt gleich danach in
-            # `api_get_job_media` bzw. `api_store_job_artifact` selbst.
-            job._require_current_generation_state_only(delivery_generation)
+            job._require_current_generation(delivery_generation, processing_lease_token)
         return reserved

@@ -188,12 +188,32 @@ class PickingAssistantEventReceipt(models.Model):
         "UNIQUE(event_id)", "Event receipt must be unique."
     )
 
+    def _refuse_lease(self, job, receipt, reason):
+        """Loggt den ECHTEN Grund serverseitig (mit Receipt-ID, NIEMALS mit
+        dem Token) und wirft nach aussen unveraendert `LEASE_REFUSED_MESSAGE`
+        -- siehe `_check_lease_state`. Wirft IMMER; hat keinen sinnvollen
+        Rueckgabewert und keiner sollte sich einen ausdenken (vorherige
+        Fassung gab diese Funktion als `refuse`-Closure an den Aufrufer
+        zurueck, was einen Aufrufer, der sie faelschlich als Praedikat liest,
+        zu einem truthy Funktionsobjekt und damit "gueltig" haette verleiten
+        koennen)."""
+        _logger.debug(
+            "processing lease refused (%s) for receipt %s on job %s",
+            reason,
+            receipt.id,
+            job.id,
+        )
+        raise ValidationError(LEASE_REFUSED_MESSAGE)
+
     def _check_lease_state(self, job, receipt, generation, now):
         """Gemeinsamer Kern beider Lease-Fragen: Zugehoerigkeit, Generation,
         Zustand und Ablauf. Weder Token-Existenz noch Token-Vergleich gehoeren
         hierher -- das ist die Grenze zwischen "es gibt eine laufende Lease"
         (`_assert_lease_state_is_active`) und "DU bist der Lease-Inhaber"
         (`_assert_active_lease`).
+
+        Gibt bei Erfolg `None` zurueck und wirft sonst -- kein Wahrheitswert,
+        an dem sich ein Aufrufer verlesen koennte.
 
         MUSS unter gehaltenen Row-Locks und nach `invalidate_recordset()`
         aufgerufen werden -- ohne Lock liest sie einen Wert, der beim
@@ -208,28 +228,17 @@ class PickingAssistantEventReceipt(models.Model):
         geratenen Token. Der konkrete Grund bleibt serverseitig im
         Debug-Log, mit Receipt-ID und NIEMALS mit dem Token.
         """
-
-        def refuse(reason):
-            _logger.debug(
-                "processing lease refused (%s) for receipt %s on job %s",
-                reason,
-                receipt.id,
-                job.id,
-            )
-            raise ValidationError(LEASE_REFUSED_MESSAGE)
-
         if receipt.job_record_id.id != job.id:
-            refuse("receipt does not belong to this job")
+            self._refuse_lease(job, receipt, "receipt does not belong to this job")
         if generation != job.delivery_generation:
-            refuse("delivery generation mismatch")
+            self._refuse_lease(job, receipt, "delivery generation mismatch")
         if receipt.state != "processing":
-            refuse("receipt is not in state processing")
+            self._refuse_lease(job, receipt, "receipt is not in state processing")
         if not receipt.processing_lease_token:
-            refuse("receipt holds no lease token")
+            self._refuse_lease(job, receipt, "receipt holds no lease token")
         # Ablauf zuerst, Token danach: siehe Docstring.
         if self._lease_has_expired(receipt, now):
-            refuse("lease expired")
-        return refuse
+            self._refuse_lease(job, receipt, "lease expired")
 
     def _assert_lease_state_is_active(self, job, receipt, generation, now):
         """"Gibt es gerade eine laufende Lease auf diesem Job/dieser
@@ -262,12 +271,22 @@ class PickingAssistantEventReceipt(models.Model):
         ein benannter, greppbarer Opt-out auf einer Sicherheitsprimitive ist
         genau die Falle, die der naechste eilige Aufrufer findet -- deshalb
         ist er entfernt statt nur seltener benutzt.
-        """
-        refuse = self._check_lease_state(job, receipt, generation, now)
-        if not supplied_token:
-            refuse("no lease token supplied")
+
+        `supplied_token` wird auf `str` geprueft, bevor er in
+        `secrets.compare_digest` geht: ein JSON-RPC-Aufrufer kann JEDEN Typ
+        schicken (Zahl, Liste, `None`, ...), und `compare_digest` wirft einen
+        rohen `TypeError` statt einer `ValidationError`, sobald einer seiner
+        beiden Operanden kein `str`/`bytes` ist. Ein roher `TypeError` traegt
+        nicht `LEASE_REFUSED_MESSAGE` und durchbricht damit genau die
+        Gleichtext-Zusicherung, die dieser Docstring oben verspricht
+        (`api_apply_callback` schuetzt sich an seiner eigenen Aufrufstelle
+        bereits mit `or ""`; dieser Check schuetzt die Primitive selbst, egal
+        von wo sie aufgerufen wird)."""
+        self._check_lease_state(job, receipt, generation, now)
+        if not isinstance(supplied_token, str) or not supplied_token:
+            self._refuse_lease(job, receipt, "no lease token supplied")
         if not secrets.compare_digest(receipt.processing_lease_token, supplied_token):
-            refuse("lease token mismatch")
+            self._refuse_lease(job, receipt, "lease token mismatch")
 
     def _lease_has_expired(self, receipt, now):
         """"Diese Lease existiert, ist aber abgelaufen" -- als EIN Ausdruck.
