@@ -131,6 +131,26 @@ head `1e240f5`). "Verified" means read in the code by a second reviewer, not mer
 | M2 | The nonce GC deletes at most 1000 rows per ten minutes and reports no remainder | Minor | R2 | no |
 | M3 | Product images are anonymous and instance-selectable under the default-on development grace | Minor | R1 (closed by #1) | yes |
 
+### Closed by remediation (status 2026-07-30)
+
+Each entry below passed its task review, its fix rounds, and the lane's whole-branch review. The
+commits are on the lane branches; nothing is merged yet.
+
+| # | Owner | Closed by | Evidence |
+|---|-------|-----------|----------|
+| 1 | R1 Task 1 | `1943b1c`..`9208866` | `runtime_profile` is an enum; `reject_wildcard_origins_with_credentials` takes no profile argument by construction. Five fix rounds. Residual: compose still defaults the variable to `development` — see below. |
+| 2a | R1 Task 1 | `1943b1c`..`9208866` | CORS derives solely from `pwa_origins` (`main.py:101-108`); whole-branch reviewer confirmed one middleware entry with `allow_credentials=True` and a validated origin list. |
+| 8 | R1 Task 2 | `145ef9f` | All five `@router.post` in `n8n_internal.py` on `Depends(get_legacy_n8n_workflow_service)`; reviewer confirmed there is no sixth route. |
+| 9a | R1 Task 3 | `879037f`..`a25d932` | Four fix rounds; closed structurally in round 4 — one `_pdf_walk`, two stackless views, container table derived from ISO 32000-1 §7.3. An adversarial reviewer built eight container/aliasing attacks and could not get one accepted. |
+| 3 | R3 Task 1 | `1e240f5`..`65265a3` | Ten stated obligations with a real domination computation. The whole-branch reviewer wrote ten independent bypass attempts; nine were rejected with the correct cause. |
+| 12 | R3 Task 2 | `65265a3`..`43f35d4` | Generation field closed; `KNOWN_GENERATIONS` is one declaration both readers import. |
+| 13 | R3 Task 3 | `43f35d4`..`4b5a4b0` | Wire format unified; the seam is pinned from both sides. |
+| 16 | R3 Task 3 | `43f35d4`..`4b5a4b0` | Single `open()` with `O_NOFOLLOW\|O_NONBLOCK` then `fstat` on that descriptor — **stronger than the plan specified**, which would have left a `lstat`-then-`readFile` TOCTOU open. |
+
+Still open and unchanged by the above: **#9b** (the Odoo-side byte denylist) belongs to R2 Task 9,
+not to R1, despite the owner column above reading `R1`. **#7** is in R2 Task 4, in its fix loop at
+the time of writing.
+
 ### Raised during remediation (2026-07-29)
 
 - **#5b — resource routes bind to a lease, not to a token.** Closing finding #5 routed
@@ -155,6 +175,45 @@ head `1e240f5`). "Verified" means read in the code by a second reviewer, not mer
   Odoo test command. That container is **Odoo 18** and mounts `odoo/addons18`. The v19 addon lives
   behind the `odoo19-trial` compose profile. Every plan has been corrected; any earlier claim of a
   green v19 suite obtained with `compose exec odoo` tested the wrong addon.
+
+### Raised during remediation (2026-07-30)
+
+- **#17 — the stream expansion budget does not cover object streams or cross-reference streams.**
+  Important. Owner: unassigned, needs a lane. **Pre-existing — it predates the remediation base
+  `1e240f5` and no lane introduced it.** Both PDF traversals root at the catalog, so a
+  `/Type /ObjStm` is never a `_pdf_nodes` node and never reaches `_consume_stream_budget`
+  (`binary_validation.py`, `validate_pdf:988-993`) — yet pypdf inflates it eagerly the moment
+  `reader.trailer["/Root"]` is resolved at `validate_pdf:963`, before the graph walk exists to
+  police it. The same argument applies to the xref stream.
+  Reproduced independently twice, by the R1 Task 3 round-4 re-reviewer and again by the R1
+  whole-branch reviewer building its own PoC from scratch: a **65,588-byte** file whose `/ObjStm`
+  inflates to **64 MiB** is **ACCEPTED** in 2.6 s at 160 MiB peak RSS, while
+  `MAX_PDF_EXPANDED_BYTES` is 32 MiB. It scales linearly — a 522,186-byte file is accepted at
+  537 MiB inflation, 20.8 s and **1,057 MiB peak RSS** — so extrapolating to `MAX_DOCUMENT_BYTES`
+  (10 MiB) gives roughly 10 GB of inflation and several minutes of CPU. Confirmed identical at base
+  `1e240f5`.
+  **Calibrated as Important, not Critical, because it is authenticated.** `n8n_v2.py:404-424` runs
+  `precheck_artifact` (phase 1, cheap) → `_reserve_signed_nonce` → `validate_artifact` (the
+  expensive parse), so the bomb detonates only after HMAC signature verification and nonce
+  reservation. A compromised or buggy n8n can exhaust the backend; an internet attacker cannot.
+  This is a **flate-bomb boundary, a different class from finding #9a's inline-image boundary**.
+  Fixing it means adding a pre-parse xref/ObjStm inspection pass — comparable in size and risk to
+  the whole of R1 Task 3, which took four fix rounds. Deliberately registered rather than bolted on
+  at merge time.
+- **Plan defect — R1's exit gate pointed it at a file it never had.** The R1 plan (line 683)
+  requires marking findings #1, #2a, #8, #9a, #9b and M3 closed in this file, and R1 Task 3 Step 4
+  cites decision §3 of it. This file does not exist on `remediation/r1-backend`: it was introduced
+  in `7a65183`, which is not an ancestor of `a25d932`, and lives only on `remediation/r2-odoo`. The
+  register must therefore be updated at integration, on the branch that actually carries it — as
+  this entry does. Recorded so the next plan does not repeat the shape.
+- **Residual, previously adjudicated, not reopened: `RUNTIME_PROFILE` defaults to development in
+  compose.** `docker-compose.yml:155` is `${RUNTIME_PROFILE:-development}`, and
+  `validate_runtime_security` (`config.py:287-288`) returns immediately for any non-production
+  profile — so a deployment that forgets the variable skips origin validation, the HTTPS
+  requirement on origins, and credential-strength checks on the n8n and session secrets, with a
+  single WARNING as the only protection. R1 Task 1 round 1 decided to warn rather than fail and
+  that decision stands. The one-character hardening for a real deployment is
+  `${RUNTIME_PROFILE:?set to production for a real deployment}`. Belongs with the deployment work.
 
 ### Deployment obligation created by remediation lane R3
 
