@@ -3,6 +3,7 @@ import logging
 import secrets
 from datetime import timedelta
 
+import psycopg2
 from psycopg2 import IntegrityError
 
 from odoo import api, fields, models
@@ -364,13 +365,39 @@ class PickingAssistantEventReceipt(models.Model):
         # revalidate the outbox from the row under lock: a concurrent
         # privileged write may have changed linkage or fingerprint since the
         # lock-free early check, and the acceptance decision rests on them.
+        #
+        # Under Odoo's REPEATABLE READ (Task 3), a losing `FOR UPDATE` here
+        # against a row a concurrent transaction has ALREADY updated and
+        # committed does not block-then-return the new tuple: it raises
+        # `SerializationFailure` (SQLSTATE 40001) right at this statement,
+        # same mechanism as `api_requeue_dead`'s outbox lock (`outbox.py`).
+        # Classify it by the driver's error class -- same category as the
+        # ordinary "changed since the lock-free check" rejection three lines
+        # below, just detected at the lock instead of after it, so it gets
+        # the SAME message rather than a raw psycopg2 error escaping the RPC
+        # boundary. The savepoint contains the failure to this one
+        # statement so it cannot swallow an unrelated 40001 elsewhere in the
+        # transaction.
         outboxes.flush_model()
-        self.env.cr.execute(
-            "SELECT id FROM picking_assistant_outbox "
-            "WHERE id = %s FOR UPDATE",
-            (outbox.id,),
-        )
-        if not self.env.cr.fetchone():
+        try:
+            with self.env.cr.savepoint():
+                self.env.cr.execute(
+                    "SELECT id FROM picking_assistant_outbox "
+                    "WHERE id = %s FOR UPDATE",
+                    (outbox.id,),
+                )
+                # Fetched INSIDE the savepoint, deliberately: `savepoint()`'s
+                # own `__exit__` issues `RELEASE SAVEPOINT` on this SAME
+                # cursor once the block ends, and that statement would
+                # replace the pending result set from the `SELECT` above
+                # before a `fetchone()` placed after the `with` could read
+                # it.
+                found = self.env.cr.fetchone()
+        except psycopg2.errors.SerializationFailure as exc:
+            raise ValidationError(
+                "Outbox event changed during acceptance."
+            ) from exc
+        if not found:
             raise ValidationError("Unknown outbox event.")
         outbox.invalidate_recordset()
         if (
