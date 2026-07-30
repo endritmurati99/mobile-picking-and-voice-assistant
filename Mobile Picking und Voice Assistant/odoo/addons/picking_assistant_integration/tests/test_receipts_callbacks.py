@@ -200,6 +200,63 @@ class TestReceiptsAndCallbacks(IntegrationCase):
         self.assertEqual(self.job.state, "running")
         self.assertEqual(self.job.sequence, 1)
 
+    def test_callback_retry_fails_closed_when_outbox_is_missing(self):
+        """Task 6, sibling site to finding #11 found by the required lock-site
+        audit: this branch used to move the job to `retry_scheduled` and only
+        conditionally touch the outbox (`if outbox_row: ...` with no else),
+        so a missing row silently stranded the job with nothing left to
+        deliver. Same failure mode as the cron watchdog, different call site
+        -- fail closed here too."""
+        accepted = self.env["picking.assistant.event.receipt"].with_user(
+            self.api_user
+        ).api_accept_event(
+            self.outbox.event_id,
+            self.job.job_id,
+            "a" * 64,
+            "b2n-test",
+            "123e4567-e89b-42d3-a456-426614174090",
+            1,
+            "n2b-test",
+            "123e4567-e89b-42d3-a456-426614174091",
+        )
+        receipt = self.env["picking.assistant.event.receipt"].search(
+            [("event_id", "=", self.outbox.event_id)]
+        )
+        self.outbox.unlink()
+        callback = {
+            "callback_id": "3d6a5e2b-7c34-4b9e-9a9f-2b7d0e8a1234",
+            "source_event_id": receipt.event_id,
+            "job_id": self.job.job_id,
+            "sequence": 1,
+            "attempt": 1,
+            "delivery_generation": 1,
+            "processing_lease_token": accepted["processing_lease_token"],
+            "status": "retry_scheduled",
+            "result": {},
+            "error": False,
+            "metrics": {},
+        }
+        model = self.env["picking.assistant.callback.receipt"].with_user(
+            self.api_user
+        )
+
+        result = model.api_apply_callback(
+            callback,
+            "b" * 64,
+            "n2b-test",
+            "123e4567-e89b-42d3-a456-426614174092",
+        )
+
+        self.assertEqual(result["status"], "applied")
+        self.assertNotEqual(
+            self.job.state,
+            "retry_scheduled",
+            "a job with nothing to deliver must not be scheduled for retry",
+        )
+        self.assertEqual(self.job.state, "review_required")
+        self.assertEqual(receipt.state, "completed")
+        self.assertFalse(receipt.processing_lease_token)
+
     def _accept_and_expire_lease(self):
         self.env["picking.assistant.event.receipt"].with_user(
             self.api_user

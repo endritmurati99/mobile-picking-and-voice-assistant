@@ -173,6 +173,13 @@ class TestWatchdogAndAuditCleanup(IntegrationCase):
         Per-recovery atomicity was what the previous round asked for, not
         per-batch: the savepoint gives back all three writes of the poisoned
         candidate and nothing else.
+
+        Task 6 update: the poisoned candidate no longer sits silently in its
+        old state. `_recover_expired_lease` now fails closed to
+        `review_required` for exactly this case (missing outbox row), so the
+        savepoint keeps THAT write instead of rolling everything back -- the
+        candidate is still counted `skipped` (its recovery still refused
+        itself), but it is no longer invisible to an operator.
         """
         orphan_job, orphan_outbox = self._enqueue("9")
         self._accept(
@@ -216,11 +223,82 @@ class TestWatchdogAndAuditCleanup(IntegrationCase):
         self.assertEqual(healthy_job.delivery_generation, 2)
         self.assertEqual(healthy_receipt.state, "retryable")
         self.assertEqual(healthy_outbox.state, "pending")
-        # The poisoned candidate is rolled back whole, not partially applied.
-        self.assertEqual(orphan_job.state, "queued")
+        # The poisoned candidate fails closed to review_required (Task 6)
+        # instead of being rolled back to its old, invisible state. Its
+        # generation is untouched -- no delivery was promised.
+        self.assertEqual(orphan_job.state, "review_required")
         self.assertEqual(orphan_job.delivery_generation, 1)
-        self.assertEqual(orphan_receipt.state, "processing")
-        self.assertTrue(orphan_receipt.processing_lease_token)
+        self.assertEqual(orphan_receipt.state, "completed")
+        self.assertFalse(orphan_receipt.processing_lease_token)
+
+    def test_retention_keeps_the_outbox_of_a_non_terminal_job(self):
+        """Deleting the only deliverable of a live job strands it forever.
+        Regression cover for finding #11."""
+        job, outbox = self._enqueue("b")
+        old = fields.Datetime.now() - timedelta(days=90)
+        outbox.write({"state": "delivered", "delivered_at": old})
+        self.assertEqual(job.state, "queued")
+
+        self.env["picking.assistant.integration.job"]._cron_cleanup_audit(
+            limit=100
+        )
+
+        self.assertTrue(
+            outbox.exists(), "a non-terminal job must keep its outbox row"
+        )
+
+    def test_retention_still_deletes_the_outbox_of_a_terminal_job(self):
+        job, outbox = self._enqueue("c")
+        old = fields.Datetime.now() - timedelta(days=90)
+        job.write({"state": "failed", "completed_at": old})
+        outbox.write({"state": "delivered", "delivered_at": old})
+
+        self.env["picking.assistant.integration.job"]._cron_cleanup_audit(
+            limit=100
+        )
+
+        self.assertFalse(outbox.exists())
+
+    def test_watchdog_fails_closed_to_review_required_when_outbox_is_missing(
+        self,
+    ):
+        """Task 6, step 4: even with retention no longer able to delete a
+        non-terminal job's outbox, the lease-recovery batch must still fail
+        closed if the row is somehow gone -- never `retry_scheduled` with
+        nothing left to deliver."""
+        job, outbox = self._enqueue("d")
+        self._accept(
+            job,
+            outbox,
+            "123e4567-e89b-42d3-a456-426614174082",
+            "123e4567-e89b-42d3-a456-426614174083",
+        )
+        receipt = self.env["picking.assistant.event.receipt"].search(
+            [("event_id", "=", outbox.event_id)]
+        )
+        self.assertEqual(job.state, "queued")
+        receipt.write(
+            {
+                "processing_lease_expires_at": fields.Datetime.now()
+                - timedelta(seconds=1)
+            }
+        )
+        outbox.unlink()
+
+        self.env["picking.assistant.integration.job"]._cron_recover_stalled_jobs(
+            limit=10
+        )
+
+        job.invalidate_recordset()
+        receipt.invalidate_recordset()
+        self.assertNotEqual(
+            job.state,
+            "retry_scheduled",
+            "a job with nothing to deliver must not be scheduled for retry",
+        )
+        self.assertEqual(job.state, "review_required")
+        self.assertEqual(receipt.state, "completed")
+        self.assertFalse(receipt.processing_lease_token)
 
     def test_recovery_rejects_states_it_may_not_recover_from(self):
         """Renamed with `_watchdog_retry_scheduled`, which no longer exists:

@@ -27,7 +27,14 @@ TERMINAL_STATES = {"succeeded", "review_required", "failed"}
 # Die Kante ist nur noch als NEBENWIRKUNG von `_recover_expired_lease`
 # erlaubt, und dort untrennbar mit allen vier Effekten verbunden.
 TRANSITIONS = {
-    "queued": {"running"},
+    # `queued -> review_required` (Task 6, plan amendment): the ONLY other
+    # caller of this edge, `_recover_expired_lease`'s fail-closed branch, can
+    # run with the job still `queued` -- acceptance hands out the processing
+    # lease before the job ever reaches `running` (the first `running`/
+    # terminal callback is what moves it). A job whose outbox row has gone
+    # missing must be able to reach `review_required` from EITHER lease
+    # recovery source state, not only `running`.
+    "queued": {"running", "review_required"},
     "running": {"succeeded", "review_required", "retry_scheduled", "failed"},
     "retry_scheduled": {"running"},
 }
@@ -230,6 +237,55 @@ class PickingAssistantIntegrationJob(models.Model):
             receipt, now
         ):
             raise ValidationError("Processing lease is not expired.")
+        # Outbox ZUERST sperren und pruefen -- VOR jedem Schreiben auf Job
+        # oder Receipt. Task 6 (Finding #11): ein Job, der nach
+        # `retry_scheduled` wandert, obwohl es keine Outbox-Zeile mehr gibt,
+        # hat nichts mehr auszuliefern und sitzt dort fest, egal wie oft der
+        # Cron danach laeuft. Frueher wurde retry_scheduled zuerst geschrieben
+        # und dieser Check erst danach unter demselben Savepoint zurueckgerollt
+        # -- das verhinderte retry_scheduled zwar auch schon, liess den Job
+        # aber unsichtbar in seinem alten Zustand haengen (als "skipped"
+        # gezaehlt, ohne dass irgendwer eingreifen konnte). Jetzt bricht die
+        # Funktion NICHT mehr per Exception ab, sondern faellt bewusst auf
+        # `review_required`, damit ein Mensch die verwaiste Zeile sieht.
+        #
+        # Erreichbar VOR Task 6, weil `_cron_cleanup_audit` gelieferte/tote
+        # Outbox-Zeilen unabhaengig vom Job-Zustand loeschte, Receipts aber bis
+        # 90 Tage leben. Retention loescht die Outbox eines nicht-terminalen
+        # Jobs seit Task 6 nicht mehr (siehe `_cron_cleanup_audit`); dieser
+        # Zweig bleibt trotzdem als Fail-Closed-Verteidigung fuer jeden
+        # anderen Weg, auf dem eine Outbox-Zeile fehlen koennte.
+        outboxes = self.env["picking.assistant.outbox"].sudo()
+        outboxes.flush_model()
+        self.env.cr.execute(
+            "SELECT id FROM picking_assistant_outbox "
+            "WHERE event_id = %s FOR UPDATE",
+            (receipt.event_id,),
+        )
+        outbox_row = self.env.cr.fetchone()
+        if not outbox_row:
+            _logger.warning(
+                "lease recovery found no outbox row for job %s; "
+                "failing closed to review_required",
+                job.id,
+            )
+            if job.state == "queued":
+                job._transition("running", sequence=job.sequence + 1)
+            job._transition(
+                "review_required",
+                sequence=job.sequence + 1,
+                error={"reason": "missing_outbox_row"},
+            )
+            job.write({"processing_lease_token": False})
+            receipt.write(
+                {
+                    "state": "completed",
+                    "processing_lease_token": False,
+                    "processing_lease_expires_at": False,
+                    "last_received_at": now,
+                }
+            )
+            return "review_required"
         job.write(
             {
                 "state": "retry_scheduled",
@@ -250,29 +306,6 @@ class PickingAssistantIntegrationJob(models.Model):
         # Dritter Lock in der globalen Reihenfolge job -> receipt -> outbox.
         # Dieselbe Zeile, unveraenderter Envelope: der Retry liefert das
         # gleiche Event erneut aus, nur unter neuer Generation.
-        outboxes = self.env["picking.assistant.outbox"].sudo()
-        outboxes.flush_model()
-        self.env.cr.execute(
-            "SELECT id FROM picking_assistant_outbox "
-            "WHERE event_id = %s FOR UPDATE",
-            (receipt.event_id,),
-        )
-        outbox_row = self.env.cr.fetchone()
-        if not outbox_row:
-            # Ohne Outbox-Zeile kann das Event nie wieder ausgeliefert werden.
-            # Die anderen drei Effekte trotzdem stehen zu lassen und Erfolg zu
-            # melden ist das schlechteste verfuegbare Ergebnis: der Job parkt
-            # fuer immer und zaehlt als "recovered". Also abbrechen, damit die
-            # Transaktion zurueckrollt und NICHTS halb angewandt bleibt.
-            #
-            # Erreichbar, weil `_cron_cleanup_audit` gelieferte/tote
-            # Outbox-Zeilen nach 30/90 Tagen loescht, Receipts aber bis 90 Tage
-            # leben. Dass Retention die Outbox eines nicht-terminalen Jobs
-            # ueberhaupt anfassen darf, ist Task 6 dieser Lane -- hier wird nur
-            # die Weigerung durchgesetzt, ohne sie weiterzumachen.
-            raise ValidationError(
-                "Cannot recover an expired lease without its outbox event."
-            )
         outbox = outboxes.browse(outbox_row[0])
         outbox.invalidate_recordset()
         outbox.write(
@@ -283,6 +316,7 @@ class PickingAssistantIntegrationJob(models.Model):
                 "lease_expires_at": False,
             }
         )
+        return "recovered"
 
     # ------------------------------------------------------------------
     # Crons
@@ -380,7 +414,7 @@ class PickingAssistantIntegrationJob(models.Model):
                 # aus einer abgelaufenen Lease.
                 try:
                     with self.env.cr.savepoint():
-                        self._recover_expired_lease(job, receipt, now)
+                        outcome = self._recover_expired_lease(job, receipt, now)
                 except ValidationError:
                     # Odoo setzt den ORM-Cache beim Savepoint-Rollback NICHT
                     # zurueck. Ohne dies liefen die zurueckgerollten Job- und
@@ -392,6 +426,14 @@ class PickingAssistantIntegrationJob(models.Model):
                         job_record_id,
                         exc_info=True,
                     )
+                    skipped += 1
+                    continue
+                if outcome == "review_required":
+                    # Fail-closed (Task 6): the write already happened and
+                    # committed with the savepoint above -- unlike the
+                    # ValidationError branch, nothing here was rolled back.
+                    # Still counted as `skipped`, matching this counter's
+                    # existing meaning (a candidate recovery refused itself).
                     skipped += 1
                     continue
             else:
@@ -480,8 +522,13 @@ class PickingAssistantIntegrationJob(models.Model):
         removed += len(event_receipts)
         event_receipts.unlink()
 
+        # Eine Outbox-Zeile ist die einzige Lieferanweisung eines Jobs. Sie zu
+        # loeschen, waehrend der Job noch nicht terminal ist, laesst einen Job
+        # zurueck, den der Watchdog zwar auf retry setzt, fuer den es aber
+        # nichts mehr zu liefern gibt.
         outboxes = self.env["picking.assistant.outbox"].sudo().search(
             [
+                ("job_record_id.state", "in", sorted(TERMINAL_STATES)),
                 ("job_record_id", "not in", held_job_ids),
                 "|",
                 "&",

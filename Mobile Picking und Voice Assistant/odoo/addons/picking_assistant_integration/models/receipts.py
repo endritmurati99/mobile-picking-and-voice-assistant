@@ -662,30 +662,16 @@ class PickingAssistantCallbackReceipt(models.Model):
                 else:  # retry_scheduled
                     if job.state == "queued":
                         job._transition("running", sequence=sequence)
-                    job._transition(
-                        "retry_scheduled",
-                        sequence=sequence,
-                        result=result,
-                        error=error,
-                        metrics=metrics,
-                    )
-                    job.write(
-                        {
-                            "delivery_generation": job.delivery_generation + 1,
-                            "processing_lease_token": False,
-                            "processing_lease_expires_at": False,
-                        }
-                    )
-                    receipt.write(
-                        {
-                            "state": "retryable",
-                            "processing_lease_token": False,
-                            "processing_lease_expires_at": False,
-                            "delivery_generation": job.delivery_generation,
-                            "last_received_at": now,
-                        }
-                    )
-                    # Third lock in the global job -> receipt -> outbox order.
+                    # Third lock in the global job -> receipt -> outbox order,
+                    # taken and checked BEFORE the job/receipt are moved to
+                    # retry_scheduled. Task 6 (Finding #11, sibling site found
+                    # by the required lock-site audit): this branch used to
+                    # write retry_scheduled unconditionally and only
+                    # conditionally touch the outbox (`if outbox_row: ...`
+                    # with no else), so a missing row silently stranded the
+                    # job in retry_scheduled with nothing left to deliver --
+                    # exactly the failure mode Finding #11 describes, just not
+                    # in the cron watchdog. Fail closed instead.
                     outboxes = self.env["picking.assistant.outbox"].sudo()
                     outboxes.flush_model()
                     self.env.cr.execute(
@@ -694,7 +680,53 @@ class PickingAssistantCallbackReceipt(models.Model):
                         (source_event_id,),
                     )
                     outbox_row = self.env.cr.fetchone()
-                    if outbox_row:
+                    if not outbox_row:
+                        _logger.warning(
+                            "callback retry for job %s found no outbox row; "
+                            "failing closed to review_required",
+                            job.id,
+                        )
+                        job._transition(
+                            "review_required",
+                            sequence=sequence,
+                            result=result,
+                            error={"reason": "missing_outbox_row"},
+                            metrics=metrics,
+                        )
+                        job.write({"processing_lease_token": False})
+                        receipt.write(
+                            {
+                                "state": "completed",
+                                "processing_lease_token": False,
+                                "processing_lease_expires_at": False,
+                                "last_received_at": now,
+                            }
+                        )
+                    else:
+                        job._transition(
+                            "retry_scheduled",
+                            sequence=sequence,
+                            result=result,
+                            error=error,
+                            metrics=metrics,
+                        )
+                        job.write(
+                            {
+                                "delivery_generation": job.delivery_generation
+                                + 1,
+                                "processing_lease_token": False,
+                                "processing_lease_expires_at": False,
+                            }
+                        )
+                        receipt.write(
+                            {
+                                "state": "retryable",
+                                "processing_lease_token": False,
+                                "processing_lease_expires_at": False,
+                                "delivery_generation": job.delivery_generation,
+                                "last_received_at": now,
+                            }
+                        )
                         outbox = outboxes.browse(outbox_row[0])
                         outbox.invalidate_recordset()
                         # Same event returns to pending, envelope unchanged.

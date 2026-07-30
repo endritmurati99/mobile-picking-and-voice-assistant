@@ -172,14 +172,15 @@ class TestLeaseExpiry(CommittedConcurrencyCase):
         self.assertEqual(receipt.processing_lease_token, "stale-token")
 
     def test_recovery_refuses_when_the_outbox_event_is_gone(self):
-        """Fix round 1, finding 1.
+        """Fix round 1, finding 1; superseded by Task 6.
 
-        Without its outbox row the event can never be redelivered. Applying
-        three of the four effects and reporting success parks the job forever
-        AND counts it as recovered. The transaction must roll back instead --
-        the receipt can outlive its outbox row, because `_cron_cleanup_audit`
-        purges delivered/dead outbox rows at 30/90 days while receipts live to
-        90 (the retention half of that is Task 6, not this function).
+        Without its outbox row the event can never be redelivered. Fix round
+        1 made this raise and roll back rather than apply three of the four
+        effects and report success -- but that left the job silently parked
+        in its OLD state forever, invisible to anyone except a "skipped"
+        counter. Task 6 replaces the raise-and-rollback with an explicit,
+        durable fail-closed transition to `review_required`: a human can act
+        on it, and it can never be mistaken for a live, still-processing job.
         """
         job, receipt = self._job_with_expired_lease()
         self.env["picking.assistant.outbox"].search(
@@ -187,18 +188,18 @@ class TestLeaseExpiry(CommittedConcurrencyCase):
         ).unlink()
         self.env.cr.commit()
 
-        with self.assertRaises(ValidationError):
-            self.env["picking.assistant.integration.job"]._recover_expired_lease(
-                job, receipt, fields.Datetime.now()
-            )
+        outcome = self.env[
+            "picking.assistant.integration.job"
+        ]._recover_expired_lease(job, receipt, fields.Datetime.now())
 
-        # Raising is only worth anything if the partial writes go with it.
-        self.env.cr.rollback()
-        self.env.invalidate_all()
+        self.assertEqual(outcome, "review_required")
+        job.invalidate_recordset()
+        receipt.invalidate_recordset()
+        # Generation is untouched -- no delivery was ever promised for it.
         self.assertEqual(job.delivery_generation, 1)
-        self.assertEqual(job.state, "running")
-        self.assertEqual(receipt.state, "processing")
-        self.assertEqual(receipt.processing_lease_token, "stale-token")
+        self.assertEqual(job.state, "review_required")
+        self.assertEqual(receipt.state, "completed")
+        self.assertFalse(receipt.processing_lease_token)
 
     def test_a_bare_transition_can_no_longer_reach_retry_scheduled(self):
         """Decision §3.3: recovery is the ONLY producer of that state from
