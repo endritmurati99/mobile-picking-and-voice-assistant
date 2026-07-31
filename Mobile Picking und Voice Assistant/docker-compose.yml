@@ -18,7 +18,8 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     networks:
-      - picking-net
+      edge-net:
+        ipv4_address: 172.28.10.2
 
   # ── PostgreSQL ─────────────────────────────────────────────
   db:
@@ -26,8 +27,6 @@ services:
     # pg_upgrade von pg_data, wo JEDE Datenbank dieses Stacks liegt.
     image: postgres:16-alpine@sha256:20edbde7749f822887a1a022ad526fde0a47d6b2be9a8364433605cf65099416
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-odoo}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD muss gesetzt sein}
@@ -41,7 +40,8 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - picking-net
+      - core-net
+      - automation-net
 
   # ── Odoo 19 Community (Live/Default) ──────────────────────
   odoo:
@@ -59,14 +59,12 @@ services:
       PORT: 5432
       USER: ${POSTGRES_USER:-odoo}
       PASSWORD: ${POSTGRES_PASSWORD}
-    ports:
-      - "8069:8069"
     volumes:
       - odoo_data:/var/lib/odoo
       - ./odoo/odoo19.conf:/etc/odoo/odoo.conf:ro
       - ./odoo/addons:/mnt/extra-addons:ro
     networks:
-      - picking-net
+      - core-net
 
   # ── Optionale zweite Odoo-Instanz fuer Lagerumschalter ─────
   odoo-lager-2:
@@ -86,14 +84,12 @@ services:
       PORT: 5432
       USER: ${POSTGRES_USER:-odoo}
       PASSWORD: ${POSTGRES_PASSWORD}
-    ports:
-      - "${ODOO_LAGER2_PORT:-8070}:8069"
     volumes:
       - odoo_lager2_data:/var/lib/odoo
       - ./odoo/odoo19-lager2.conf:/etc/odoo/odoo.conf:ro
       - ./odoo/addons:/mnt/extra-addons:ro
     networks:
-      - picking-net
+      - core-net
 
   # ── App-Backend (FastAPI) ──────────────────────────────────
   backend:
@@ -145,12 +141,21 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DEMO_TRACEABILITY_ENABLED: ${DEMO_TRACEABILITY_ENABLED:-false}
       DEMO_TRACEABILITY_ALLOWED_DBS: ${DEMO_TRACEABILITY_ALLOWED_DBS:-masterfischer_o19_trial}
+      # Der Dispatcher laedt die Ziele zur Laufzeit aus DIESEM Mount. Damit
+      # gibt es genau eine Quelle fuer Webhook-Pfade; doppelte
+      # N8N_WEBHOOK_PATH_*-Variablen sind der Weg, auf dem Registry und
+      # Compose auseinanderlaufen.
+      WORKFLOW_REGISTRY_PATH: /run/pwr/workflow-registry.json
     volumes:
       - ./backend/app:/app/app:ro
       - ./docs:/obsidian:ro
+      - ./n8n/workflow-registry.json:/run/pwr/workflow-registry.json:ro
     command: [ "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info", "--reload" ]
     networks:
-      - picking-net
+      edge-net:
+        ipv4_address: 172.28.10.3
+      core-net:
+      automation-net:
 
   # ── Whisper STT Server (Deutsch, small Modell) ─────────────
   whisper:
@@ -160,8 +165,19 @@ services:
     environment:
       ASR_MODEL: small
       ASR_ENGINE: faster_whisper
+      # Ohne das prueft huggingface_hub beim Start die Revision ONLINE und
+      # scheitert auf dem internen Netz, obwohl das Modell im Cache liegt.
+      HF_HUB_OFFLINE: "1"
+    volumes:
+      # automation-net ist `internal`, also OHNE Weg nach draussen. Ohne
+      # persistenten Cache laedt faster-whisper sein Modell bei jedem
+      # Neuerstellen erneut herunter und bleibt dann in einer Restart-Schleife
+      # haengen -- genau so ist dieser Dienst beim Umbau auf die drei Netze
+      # ausgefallen. Der Cache wird einmalig mit docker-compose.egress.yml
+      # gefuellt.
+      - whisper_cache:/root/.cache
     networks:
-      - picking-net
+      - automation-net
 
   # ── Piper TTS Server (Deutsch, thorsten-high) ───────────────
   piper:
@@ -170,7 +186,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     networks:
-      - picking-net
+      - automation-net
 
   # ── Ollama (lokales LLM fuer KI-Qualitaetsbewertung, CPU-only) ─
   # Laeuft offline auf dem Lab-PC. Nur im Docker-Netz erreichbar (kein Host-Port).
@@ -184,11 +200,16 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     networks:
-      - picking-net
+      - automation-net
 
   # ── n8n ────────────────────────────────────────────────────
   n8n:
-    image: docker.n8n.io/n8nio/n8n:2.13.3@sha256:44a8df8aa3de533db83e07ef395f461471d217a965e78e1fc822e641a4904118
+    # Eigenes Image: stock n8n plus die PWR-Signaturknoten. Der
+    # Erweiterungspfad liegt ausserhalb von /home/node/.n8n, weil das
+    # persistente n8n_data-Volume genau darueber gemountet wird.
+    build:
+      context: ./n8n
+      dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
       db:
@@ -213,7 +234,7 @@ services:
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY muss gesetzt sein}
       N8N_CALLBACK_SECRET: ${N8N_CALLBACK_SECRET:?N8N_CALLBACK_SECRET muss gesetzt sein}
-      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "true"
       # ── Routing ──
       # Öffentliche URL via Cloudflare Named Tunnel (HTTPS für Telegram Webhooks)
       WEBHOOK_URL: http://n8n:5678
@@ -223,15 +244,17 @@ services:
       GENERIC_TIMEZONE: Europe/Berlin
       QUEUE_HEALTH_CHECK_ACTIVE: "true"
       # ── Security ──
-      N8N_PUBLIC_API_DISABLED: "false"
-      N8N_PUBLIC_API_SWAGGERUI_DISABLED: "false"
+      N8N_PUBLIC_API_DISABLED: "true"
+      N8N_PUBLIC_API_SWAGGERUI_DISABLED: "true"
       N8N_SSRF_PROTECTION_ENABLED: "true"
       N8N_SSRF_ALLOWED_HOSTNAMES: backend
       NODES_EXCLUDE: '["n8n-nodes-base.executeCommand","n8n-nodes-base.localFileTrigger"]'
       N8N_BLOCK_FILE_ACCESS_TO_N8N_FILES: "true"
       N8N_RESTRICT_FILE_ACCESS_TO: /home/node/.n8n-files
       N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
-      NODE_FUNCTION_ALLOW_BUILTIN: fs,path
+      # Die Freigabe eingebauter Node-Module fuer Code-Nodes ist bewusst
+      # ENTFERNT: ein Code-Node, der `require('fs')` darf, liest das
+      # Dateisystem des Containers -- einschliesslich der gemounteten Secrets.
       # ── Binary data ──
       N8N_DEFAULT_BINARY_DATA_MODE: filesystem
       N8N_BINARY_DATA_STORAGE_PATH: /home/node/.n8n-files/binaryData
@@ -256,10 +279,49 @@ services:
       - n8n_data:/home/node/.n8n
       - ./n8n/workflows:/imports:ro
       - ./n8n/tmp:/home/node/.n8n-files
-    ports:
-      - "5678:5678"
+      # provision-n8n-credentials.sh verlangt diesen Mount ausdruecklich.
+      - ./n8n/scripts:/home/node/scripts:ro
     networks:
-      - picking-net
+      - automation-net
+
+  # ── Credential-Provisionierung (Einmal-Lauf, nie im normalen Stack) ──
+  # Traegt die Secret-Dateien, weil R3s Pruefung sie ablehnt, sobald Docker
+  # seinen Default verwendet: root-eigenes 0444. `uid`/`gid`/`mode` sind
+  # deshalb explizit und gehoeren zur SERVICE-Referenz, nicht zur
+  # Top-Level-Deklaration. Hinter einem Profil, damit ein fehlendes
+  # Secret-File den laufenden Stack nicht am Starten hindert -- es trifft
+  # genau den, der die Provisionierung ausfuehrt, und das ist richtig so.
+  n8n-credentials:
+    profiles:
+      - provision
+    build:
+      context: ./n8n
+      dockerfile: Dockerfile
+    entrypoint: [ "/bin/sh", "-c" ]
+    command: [ "node /home/node/scripts/provision-credentials.mjs" ]
+    environment:
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY muss gesetzt sein}
+      PWR_SECRET_DIR: /run/secrets
+    volumes:
+      - ./n8n/scripts:/home/node/scripts:ro
+    secrets:
+      - source: pwr_n8n_native_header
+        target: pwr_n8n_native_header
+        uid: "1000"
+        gid: "1000"
+        mode: 0400
+      - source: pwr_backend_to_n8n_active_hmac
+        target: pwr_backend_to_n8n_active_hmac
+        uid: "1000"
+        gid: "1000"
+        mode: 0400
+      - source: pwr_n8n_to_backend_active_hmac
+        target: pwr_n8n_to_backend_active_hmac
+        uid: "1000"
+        gid: "1000"
+        mode: 0400
+    networks:
+      - automation-net
 
   # ── PWA Static Server ──────────────────────────────────────
   pwa:
@@ -270,7 +332,7 @@ services:
       - ./pwa:/srv:ro
       - ./infrastructure/caddy/Caddyfile.pwa:/etc/caddy/Caddyfile
     networks:
-      - picking-net
+      - edge-net
 
 # ── OFFEN: `secrets:`-Block (Foundation Task 15 / R3) ─────────────────────
 # Der Odoo-19-Cutover hat diesen Block BEWUSST NICHT gesetzt. Grund, gemessen
@@ -307,8 +369,39 @@ volumes:
   caddy_config:
   n8n_data:
   ollama_data:
+  whisper_cache:
+
+
+secrets:
+  # Die Dateien liegen unter infrastructure/secrets/ und sind gitignored. Sie
+  # existieren auf einer frischen Maschine NICHT -- deshalb haengen sie am
+  # Profil-Dienst `n8n-credentials` und nicht am laufenden Stack.
+  pwr_n8n_native_header:
+    file: ./infrastructure/secrets/pwr_n8n_native_header
+  pwr_backend_to_n8n_active_hmac:
+    file: ./infrastructure/secrets/pwr_backend_to_n8n_active_hmac
+  pwr_n8n_to_backend_active_hmac:
+    file: ./infrastructure/secrets/pwr_n8n_to_backend_active_hmac
 
 
 networks:
-  picking-net:
+  # Drei Netze statt einem. `internal: true` heisst: kein Weg nach draussen.
+  # Nur `edge-net` ist es nicht, und dort haengen genau die drei Dienste, die
+  # eine Anfrage von aussen sehen duerfen.
+  edge-net:
     driver: bridge
+    ipam:
+      config:
+        # `ip_range` haelt die unteren Adressen frei. Ohne das vergibt Docker
+        # 172.28.10.2 dynamisch an den erstbesten Dienst -- gemessen: `pwa`
+        # bekam sie und `caddy` startete danach mit "Address already in use".
+        # Die festen Adressen existieren, damit TRUSTED_CADDY_PEERS eine
+        # Adresse nennen kann, die sich nicht bei jedem `up` aendert.
+        - subnet: 172.28.10.0/24
+          ip_range: 172.28.10.128/25
+  core-net:
+    driver: bridge
+    internal: true
+  automation-net:
+    driver: bridge
+    internal: true

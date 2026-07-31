@@ -1,45 +1,67 @@
+# Edge configuration (Foundation Task 15).
+#
+# The deny-list answers 404, not 403: a 403 confirms the path exists.
+#
+# IT MUST BE A `handle` BLOCK, and that is not a style choice. Caddy does NOT
+# evaluate directives in file order -- it sorts them by its own directive
+# order, in which `handle` outranks `respond`. A bare `respond @blocked 404`
+# written ABOVE `handle @public_api` therefore never fires: measured here, with
+# exactly that shape, `/api/docs` returned Swagger UI from uvicorn and
+# `/api/internal/...` reached the backend with a 405. Only `handle` blocks are
+# mutually exclusive and evaluated among themselves in file order.
+# `infrastructure/tests/test_production_surface.py` pins the block form.
+#
+# Removed here, deliberately, and each one was a real hole:
+#   * two editor path prefixes and two editor host matchers proxied the n8n
+#     editor to anyone on the LAN. n8n holds every workflow credential.
+#   * an Odoo redirect pointed a browser at the ERP port, which the same task
+#     stops publishing at all.
+#   * `/api/*` reached `/api/internal/*` -- the signed n8n callback surface --
+#     from any browser.
+
+{
+	servers {
+		# §3.5: Caddy already ignores client-supplied X-Forwarded-* from
+		# untrusted peers, but "the default of an unpinned image" is not a
+		# decision. The peer list is explicit, and the image is pinned by
+		# digest so the default cannot move underneath it.
+		trusted_proxies static private_ranges
+	}
+}
+
 :443 {
-    tls /certs/cert.pem /certs/key.pem
+	tls /certs/cert.pem /certs/key.pem
 
-    handle /api/* {
-        reverse_proxy backend:8000
-    }
+	# §3.8, edge half. `await request.body()` necessarily precedes signature
+	# verification in the backend, so an unbounded body is memory an attacker
+	# chooses. Needs Caddy >= 2.10; the image is pinned to 2.11.2.
+	# 16 MB mirrors N8N_PAYLOAD_SIZE_MAX. The ASGI-level limit is the second
+	# layer and lives in the backend, because a direct n8n -> backend call does
+	# not pass through here at all.
+	request_body {
+		max_size 16MB
+	}
 
-    @odoo_path path /odoo /odoo/*
-    handle @odoo_path {
-        redir http://{host}:8069/ 308
-    }
+	@blocked path /docs /docs/* /redoc /redoc/* /openapi.json /api/docs* /api/redoc* /api/openapi.json /api/internal/* /api/obsidian/* /api/demo/*
+	handle @blocked {
+		respond 404
+	}
 
-    @n8n_path path /n8n /n8n/*
-    handle @n8n_path {
-        uri strip_prefix /n8n
-        reverse_proxy n8n:5678
-    }
+	@public_api path /api/*
+	handle @public_api {
+		reverse_proxy backend:8000
+	}
 
-    @nn_path path /nn /nn/*
-    handle @nn_path {
-        uri strip_prefix /nn
-        reverse_proxy n8n:5678
-    }
+	handle {
+		reverse_proxy pwa:80
+	}
 
-    @n8n_host host nn n8n nn.localhost n8n.localhost
-    handle @n8n_host {
-        reverse_proxy n8n:5678
-    }
-
-    handle /* {
-        reverse_proxy pwa:80
-    }
-
-    log {
-        output stdout
-        format console
-    }
+	log {
+		output stdout
+		format console
+	}
 }
 
 :80 {
-    @n8n_host host nn n8n nn.localhost n8n.localhost
-    redir @n8n_host https://{host}{uri} permanent
-
-    redir https://{host}{uri} permanent
+	redir https://{$LAN_HOST}{uri} permanent
 }

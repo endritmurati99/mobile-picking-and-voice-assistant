@@ -1,0 +1,26 @@
+# Einmal-Overlay fuer Modell-Downloads (Foundation Task 15).
+#
+# `automation-net` ist `internal: true` -- kein Weg nach draussen. Das ist die
+# Produktionshaltung und sie ist richtig: n8n haelt jeden Workflow-Credential
+# und soll nichts nach aussen sprechen koennen. Whisper und Ollama brauchen
+# ihre Modelle aber genau einmal aus dem Netz.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.egress.yml up -d whisper ollama
+#   # warten, bis das Modell im Cache-Volume liegt, dann:
+#   docker compose up -d whisper ollama
+#
+# Danach laufen beide offline weiter, weil ihre Caches persistente Volumes sind.
+services:
+  whisper:
+    networks:
+      - automation-net
+      - egress-net
+
+  ollama:
+    networks:
+      - automation-net
+      - egress-net
+
+networks:
+  egress-net:
+    driver: bridge
