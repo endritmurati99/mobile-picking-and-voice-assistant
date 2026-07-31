@@ -215,6 +215,135 @@ the time of writing.
   that decision stands. The one-character hardening for a real deployment is
   `${RUNTIME_PROFILE:?set to production for a real deployment}`. Belongs with the deployment work.
 
+### Integration day — 2026-07-31
+
+**All three remediation lanes are complete and they merge with ZERO textual conflicts.** Branch
+`integration/foundation-remediation` off `1e240f5`, merging `remediation/r1-backend`,
+`remediation/r3-n8n` and `remediation/r2-odoo` in that order. A cross-lane adversarial review
+(verdict `MERGE_SOUND_WITH_FINDINGS`) re-derived every number below rather than trusting the
+controller.
+
+Merged-tree results: backend **749 passed**; infrastructure **107 passed + the 1 known R4 failure**
+(`test_no_app_uses_cluster_bootstrap_role_in_compose`); `node --test n8n/tests/*.test.mjs`
+**46 passed**; `verify-workflows.py` **exit 0**. `odoo/` in the merge is byte-identical to
+`remediation/r2-odoo` and `n8n/custom-nodes/` to `remediation/r3-n8n`.
+
+**The lanes are disjoint at file level — the clean merge is structural, not luck.** Pairwise
+intersections of the changed-file sets are all empty: R1 14 files, R2 28, R3 30, R1∩R2 = R1∩R3 =
+R2∩R3 = ∅. R1 owns `config.py`/`main.py`/`dependencies.py`/`n8n_internal.py`, R2 owns
+`n8n_v2.py`/`auth_sessions.py`/`outbox_dispatcher.py`/`odoo/`, R3 owns
+`workflow_*`/`infrastructure/`.
+
+**No test was lost in the merge.** Verified by comparing collected test-*id sets*, not counts:
+base 540, R1 +189, R2 +13, R3 +4, zero removed by any lane.
+
+**The backend↔Odoo lease-token seam is consistent.** `api_get_job_media` and
+`api_store_job_artifact` have exactly one backend call site each (`routers/n8n_v2.py:390`, `:475`),
+both passing `processing_lease_token` last-positional, matching `models/resources.py:453`, `:475`.
+No other caller exists anywhere in the repo.
+
+Findings raised by that review, none of them caused by the merge itself:
+
+- **The v2 verifier is dormant, so `verify-workflows.py` exit 0 proves nothing about v2.** All
+  eight registry workflows are generation `v1`; the run ends `Skipped v2 checks for 8 workflow(s)`.
+  `load_event_targets` therefore returns an empty dict. Findings #3, #12 and #16 are closed in code
+  and covered by R3's own fixtures, but the merged green gate exercises none of them against real
+  registry data. Owner: Task 15, which owes the first v2 workflow.
+- **R2's new lease-token URL shape has no client anywhere in the repo.** Nothing under `n8n/`
+  builds `/leases/{token}/media/...`; the custom node only *verifies* inbound backend→n8n
+  signatures, it never builds an outbound signed request. Whoever writes that workflow must sign
+  `raw_path` including the URL-encoded lease segment, and `verify_signature` refuses query strings
+  outright, so getting it wrong yields a blanket 401 with no partial-success signal. This is #5b's
+  missing third half. Owner: Task 15.
+- **M1 is closed on the branch, not in the default deployment** — confirmed unchanged by the merge.
+  `addons/.../session.py:132-151` carries the full fix; `addons18/.../session.py:111-122` is the
+  unfixed pre-image, and compose mounts `addons18` into both `odoo` and `odoo-lager-2` while the
+  backend's `ODOO_URL` points at the former. `addons18` also lacks `integration_job.py`,
+  `outbox.py`, `receipts.py` and `resources.py` entirely. Closed only by the Odoo-19 cutover.
+- Minor: the credential-file permission check is double-implemented and the two rules disagree
+  (`provision-n8n-credentials.sh:83-90` wants mode exactly 600/400 plus an owner name;
+  `provision-credentials.mjs:128-132` wants `mode & 0o077 == 0` and `uid == getuid()` — `0700`
+  passes one and fails the other). The R3 deployment obligation below **overstates** what the code
+  enforces. Being unified in R3.
+- Minor: `pwa_origins` is parsed twice — `parse_origins()` in `config.py`/`main.py`, and a
+  hand-rolled `split(",")` at `dependencies.py:107`. Being unified in R1.
+- Minor: `.env.example` carries neither `PWA_ORIGINS` nor `RUNTIME_PROFILE` after R1's rename.
+- Minor: latent `tests`-package shadowing — `workflow_registry.py` inserts `backend/` at
+  `sys.path[0]`, `backend/tests/__init__.py` exists, `infrastructure/tests/` has none. Dormant
+  while the suites run separately.
+
+**R2's whole-branch fix wave was re-reviewed** (`69c1fe8..e6c08ce`, verdict
+`APPROVED_WITH_FINDINGS`, no Critical). The reviewer re-ran the census itself: **16 blocking
+`FOR UPDATE` sites, 3 excluded as `SKIP LOCKED`, 6 classified, 10 previously unclassified** — so
+the "17" in the register above was the brief's error, not the code's, and is corrected here. The
+TRANSITIONS table is confirmed frozen at merged HEAD: net one removal, zero additions across the
+whole lane. No eighth blind guard. Two Importants were fixed in `69ae9b4` (addon suite 126 → **128
+green**, backend 556 green):
+- `outbox.py::_owned_lease` — the transparent-retry argument had no story for *exhausted* retries
+  at the highest-contention site in the addon. The implementer read the Odoo runtime rather than
+  inferring it (`service/model.py:30`, `MAX_TRIES_ON_CONCURRENCY_FAILURE = 5`, then the original
+  `SerializationFailure` is re-raised unclassified) and chose to document rather than classify,
+  because classification *removes* the retry and would answer "lease is not owned by this worker"
+  on the first lost lock, and because the only production caller
+  (`outbox_dispatcher.py:155-191`) handles a 409 and a 500 in the identical branch.
+- `TestCronProgressGuard` tested only half its name. Deleting the `_report_cron_progress` call
+  outright left both pre-existing tests green; the two new ones fail with `0 != 1`.
+
+### Odoo-19 cutover — facts established 2026-07-31, and the owner's decisions
+
+Read-only queries against the live cluster, run by the controller:
+- **`masterfischer` is Odoo 18. Confirmed, not inferred:** `base = 18.0.1.3`, `stock = 18.0.1.1`,
+  `picking_assistant_integration = 18.0.1.0.0`. There is no "already v19" escape hatch.
+- Databases on the one shared cluster: `lager2`, `masterfischer`,
+  `masterfischer_o19_foundation_test`, `masterfischer_o19_trial`, `n8n`, `odoo19_smoke_codex`,
+  `picking`, `postgres`.
+- **What `masterfischer` holds:** `stock_picking` 66 (46 `done`, 20 `assigned`), created
+  2026-03-22 .. 2026-07-25; `stock_move_line` 420; `res_partner` 9; `product_product` 54;
+  `res_users` 7; `mail_message` 1558 spanning 2025-01-13 .. 2026-07-25. `sale_order` and
+  `account_move` do not exist as tables — sale and accounting are not installed. So: thesis
+  working data, no customer or accounting records.
+- Odoo Community has no in-place major upgrade, and this repo contains no OpenUpgrade and no
+  `migrations/` directory. **The cutover is a reseed**, via the existing
+  `infrastructure/scripts/seed-odoo.py` ("Seed-Daten für Odoo 19 Community").
+- `odoo-lager-2` also mounts `./odoo/addons18` (`docker-compose.yml:88`), so it belongs in the same
+  atomic commit — wider than the original constraint stated.
+- Nothing is digest-pinned (`grep -c "@sha256"` = 0). Floating: `caddy:2-alpine` (twice),
+  `postgres:16-alpine`, the Odoo build args; `:latest` for whisper and ollama. Only n8n is
+  tag-pinned, at 2.13.3.
+
+**Owner decisions, 2026-07-31** — these are decisions, not proposals:
+1. **Reseed into a new database `masterfischer_o19`, and `masterfischer` is NOT deleted.** It stays
+   on the cluster as both the rollback path and the queryable archive of the 66 pickings. The 46
+   completed pickings will not be visible in the new stack; nothing is destroyed. No cutover step
+   may drop or overwrite it.
+2. **`odoo-lager-2` migrates to v19 too**, in the same commit, with its own freshly seeded v19
+   database; its v18 databases are likewise kept.
+
+Plan: `docs/superpowers/plans/2026-07-31-odoo19-cutover.md` on branch `codex/odoo19-cutover`.
+
+### R4 — finding #14, status 2026-07-31
+
+Task 1 landed (`ac335a1`): `init-n8n-db.sql` is self-sufficient again, and the Task-13 hardening is
+parked, unmounted, in `init-n8n-db-hardening.sql` beginning with `\connect n8n`. Its adversarial
+review returned `APPROVED_WITH_FINDINGS` — the substantive fix is correct and purely additive, but
+both widened guards were shown to be **vacuous against the tree as shipped** (the only `GRANT … TO`
+target is `:"owner"`, which the analyser deliberately skips, so guard 1's loop body never runs and
+guard 2 executes zero assertions), and nine of fifteen hand-built broken-script shapes got through
+— including `\connect` placed *after* the statement it is supposed to protect, `\connect postgres`,
+and a `\connect` appearing only in a trailing comment. Those are in a fix round.
+
+**The live empty-volume probe (plan Step 5, "not optional and cannot be stubbed") was run by the
+controller and PASSES.** Throwaway project `pwr-freshinit`, `POSTGRES_HOST_PORT=5434` to dodge the
+live stack: init completed with no error and the `n8n` database was created. A second run with
+`POSTGRES_USER=probeowner` produced an `n8n` database owned by **probeowner** — so the
+`\set owner odoo` + `\getenv owner POSTGRES_USER` + `:"owner"` construction genuinely honours the
+environment on a real psql and does not fall back to the literal. Both projects torn down with
+`down -v`. Operational note for anyone repeating it: `docker.exe` needs a **Windows** path
+(`wslpath -w`), and exported shell variables do not reach it without `WSLENV`, so overrides must go
+in the env file.
+
+Finding #14 is therefore **remediated, pending only the fix round's review**.
+
 ### Deployment obligation created by remediation lane R2
 
 - **Lease tokens now appear in access logs and in n8n execution data.** R2 Task 8 closed #5b's Odoo half by
@@ -265,9 +394,31 @@ the time of writing.
 
 ### Deployment obligation created by remediation lane R3
 
+- **Corrected 2026-07-31 — the rule is a mask, not a mode literal, and both halves now enforce it.**
+  The earlier text below said "mode `0400`, owned by the `node` runtime user". The code enforced
+  neither literal, and worse, the host preflight and the container boundary enforced *different*
+  predicates: `provision-n8n-credentials.sh` demanded mode exactly `600` or `400`, while
+  `provision-credentials.mjs` demanded `mode & 0o077 == 0` — so `0700` passed one and failed the
+  other. Unified in `e777f91` onto one rule, stated once:
+  > A credential secret file must be a regular file, must have **no group or other permission bits**
+  > (`mode & 0o077 == 0`), and must be **owned by the account that reads it**.
+
+  `0600`, `0400` and `0700` all pass; `0640` and `0604` do not. The owner half is namespace-local by
+  construction: on the host it is `PWR_SECRET_OWNER` (default `root`); inside the container it is the
+  uid the n8n process actually runs as. The host script is a **preflight**; the container script is
+  the **security boundary** — it opens the file once with `O_NOFOLLOW|O_NONBLOCK`, `fstat`s that
+  descriptor and reads only through it. Passing the preflight says nothing about what the boundary
+  will see. The guard that pins this runs **both real implementations** over the same mode matrix and
+  fails unless their verdicts agree; a source-text assertion would not have caught the divergence,
+  since each file was internally consistent.
+  **Still owed, and it has no owner yet:** the two owner halves can still conflict in a real
+  deployment — a root-owned secret plus a non-root n8n process satisfies the host default and fails
+  the container. That cannot be settled until the deployment path exists, because `docker-compose.yml`
+  declares no `secrets:` block, mounts nothing at `/run/secrets`, and does not mount `./n8n/scripts`
+  into the container. Until then neither half of #16 runs in anger.
+
 - **Compose `secrets:` must set `uid`, `gid` and `mode`.** R3 Task 3 moved the credential-file
-  permission check into the container, immediately before the read, using `lstat`. It requires the
-  mounted secret to be a regular file, mode `0400`, owned by the `node` runtime user.
+  permission check into the container, immediately before the read.
   `docker-compose.yml` currently declares **no `secrets:` block at all**, and Docker's default for
   mounted secrets is root-owned `0444` — which the new check rejects on both counts. Whoever wires
   the compose `secrets:` block (Task 15, or whoever deploys first) must set `uid`, `gid` and `mode`

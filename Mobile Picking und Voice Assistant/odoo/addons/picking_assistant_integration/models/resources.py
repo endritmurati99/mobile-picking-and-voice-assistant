@@ -312,10 +312,15 @@ class PickingAssistantIntegrationJobResources(models.Model):
         receipts.flush_model()
         now = fields.Datetime.now()
         # 40001-Wahl (I1) fuer BEIDE Receipt-Locks unten: TRANSPARENTER RETRY,
-        # bewusst nicht klassifiziert. Beide Aufrufer sind RPC-Routen
-        # (`api_get_job_media`, `api_store_job_artifact`, `_bind_job_media`),
-        # also greift Odoos `retrying()`; geschrieben wurde bis hierher
-        # nichts. Ein verlorener Lock heisst "der Watchdog oder ein neues
+        # bewusst nicht klassifiziert. Die Aufrufer sind `api_get_job_media`,
+        # `api_store_job_artifact` und `api_reserve_request_nonce` -- alles
+        # RPC-Routen, also greift Odoos `retrying()` -- sowie `_bind_job_media`,
+        # das heute KEINEN RPC-Einstieg hat und den Retry-Vertrag deshalb als
+        # Anforderung an kuenftige Aufrufer traegt (Fix-Runde 2, siehe dort).
+        # Geschrieben ist bis hierher nichts, das den Retry stoert: der
+        # Nonce-Pfad hat zwar schon reserviert, aber diese Reservierung faellt
+        # mit der Transaktion (siehe `_locked_job`).
+        # Ein verlorener Lock heisst "der Watchdog oder ein neues
         # Accept hat die Lease nebenan gerade angefasst" -- ob das den Zugriff
         # verbietet, entscheidet erst `_assert_active_lease` auf dem frischen
         # Stand. Der Retry liefert genau diese Antwort: Zugriff, oder das
@@ -323,6 +328,12 @@ class PickingAssistantIntegrationJobResources(models.Model):
         # ausserdem ein neues Ablehnungs-Orakel schaffen ("changed" vs.
         # "mismatch"), also genau die Unterscheidung, die LEASE_REFUSED_MESSAGE
         # nach aussen absichtlich einebnet.
+        # Erschoepfung: nach 5 Versuchen wirft `retrying()` die
+        # `SerializationFailure` weiter -- der Aufrufer bekommt einen 500er
+        # statt einer benannten Antwort. Das ist kein Fachurteil, sondern das
+        # Eingestaendnis "zu umkaempft zum Entscheiden"; die Transaktion rollt
+        # dabei vollstaendig zurueck, der Aufruf ist also gefahrlos
+        # wiederholbar (ausfuehrliche Begruendung in `outbox.py::_owned_lease`).
         if source_event_id:
             self.env.cr.execute(
                 "SELECT id FROM picking_assistant_event_receipt "
@@ -373,11 +384,34 @@ class PickingAssistantIntegrationJobResources(models.Model):
         (job -> receipt -> outbox), damit keine Sperrinversion entsteht.
 
         40001-Wahl (I1): TRANSPARENTER RETRY, bewusst nicht klassifiziert. Das
-        ist der ERSTE Lock jeder Ressourcenroute -- nichts ist entschieden,
-        nichts geschrieben, und alle Aufrufer sind RPC-Routen unter Odoos
-        `retrying()`. Der Retry liest die Job-Zeile frisch und faellt danach
-        auf die richtige benannte Antwort ("Job not found.", "Stale delivery
-        generation.", LEASE_REFUSED_MESSAGE)."""
+        ist der ERSTE Lock jeder Ressourcenroute -- ueber den Zugriff ist bis
+        hierher nichts entschieden. Der Retry liest die Job-Zeile frisch und
+        faellt danach auf die richtige benannte Antwort ("Job not found.",
+        "Stale delivery generation.", LEASE_REFUSED_MESSAGE).
+
+        Praezisierung (Fix-Runde 2): die fruehere Fassung behauptete "nichts
+        geschrieben, und alle Aufrufer sind RPC-Routen". Beides stimmt fuer
+        zwei der vier Aufrufer nicht.
+        * `api_reserve_request_nonce` (weiter unten in dieser Datei) hat vor
+          diesem Lock bereits eine Nonce-Zeile eingefuegt. Unschaedlich ist
+          das aus einem anderen Grund als "nichts geschrieben": `_reserve`
+          arbeitet in einem Savepoint und die ganze Transaktion rollt beim
+          Retry zurueck, die Nonce wird also neu vergeben statt verbrannt --
+          genau die Begruendung, die `receipts.py::_locked_receipt` fuer
+          denselben Fall bereits korrekt nennt.
+        * `_bind_job_media` ist privat und hat heute gar keinen RPC-Einstieg;
+          dort ist der `retrying()`-Vertrag eine ANFORDERUNG an kuenftige
+          Aufrufer, keine Tatsache ueber die heutigen (siehe dort).
+        Die tragende Voraussetzung ist also nicht "es wurde nichts
+        geschrieben", sondern "was geschrieben wurde, faellt mit der
+        Transaktion".
+
+        Erschoepfung: nach 5 Versuchen wirft `retrying()` die
+        `SerializationFailure` weiter -- der Aufrufer bekommt einen 500er statt
+        einer benannten Antwort. Das ist kein Fachurteil, sondern das
+        Eingestaendnis "zu umkaempft zum Entscheiden"; die Transaktion rollt
+        dabei vollstaendig zurueck, der Aufruf ist also gefahrlos wiederholbar
+        (ausfuehrliche Begruendung in `outbox.py::_owned_lease`)."""
         jobs = self.sudo()
         jobs.flush_model()
         self.env.cr.execute(
@@ -425,6 +459,19 @@ class PickingAssistantIntegrationJobResources(models.Model):
         Der Hash wird selbst berechnet und ein mitgelieferter nur noch
         gegengeprueft: der Aufrufer bestimmt den Inhalt, aber nicht, wofuer
         er sich ausgibt.
+
+        ANFORDERUNG AN AUFRUFER (Fix-Runde 2): Diese Methode hat heute keinen
+        produktiven Aufrufer -- nur Tests rufen sie. Sie nimmt unten aber drei
+        der zehn transparenten Retry-Sites in Anspruch (`_locked_job` und die
+        beiden Receipt-Locks in `_require_current_generation`), und deren
+        40001-Wahl steht und faellt mit Odoos `retrying()`. Ein Wizard, eine
+        Server-Action oder ein Cron, die hier hineinrufen, laufen NICHT unter
+        `retrying()`: fuer sie wird aus jedem verlorenen `FOR UPDATE` sofort
+        eine rohe `SerializationFailure` statt einer benannten Ablehnung.
+        Wer diese Methode ausserhalb einer RPC-Route aufruft, MUSS den Aufruf
+        daher selbst in `odoo.service.model.retrying()` klappen (oder eine
+        eigene, dokumentierte Wiederholung mitbringen). Das ist eine Auflage
+        an kuenftige Aufrufer, keine Feststellung ueber die heutigen.
         """
         self.ensure_one()
         if not media_ref:
@@ -510,6 +557,12 @@ class PickingAssistantIntegrationJobResources(models.Model):
         # hierher ist nichts geschrieben, der Retry unter `retrying()` liest
         # frisch und kommt entweder durch oder bei "Source event not found."
         # heraus.
+        # Erschoepfung: nach 5 Versuchen wirft `retrying()` die
+        # `SerializationFailure` weiter -- der Aufrufer bekommt einen 500er
+        # statt einer benannten Antwort. Das ist kein Fachurteil, sondern das
+        # Eingestaendnis "zu umkaempft zum Entscheiden"; die Transaktion rollt
+        # dabei vollstaendig zurueck, der Aufruf ist also gefahrlos
+        # wiederholbar (ausfuehrliche Begruendung in `outbox.py::_owned_lease`).
         outboxes = self.env["picking.assistant.outbox"].sudo()
         outboxes.flush_model()
         self.env.cr.execute(

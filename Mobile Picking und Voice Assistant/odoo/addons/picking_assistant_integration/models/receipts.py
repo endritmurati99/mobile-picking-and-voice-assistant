@@ -329,6 +329,13 @@ class PickingAssistantEventReceipt(models.Model):
         das kann er erst mit einem frischen Snapshot. Der Retry rollt die bis
         dahin reservierten Nonces mit der Transaktion zurueck und vergibt sie
         neu, verbrennt also nichts.
+
+        Erschoepfung: nach 5 Versuchen wirft `retrying()` die
+        `SerializationFailure` weiter -- der Aufrufer bekommt einen 500er statt
+        einer benannten Antwort. Das ist kein Fachurteil, sondern das
+        Eingestaendnis "zu umkaempft zum Entscheiden"; die Transaktion rollt
+        dabei vollstaendig zurueck, der Aufruf ist also gefahrlos wiederholbar
+        (ausfuehrliche Begruendung in `outbox.py::_owned_lease`).
         """
         self.sudo().flush_model()
         self.env.cr.execute(
@@ -408,6 +415,12 @@ class PickingAssistantEventReceipt(models.Model):
         # nebenlaeufige Commit auf die Outbox-Zeile bereits die fachliche
         # Antwort ("Outbox event changed during acceptance"), weil genau ihre
         # Verknuepfung und ihr Fingerprint die Annahmeentscheidung tragen.
+        # Erschoepfung: nach 5 Versuchen wirft `retrying()` die
+        # `SerializationFailure` weiter -- der Aufrufer bekommt einen 500er
+        # statt einer benannten Antwort. Das ist kein Fachurteil, sondern das
+        # Eingestaendnis "zu umkaempft zum Entscheiden"; die Transaktion rollt
+        # dabei vollstaendig zurueck, der Aufruf ist also gefahrlos
+        # wiederholbar (ausfuehrliche Begruendung in `outbox.py::_owned_lease`).
         self.env.cr.execute(
             "SELECT id FROM picking_assistant_integration_job "
             "WHERE id = %s FOR UPDATE",
@@ -645,6 +658,12 @@ class PickingAssistantCallbackReceipt(models.Model):
         # Der Outbox-Lock im retry_scheduled-Zweig weiter unten ist der
         # Gegenfall und deshalb klassifiziert: dort ist die Outbox-Zeile das
         # Objekt der Entscheidung selbst.
+        # Erschoepfung: nach 5 Versuchen wirft `retrying()` die
+        # `SerializationFailure` weiter -- der Aufrufer bekommt einen 500er
+        # statt einer benannten Antwort. Das ist kein Fachurteil, sondern das
+        # Eingestaendnis "zu umkaempft zum Entscheiden"; die Transaktion rollt
+        # dabei vollstaendig zurueck, der Aufruf ist also gefahrlos
+        # wiederholbar (ausfuehrliche Begruendung in `outbox.py::_owned_lease`).
         self.env.cr.execute(
             "SELECT id FROM picking_assistant_integration_job "
             "WHERE job_id = %s FOR UPDATE",
