@@ -7,10 +7,19 @@ Erstellt Mindest-Testdaten für den Picking-PoC:
 - Test-Pickings mit verschiedenen Prioritäten, Terminen und Zuständen
 
 Verwendung (generische Testdaten):
-    python seed-odoo.py --url http://localhost:8069 --db masterfischer --user admin --api-key admin
+    python seed-odoo.py --url http://localhost:8069 --db masterfischer_o19 --user admin --api-key admin
 
-Verwendung (BOM-basierte Pickings aus echten Produkten):
-    python seed-odoo.py --url http://localhost:8069 --db masterfischer --user admin --api-key admin --bom-mode
+Zweite Lagerinstanz (Compose-Profil `second-odoo`, Port 8070):
+    python seed-odoo.py --url http://localhost:8070 --db lager2_o19 --user admin --api-key admin
+
+Verwendung (BOM-basierte Pickings aus echten Produkten, benoetigt `mrp`):
+    python seed-odoo.py --url http://localhost:8069 --db masterfischer_o19 --user admin --api-key admin --bom-mode
+
+Odoo-19-Hinweise:
+- `stock.move.name` gibt es nicht mehr; die Bewegungsbezeichnung wird aus dem
+  Produkt berechnet (`description_picking`).
+- `res.users.groups_id` heisst jetzt `group_ids`.
+- `--bom-mode` / `--lego-seed` brauchen ein installiertes `mrp`-Modul.
 """
 import argparse
 import sys
@@ -37,6 +46,23 @@ def _normalize_execute_args(args, kwargs):
         if maybe_kwargs and set(maybe_kwargs).issubset(ODOO_KWARG_KEYS):
             normalized_kwargs.update(normalized_args.pop())
     return normalized_args, normalized_kwargs
+
+
+def _apply_inventory(execute, quant_ids):
+    """stock.quant.action_apply_inventory anwenden.
+
+    Odoo 18 und 19 geben None zurueck; der XML-RPC-Marshaller laeuft mit
+    allow_none=False und wirft danach einen Fault. Die Buchung ist zu diesem
+    Zeitpunkt bereits committed, deshalb wird genau dieser Fehler geschluckt.
+    """
+    if not quant_ids:
+        return
+    try:
+        execute("stock.quant", "action_apply_inventory", quant_ids)
+    except Exception as apply_err:
+        message = str(apply_err)
+        if "marshal None" not in message and "allow_none" not in message:
+            raise
 
 
 def build_demo_customers():
@@ -222,7 +248,9 @@ def main():
                         "password": "demo123",
                         "company_id": company_id,
                         "company_ids": [(6, 0, [company_id])],
-                        "groups_id": [(6, 0, [group_user_id])],
+                        # Odoo 19: res.users.groups_id wurde zu group_ids umbenannt
+                        # (all_group_ids ist der berechnete transitive Abschluss).
+                        "group_ids": [(6, 0, [group_user_id])],
                         "notification_type": "email",
                         "active": True,
                     },
@@ -395,7 +423,7 @@ def main():
                 [("product_id", "=", product_id), ("location_id", "=", location_id)],
             )
             if quant_ids:
-                execute("stock.quant", "action_apply_inventory", quant_ids)
+                _apply_inventory(execute, quant_ids)
             print(f"  [OK] {qty} Stk. eingebucht (Produkt {product_id} -> Lagerort {location_id})")
         except Exception as e:
             print(f"  [WARN] Bestand-Einbuchung uebersprungen: {e}")
@@ -433,9 +461,10 @@ def main():
                 "location_id": src,
                 "location_dest_id": dest,
                 "priority": priority,
+                # Odoo 19: stock.move.name existiert nicht mehr. Die Bewegungs-
+                # bezeichnung wird aus dem Produkt berechnet (description_picking).
                 "move_ids": [
                     (0, 0, {
-                        "name": m["name"],
                         "product_id": m["product_id"],
                         "product_uom_qty": m["qty"],
                         "location_id": m["loc_src"],
@@ -593,7 +622,7 @@ def main():
         modules = execute(
             "ir.module.module", "search_read",
             [("name", "in", ["quality_alert_custom", "stock_picking_batch"])],
-            fields=["state"],
+            fields=["name", "state"],
         )
         module_by_name = {module["name"]: module for module in modules}
         for module_name in ["quality_alert_custom", "stock_picking_batch"]:
@@ -713,14 +742,7 @@ def seed_lego(execute):
                     "location_id": loc_id,
                     "inventory_quantity": qty,
                 })]
-            try:
-                execute("stock.quant", "action_apply_inventory", existing_quants)
-            except Exception as apply_err:
-                # Odoo 18: action_apply_inventory gibt None zurueck,
-                # was XML-RPC nicht serialisieren kann - die Einbuchung
-                # wurde aber trotzdem ausgefuehrt.
-                if "marshal None" not in str(apply_err) and "allow_none" not in str(apply_err):
-                    raise
+            _apply_inventory(execute, existing_quants)
             stocked += 1
         except Exception as e:
             print(f"  [WARN] Bestand fuer Produkt {product_id}: {e}")
@@ -811,12 +833,11 @@ def seed_lego(execute):
                 "priority": priority,
                 "origin": f"{product_name} (BOM {bom['code']})",
                 "scheduled_date": sched_date,
+                # Odoo 19: stock.move.name entfaellt (siehe make_picking).
                 "move_ids": [
                     (0, 0, {
-                        "name": c["product_name"],
                         "product_id": c["product_id"],
                         "product_uom_qty": c["qty"],
-                        "product_uom": 1,
                         "location_id": c["location_id"],
                         "location_dest_id": dest_loc_id,
                     })
@@ -945,12 +966,11 @@ def seed_bom_pickings(execute):
             "location_dest_id": dest_loc_id,
             "priority": priority,
             "origin": picking_origin,
+            # Odoo 19: stock.move.name entfaellt (siehe make_picking).
             "move_ids": [
                 (0, 0, {
-                    "name": c["product_name"],
                     "product_id": c["product_id"],
                     "product_uom_qty": c["qty"],
-                    "product_uom": 1,
                     "location_id": c["location_id"],
                     "location_dest_id": dest_loc_id,
                 })
