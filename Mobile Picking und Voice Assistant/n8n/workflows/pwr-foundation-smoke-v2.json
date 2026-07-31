@@ -1,0 +1,466 @@
+{
+  "name": "PWR Foundation Smoke v2",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false
+  },
+  "nodes": [
+    {
+      "id": "b1a0d6c2-0000-4000-8000-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-320, 0],
+      "parameters": {
+        "path": "quality-assessment-v2",
+        "httpMethod": "POST",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      }
+    },
+    {
+      "id": "b1a0d6c2-0000-4000-8000-000000000002",
+      "name": "PWR Signature Gate",
+      "type": "n8n-nodes-pwr.pwrSignatureGate",
+      "typeVersion": 1,
+      "position": [-100, 0],
+      "parameters": {
+        "expectedMethod": "POST",
+        "expectedTarget": "/webhook/quality-assessment-v2"
+      }
+    },
+    {
+      "id": "b1a0d6c2-0000-4000-8000-000000000003",
+      "name": "Reject Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [120, 180],
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": "={{ $json.pwr.status_code }}",
+        "responseBody": "={{ JSON.stringify({ reason_code: $json.pwr.reason_code }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "b1a0d6c2-0000-4000-8000-000000000004",
+      "name": "Build Acceptance",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [120, -80],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a01",
+              "name": "schema_version",
+              "type": "string",
+              "value": "v2"
+            },
+            {
+              "id": "a02",
+              "name": "event_id",
+              "type": "string",
+              "value": "={{ $json.body.event_id }}"
+            },
+            {
+              "id": "a03",
+              "name": "job_id",
+              "type": "string",
+              "value": "={{ $json.body.payload.job_id }}"
+            },
+            {
+              "id": "a04",
+              "name": "odoo_instance",
+              "type": "string",
+              "value": "={{ $json.body.source.odoo_instance }}"
+            },
+            {
+              "id": "a05",
+              "name": "correlation_id",
+              "type": "string",
+              "value": "={{ $json.body.correlation_id }}"
+            },
+            {
+              "id": "a06",
+              "name": "payload_fingerprint",
+              "type": "string",
+              "value": "={{ $json.pwr.body_sha256 }}"
+            },
+            {
+              "id": "a07",
+              "name": "ingress_key_id",
+              "type": "string",
+              "value": "={{ $json.pwr.key_id }}"
+            },
+            {
+              "id": "a08",
+              "name": "ingress_nonce",
+              "type": "string",
+              "value": "={{ $json.pwr.nonce }}"
+            },
+            {
+              "id": "a09",
+              "name": "delivery_generation",
+              "type": "number",
+              "value": "={{ $json.pwr.delivery_generation }}"
+            },
+            {
+              "id": "a10",
+              "name": "idempotency_key",
+              "type": "string",
+              "value": "={{ $json.body.event_id }}"
+            },
+            {
+              "id": "a11",
+              "name": "test_delay_seconds",
+              "type": "number",
+              "value": "={{ Math.min(Math.max(Number($json.body.payload.test_delay_seconds) || 0, 0), 60) }}"
+            },
+            {
+              "id": "a12",
+              "name": "artifact_probe",
+              "type": "boolean",
+              "value": "={{ $json.body.payload.artifact_probe === true }}"
+            },
+            {
+              "id": "a13",
+              "name": "callback_ids_by_generation",
+              "type": "object",
+              "value": "={{ $json.body.payload.callback_ids_by_generation }}"
+            },
+            {
+              "id": "a14",
+              "name": "artifact_idempotency_keys_by_generation",
+              "type": "object",
+              "value": "={{ $json.body.payload.artifact_idempotency_keys_by_generation }}"
+            },
+            {
+              "id": "a15",
+              "name": "acceptance_body",
+              "type": "object",
+              "value": "={{ ({ schema_version: 'v2', event_id: $json.body.event_id, job_id: $json.body.payload.job_id, odoo_instance: $json.body.source.odoo_instance, payload_fingerprint: $json.pwr.body_sha256, ingress_key_id: $json.pwr.key_id, ingress_nonce: $json.pwr.nonce, delivery_generation: $json.pwr.delivery_generation }) }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b1a0d6c2-0000-4000-8000-000000000005",
+      "name": "PWR Signed Acceptance",
+      "type": "n8n-nodes-pwr.pwrSignedHttpRequest",
+      "typeVersion": 1,
+      "position": [340, -80],
+      "parameters": {
+        "method": "POST",
+        "target": "/api/internal/n8n/v2/events/accept",
+        "host": "backend",
+        "bodyMode": "json",
+        "jsonProperty": "acceptance_body",
+        "contentType": "application/json",
+        "deliveryGenerationProperty": "delivery_generation",
+        "idempotencyKeyProperty": "idempotency_key",
+        "responseMode": "json",
+        "timeoutMs": 10000
+      }
+    },
+    {
+      "id": "b1a0d6c2-0000-4000-8000-000000000006",
+      "name": "Accepted Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [560, -80],
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 202,
+        "responseBody": "={{ JSON.stringify({ accepted: true, event_id: $json.event_id }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "b1a0d6c2-0000-4000-8000-000000000007",
+      "name": "If Process",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [780, -80],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.process }}",
+              "operation": "equal",
+              "value2": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b1a0d6c2-0000-4000-8000-000000000008",
+      "name": "Smoke Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1000, -140],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $('Build Acceptance').item.json.test_delay_seconds }}",
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "b1a0d6c2-0000-4000-8000-000000000009",
+      "name": "Build Running Callback",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1220, -140],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "r01",
+              "name": "delivery_generation",
+              "type": "number",
+              "value": "={{ $('Build Acceptance').item.json.delivery_generation }}"
+            },
+            {
+              "id": "r02",
+              "name": "idempotency_key",
+              "type": "string",
+              "value": "={{ (() => { const ids = $('Build Acceptance').item.json.callback_ids_by_generation[String($('Build Acceptance').item.json.delivery_generation)]; if (!ids || !ids.running) { throw new Error('no callback ids for signed delivery generation'); } return ids.running; })() }}"
+            },
+            {
+              "id": "r03",
+              "name": "callback_body",
+              "type": "object",
+              "value": "={{ (() => { const acceptance = $('Build Acceptance').item.json; const ids = acceptance.callback_ids_by_generation[String(acceptance.delivery_generation)]; if (!ids || !ids.running) { throw new Error('no callback ids for signed delivery generation'); } return { schema_version: 'v2', callback_name: 'quality.assessment.status.v1', callback_id: ids.running, source_event_id: acceptance.event_id, correlation_id: acceptance.correlation_id, odoo_instance: acceptance.odoo_instance, job_id: acceptance.job_id, sequence: 1, attempt: 1, delivery_generation: acceptance.delivery_generation, processing_lease_token: $('PWR Signed Acceptance').item.json.processing_lease_token, status: 'running', execution_id: String($execution.id), occurred_at: new Date().toISOString(), next_retry_at: null, result: {}, error: null, metrics: {} }; })() }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b1a0d6c2-0000-4000-8000-00000000000a",
+      "name": "PWR Signed Running Callback",
+      "type": "n8n-nodes-pwr.pwrSignedHttpRequest",
+      "typeVersion": 1,
+      "position": [1440, -140],
+      "parameters": {
+        "method": "POST",
+        "target": "/api/internal/n8n/v2/callbacks/status",
+        "host": "backend",
+        "bodyMode": "json",
+        "jsonProperty": "callback_body",
+        "contentType": "application/json",
+        "deliveryGenerationProperty": "delivery_generation",
+        "idempotencyKeyProperty": "idempotency_key",
+        "responseMode": "json",
+        "timeoutMs": 10000
+      }
+    },
+    {
+      "id": "b1a0d6c2-0000-4000-8000-00000000000b",
+      "name": "If Artifact Probe",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1660, -140],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $('Build Acceptance').item.json.artifact_probe }}",
+              "operation": "equal",
+              "value2": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b1a0d6c2-0000-4000-8000-00000000000c",
+      "name": "Build Artifact Request",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1880, -220],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f01",
+              "name": "odoo_instance",
+              "type": "string",
+              "value": "={{ $('Build Acceptance').item.json.odoo_instance }}"
+            },
+            {
+              "id": "f02",
+              "name": "job_id",
+              "type": "string",
+              "value": "={{ $('Build Acceptance').item.json.job_id }}"
+            },
+            {
+              "id": "f03",
+              "name": "event_id",
+              "type": "string",
+              "value": "={{ $('Build Acceptance').item.json.event_id }}"
+            },
+            {
+              "id": "f04",
+              "name": "processing_lease_token",
+              "type": "string",
+              "value": "={{ (() => { const token = $('PWR Signed Acceptance').item.json.processing_lease_token; if (!token) { throw new Error('acceptance returned no processing lease token'); } return token; })() }}"
+            },
+            {
+              "id": "f05",
+              "name": "delivery_generation",
+              "type": "number",
+              "value": "={{ $('Build Acceptance').item.json.delivery_generation }}"
+            },
+            {
+              "id": "f06",
+              "name": "idempotency_key",
+              "type": "string",
+              "value": "={{ (() => { const acceptance = $('Build Acceptance').item.json; const key = acceptance.artifact_idempotency_keys_by_generation[String(acceptance.delivery_generation)]; if (!key) { throw new Error('no artifact idempotency key for signed delivery generation'); } return key; })() }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b1a0d6c2-0000-4000-8000-00000000000d",
+      "name": "PWR Signed Artifact",
+      "type": "n8n-nodes-pwr.pwrSignedHttpRequest",
+      "typeVersion": 1,
+      "position": [2100, -220],
+      "parameters": {
+        "method": "POST",
+        "target": "=/api/internal/instances/{{ encodeURIComponent($json.odoo_instance) }}/jobs/{{ encodeURIComponent($json.job_id) }}/leases/{{ encodeURIComponent($json.processing_lease_token) }}/events/{{ encodeURIComponent($json.event_id) }}/artifacts/zpl",
+        "host": "backend",
+        "bodyMode": "literalUtf8",
+        "literalBody": "^XA^FO20,20^FDFoundation smoke^FS^XZ",
+        "contentType": "application/zpl",
+        "deliveryGenerationProperty": "delivery_generation",
+        "idempotencyKeyProperty": "idempotency_key",
+        "responseMode": "json",
+        "timeoutMs": 10000
+      }
+    },
+    {
+      "id": "b1a0d6c2-0000-4000-8000-00000000000e",
+      "name": "Build Terminal Callback",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2320, -140],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "t01",
+              "name": "delivery_generation",
+              "type": "number",
+              "value": "={{ $('Build Acceptance').item.json.delivery_generation }}"
+            },
+            {
+              "id": "t02",
+              "name": "idempotency_key",
+              "type": "string",
+              "value": "={{ (() => { const ids = $('Build Acceptance').item.json.callback_ids_by_generation[String($('Build Acceptance').item.json.delivery_generation)]; if (!ids || !ids.terminal) { throw new Error('no callback ids for signed delivery generation'); } return ids.terminal; })() }}"
+            },
+            {
+              "id": "t03",
+              "name": "callback_body",
+              "type": "object",
+              "value": "={{ (() => { const acceptance = $('Build Acceptance').item.json; const ids = acceptance.callback_ids_by_generation[String(acceptance.delivery_generation)]; if (!ids || !ids.terminal) { throw new Error('no callback ids for signed delivery generation'); } return { schema_version: 'v2', callback_name: 'quality.assessment.status.v1', callback_id: ids.terminal, source_event_id: acceptance.event_id, correlation_id: acceptance.correlation_id, odoo_instance: acceptance.odoo_instance, job_id: acceptance.job_id, sequence: 2, attempt: 1, delivery_generation: acceptance.delivery_generation, processing_lease_token: $('PWR Signed Acceptance').item.json.processing_lease_token, status: 'succeeded', execution_id: String($execution.id), occurred_at: new Date().toISOString(), next_retry_at: null, result: {}, error: null, metrics: {} }; })() }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b1a0d6c2-0000-4000-8000-00000000000f",
+      "name": "PWR Signed Terminal Callback",
+      "type": "n8n-nodes-pwr.pwrSignedHttpRequest",
+      "typeVersion": 1,
+      "position": [2540, -140],
+      "parameters": {
+        "method": "POST",
+        "target": "/api/internal/n8n/v2/callbacks/status",
+        "host": "backend",
+        "bodyMode": "json",
+        "jsonProperty": "callback_body",
+        "contentType": "application/json",
+        "deliveryGenerationProperty": "delivery_generation",
+        "idempotencyKeyProperty": "idempotency_key",
+        "responseMode": "json",
+        "timeoutMs": 10000
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{"node": "PWR Signature Gate", "type": "main", "index": 0}]]
+    },
+    "PWR Signature Gate": {
+      "main": [
+        [{"node": "Build Acceptance", "type": "main", "index": 0}],
+        [{"node": "Reject Response", "type": "main", "index": 0}]
+      ]
+    },
+    "Build Acceptance": {
+      "main": [[{"node": "PWR Signed Acceptance", "type": "main", "index": 0}]]
+    },
+    "PWR Signed Acceptance": {
+      "main": [[{"node": "Accepted Response", "type": "main", "index": 0}]]
+    },
+    "Accepted Response": {
+      "main": [[{"node": "If Process", "type": "main", "index": 0}]]
+    },
+    "If Process": {
+      "main": [
+        [{"node": "Smoke Wait", "type": "main", "index": 0}],
+        []
+      ]
+    },
+    "Smoke Wait": {
+      "main": [[{"node": "Build Running Callback", "type": "main", "index": 0}]]
+    },
+    "Build Running Callback": {
+      "main": [[{"node": "PWR Signed Running Callback", "type": "main", "index": 0}]]
+    },
+    "PWR Signed Running Callback": {
+      "main": [[{"node": "If Artifact Probe", "type": "main", "index": 0}]]
+    },
+    "If Artifact Probe": {
+      "main": [
+        [{"node": "Build Artifact Request", "type": "main", "index": 0}],
+        [{"node": "Build Terminal Callback", "type": "main", "index": 0}]
+      ]
+    },
+    "Build Artifact Request": {
+      "main": [[{"node": "PWR Signed Artifact", "type": "main", "index": 0}]]
+    },
+    "PWR Signed Artifact": {
+      "main": [[{"node": "Build Terminal Callback", "type": "main", "index": 0}]]
+    },
+    "Build Terminal Callback": {
+      "main": [[{"node": "PWR Signed Terminal Callback", "type": "main", "index": 0}]]
+    }
+  }
+}

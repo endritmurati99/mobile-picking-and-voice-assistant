@@ -123,26 +123,55 @@ def test_post_acceptance_allowlist_rejects_an_invented_type():
 SIGNED_HTTP_ALTERNATE_SPELLING = "n8n-nodes-pwr.pwrSignedHttpRequest"
 
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+# The COMMITTED v2 workflow -- the real one the registry ships and
+# verify-workflows.py checks, not a fixture. Task 15 widened
+# POST_ACCEPTANCE_ALLOWED_TYPES by three types; the derivation guard only
+# stays a guard if those three are observed running post-acceptance in a
+# workflow that actually exists, so it is a second source graph here rather
+# than an exception carved into the assertion.
+SMOKE_WORKFLOW_PATH = REPO_ROOT / "n8n" / "workflows" / "pwr-foundation-smoke-v2.json"
+
+# (graph document, process-gate node name, trigger node name)
+OBSERVED_GRAPHS = (
+    ("task15_reference_graph.json", "Process Gate", "Webhook"),
+    ("pwr-foundation-smoke-v2.json", "If Process", "Webhook"),
+)
+
+
+def _load_observed(name):
+    if name == SMOKE_WORKFLOW_PATH.name:
+        return json.loads(SMOKE_WORKFLOW_PATH.read_text(encoding="utf-8"))
+    return _load(name)
+
+
+def _types_dominated_by_the_true_branch_of(name, gate_name, trigger_name):
+    graph = _load_observed(name)
+    connections = graph["connections"]
+    by_name = {node["name"]: node for node in graph["nodes"]}
+    dominated = _dominated_by(
+        connections,
+        gate_name,
+        0,
+        set(_reachable_node_names(connections, [trigger_name])) & set(by_name),
+        trigger_name=trigger_name,
+    )
+    assert dominated, f"{name} has an empty true branch; guard is vacuous"
+    return {by_name[node_name]["type"] for node_name in dominated}
+
+
 def _types_dominated_by_the_true_branch():
-    """The reference graph's post-acceptance node types.
+    """Every post-acceptance node type observed across the committed v2 graphs.
 
     Computed with the SAME `_dominated_by(..., output_index=0, ...)` call that
     obligation 10 makes, over the same every-namespace reachable set rooted at
     the trigger -- so if obligation 10's notion of "after acceptance" ever
     changes, this guard changes with it instead of silently drifting apart.
     """
-    reference = _load("task15_reference_graph.json")
-    connections = reference["connections"]
-    by_name = {node["name"]: node for node in reference["nodes"]}
-    dominated = _dominated_by(
-        connections,
-        "Process Gate",
-        0,
-        set(_reachable_node_names(connections, ["Webhook"])) & set(by_name),
-        trigger_name="Webhook",
-    )
-    assert dominated, "the reference graph has an empty true branch; guard is vacuous"
-    return {by_name[name]["type"] for name in dominated}
+    observed = set()
+    for name, gate_name, trigger_name in OBSERVED_GRAPHS:
+        observed |= _types_dominated_by_the_true_branch_of(name, gate_name, trigger_name)
+    return observed
 
 
 def test_post_acceptance_allowlist_is_derived_from_the_reference_workflow():
@@ -183,14 +212,20 @@ def test_the_derivation_guard_rejects_a_pre_acceptance_only_type():
     so accepted all of them; this asserts both halves -- that they really are in
     the graph (or the control proves nothing) and that widening
     POST_ACCEPTANCE_ALLOWED_TYPES with any one of them now FAILS the guard.
+
+    `n8n-nodes-base.set` and `n8n-nodes-base.if` were controls here until Task
+    15. They no longer are, and NOT because the guard was relaxed: the
+    committed smoke workflow runs both of them on its process gate's true
+    branch, so they are now observed post-acceptance and the guard is telling
+    the truth about them. The trigger and the Signature Gate remain controls --
+    no committed graph runs either after acceptance, and if one ever did, this
+    test failing is the correct outcome.
     """
     reference = _load("task15_reference_graph.json")
     types_in_reference = {node["type"] for node in reference["nodes"]}
     permitted = _types_dominated_by_the_true_branch() | {SIGNED_HTTP_ALTERNATE_SPELLING}
 
     for pre_acceptance_only in (
-        "n8n-nodes-base.set",
-        "n8n-nodes-base.if",
         "n8n-nodes-base.webhook",
         "CUSTOM.pwrSignatureGate",
     ):

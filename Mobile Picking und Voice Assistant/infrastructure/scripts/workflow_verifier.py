@@ -865,10 +865,47 @@ PRE_ACCEPTANCE_ALLOWED_TYPES: frozenset[str] = frozenset({
 #     graph is dominated by the true branch too, and must be able to answer.
 # Nothing is pre-added "in case Task 15 needs it": a speculative entry is a
 # permanent hole, and Task 15 can widen this by one reviewable commit.
+#
+# WIDENED IN TASK 15, by exactly three types, each of which the Foundation
+# smoke workflow (pwr-foundation-smoke-v2.json) actually runs on the dominated
+# true branch -- the "one reviewable commit" this comment anticipated. Nothing
+# speculative was added alongside them:
+#   - n8n-nodes-base.set -- "Build Running Callback", "Build Artifact Request"
+#     and "Build Terminal Callback". A side-effect-free builder; it is already
+#     trusted in the identical role BEFORE acceptance
+#     (PRE_ACCEPTANCE_ALLOWED_TYPES), and it cannot reach the network without
+#     tripping the ABSOLUTE_URL_RE outbound scan below, which is type-agnostic
+#     and covers it.
+#   - n8n-nodes-base.if -- "If Artifact Probe". A pure branch point with no
+#     effect of its own. Note it can only ever NARROW what runs; it cannot
+#     bypass the process gate, because obligation 7 requires every node it
+#     leads to be dominated by that gate's true branch anyway.
+#   - n8n-nodes-base.wait -- "Smoke Wait". This one is NOT inert and is the
+#     only genuinely new risk of the three: an n8n Wait node can be configured
+#     to resume on its OWN webhook or form URL, which would be a second,
+#     unsigned ingress into the middle of an already-accepted execution --
+#     precisely the thing the Signature Gate exists to prevent. It is
+#     therefore paired with WAIT_RESUME_ALLOWED_MODES below, an allowlist that
+#     permits only the time-based resume modes; without that pairing this
+#     entry must not exist.
 POST_ACCEPTANCE_ALLOWED_TYPES: frozenset[str] = frozenset({
     "CUSTOM.pwrSignedHttpRequest",
     "n8n-nodes-pwr.pwrSignedHttpRequest",
     "n8n-nodes-base.respondToWebhook",
+    "n8n-nodes-base.set",
+    "n8n-nodes-base.if",
+    "n8n-nodes-base.wait",
+})
+WAIT_TYPE = "n8n-nodes-base.wait"
+# The ONLY resume modes a v2 Wait node may use. ALLOWLIST: "webhook" and
+# "form" both mint a resume URL that accepts an unauthenticated request and
+# continues the execution from that point -- an ingress that never passes the
+# PWR Signature Gate. An unset/absent `resume` parameter means n8n's own
+# default, which is time-based, so absence is permitted; anything else,
+# including a mode nobody has thought of yet, fails closed.
+WAIT_RESUME_ALLOWED_MODES: frozenset[str] = frozenset({
+    "timeInterval",
+    "specificTime",
 })
 # Node types that can express the mandatory "process == true" branch point.
 PROCESS_GATE_TYPES: frozenset[str] = frozenset({
@@ -1178,6 +1215,76 @@ def _is_registered_target(target: str, spec: dict[str, Any]) -> bool:
 
 def _is_event_or_callback_target(target: str, spec: dict[str, Any]) -> bool:
     return _is_registered_target(target, spec)
+
+
+# A single n8n expression occupying an ENTIRE path segment, wrapped in
+# encodeURIComponent(). The wrapper is mandatory, not cosmetic: it is the only
+# statically checkable thing that stops a runtime value from carrying a "/",
+# a "?" or a "#" and thereby rewriting the route the signature is minted over.
+# `inner` may not itself contain braces, so a segment can hold exactly one
+# expression and nothing may be concatenated on either side of it.
+TEMPLATED_SEGMENT_EXPRESSION_RE = re.compile(
+    r"^\{\{\s*encodeURIComponent\((?P<inner>[^{}]+)\)\s*\}\}$"
+)
+
+
+def _is_templated_registered_target(target: Any, spec: dict[str, Any]) -> bool:
+    """True for an n8n-expression target whose SHAPE is a registered
+    artifact-path template.
+
+    Why this exists. Every other signed target in a v2 workflow is a fixed
+    literal, and the verifier rightly refuses anything it cannot resolve. The
+    lease-bound artifact route cannot be a literal: after finding #5b the path
+    is
+    `/api/internal/instances/{i}/jobs/{j}/leases/{t}/events/{e}/artifacts/{k}`
+    and `{t}` is a `processing_lease_token` the BACKEND mints in its response
+    to the acceptance call. No workflow author can know it, so demanding a
+    static string here does not make the route safer -- it makes the route
+    unexpressible, which is why no workflow in this repository built that URL
+    at all until Task 15.
+
+    What is still proved, and it is nearly everything the literal check
+    proved: every LITERAL segment of the template must match byte for byte, so
+    the route, its method, its host and its artifact kind are all fixed at
+    review time and the request cannot be redirected to another endpoint; the
+    segment COUNT must match, so no segment may be added or dropped; and each
+    `{field}` position must hold either a plain literal or exactly ONE
+    expression wrapped in encodeURIComponent(), so a runtime value cannot
+    smuggle a path separator, a query string or a fragment into the signed
+    target.
+
+    What is NOT proved -- state it rather than imply otherwise: this says
+    nothing about WHICH value ends up in a `{field}` position. It is a shape
+    proof, not a data-flow proof (see the KNOWN, ACCEPTED LIMITS note on
+    verify_v2_workflow). The backend remains the authority on whether the
+    lease token, job and instance actually belong together; the transport
+    layer refuses query strings outright (`hmac_signing.verify_signature`) and
+    signs `raw_path`, so a mismatch is a 401, not a partial success.
+    """
+    if not isinstance(target, str) or not target.startswith("="):
+        return False
+    path = target[1:]
+    if not path.startswith("/"):
+        return False
+    segments = path.split("/")
+    for template in spec.get("artifact_path_templates") or []:
+        template_segments = template.split("/")
+        if len(segments) != len(template_segments):
+            continue
+        for segment, template_segment in zip(segments, template_segments):
+            if TEMPLATE_SEGMENT_RE.match(template_segment):
+                if TEMPLATED_SEGMENT_EXPRESSION_RE.match(segment.strip()):
+                    continue
+                # A concrete literal is fine in a {field} position too, as
+                # long as it is genuinely static -- no partial expression.
+                if segment and "{" not in segment and "}" not in segment:
+                    continue
+                break
+            if segment != template_segment:
+                break
+        else:
+            return True
+    return False
 
 
 def _node_text_blob(node: dict[str, Any]) -> str:
@@ -1744,12 +1851,22 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
         host = params.get("host")
         target_is_registered = False
 
-        if _is_unresolved_expression(target):
+        # A target may be an n8n expression ONLY when its shape is a
+        # registered artifact-path template -- see
+        # _is_templated_registered_target for what that does and does not
+        # prove. Everything else must still be a fixed literal path.
+        templated = _is_templated_registered_target(target, spec)
+
+        if _is_unresolved_expression(target) and not templated:
             errors.append(
                 f"{file_name}: node '{node_name}' target is a dynamic/unresolved n8n "
                 f"expression ('{target}'); a statically-verified target must be a "
-                "fixed relative path"
+                "fixed relative path, or an expression whose every literal segment "
+                "matches a registered artifact-path template and whose every "
+                "{field} segment is a single encodeURIComponent(...) expression"
             )
+        elif templated:
+            target_is_registered = True
         elif not target.startswith("/"):
             errors.append(
                 f"{file_name}: node '{node_name}' target must be a relative path, got '{target}'"
@@ -1785,7 +1902,12 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
                 "test_only=true registry entry"
             )
 
-        if target_is_registered and isinstance(target, str) and _is_event_or_callback_target(target, spec):
+        # Covers the templated artifact target too: `target_is_registered`
+        # is set either by _is_registered_target or by the template-shape
+        # check, and both mean "this node speaks to a registered event,
+        # callback or artifact route", which is exactly the scope of the
+        # required-field check below.
+        if target_is_registered:
             backward_names = _backward_reachable_node_names(connections, node_name)
             blob = _node_text_blob(node) + "\n" + _combined_text_blob(by_name, backward_names)
             missing = []
@@ -1804,6 +1926,27 @@ def verify_v2_workflow(workflow: dict[str, Any], spec: dict[str, Any]) -> list[s
                     f"{file_name}: event/callback node '{node_name}' is missing required "
                     f"fields: {', '.join(missing)}"
                 )
+
+    # A Wait node may not open a second ingress. `resume: webhook` (and
+    # `resume: form`) make n8n mint a resume URL that continues THIS
+    # execution on an unauthenticated request -- an entry point that never
+    # passes the Signature Gate, in the middle of a run the backend has
+    # already accepted. ALLOWLIST: absence means n8n's time-based default and
+    # is permitted; every named mode outside WAIT_RESUME_ALLOWED_MODES,
+    # including one that does not exist yet, fails closed.
+    for node in nodes:
+        if node.get("type") != WAIT_TYPE:
+            continue
+        resume = (node.get("parameters") or {}).get("resume")
+        if resume is None:
+            continue
+        if _is_unresolved_expression(resume) or resume not in WAIT_RESUME_ALLOWED_MODES:
+            errors.append(
+                f"{file_name}: Wait node '{node.get('name')}' uses resume mode "
+                f"'{resume}'; only {sorted(WAIT_RESUME_ALLOWED_MODES)} are permitted -- "
+                "a webhook/form resume URL is a second ingress that bypasses the PWR "
+                "Signature Gate"
+            )
 
     # Quality workflows must not claim image analysis from photo_count alone.
     if "quality" in file_name.lower():

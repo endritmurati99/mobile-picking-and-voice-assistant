@@ -58,7 +58,9 @@ def test_activate_rejects_duplicate_workflow_name():
 
 def test_activate_test_rejects_every_registered_non_test_only_workflow():
     registry = load_registry(ROOT / "n8n/workflow-registry.json")
-    for workflow in registry.workflows:
+    non_test_only = [item for item in registry.workflows if not item.test_only]
+    assert non_test_only, "vacuous: the registry has no non-test-only workflow"
+    for workflow in non_test_only:
         spec = {
             "file": workflow.file,
             "production_activation": workflow.production_activation,
@@ -66,6 +68,26 @@ def test_activate_test_rejects_every_registered_non_test_only_workflow():
         }
         with pytest.raises(ActivationError):
             assert_test_activatable(spec, run_id="run-1234", dependency_files=set())
+
+
+def test_activate_test_accepts_exactly_the_registered_test_only_workflows():
+    """The other half: `activate-test` must let the real registry's test-only
+    entry through, or the rejection guard above is proving nothing about a
+    mode nobody can use.
+    """
+    registry = load_registry(ROOT / "n8n/workflow-registry.json")
+    test_only = [item for item in registry.workflows if item.test_only]
+    assert [item.file for item in test_only] == ["pwr-foundation-smoke-v2.json"]
+    for workflow in test_only:
+        assert_test_activatable(
+            {
+                "file": workflow.file,
+                "production_activation": workflow.production_activation,
+                "test_only": workflow.test_only,
+            },
+            run_id="run-1234",
+            dependency_files=set(),
+        )
 
 
 def test_activate_test_requires_nonempty_run_id():

@@ -63,6 +63,58 @@
       "credential_bindings": []
     },
     {
+      "file": "pwr-foundation-smoke-v2.json",
+      "name": "PWR Foundation Smoke v2",
+      "generation": "v2",
+      "event_names": ["quality.assessment.requested.v1"],
+      "webhook_paths": ["quality-assessment-v2"],
+      "callback_paths": [
+        "/api/internal/n8n/v2/events/accept",
+        "/api/internal/n8n/v2/callbacks/status"
+      ],
+      "artifact_path_templates": [
+        "/api/internal/instances/{odoo_instance}/jobs/{job_id}/leases/{processing_lease_token}/events/{source_event_id}/artifacts/zpl"
+      ],
+      "authentication": "native_header_hmac",
+      "managed": true,
+      "production_activation": false,
+      "test_only": true,
+      "activation_order": 90,
+      "allowed_target_hosts": ["backend"],
+      "credential_bindings": [
+        {
+          "node": "Webhook",
+          "credential_type": "httpHeaderAuth",
+          "logical_name": "pwr.v2.inbound-header"
+        },
+        {
+          "node": "PWR Signature Gate",
+          "credential_type": "pwrInboundHmac",
+          "logical_name": "pwr.v2.backend-to-n8n-hmac"
+        },
+        {
+          "node": "PWR Signed Acceptance",
+          "credential_type": "pwrOutboundHmac",
+          "logical_name": "pwr.v2.n8n-to-backend-hmac"
+        },
+        {
+          "node": "PWR Signed Running Callback",
+          "credential_type": "pwrOutboundHmac",
+          "logical_name": "pwr.v2.n8n-to-backend-hmac"
+        },
+        {
+          "node": "PWR Signed Artifact",
+          "credential_type": "pwrOutboundHmac",
+          "logical_name": "pwr.v2.n8n-to-backend-hmac"
+        },
+        {
+          "node": "PWR Signed Terminal Callback",
+          "credential_type": "pwrOutboundHmac",
+          "logical_name": "pwr.v2.n8n-to-backend-hmac"
+        }
+      ]
+    },
+    {
       "file": "quality-alert-ai-evaluation.json",
       "name": "Quality Alert AI Evaluation",
       "generation": "v1",

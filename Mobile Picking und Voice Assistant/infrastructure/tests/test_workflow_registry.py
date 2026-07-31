@@ -34,7 +34,13 @@ def test_repository_registry_has_every_workflow_once():
         "voice-exception-query.json",
         "quality-alert-created.json",
         "shortage-reported.json",
+        "pwr-foundation-smoke-v2.json",
     )
+    # Managed does not mean production-activatable. The Foundation smoke is
+    # managed (the importer owns it) and test-only, and must never appear in
+    # the production activation order.
+    assert "pwr-foundation-smoke-v2.json" not in registry.activation_order()
+    assert registry.test_only_files() == ("pwr-foundation-smoke-v2.json",)
 
 
 def test_duplicate_webhook_path_fails(tmp_path):
