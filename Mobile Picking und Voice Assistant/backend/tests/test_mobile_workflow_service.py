@@ -101,8 +101,35 @@ class TestMobileWorkflowService:
         assert reservation.should_replay is True
 
     @pytest.mark.anyio
+    async def test_begin_idempotent_request_passes_server_principal_scope(
+        self, service, odoo
+    ):
+        """The scope travels as an argument, from the session and nowhere else.
+
+        Position matters: the scope sits ahead of `picking_id`, so an argument
+        list built for the pre-Task-12 signature puts a picking id where Odoo
+        now expects the scope and is refused rather than silently accepted.
+        """
+        odoo.execute_kw.return_value = {"status": "reserved", "entry_id": 7}
+        context = WriteRequestContext(
+            idempotency_key="confirm:7:42",
+            identity=PickerIdentity(user_id=7, device_id="device-42"),
+            principal_scope="user:7",
+        )
+
+        reservation = await service.begin_idempotent_request(
+            "confirm-line", context, "a" * 64, picking_id=42
+        )
+
+        call = odoo.execute_kw.await_args
+        assert call.args[2][3] == "user:7"
+        assert reservation.principal_scope == "user:7"
+
+    @pytest.mark.anyio
     async def test_finalize_idempotent_request_persists_completed_response(self, service, odoo):
-        reservation = IdempotencyReservation(status="reserved", entry_id=21)
+        reservation = IdempotencyReservation(
+            status="reserved", entry_id=21, principal_scope="user:7"
+        )
 
         await service.finalize_idempotent_request(
             reservation,
@@ -113,7 +140,24 @@ class TestMobileWorkflowService:
         odoo.execute_kw.assert_awaited_once_with(
             "picking.assistant.idempotency",
             "api_finalize_request",
-            [21, {"success": True}, 201],
+            [21, "user:7", {"success": True}, 201],
+        )
+
+    @pytest.mark.anyio
+    async def test_abort_idempotent_request_carries_the_reservation_scope(
+        self, service, odoo
+    ):
+        """Abort must not be able to release another principal's reservation."""
+        reservation = IdempotencyReservation(
+            status="reserved", entry_id=21, principal_scope="user:7"
+        )
+
+        await service.abort_idempotent_request(reservation)
+
+        odoo.execute_kw.assert_awaited_once_with(
+            "picking.assistant.idempotency",
+            "api_abort_request",
+            [21, "user:7"],
         )
 
     @pytest.mark.anyio

@@ -1,8 +1,4 @@
-import json
-from datetime import timedelta
-
 from odoo import api, fields, models
-from psycopg2 import IntegrityError
 
 
 class StockPicking(models.Model):
@@ -92,6 +88,7 @@ class StockPicking(models.Model):
 
     @api.model
     def api_claim_mobile(self, picking_id, picker_user_id, device_id, ttl_seconds=120):
+        self.env["picking.assistant.api.mixin"]._require_api_service()
         picking = self.sudo().browse(int(picking_id)).exists()
         if not picking:
             return {"success": False, "status": "missing", "message": "Picking nicht gefunden"}
@@ -104,6 +101,7 @@ class StockPicking(models.Model):
 
     @api.model
     def api_heartbeat_mobile(self, picking_id, picker_user_id, device_id, ttl_seconds=120):
+        self.env["picking.assistant.api.mixin"]._require_api_service()
         picking = self.sudo().browse(int(picking_id)).exists()
         if not picking:
             return {"success": False, "status": "missing", "message": "Picking nicht gefunden"}
@@ -116,6 +114,7 @@ class StockPicking(models.Model):
 
     @api.model
     def api_release_mobile(self, picking_id, picker_user_id, device_id):
+        self.env["picking.assistant.api.mixin"]._require_api_service()
         picking = self.sudo().browse(int(picking_id)).exists()
         if not picking:
             return {"success": True, "status": "released"}
@@ -149,6 +148,7 @@ class StockPicking(models.Model):
         requested_by_user_id=False,
         requested_by_name=False,
     ):
+        self.env["picking.assistant.api.mixin"]._require_api_service()
         picking = self.sudo().browse(int(picking_id)).exists()
         if not picking:
             return {"success": False, "message": "Picking nicht gefunden."}
@@ -247,130 +247,3 @@ class StockPicking(models.Model):
             "destination_location_name": destination_location.display_name,
             "quantity": move_qty,
         }
-
-
-class PickingAssistantIdempotency(models.Model):
-    _name = "picking.assistant.idempotency"
-    _description = "Picking Assistant Idempotency Entry"
-    _order = "create_date desc"
-
-    endpoint = fields.Char(required=True, index=True)
-    key = fields.Char(required=True, index=True)
-    request_fingerprint = fields.Char(required=True)
-    response_payload = fields.Text()
-    status_code = fields.Integer(default=200)
-    state = fields.Selection(
-        [("pending", "Pending"), ("completed", "Completed")],
-        default="pending",
-        required=True,
-        index=True,
-    )
-    picker_user_id = fields.Many2one("res.users", string="Picker", ondelete="set null")
-    device_id = fields.Char()
-    picking_id = fields.Many2one("stock.picking", ondelete="set null")
-    expires_at = fields.Datetime(required=True, index=True)
-    processed_at = fields.Datetime()
-
-    _sql_constraints = [
-        (
-            "picking_assistant_idempotency_key_unique",
-            "unique(endpoint, key)",
-            "The idempotency key must be unique per endpoint.",
-        ),
-    ]
-
-    @api.model
-    def _build_reservation_payload(self, entry):
-        payload = {
-            "status": entry.state,
-            "entry_id": entry.id,
-            "status_code": entry.status_code or 200,
-        }
-        if entry.response_payload:
-            payload["response_payload"] = json.loads(entry.response_payload)
-        return payload
-
-    @api.model
-    def api_reserve_request(
-        self,
-        endpoint,
-        key,
-        request_fingerprint,
-        picking_id=False,
-        picker_user_id=False,
-        device_id=False,
-        ttl_seconds=86400,
-    ):
-        now = fields.Datetime.now()
-        existing = self.sudo().search([("endpoint", "=", endpoint), ("key", "=", key)], limit=1)
-        if existing and existing.expires_at and existing.expires_at <= now:
-            existing.unlink()
-            existing = False
-
-        if existing:
-            if existing.request_fingerprint != request_fingerprint:
-                return {
-                    "status": "conflict",
-                    "entry_id": existing.id,
-                    "status_code": 409,
-                    "response_payload": {"detail": "Idempotency-Key wird bereits fuer einen anderen Request verwendet."},
-                }
-            if existing.state == "completed" and existing.response_payload:
-                replay = self._build_reservation_payload(existing)
-                replay["status"] = "replay"
-                return replay
-            return {
-                "status": "pending",
-                "entry_id": existing.id,
-                "status_code": 409,
-                "response_payload": {"detail": "Request mit gleichem Idempotency-Key wird bereits verarbeitet."},
-            }
-
-        values = {
-            "endpoint": endpoint,
-            "key": key,
-            "request_fingerprint": request_fingerprint,
-            "picking_id": int(picking_id) if picking_id else False,
-            "picker_user_id": int(picker_user_id) if picker_user_id else False,
-            "device_id": device_id or False,
-            "expires_at": now + timedelta(seconds=int(ttl_seconds or 86400)),
-        }
-
-        try:
-            entry = self.sudo().create(values)
-        except IntegrityError:
-            self.env.cr.rollback()
-            return self.api_reserve_request(
-                endpoint,
-                key,
-                request_fingerprint,
-                picking_id=picking_id,
-                picker_user_id=picker_user_id,
-                device_id=device_id,
-                ttl_seconds=ttl_seconds,
-            )
-
-        return {"status": "reserved", "entry_id": entry.id, "status_code": 200}
-
-    @api.model
-    def api_finalize_request(self, entry_id, response_payload, status_code=200):
-        entry = self.sudo().browse(int(entry_id)).exists()
-        if not entry:
-            return False
-        entry.write(
-            {
-                "response_payload": json.dumps(response_payload, ensure_ascii=False, sort_keys=True),
-                "status_code": int(status_code or 200),
-                "state": "completed",
-                "processed_at": fields.Datetime.now(),
-            }
-        )
-        return True
-
-    @api.model
-    def api_abort_request(self, entry_id):
-        entry = self.sudo().browse(int(entry_id)).exists()
-        if not entry:
-            return False
-        entry.unlink()
-        return True

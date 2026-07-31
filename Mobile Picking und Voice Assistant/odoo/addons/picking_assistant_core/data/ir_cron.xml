@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Ohne diesen Cron waechst die Idempotenz-Tabelle unbegrenzt: jede
+         Reservierung traegt ein expires_at, aber nichts hat sie bisher
+         geloescht. Stuendlich, weil die TTL in Stunden gemessen wird und ein
+         Minutentakt nur Laerm im Cron-Log erzeugt. -->
+    <record id="ir_cron_idempotency_cleanup" model="ir.cron">
+        <field name="name">Picking Assistant: abgelaufene Idempotenz-Eintraege loeschen</field>
+        <field name="model_id" ref="model_picking_assistant_idempotency"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_cleanup_expired(limit=1000)</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">hours</field>
+        <field name="active" eval="True"/>
+    </record>
+</odoo>

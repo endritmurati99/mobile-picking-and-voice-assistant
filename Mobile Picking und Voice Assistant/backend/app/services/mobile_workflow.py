@@ -32,6 +32,11 @@ class IdempotencyReservation:
     entry_id: int | None = None
     response_payload: dict | None = None
     status_code: int = 200
+    # Carried from the reservation so that finalize and abort address the SAME
+    # scope the reservation was made under. Odoo refuses a mismatch, so a
+    # reservation can never be finalised on behalf of another principal --
+    # not even by a caller that has the entry id.
+    principal_scope: str | None = None
 
     @property
     def should_replay(self) -> bool:
@@ -139,6 +144,7 @@ class MobileWorkflowService:
                 endpoint,
                 context.idempotency_key,
                 fingerprint,
+                context.principal_scope,
                 picking_id or False,
                 context.identity.user_id or False,
                 context.identity.device_id or False,
@@ -150,6 +156,7 @@ class MobileWorkflowService:
             entry_id=result.get("entry_id"),
             response_payload=result.get("response_payload"),
             status_code=int(result.get("status_code", 200)),
+            principal_scope=context.principal_scope,
         )
 
     async def finalize_idempotent_request(
@@ -163,7 +170,12 @@ class MobileWorkflowService:
         await self._odoo.execute_kw(
             "picking.assistant.idempotency",
             "api_finalize_request",
-            [reservation.entry_id, response_payload, status_code],
+            [
+                reservation.entry_id,
+                reservation.principal_scope,
+                response_payload,
+                status_code,
+            ],
         )
 
     async def abort_idempotent_request(self, reservation: IdempotencyReservation) -> None:
@@ -172,7 +184,7 @@ class MobileWorkflowService:
         await self._odoo.execute_kw(
             "picking.assistant.idempotency",
             "api_abort_request",
-            [reservation.entry_id],
+            [reservation.entry_id, reservation.principal_scope],
         )
 
     @staticmethod
