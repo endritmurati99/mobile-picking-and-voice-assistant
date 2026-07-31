@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings, parse_origins, reject_wildcard_origins_with_credentials
+from app.middleware import RequestBodySizeLimitMiddleware
 from app.routers import auth, cluster, demo, health, instances, integration, llm, n8n_internal, obsidian, pickings, quality, scan, voice
 # Task 10: eigene Importzeile, damit parallele Branches die Zeile oben nicht anfassen muessen.
 from app.routers import n8n_v2
@@ -101,6 +102,16 @@ app = FastAPI(
 _pwa_origins = parse_origins(settings.pwa_origins)
 # Unconditional, in every runtime profile -- see reject_wildcard_origins_with_credentials.
 reject_wildcard_origins_with_credentials(_pwa_origins, allow_credentials=True)
+
+# Task 15 / register §3.8, second layer: added BEFORE the CORS middleware so
+# that CORS ends up OUTSIDE it (`add_middleware` inserts at the front of the
+# stack, so the last one added is the outermost). A 413 therefore still
+# carries the CORS headers the PWA needs in order to read it, while the
+# limiter still sits above every route and above signature verification.
+app.add_middleware(
+    RequestBodySizeLimitMiddleware,
+    max_body_bytes=settings.max_request_body_bytes,
+)
 
 app.add_middleware(
     CORSMiddleware,

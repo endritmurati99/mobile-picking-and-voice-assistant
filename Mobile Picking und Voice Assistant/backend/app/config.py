@@ -3,6 +3,7 @@ import binascii
 import json
 import logging
 import os
+import stat
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -162,6 +163,24 @@ class Settings(BaseSettings):
     pwr_n8n_to_backend_active_secret_b64: str = ""
     pwr_n8n_to_backend_previous_key_id: str = ""
     pwr_n8n_to_backend_previous_secret_b64: str = ""
+    # Docker-secret counterparts of the secrets above. A production deployment
+    # mounts them below /run/secrets instead of exporting them into the
+    # process environment; see `read_secret` for the resolution rules.
+    session_throttle_hmac_secret_file: str = ""
+    pwr_backend_to_n8n_active_secret_file: str = ""
+    pwr_backend_to_n8n_previous_secret_file: str = ""
+    pwr_n8n_to_backend_active_secret_file: str = ""
+    pwr_n8n_to_backend_previous_secret_file: str = ""
+    n8n_webhook_secret_file: str = ""
+    n8n_callback_secret_file: str = ""
+
+    # Second layer of the request body limit (program register §3.8). The edge
+    # half lives in the Caddyfile (`request_body { max_size 16MB }`), but a
+    # direct n8n -> backend call on the private network never passes through
+    # Caddy, so the ASGI stack enforces the same bound itself. The default
+    # matches both the edge and n8n's N8N_PAYLOAD_SIZE_MAX=16 (MB).
+    max_request_body_bytes: int = Field(default=16 * 1024 * 1024, ge=1)
+
     workflow_registry_path: str = "../n8n/workflow-registry.json"
     dispatcher_enabled: bool = False
     dispatcher_poll_seconds: float = 2.0
@@ -283,7 +302,92 @@ def parse_origins(value: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in value.split(",") if item.strip())
 
 
+def read_secret(direct: str, file_path: str) -> str:
+    """Resolve one secret from either a direct value or a mounted file.
+
+    There is deliberately NO precedence rule. Configuring both forms of the
+    same secret raises instead of silently picking one: a precedence rule is
+    how two deployments end up disagreeing about which secret is actually
+    live, and the disagreement only surfaces as an authentication failure long
+    after the rotation.
+
+    A secret file readable by group or other is refused outright. `0o077`
+    covers every group and other bit, so `0600`/`0400` pass and `0640`/`0644`
+    do not.
+    """
+    if direct and file_path:
+        raise ValueError("Configure a secret value or a secret file, not both")
+    if file_path:
+        path = Path(file_path)
+        mode = stat.S_IMODE(path.stat().st_mode)
+        if mode & 0o077:
+            raise ValueError(
+                f"Secret file permissions are too broad ({mode:04o}); "
+                f"group and other must have no access: {path}"
+            )
+        return path.read_text(encoding="utf-8").strip()
+    return direct
+
+
+# (env var name, direct field, secret-file field). The env var name is what
+# `decode_secret_b64` and the validation errors quote, so a file-provided
+# secret reports the same identity as a directly configured one.
+SECRET_SOURCES: tuple[tuple[str, str, str], ...] = (
+    (
+        "SESSION_THROTTLE_HMAC_SECRET_B64",
+        "session_throttle_hmac_secret_b64",
+        "session_throttle_hmac_secret_file",
+    ),
+    (
+        "PWR_BACKEND_TO_N8N_ACTIVE_SECRET_B64",
+        "pwr_backend_to_n8n_active_secret_b64",
+        "pwr_backend_to_n8n_active_secret_file",
+    ),
+    (
+        "PWR_BACKEND_TO_N8N_PREVIOUS_SECRET_B64",
+        "pwr_backend_to_n8n_previous_secret_b64",
+        "pwr_backend_to_n8n_previous_secret_file",
+    ),
+    (
+        "PWR_N8N_TO_BACKEND_ACTIVE_SECRET_B64",
+        "pwr_n8n_to_backend_active_secret_b64",
+        "pwr_n8n_to_backend_active_secret_file",
+    ),
+    (
+        "PWR_N8N_TO_BACKEND_PREVIOUS_SECRET_B64",
+        "pwr_n8n_to_backend_previous_secret_b64",
+        "pwr_n8n_to_backend_previous_secret_file",
+    ),
+    ("N8N_WEBHOOK_SECRET", "n8n_webhook_secret", "n8n_webhook_secret_file"),
+    ("N8N_CALLBACK_SECRET", "n8n_callback_secret", "n8n_callback_secret_file"),
+)
+
+
+def resolve_secrets(candidate: Settings) -> dict[str, str]:
+    """Resolve every direct/file secret pair exactly once.
+
+    Callers that need more than one secret must use this rather than calling
+    `read_secret` per site, so a file is opened once per resolution and every
+    downstream consumer sees the same resolved string.
+    """
+    resolved: dict[str, str] = {}
+    for name, direct_field, file_field in SECRET_SOURCES:
+        try:
+            resolved[name] = read_secret(
+                getattr(candidate, direct_field), getattr(candidate, file_field)
+            )
+        except (ValueError, OSError) as exc:
+            raise ValueError(f"{name}: {exc}") from exc
+    return resolved
+
+
 def validate_runtime_security(candidate: Settings) -> None:
+    # Resolve BEFORE the profile gate: configuring both forms of one secret,
+    # or mounting a group-readable secret file, is a configuration defect in
+    # every runtime profile and must fail startup rather than wait until the
+    # first request reaches a downstream factory.
+    resolved = resolve_secrets(candidate)
+
     if candidate.runtime_profile != "production":
         return
 
@@ -301,18 +405,20 @@ def validate_runtime_security(candidate: Settings) -> None:
         raise ValueError(
             "Every production Odoo profile requires an Odoo service credential"
         )
-    if len(candidate.n8n_webhook_secret.encode("utf-8")) < 32:
+    # Every check below reads the RESOLVED value, never the direct field, so a
+    # file-only production configuration passes exactly the same checks as a
+    # direct-value test configuration.
+    if len(resolved["N8N_WEBHOOK_SECRET"].encode("utf-8")) < 32:
         raise ValueError("native n8n webhook credential must be at least 32 bytes")
-    if len(candidate.n8n_callback_secret.encode("utf-8")) < 32:
+    if len(resolved["N8N_CALLBACK_SECRET"].encode("utf-8")) < 32:
         raise ValueError("legacy callback credential must be at least 32 bytes")
 
-    required_b64 = {
-        "SESSION_THROTTLE_HMAC_SECRET_B64": candidate.session_throttle_hmac_secret_b64,
-        "PWR_BACKEND_TO_N8N_ACTIVE_SECRET_B64": candidate.pwr_backend_to_n8n_active_secret_b64,
-        "PWR_N8N_TO_BACKEND_ACTIVE_SECRET_B64": candidate.pwr_n8n_to_backend_active_secret_b64,
-    }
-    for name, value in required_b64.items():
-        decode_secret_b64(name, value)
+    for name in (
+        "SESSION_THROTTLE_HMAC_SECRET_B64",
+        "PWR_BACKEND_TO_N8N_ACTIVE_SECRET_B64",
+        "PWR_N8N_TO_BACKEND_ACTIVE_SECRET_B64",
+    ):
+        decode_secret_b64(name, resolved[name])
 
     if not candidate.pwr_backend_to_n8n_active_key_id:
         raise ValueError("backend-to-n8n active key ID is required")
@@ -322,12 +428,12 @@ def validate_runtime_security(candidate: Settings) -> None:
     previous_pairs = (
         (
             candidate.pwr_backend_to_n8n_previous_key_id,
-            candidate.pwr_backend_to_n8n_previous_secret_b64,
+            resolved["PWR_BACKEND_TO_N8N_PREVIOUS_SECRET_B64"],
             "PWR_BACKEND_TO_N8N_PREVIOUS_SECRET_B64",
         ),
         (
             candidate.pwr_n8n_to_backend_previous_key_id,
-            candidate.pwr_n8n_to_backend_previous_secret_b64,
+            resolved["PWR_N8N_TO_BACKEND_PREVIOUS_SECRET_B64"],
             "PWR_N8N_TO_BACKEND_PREVIOUS_SECRET_B64",
         ),
     )

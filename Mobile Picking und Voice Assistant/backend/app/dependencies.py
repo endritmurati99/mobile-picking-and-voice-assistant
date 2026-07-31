@@ -20,7 +20,13 @@ from app.services.llm_client import LlmClient
 from app.services.n8n_webhook import N8NWebhookClient
 from app.services.odoo_client import OdooClient
 from app.services.picking_service import PickingService
-from app.config import settings, decode_secret_b64, get_instance_registry, parse_origins
+from app.config import (
+    settings,
+    decode_secret_b64,
+    get_instance_registry,
+    parse_origins,
+    read_secret,
+)
 from app.models.auth import Principal
 # Task 10 additions (kept as separate import lines so concurrent branches that
 # touch the block above merge cleanly).
@@ -101,7 +107,11 @@ def get_session_service() -> SessionService:
         client_factory=_get_cached_client,
         instance_names=set(get_instance_registry().keys()),
         throttle_secret=decode_secret_b64(
-            "SESSION_THROTTLE_HMAC_SECRET_B64", settings.session_throttle_hmac_secret_b64
+            "SESSION_THROTTLE_HMAC_SECRET_B64",
+            read_secret(
+                settings.session_throttle_hmac_secret_b64,
+                settings.session_throttle_hmac_secret_file,
+            ),
         ),
         allowed_origins=set(parse_origins(settings.pwa_origins)),
         session_seconds=settings.session_max_age_seconds,
@@ -460,7 +470,19 @@ def require_roles(*required: str) -> Callable:
 def require_n8n_callback_secret(
     provided_secret: str | None = Header(default=None, alias="X-N8N-Callback-Secret"),
 ) -> None:
-    expected_secret = settings.n8n_callback_secret
+    try:
+        expected_secret = read_secret(
+            settings.n8n_callback_secret, settings.n8n_callback_secret_file
+        )
+    except (ValueError, OSError) as exc:
+        # An unreadable/misconfigured secret file is a 503 exactly like a
+        # missing secret -- never a 500 that leaks the path, and never an
+        # open route.
+        logger.error("N8N callback secret is not resolvable: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail="N8N callback secret ist nicht konfiguriert.",
+        ) from exc
     if not expected_secret:
         raise HTTPException(
             status_code=503,
@@ -509,7 +531,10 @@ def build_n8n_to_backend_keyring(candidate: Settings) -> HmacKeyring:
         candidate.pwr_n8n_to_backend_active_key_id,
         decode_secret_b64(
             "PWR_N8N_TO_BACKEND_ACTIVE_SECRET_B64",
-            candidate.pwr_n8n_to_backend_active_secret_b64,
+            read_secret(
+                candidate.pwr_n8n_to_backend_active_secret_b64,
+                candidate.pwr_n8n_to_backend_active_secret_file,
+            ),
         ),
     )
     previous = None
@@ -518,7 +543,10 @@ def build_n8n_to_backend_keyring(candidate: Settings) -> HmacKeyring:
             candidate.pwr_n8n_to_backend_previous_key_id,
             decode_secret_b64(
                 "PWR_N8N_TO_BACKEND_PREVIOUS_SECRET_B64",
-                candidate.pwr_n8n_to_backend_previous_secret_b64,
+                read_secret(
+                    candidate.pwr_n8n_to_backend_previous_secret_b64,
+                    candidate.pwr_n8n_to_backend_previous_secret_file,
+                ),
             ),
         )
     return HmacKeyring(active=active, previous=previous)
@@ -531,7 +559,7 @@ def get_n8n_to_backend_keyring() -> HmacKeyring:
     # Key-Rotation keinen Prozess-Neustart braucht.
     try:
         return build_n8n_to_backend_keyring(settings)
-    except ValueError as exc:
+    except (ValueError, OSError) as exc:
         # Fehlendes/ungueltiges Secret => 503, exakt wie
         # `require_n8n_callback_secret` fuer den Legacy-Pfad. Es gibt keinen
         # Fallback-Key: ohne Konfiguration ist die Route geschlossen. Der Grund

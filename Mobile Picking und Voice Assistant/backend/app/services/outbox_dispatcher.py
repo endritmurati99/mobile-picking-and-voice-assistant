@@ -39,7 +39,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable
 
-from app.config import Settings, decode_secret_b64, get_instance_registry
+from app.config import Settings, decode_secret_b64, get_instance_registry, read_secret
 from app.models.webhook_security import HmacKey
 from app.services.signed_webhook_transport import SignedWebhookTransport
 
@@ -253,12 +253,17 @@ def build_outbox_dispatcher(
         candidate.pwr_backend_to_n8n_active_key_id,
         decode_secret_b64(
             "PWR_BACKEND_TO_N8N_ACTIVE_SECRET_B64",
-            candidate.pwr_backend_to_n8n_active_secret_b64,
+            read_secret(
+                candidate.pwr_backend_to_n8n_active_secret_b64,
+                candidate.pwr_backend_to_n8n_active_secret_file,
+            ),
         ),
     )
     transport = SignedWebhookTransport(
         base_url=candidate.n8n_webhook_base.removesuffix("/webhook"),
-        native_header_secret=candidate.n8n_webhook_secret,
+        native_header_secret=read_secret(
+            candidate.n8n_webhook_secret, candidate.n8n_webhook_secret_file
+        ),
         signing_key=signing_key,
     )
     instances = tuple(get_instance_registry(candidate))
