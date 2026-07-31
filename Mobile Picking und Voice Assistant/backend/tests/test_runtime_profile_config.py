@@ -255,3 +255,32 @@ def test_reject_removed_env_vars_catches_a_lowercase_dotenv_entry(tmp_path):
 def test_reject_removed_env_vars_catches_a_lowercase_process_env_entry():
     with pytest.raises(ValueError, match="CORS_ORIGINS"):
         reject_removed_env_vars({"cors_origins": "*"}, env_file=None)
+
+
+def test_get_session_service_allowed_origins_uses_the_shared_parse_origins(monkeypatch):
+    """Minor 5 (cross-lane merge review): the CORS allowlist (app/main.py)
+    and the SessionService Origin allowlist (app/dependencies.py) must be
+    derived from the same `parse_origins()` function, not two independent
+    hand-rolled splits that can silently drift apart (e.g. if parse_origins
+    later learns to lowercase or strip trailing slashes).
+
+    This pins the *source*, not just today's identical behaviour: it
+    monkeypatches the `parse_origins` name inside app.dependencies and
+    asserts the SessionService actually receives what that function
+    returns. An inline `settings.pwa_origins.split(",")` in dependencies.py
+    would not be affected by this monkeypatch and would make this test fail.
+    """
+    from app import dependencies
+
+    sentinel_origins = ("https://sentinel.example.com",)
+    monkeypatch.setattr(dependencies, "parse_origins", lambda value: sentinel_origins)
+    monkeypatch.setattr(dependencies.settings, "pwa_origins", "https://real.example.com")
+    monkeypatch.setattr(
+        dependencies.settings, "session_throttle_hmac_secret_b64", _b64_secret()
+    )
+    dependencies.get_session_service.cache_clear()
+    try:
+        service = dependencies.get_session_service()
+        assert service._allowed_origins == set(sentinel_origins)
+    finally:
+        dependencies.get_session_service.cache_clear()
