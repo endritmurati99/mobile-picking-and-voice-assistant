@@ -15,9 +15,10 @@ COMPOSE_FILE="${COMPOSE_FILE:-$ROOT_DIR/docker-compose.yml}"
 # ./n8n/scripts read-only into the n8n container at this path (or set
 # N8N_SCRIPTS_CONTAINER_PATH to wherever it is actually mounted).
 CONTAINER_SCRIPT_PATH="${N8N_SCRIPTS_CONTAINER_PATH:-/home/node/scripts/provision-credentials.mjs}"
-# The only account allowed to own these secret files. Docker secrets are
-# normally root-owned on the host; override only if your deployment
-# provisions them under a different, explicitly intended account.
+# The account that reads these secret files in THIS namespace -- see THE RULE
+# above check_secret_permissions. Docker secrets are normally root-owned on
+# the host; override only if your deployment provisions them under a
+# different, explicitly intended account.
 PWR_SECRET_OWNER="${PWR_SECRET_OWNER:-root}"
 
 # Overridable so tests can point at a synthetic secret directory without
@@ -56,6 +57,21 @@ leave the container.
 EOF
 }
 
+# THE RULE for a credential secret file -- ONE predicate, enforced by both
+# halves of this check:
+#
+#   a regular file, with NO group or other permission bits
+#   (mode & 0077 == 0), owned by the account that reads it.
+#
+# The mask is the rule, not a list of blessed literals. What is being
+# protected is "no account but the owner can read this"; 0600, 0400 and 0700
+# are indistinguishable from an attacker's position, because the group and
+# other bits are the entire question. This used to demand the mode be
+# literally 600 or 400, which refused 0700 and 0500 while buying no
+# protection -- and, worse, disagreed with the container half, so an
+# operator who satisfied one tripped the other and neither error message
+# named a rule both sides actually enforced.
+#
 # EARLY CONVENIENCE CHECK -- NOT THE SECURITY BOUNDARY.
 #
 # This inspects paths in the HOST namespace, but provision-credentials.mjs
@@ -63,7 +79,17 @@ EOF
 # file. Passing here therefore says nothing about what will actually be
 # read. Its only job is to fail a misconfigured host loudly and early,
 # before anything reaches docker. The check that counts sits immediately
-# before the read, in n8n/scripts/provision-credentials.mjs, and uses lstat.
+# before the read, in n8n/scripts/provision-credentials.mjs, on the very
+# descriptor it reads from (open with O_NOFOLLOW, then fstat) -- it enforces
+# THE RULE above, and this half was moved onto that predicate rather than
+# the other way round.
+#
+# "The account that reads it" is namespace-local: here it is the host
+# account the secrets are provisioned under (PWR_SECRET_OWNER); in the
+# container it is the uid the n8n process runs as, which the container half
+# reads from the process itself. Neither side can observe the other's
+# namespace, which is exactly why this one is a preflight and not a
+# boundary.
 #
 # A missing file is a hard failure here. It used to return 0, which meant a
 # host with no secrets at all sailed straight through to docker; callers
@@ -81,14 +107,16 @@ check_secret_permissions() {
   fi
   local mode
   mode="$(stat -c '%a' "$path" 2>/dev/null || stat -f '%Lp' "$path" 2>/dev/null || echo '')"
-  if [[ -n "$mode" && "$mode" != "600" && "$mode" != "400" ]]; then
-    echo "ERROR: $path has mode $mode; expected 600 or 400" >&2
+  # 8#"$mode" so a leading zero (or a set-uid/sticky prefix) is read as the
+  # octal it is printed as, never as decimal.
+  if [[ -n "$mode" ]] && (( (8#$mode & 8#77) != 0 )); then
+    echo "ERROR: $path has mode $mode; a credential secret file must have no group or other permission bits" >&2
     exit 1
   fi
   local owner
   owner="$(stat -c '%U' "$path" 2>/dev/null || stat -f '%Su' "$path" 2>/dev/null || echo '')"
   if [[ -n "$owner" && "$owner" != "$PWR_SECRET_OWNER" ]]; then
-    echo "ERROR: $path is owned by '$owner', not the permitted owner '$PWR_SECRET_OWNER'" >&2
+    echo "ERROR: $path is owned by '$owner'; a credential secret file must be owned by the account that reads it (expected '$PWR_SECRET_OWNER' in this namespace)" >&2
     exit 1
   fi
 }
