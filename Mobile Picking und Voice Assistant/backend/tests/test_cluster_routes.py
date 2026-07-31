@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from app.dependencies import get_cluster_service, get_required_picker_identity
 from app.main import app
 from app.services.mobile_workflow import PickerIdentity
+from tests.conftest import BROWSER_GATE_HEADERS, install_browser_gate
 
 
 @pytest.fixture
@@ -15,10 +16,14 @@ def cluster_service():
 
 
 @pytest.fixture
-def client(cluster_service):
+def client(cluster_service, sample_principal):
     app.dependency_overrides[get_cluster_service] = lambda: cluster_service
     app.dependency_overrides[get_required_picker_identity] = lambda: PickerIdentity(user_id=7)
-    yield TestClient(app)
+    # Task 16: diese Datei prueft Cluster-FACHLICHKEIT. Das App-weite Gate
+    # (Session, Origin/CSRF, Idempotency-Key) wird in
+    # tests/test_route_security.py bewiesen und hier nur erfuellt.
+    install_browser_gate(app, sample_principal)
+    yield TestClient(app, headers=BROWSER_GATE_HEADERS)
     app.dependency_overrides.clear()
 
 

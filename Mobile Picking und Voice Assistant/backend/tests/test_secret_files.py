@@ -289,11 +289,11 @@ def test_session_service_throttle_secret_builds_from_a_file(tmp_path, monkeypatc
 
     candidate = file_production_settings(tmp_path)
     monkeypatch.setattr(dependencies, "settings", candidate)
-    dependencies.get_session_service.cache_clear()
+    dependencies._build_session_service.cache_clear()
     try:
-        service = dependencies.get_session_service()
+        service = dependencies._build_session_service()
     finally:
-        dependencies.get_session_service.cache_clear()
+        dependencies._build_session_service.cache_clear()
     assert service._throttle_secret == b"0" * 32
 
 

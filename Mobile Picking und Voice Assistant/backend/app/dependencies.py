@@ -3,6 +3,7 @@ from collections.abc import Callable
 from functools import lru_cache
 import inspect
 import logging
+import re
 import secrets
 import threading
 
@@ -28,6 +29,7 @@ from app.config import (
     read_secret,
 )
 from app.models.auth import Principal
+from app.route_policy import MUTATING_METHODS, requires_idempotency_key
 # Task 10 additions (kept as separate import lines so concurrent branches that
 # touch the block above merge cleanly).
 from dataclasses import dataclass
@@ -96,7 +98,7 @@ def resolve_instance(
 
 
 @lru_cache()
-def get_session_service() -> SessionService:
+def _build_session_service() -> SessionService:
     """Ein gecachter SessionService fuer alle Instanzen (analog zu `_get_cached_client`).
 
     Nutzt niemals ein anderes globales Settings-Objekt als `app.config.settings` und
@@ -117,6 +119,26 @@ def get_session_service() -> SessionService:
         session_seconds=settings.session_max_age_seconds,
         revalidate_seconds=settings.session_role_revalidate_seconds,
     )
+
+
+def get_session_service() -> SessionService:
+    """Fail-closed Wrapper um `_build_session_service`.
+
+    Ein fehlendes oder unlesbares `SESSION_THROTTLE_HMAC_SECRET_B64` ist eine
+    Fehlkonfiguration, kein Programmfehler: vorher schlug `decode_secret_b64`
+    hier mitten in der Dependency-Aufloesung durch und jede geschuetzte Route
+    antwortete 500 (Stacktrace mit Secret-Namen im Log, Antwort ohne
+    verwertbare Information). Jetzt gilt dieselbe Regel wie fuer jedes andere
+    fehlende Secret in dieser Datei: 503, Route geschlossen, Grund nur im Log.
+    """
+    try:
+        return _build_session_service()
+    except (ValueError, OSError) as exc:
+        logger.error("Session service is not configured: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail="Session service ist nicht konfiguriert.",
+        ) from exc
 
 
 async def get_current_principal(
@@ -376,6 +398,116 @@ async def require_browser_csrf(
     principal: Principal = Depends(get_current_principal),
     sessions: SessionService = Depends(get_session_service),
 ) -> None:
+    try:
+        await sessions.validate_csrf(
+            principal,
+            x_csrf_token,
+            request.headers.get("Origin"),
+        )
+    except CsrfFailed as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Task 16 / Befund #2b: die App-weiten Gates. Sie werden AUSSCHLIESSLICH beim
+# Router-Einschluss in `main.create_app` verdrahtet -- kein Router-Body kennt
+# sie, und kein Router-Body kann sie umgehen.
+# ---------------------------------------------------------------------------
+
+_IDEMPOTENCY_KEY = re.compile(r"[\x21-\x7e]{1,128}")
+
+
+def validate_idempotency_key(value: str | None) -> str:
+    """1 bis 128 sichtbare ASCII-Zeichen, sonst 400.
+
+    `fullmatch` und der explizite Bereich \\x21-\\x7e schliessen Leerzeichen,
+    Tab, CR/LF und jedes Nicht-ASCII aus. Ein Schluessel mit Zeilenumbruch
+    landet sonst in Logs und in Odoo-Suchdomains, und ein leerer Schluessel
+    wuerde als "kein Schluessel" durchrutschen.
+    """
+    if value is None or not _IDEMPOTENCY_KEY.fullmatch(value):
+        raise HTTPException(
+            status_code=400,
+            detail="Idempotency-Key must contain 1 to 128 visible ASCII characters.",
+        )
+    return value
+
+
+def require_domain_idempotency(
+    request: Request,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> None:
+    """Erzwingt einen syntaktisch gueltigen Idempotency-Key auf jeder Mutation
+    eines Browser-Routers, ausser auf den in `route_policy` benannten Ausnahmen.
+
+    Die Klassifikation haengt am ROUTEN-TEMPLATE (`scope["route"].path`), nicht
+    am konkreten Pfad: eine Regex ueber `request.url.path` haette sonst ueber
+    prozentkodierte oder mit Slash-Varianten geschriebene Pfade umgangen werden
+    koennen.
+    """
+    route = request.scope.get("route")
+    route_path = getattr(route, "path", None)
+    if route_path is None:
+        # Kein aufgeloestes Routen-Template => keine Klassifikation moeglich.
+        # Fail closed: jede Mutation braucht dann einen Schluessel.
+        if request.method in MUTATING_METHODS:
+            validate_idempotency_key(idempotency_key)
+        return
+    if requires_idempotency_key(request.method, route_path):
+        validate_idempotency_key(idempotency_key)
+
+
+async def require_browser_session(request: Request) -> None:
+    """Auth-Gate fuer die Browser-Router, gesetzt beim App-Einschluss.
+
+    Bewusst NICHT `Depends(get_current_principal)`: dieses Gate haengt an
+    JEDER Route dieser Router, auch an denen, die im Grace-Mode weiterhin ueber
+    Legacy-Header identifiziert werden duerfen. Es benutzt darum denselben
+    Resolver wie `get_write_request_context` -- eine zweite, abweichende
+    Auth-Semantik im selben Prozess waere genau die Art Inkonsistenz, aus der
+    Umgehungen entstehen.
+
+    In production ist Grace-Mode durch `validate_runtime_security` verboten,
+    das Gate also strikt session-gebunden.
+    """
+    principal = await _resolve_principal_or_none_for_grace(request)
+    if principal is not None:
+        return
+    if not _grace_mode_active():
+        raise HTTPException(
+            status_code=401, detail="Ungueltige oder abgelaufene Sitzung."
+        )
+    # Grace-Mode: die Route validiert die Legacy-Identitaet selbst
+    # (`get_required_picker_identity`) -- unveraendert gegenueber Task 7.
+
+
+async def require_csrf_on_browser_mutation(
+    request: Request,
+    x_csrf_token: str | None = Header(default=None, alias="X-CSRF-Token"),
+) -> None:
+    """CSRF-/Origin-Gate fuer jede zustandsaendernde Methode.
+
+    Lesende Anfragen bleiben ungefiltert -- ein GET, das ein CSRF-Token
+    verlangt, ist kein Schutz, sondern ein Ausfall.
+
+    Der Origin-Vergleich selbst liegt in `SessionService._require_origin` und
+    ist exakte Mengenzugehoerigkeit; `test_route_security.py` nagelt Praefix-,
+    Suffix-, Schema-, Port- und `null`-Varianten fest.
+
+    Ohne Session gilt exakt dieselbe Regel wie in `get_write_request_context`:
+    in production 401 (Grace-Mode ist dort verboten), im Grace-Mode kein
+    CSRF -- Legacy-Header-Clients hatten nie eines.
+    """
+    if request.method not in MUTATING_METHODS:
+        return
+    principal = await _resolve_principal_or_none_for_grace(request)
+    if principal is None:
+        if not _grace_mode_active():
+            raise HTTPException(
+                status_code=401, detail="Ungueltige oder abgelaufene Sitzung."
+            )
+        return
+    sessions = _resolve_session_service(request)
     try:
         await sessions.validate_csrf(
             principal,

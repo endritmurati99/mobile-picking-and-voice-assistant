@@ -1,8 +1,9 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings, parse_origins, reject_wildcard_origins_with_credentials
 from app.middleware import RequestBodySizeLimitMiddleware
+from app.route_policy import assert_exemptions_are_real_routes, collect_routes
 from app.routers import auth, cluster, demo, health, instances, integration, llm, n8n_internal, obsidian, pickings, quality, scan, voice
 # Task 10: eigene Importzeile, damit parallele Branches die Zeile oben nicht anfassen muessen.
 from app.routers import n8n_v2
@@ -14,7 +15,13 @@ import threading  # noqa: E402
 from contextlib import asynccontextmanager  # noqa: E402
 
 from app.config import Settings, get_instance_registry  # noqa: E402
-from app.dependencies import get_integration_watchdog, get_outbox_dispatcher  # noqa: E402
+from app.dependencies import (  # noqa: E402
+    get_integration_watchdog,
+    get_outbox_dispatcher,
+    require_browser_session,
+    require_csrf_on_browser_mutation,
+    require_domain_idempotency,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -91,49 +98,98 @@ def build_lifespan(candidate_settings: Settings):
     return app_lifespan
 
 
-app = FastAPI(
-    title="Picking Assistant API",
-    version="0.1.0",
-    docs_url="/api/docs",
-    openapi_url="/api/openapi.json",
-    lifespan=build_lifespan(settings),
-)
+def create_app(candidate_settings: Settings = settings) -> FastAPI:
+    """Baut EINE Anwendung aus EINER Settings-Instanz.
 
-_pwa_origins = parse_origins(settings.pwa_origins)
-# Unconditional, in every runtime profile -- see reject_wildcard_origins_with_credentials.
-reject_wildcard_origins_with_credentials(_pwa_origins, allow_credentials=True)
+    Task 16: die Sicherheitshaltung einer App wird ausschliesslich hier, beim
+    Router-Einschluss, festgelegt -- keine Route bringt ihr eigenes Gate mit.
+    """
+    production = candidate_settings.runtime_profile == "production"
+    application = FastAPI(
+        title="Picking Assistant API",
+        version="0.1.0",
+        # Die Schema-Oberflaeche ist in production nicht bloss am Edge
+        # geblockt, sondern gar nicht erst gebaut: der Edge-Deny-Liste zu
+        # vertrauen hiesse, dass ein direkter Treffer auf den Container (etwa
+        # aus dem automation-net) das ganze Routenverzeichnis ausliefert.
+        docs_url=None if production else "/api/docs",
+        redoc_url=None if production else "/api/redoc",
+        openapi_url=None if production else "/api/openapi.json",
+        lifespan=build_lifespan(candidate_settings),
+    )
 
-# Task 15 / register §3.8, second layer: added BEFORE the CORS middleware so
-# that CORS ends up OUTSIDE it (`add_middleware` inserts at the front of the
-# stack, so the last one added is the outermost). A 413 therefore still
-# carries the CORS headers the PWA needs in order to read it, while the
-# limiter still sits above every route and above signature verification.
-app.add_middleware(
-    RequestBodySizeLimitMiddleware,
-    max_body_bytes=settings.max_request_body_bytes,
-)
+    pwa_origins = parse_origins(candidate_settings.pwa_origins)
+    # Unconditional, in every runtime profile -- see reject_wildcard_origins_with_credentials.
+    reject_wildcard_origins_with_credentials(pwa_origins, allow_credentials=True)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=list(_pwa_origins),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+    # Task 15 / register §3.8, second layer: added BEFORE the CORS middleware so
+    # that CORS ends up OUTSIDE it (`add_middleware` inserts at the front of the
+    # stack, so the last one added is the outermost). A 413 therefore still
+    # carries the CORS headers the PWA needs in order to read it, while the
+    # limiter still sits above every route and above signature verification.
+    application.add_middleware(
+        RequestBodySizeLimitMiddleware,
+        max_body_bytes=candidate_settings.max_request_body_bytes,
+    )
 
-app.include_router(auth.router, prefix="/api", tags=["auth"])
-app.include_router(health.router, prefix="/api", tags=["health"])
-app.include_router(pickings.router, prefix="/api", tags=["pickings"])
-app.include_router(cluster.router, prefix="/api", tags=["cluster"])
-app.include_router(quality.router, prefix="/api", tags=["quality"])
-app.include_router(voice.router, prefix="/api", tags=["voice"])
-app.include_router(scan.router, prefix="/api", tags=["scan"])
-app.include_router(integration.router, prefix="/api", tags=["integration"])
-app.include_router(obsidian.router, prefix="/api", tags=["obsidian"])
-app.include_router(n8n_internal.router, prefix="/api")
-app.include_router(llm.router, prefix="/api")
-app.include_router(instances.router, prefix="/api", tags=["instances"])
-app.include_router(demo.router, prefix="/api", tags=["demo"])
-# Task 10: signierte v2-Routen, wie n8n_internal unter /api gemountet. Der
-# Legacy-Router n8n_internal bleibt bewusst daneben bestehen (v1).
-app.include_router(n8n_v2.router, prefix="/api", tags=["n8n-v2"])
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(pwa_origins),
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # Pre-auth: die einzigen beiden Router, die eine Anfrage ohne Sitzung
+    # ueberhaupt erreichen darf. `auth` traegt sein eigenes, feineres Gate
+    # (nur /auth/instances und /auth/picker-session sind wirklich offen,
+    # /auth/me, /auth/csrf und /auth/logout haengen an get_current_principal).
+    application.include_router(health.router, prefix="/api", tags=["health"])
+    application.include_router(auth.router, prefix="/api", tags=["auth"])
+
+    # Befund #2b: genau HIER wird das Gate verdrahtet. Es haengt am
+    # Router-Einschluss, nicht an einzelnen Handlern -- damit gibt es keine
+    # Route auf diesen Routern, die es vergessen kann, und der Voice-/Cluster-
+    # Track kann Routen hinzufuegen, ohne die Sicherheitshaltung zu kennen.
+    browser_dependencies = [
+        Depends(require_browser_session),
+        Depends(require_csrf_on_browser_mutation),
+        Depends(require_domain_idempotency),
+    ]
+    gated_routes: set[tuple[str, str]] = set()
+    for router, tag in (
+        (pickings.router, "pickings"),
+        (cluster.router, "cluster"),
+        (quality.router, "quality"),
+        (voice.router, "voice"),
+        (scan.router, "scan"),
+    ):
+        gated_routes |= collect_routes(router, prefix="/api")
+        application.include_router(
+            router,
+            prefix="/api",
+            tags=[tag],
+            dependencies=browser_dependencies,
+        )
+    assert_exemptions_are_real_routes(frozenset(gated_routes))
+    application.state.gated_routes = frozenset(gated_routes)
+
+    # Service-zu-Service: eigene Autorisierung (HMAC-Signatur bzw.
+    # Callback-Secret), nie Browser-Cookies. Am Edge zusaetzlich geblockt.
+    application.include_router(integration.router, prefix="/api", tags=["integration"])
+    application.include_router(n8n_internal.router, prefix="/api")
+    application.include_router(llm.router, prefix="/api")
+    # Task 10: signierte v2-Routen, wie n8n_internal unter /api gemountet. Der
+    # Legacy-Router n8n_internal bleibt bewusst daneben bestehen (v1).
+    application.include_router(n8n_v2.router, prefix="/api", tags=["n8n-v2"])
+
+    # Entwicklungs-Oberflaechen: in production nicht eingeschlossen. Die
+    # Caddy-Deny-Liste bleibt die zweite Schicht, ist aber nicht die einzige.
+    if not production:
+        application.include_router(obsidian.router, prefix="/api", tags=["obsidian"])
+        application.include_router(instances.router, prefix="/api", tags=["instances"])
+        application.include_router(demo.router, prefix="/api", tags=["demo"])
+    return application
+
+
+app = create_app(settings)

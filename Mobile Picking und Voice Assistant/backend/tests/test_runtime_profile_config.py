@@ -278,9 +278,9 @@ def test_get_session_service_allowed_origins_uses_the_shared_parse_origins(monke
     monkeypatch.setattr(
         dependencies.settings, "session_throttle_hmac_secret_b64", _b64_secret()
     )
-    dependencies.get_session_service.cache_clear()
+    dependencies._build_session_service.cache_clear()
     try:
-        service = dependencies.get_session_service()
+        service = dependencies._build_session_service()
         assert service._allowed_origins == set(sentinel_origins)
     finally:
-        dependencies.get_session_service.cache_clear()
+        dependencies._build_session_service.cache_clear()

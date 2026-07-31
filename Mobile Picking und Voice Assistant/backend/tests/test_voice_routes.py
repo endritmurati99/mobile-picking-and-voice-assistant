@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from app.config import settings
 from app.dependencies import get_n8n_client, get_odoo_client, get_picking_service, get_request_odoo_client
 from app.main import app
+from tests.conftest import BROWSER_GATE_HEADERS
 from app.routers import voice as voice_router
 from app.services.n8n_webhook import N8NEventResult, N8NReply
 
@@ -29,7 +30,7 @@ def test_voice_recognize_returns_additive_fields_and_detail_context(monkeypatch)
         AsyncMock(return_value="ja"),
     )
 
-    with TestClient(app) as client:
+    with TestClient(app, headers=BROWSER_GATE_HEADERS) as client:
         response = client.post(
             "/api/voice/recognize",
             data={
@@ -56,7 +57,7 @@ def test_voice_recognize_blocks_detail_confirm_in_list_context(monkeypatch):
         AsyncMock(return_value="ja"),
     )
 
-    with TestClient(app) as client:
+    with TestClient(app, headers=BROWSER_GATE_HEADERS) as client:
         response = client.post(
             "/api/voice/recognize",
             data={
@@ -82,7 +83,7 @@ def test_voice_recognize_allows_done_only_when_no_lines_remain(monkeypatch):
         AsyncMock(return_value="fertig"),
     )
 
-    with TestClient(app) as client:
+    with TestClient(app, headers=BROWSER_GATE_HEADERS) as client:
         done_response = client.post(
             "/api/voice/recognize",
             data={
@@ -118,7 +119,7 @@ def test_voice_recognize_blocks_done_when_last_line_is_still_active(monkeypatch)
         AsyncMock(return_value="fertig"),
     )
 
-    with TestClient(app) as client:
+    with TestClient(app, headers=BROWSER_GATE_HEADERS) as client:
         response = client.post(
             "/api/voice/recognize",
             data={
@@ -171,7 +172,7 @@ def test_voice_assist_returns_n8n_response():
     app.dependency_overrides[get_request_odoo_client] = lambda: odoo
 
     try:
-        with TestClient(app) as client:
+        with TestClient(app, headers=BROWSER_GATE_HEADERS) as client:
             response = client.post(
                 "/api/voice/assist",
                 json={
@@ -204,7 +205,7 @@ def test_voice_assist_returns_local_message_for_fast_path_intents():
     app.dependency_overrides[get_n8n_client] = lambda: n8n
 
     try:
-        with TestClient(app) as client:
+        with TestClient(app, headers=BROWSER_GATE_HEADERS) as client:
             response = client.post(
                 "/api/voice/assist",
                 json={
@@ -268,7 +269,7 @@ def test_voice_assist_triggers_shortage_event_from_local_fallback():
     app.dependency_overrides[get_request_odoo_client] = lambda: odoo
 
     try:
-        with TestClient(app) as client:
+        with TestClient(app, headers=BROWSER_GATE_HEADERS) as client:
             response = client.post(
                 "/api/voice/assist",
                 json={
@@ -352,7 +353,7 @@ def test_voice_assist_mentions_shortage_dispatch_failure():
     app.dependency_overrides[get_request_odoo_client] = lambda: odoo
 
     try:
-        with TestClient(app) as client:
+        with TestClient(app, headers=BROWSER_GATE_HEADERS) as client:
             response = client.post(
                 "/api/voice/assist",
                 json={

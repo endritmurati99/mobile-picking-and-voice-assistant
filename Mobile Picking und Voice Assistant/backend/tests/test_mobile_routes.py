@@ -13,6 +13,7 @@ from app.dependencies import (
     get_request_odoo_client,
 )
 from app.main import app
+from tests.conftest import BROWSER_GATE_HEADERS
 from app.services.mobile_workflow import (
     ClaimConflictError,
     IdempotencyReservation,
@@ -69,7 +70,7 @@ def test_list_pickers_returns_workflow_users():
     _override_dependencies(workflow=workflow)
 
     try:
-        with TestClient(app) as client:
+        with TestClient(app, headers=BROWSER_GATE_HEADERS) as client:
             response = client.get("/api/pickers")
     finally:
         app.dependency_overrides.clear()
@@ -92,7 +93,7 @@ def test_product_image_uses_requested_variant_and_falls_back_to_original():
     _override_dependencies(odoo=odoo)
 
     try:
-        with TestClient(app) as client:
+        with TestClient(app, headers=BROWSER_GATE_HEADERS) as client:
             response = client.get("/api/products/44/image?size=512")
     finally:
         app.dependency_overrides.clear()
@@ -123,7 +124,7 @@ def test_confirm_line_replays_cached_response_without_duplicate_write():
     _override_dependencies(workflow=workflow, picking_service=picking_service)
 
     try:
-        with TestClient(app) as client:
+        with TestClient(app, headers=BROWSER_GATE_HEADERS) as client:
             response = client.post(
                 "/api/pickings/44/confirm-line",
                 json={
@@ -159,7 +160,7 @@ def test_confirm_line_returns_409_for_conflicting_idempotency_key():
     _override_dependencies(workflow=workflow, picking_service=picking_service)
 
     try:
-        with TestClient(app) as client:
+        with TestClient(app, headers=BROWSER_GATE_HEADERS) as client:
             response = client.post(
                 "/api/pickings/44/confirm-line",
                 json={
@@ -190,7 +191,7 @@ def test_confirm_line_fingerprint_and_service_call_include_serial_number():
     _override_dependencies(workflow=workflow, picking_service=picking_service)
 
     try:
-        with TestClient(app) as client:
+        with TestClient(app, headers=BROWSER_GATE_HEADERS) as client:
             response = client.post(
                 "/api/pickings/44/confirm-line",
                 json={
@@ -235,7 +236,7 @@ def test_return_reconcile_requires_picker_and_calls_service():
     _override_dependencies(workflow=workflow, picking_service=picking_service)
 
     try:
-        with TestClient(app) as client:
+        with TestClient(app, headers=BROWSER_GATE_HEADERS) as client:
             response = client.post(
                 "/api/pickings/44/returns/reconcile",
                 json={"returned_serials": ["SN-1", "SN-X"]},
@@ -256,7 +257,7 @@ def test_return_reconcile_rejects_missing_picker_header():
     _override_dependencies(workflow=workflow, picking_service=picking_service)
 
     try:
-        with TestClient(app) as client:
+        with TestClient(app, headers=BROWSER_GATE_HEADERS) as client:
             response = client.post(
                 "/api/pickings/44/returns/reconcile",
                 json={"returned_serials": ["SN-1"]},
@@ -282,7 +283,7 @@ def test_claim_returns_409_when_another_picker_holds_the_lock():
     _override_dependencies(workflow=workflow)
 
     try:
-        with TestClient(app) as client:
+        with TestClient(app, headers=BROWSER_GATE_HEADERS) as client:
             response = client.post(
                 "/api/pickings/44/claim",
                 headers={
@@ -315,7 +316,7 @@ def test_quality_alert_replays_cached_response_without_duplicate_odoo_write():
     _override_dependencies(workflow=workflow, odoo=odoo, n8n=n8n)
 
     try:
-        with TestClient(app) as client:
+        with TestClient(app, headers=BROWSER_GATE_HEADERS) as client:
             response = client.post(
                 "/api/quality-alerts",
                 data={"description": "Palette beschaedigt", "priority": "2"},
@@ -341,7 +342,7 @@ def test_list_pickings_requires_picker_header():
     _override_dependencies(workflow=workflow, picking_service=picking_service)
 
     try:
-        with TestClient(app) as client:
+        with TestClient(app, headers=BROWSER_GATE_HEADERS) as client:
             response = client.get("/api/pickings")
     finally:
         app.dependency_overrides.clear()
@@ -359,7 +360,7 @@ def test_list_pickings_returns_403_for_inactive_picker():
     _override_dependencies(workflow=workflow, picking_service=picking_service)
 
     try:
-        with TestClient(app) as client:
+        with TestClient(app, headers=BROWSER_GATE_HEADERS) as client:
             response = client.get("/api/pickings", headers={"X-Picker-User-Id": "99"})
     finally:
         app.dependency_overrides.clear()
@@ -376,7 +377,7 @@ def test_confirm_line_requires_full_identity_headers():
     _override_dependencies(workflow=workflow, picking_service=picking_service)
 
     try:
-        with TestClient(app) as client:
+        with TestClient(app, headers=BROWSER_GATE_HEADERS) as client:
             response = client.post(
                 "/api/pickings/44/confirm-line",
                 json={
@@ -403,7 +404,7 @@ def test_quality_alert_requires_full_identity_headers():
     _override_dependencies(workflow=workflow, odoo=odoo, n8n=n8n)
 
     try:
-        with TestClient(app) as client:
+        with TestClient(app, headers=BROWSER_GATE_HEADERS) as client:
             response = client.post(
                 "/api/quality-alerts",
                 data={"description": "Palette beschaedigt", "priority": "2"},
@@ -434,7 +435,7 @@ def test_quality_alert_uses_local_fallback_when_n8n_dispatch_fails_after_odoo_cr
     _override_dependencies(workflow=workflow, odoo=odoo, n8n=n8n)
 
     try:
-        with TestClient(app) as client:
+        with TestClient(app, headers=BROWSER_GATE_HEADERS) as client:
             response = client.post(
                 "/api/quality-alerts",
                 data={"description": "Palette beschaedigt", "priority": "2"},
