@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import sys
 from dataclasses import dataclass
@@ -16,14 +17,58 @@ DEFAULT_REGISTRY_PATH = _REPO_ROOT / "n8n" / "workflow-registry.json"
 # `infrastructure/` at all). The single declaration therefore lives on the side
 # that exists in BOTH trees, and this side -- which always has the repo -- is
 # the one that reaches across. See backend/app/services/workflow_generations.py.
-_BACKEND_ROOT = _REPO_ROOT / "backend"
-if str(_BACKEND_ROOT) not in sys.path:
-    sys.path.insert(0, str(_BACKEND_ROOT))
-
-from app.services.workflow_generations import (  # noqa: E402
-    GRANDFATHERED_V1_FILES,
-    KNOWN_GENERATIONS,
+#
+# The reach-across no longer mutates sys.path. It used to be
+# `sys.path.insert(0, <repo>/backend)` -- a process-wide side effect for a
+# single module lookup, at position 0, in front of everything including the
+# directory the process was started from. `backend/` contains a `tests/`
+# PACKAGE (it has an `__init__.py`; `infrastructure/tests/` has none), so
+# merely importing this module made the bare name `tests` resolve to
+# `backend/tests` for the rest of the process. Nothing depends on that today
+# and both suites are green, but only because pytest happens to name the two
+# trees' test modules differently -- a property of the runner, not one this
+# repository states or enforces anywhere.
+#
+# Two paths, in this order, and the order is the point:
+#
+# 1. The ordinary import first, so that when `backend/` IS importable (the
+#    backend suite, the combined run, anything running backend code) both
+#    readers get the SAME module object out of sys.modules. That identity is
+#    itself a guard -- backend/tests/test_workflow_targets.py asserts
+#    `workflow_targets.KNOWN_GENERATIONS is registry_known_generations` to
+#    catch a future copy before its contents can drift -- and loading by file
+#    path unconditionally would have quietly broken it by producing a second
+#    module object.
+# 2. Only if `app` is genuinely not importable (an infrastructure-only run
+#    from a bare checkout) fall back to loading the single declaration
+#    straight off disk. Still one declaration, still no path entry, so there
+#    is nothing left to shadow.
+#
+# Pinned by infrastructure/tests/test_workflow_registry_import_isolation.py.
+_GENERATIONS_MODULE = "app.services.workflow_generations"
+_GENERATIONS_PATH = (
+    _REPO_ROOT / "backend" / "app" / "services" / "workflow_generations.py"
 )
+
+
+def _load_generations():
+    try:
+        return importlib.import_module(_GENERATIONS_MODULE)
+    except ModuleNotFoundError:
+        pass
+    spec = importlib.util.spec_from_file_location(
+        "pwr_workflow_generations", _GENERATIONS_PATH
+    )
+    if spec is None or spec.loader is None:  # pragma: no cover - unreachable
+        raise ImportError(f"cannot load generation allowlist from {_GENERATIONS_PATH}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_generations = _load_generations()
+GRANDFATHERED_V1_FILES = _generations.GRANDFATHERED_V1_FILES
+KNOWN_GENERATIONS = _generations.KNOWN_GENERATIONS
 
 __all__ = [
     "GRANDFATHERED_V1_FILES",

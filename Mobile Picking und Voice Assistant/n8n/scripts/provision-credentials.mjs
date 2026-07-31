@@ -114,9 +114,31 @@ function decodeBase64Secret(label, base64Value) {
 }
 
 /**
- * The three properties a secret file must have. Pure and exported so every
- * branch -- including the ownership one -- is testable without root: feed it
- * a synthetic stat-like object.
+ * THE RULE for a credential secret file -- ONE predicate, enforced by both
+ * halves of this check:
+ *
+ *   a regular file, with NO group or other permission bits
+ *   (mode & 0o077 === 0), owned by the account that reads it.
+ *
+ * The mask is the rule, not a list of blessed literals: what is protected is
+ * "no account but the owner can read this", and the group/other bits are the
+ * entire question -- 0600, 0400 and 0700 are indistinguishable from an
+ * attacker's position. The host preflight in
+ * infrastructure/scripts/provision-n8n-credentials.sh used to demand the mode
+ * be literally 600 or 400 and has been moved onto THIS predicate, because
+ * this is the half that sits at the read. Both halves now phrase their
+ * refusals in the same words, so an operator reading either message learns
+ * the same rule.
+ *
+ * "The account that reads it" is namespace-local. In here that is this
+ * process's own uid, taken from the process rather than from a name, because
+ * this check runs immediately before this process reads the file: the uid
+ * that matters is the one doing the reading. The host half cannot see this
+ * namespace and checks the host owner it was configured with instead --
+ * which is why that half is a preflight and this one is the boundary.
+ *
+ * Pure and exported so every branch -- including the ownership one -- is
+ * testable without root: feed it a synthetic stat-like object.
  *
  * `info` MUST come from fstat on an already-open descriptor, never from a
  * second lookup by path. See readSecretFile.
@@ -126,10 +148,14 @@ export function assertSecretFileSafe(info, path) {
         throw new Error(`credential file ${path} is not a regular file`);
     }
     if ((info.mode & 0o077) !== 0) {
-        throw new Error(`credential file ${path} is group- or world-accessible`);
+        throw new Error(
+            `credential file ${path} must have no group or other permission bits`,
+        );
     }
     if (info.uid !== process.getuid()) {
-        throw new Error(`credential file ${path} is not owned by the runtime user`);
+        throw new Error(
+            `credential file ${path} must be owned by the account that reads it`,
+        );
     }
 }
 

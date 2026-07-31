@@ -123,7 +123,7 @@ test('readSecretFile refuses a group- or world-accessible secret', async () => {
         await chmod(path, 0o644);
         await assert.rejects(
             () => readSecretFile(path),
-            /group- or world-accessible/,
+            /must have no group or other permission bits/,
         );
     } finally {
         await rm(dir, {recursive: true, force: true});
@@ -178,7 +178,7 @@ test('assertSecretFileSafe rejects group- and world-accessible modes', () => {
     for (const mode of [0o100640, 0o100604, 0o100666, 0o100610, 0o100601]) {
         assert.throws(
             () => assertSecretFileSafe(statLike({mode}), '/run/secrets/x'),
-            /group- or world-accessible/,
+            /must have no group or other permission bits/,
             `mode ${mode.toString(8)} must be rejected`,
         );
     }
@@ -190,7 +190,7 @@ test('assertSecretFileSafe rejects a file owned by another user', () => {
     try {
         assert.throws(
             () => assertSecretFileSafe(statLike({uid: realGetuid()}), '/run/secrets/x'),
-            /not owned by the runtime user/,
+            /must be owned by the account that reads it/,
         );
     } finally {
         process.getuid = realGetuid;
