@@ -30,7 +30,7 @@ Spec: `docs/superpowers/specs/2026-07-23-platform-security-event-contracts-desig
 | 13 | Postgres role separation | **live acceptance PARTIAL** — see the R4 entry; two endpoints are not achievable as specified |
 | 14 | n8n credential management | done, R3 defects closed |
 | 15 | Custom n8n image, network boundaries, Caddy, TLS | **STARTABLE** — 12's gate is open; scope amended, see §3, and it inherits four things the cutover deliberately did not do |
-| 16 | Production route surface and browser idempotency | **blocked** — plan L7999 declares it consumes Task 12 and Task 15 |
+| 16 | Production route surface and browser idempotency | **security half DONE** (`27c58c0`) — **finding #2b is CLOSED**; the `RuntimeServices` half is not started |
 | 17 | Two-database, concurrency, restart, rollout gates | blocked by everything above |
 
 ### The Odoo-19 cutover was EXECUTED on 2026-07-31
@@ -472,6 +472,17 @@ Finding #14 is therefore **remediated, pending only the fix round's review**.
   the container. That cannot be settled until the deployment path exists, because `docker-compose.yml`
   declares no `secrets:` block, mounts nothing at `/run/secrets`, and does not mount `./n8n/scripts`
   into the container. Until then neither half of #16 runs in anger.
+
+- **CORRECTION 2026-07-31, measured: the recorded remedy does not exist in Compose.** Outside swarm
+  mode, Docker Compose **ignores `uid`, `gid` and `mode`** on a secret — it warns and drops them. So
+  "set `uid`, `gid` and `mode` explicitly" cannot be carried out, and the `secrets:` block now in
+  `docker-compose.yml` is decorative. Two further measurements from the same session: a **missing**
+  secret file does not fail `up`, it silently becomes a world-writable **directory**; and a bind
+  mount from this Windows-hosted checkout arrives `0777 root:root` inside the container, which
+  `read_secret` refuses outright, because `chmod` is a no-op on that drvfs mount. **The obligation
+  stands, its remedy does not.** File-based secrets need swarm mode, a Linux-native checkout, or an
+  entrypoint that materialises the files at the right mode inside the container. Until then
+  `*_SECRET_FILE` stays opt-in and the backend uses direct environment variables.
 
 - **Compose `secrets:` must set `uid`, `gid` and `mode`.** R3 Task 3 moved the credential-file
   permission check into the container, immediately before the read.
