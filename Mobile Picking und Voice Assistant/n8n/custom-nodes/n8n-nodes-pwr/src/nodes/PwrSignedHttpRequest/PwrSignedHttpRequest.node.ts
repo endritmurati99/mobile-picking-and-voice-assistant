@@ -55,6 +55,15 @@ export class PwrSignedHttpRequest implements INodeType {
         description: "Relative path only, e.g. /api/internal/n8n/v2/events/accept",
       },
       {
+        displayName: "Host",
+        name: "host",
+        type: "string",
+        default: "",
+        required: true,
+        description:
+          "Hostname this node is declared to reach, e.g. backend. Must equal the hostname of the bound pwrOutboundHmac credential's Base URL; execution fails closed otherwise.",
+      },
+      {
         displayName: "Body Mode",
         name: "bodyMode",
         type: "options",
@@ -145,8 +154,48 @@ export class PwrSignedHttpRequest implements INodeType {
     );
     const legacyCallbackSecret = (credentials.legacyCallbackSecret as string) || undefined;
 
+    let credentialHost: string;
+    try {
+      credentialHost = new URL(baseUrl).hostname.toLowerCase();
+    } catch {
+      throw new NodeOperationError(
+        this.getNode(),
+        `PWR signed request credential has an unparseable Base URL '${baseUrl}'`,
+      );
+    }
+    if (!credentialHost) {
+      throw new NodeOperationError(
+        this.getNode(),
+        `PWR signed request credential Base URL '${baseUrl}' has no hostname`,
+      );
+    }
+
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
+
+      // The workflow file declares which host this node may reach, and the
+      // static workflow verifier checks that declaration against
+      // allowed_target_hosts. Bind the declaration to the host actually
+      // dialled -- the credential's Base URL -- so the file is not merely
+      // decorative. Compare parsed hostnames for exact equality: a prefix,
+      // suffix or substring comparison would let 'backend.attacker.example'
+      // pass for 'backend'.
+      const declaredHost = String(this.getNodeParameter("host", i) ?? "").trim().toLowerCase();
+      if (!declaredHost) {
+        throw new NodeOperationError(
+          this.getNode(),
+          `PWR signed request declares no host; a host equal to the credential Base URL ` +
+            `hostname '${credentialHost}' is required (host_mismatch)`,
+        );
+      }
+      if (declaredHost !== credentialHost) {
+        throw new NodeOperationError(
+          this.getNode(),
+          `PWR signed request host_mismatch: declared host '${declaredHost}' does not equal the ` +
+            `pwrOutboundHmac credential Base URL hostname '${credentialHost}' (baseUrl '${baseUrl}')`,
+        );
+      }
+
       const method = this.getNodeParameter("method", i) as string;
       const target = this.getNodeParameter("target", i) as string;
       const bodyMode = this.getNodeParameter("bodyMode", i) as
