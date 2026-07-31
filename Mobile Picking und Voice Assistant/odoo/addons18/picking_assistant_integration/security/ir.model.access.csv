@@ -1,5 +1,0 @@
-id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_picking_assistant_session_system,picking.assistant.session.system,model_picking_assistant_session,base.group_system,1,1,1,1
-access_picking_assistant_session_api_service,picking.assistant.session.api_service,model_picking_assistant_session,group_api_service,1,0,0,0
-access_picking_assistant_auth_throttle_system,picking.assistant.auth.throttle.system,model_picking_assistant_auth_throttle,base.group_system,1,1,1,1
-access_picking_assistant_auth_throttle_api_service,picking.assistant.auth.throttle.api_service,model_picking_assistant_auth_throttle,group_api_service,1,0,0,0

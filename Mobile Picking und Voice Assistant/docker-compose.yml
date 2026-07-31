@@ -37,13 +37,13 @@ services:
     networks:
       - picking-net
 
-  # ── Odoo 18 Community (Live/Default) ──────────────────────
+  # ── Odoo 19 Community (Live/Default) ──────────────────────
   odoo:
     build:
       context: ./odoo
       dockerfile: Dockerfile
       args:
-        ODOO_BASE_IMAGE: odoo:18.0
+        ODOO_BASE_IMAGE: odoo:19.0
     restart: unless-stopped
     depends_on:
       db:
@@ -57,8 +57,8 @@ services:
       - "8069:8069"
     volumes:
       - odoo_data:/var/lib/odoo
-      - ./odoo/odoo.conf:/etc/odoo/odoo.conf:ro
-      - ./odoo/addons18:/mnt/extra-addons:ro
+      - ./odoo/odoo19.conf:/etc/odoo/odoo.conf:ro
+      - ./odoo/addons:/mnt/extra-addons:ro
     networks:
       - picking-net
 
@@ -68,7 +68,7 @@ services:
       context: ./odoo
       dockerfile: Dockerfile
       args:
-        ODOO_BASE_IMAGE: odoo:18.0
+        ODOO_BASE_IMAGE: odoo:19.0
     profiles:
       - second-odoo
     restart: unless-stopped
@@ -84,34 +84,7 @@ services:
       - "${ODOO_LAGER2_PORT:-8070}:8069"
     volumes:
       - odoo_lager2_data:/var/lib/odoo
-      - ./odoo/odoo-lager2.conf:/etc/odoo/odoo.conf:ro
-      - ./odoo/addons18:/mnt/extra-addons:ro
-    networks:
-      - picking-net
-
-  # ── Odoo 19 Trial (Demo/Migration, explicit profile) ──────
-  odoo19-trial:
-    build:
-      context: ./odoo
-      dockerfile: Dockerfile
-      args:
-        ODOO_BASE_IMAGE: odoo:19.0
-    profiles:
-      - odoo19-trial
-    restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      HOST: db
-      PORT: 5432
-      USER: ${POSTGRES_USER:-odoo}
-      PASSWORD: ${POSTGRES_PASSWORD}
-    ports:
-      - "127.0.0.1:${ODOO19_TRIAL_PORT:-8100}:8069"
-    volumes:
-      - odoo19_trial_data:/var/lib/odoo
-      - ./odoo/odoo19-trial.conf:/etc/odoo/odoo.conf:ro
+      - ./odoo/odoo19-lager2.conf:/etc/odoo/odoo.conf:ro
       - ./odoo/addons:/mnt/extra-addons:ro
     networks:
       - picking-net
@@ -129,7 +102,7 @@ services:
       - ollama
     environment:
       ODOO_URL: http://odoo:8069
-      ODOO_DB: ${ODOO_DB:-picking}
+      ODOO_DB: ${ODOO_DB:?ODOO_DB muss gesetzt sein und eine v19-Datenbank benennen}
       ODOO_USER: ${ODOO_USER:-admin}
       ODOO_API_KEY: ${ODOO_API_KEY:-}
       ODOO_PASSWORD: ${ODOO_PASSWORD:-}
@@ -289,6 +262,12 @@ volumes:
   pg_data:
   odoo_data:
   odoo_lager2_data:
+  # Der odoo19-trial-Dienst ist mit dem Cutover entfallen. Diese Deklaration
+  # bleibt waehrend des Rollback-Fensters bestehen, damit der Papierpfad
+  # erhalten bleibt; sie wird im Folge-Commit nach Schliessen des Fensters
+  # entfernt (Plan Task 8, "Closing the window").
+  # ACHTUNG: explizites globales `name:` — dieses Volume ist NICHT
+  # projekt-gescoped und darf nicht fuer Produktion wiederverwendet werden.
   odoo19_trial_data:
     name: odoo19_trial_data
   caddy_data:
