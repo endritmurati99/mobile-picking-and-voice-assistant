@@ -1,7 +1,11 @@
 services:
   # ── Reverse Proxy ──────────────────────────────────────────
   caddy:
-    image: caddy:2-alpine
+    # Verifiziert: v2.11.2 (>= 2.10, Voraussetzung fuer `request_body max_size`,
+    # das Foundation Task 15 setzt — nicht dieser Cutover, siehe Plan §0.2).
+    # Digest stammt aus dem LAUFENDEN Image, nicht aus dem aktuellen Registry-Tag:
+    # caddy:2-alpine zeigte zum Pin-Zeitpunkt bereits auf einen anderen Digest.
+    image: caddy:2-alpine@sha256:fce4f15aad23222c0ac78a1220adf63bae7b94355d5ea28eee53910624acedfa
     restart: unless-stopped
     ports:
       - "443:443"
@@ -18,7 +22,9 @@ services:
 
   # ── PostgreSQL ─────────────────────────────────────────────
   db:
-    image: postgres:16-alpine
+    # Verifiziert: PostgreSQL 16.13. MAJOR NIEMALS anheben — das verlangte ein
+    # pg_upgrade von pg_data, wo JEDE Datenbank dieses Stacks liegt.
+    image: postgres:16-alpine@sha256:20edbde7749f822887a1a022ad526fde0a47d6b2be9a8364433605cf65099416
     restart: unless-stopped
     ports:
       - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
@@ -43,7 +49,7 @@ services:
       context: ./odoo
       dockerfile: Dockerfile
       args:
-        ODOO_BASE_IMAGE: odoo:19.0
+        ODOO_BASE_IMAGE: odoo:19.0@sha256:e415f9924395e7521245813135112f264b9222bcde3b1d3c2ee9ff073081540a
     restart: unless-stopped
     depends_on:
       db:
@@ -68,7 +74,7 @@ services:
       context: ./odoo
       dockerfile: Dockerfile
       args:
-        ODOO_BASE_IMAGE: odoo:19.0
+        ODOO_BASE_IMAGE: odoo:19.0@sha256:e415f9924395e7521245813135112f264b9222bcde3b1d3c2ee9ff073081540a
     profiles:
       - second-odoo
     restart: unless-stopped
@@ -126,11 +132,16 @@ services:
       N8N_CIRCUIT_BREAKER_OPEN_SECONDS: ${N8N_CIRCUIT_BREAKER_OPEN_SECONDS:-60}
       OBSIDIAN_PATH: /obsidian
       PWA_ORIGINS: "https://${LAN_HOST:-localhost}"
-      # Production deployments MUST set RUNTIME_PROFILE=production explicitly.
-      # It is never inferred: an unset value silently keeps the "development"
-      # default (see app/config.py's warn_non_production_runtime_profile,
-      # which logs this at WARNING on every startup where it isn't "production").
-      RUNTIME_PROFILE: ${RUNTIME_PROFILE:-development}
+      # RUNTIME_PROFILE ist ab dem Odoo-19-Cutover FAIL-CLOSED: der Stack
+      # startet nicht mehr, wenn die Variable fehlt. Das schliesst das
+      # Restloch, das das Register der "deployment work" zugewiesen hatte —
+      # naemlich die ABWESENHEIT der Variable, die vorher still auf
+      # "development" zurueckfiel und damit validate_runtime_security()
+      # komplett uebersprang. Der Wert selbst bleibt eine Entscheidung des
+      # Betreibers; app/config.py loggt bei != "production" weiterhin eine
+      # WARNING (warn_non_production_runtime_profile), und R1s Entscheidung
+      # "warnen statt hart abbrechen" bleibt damit unangetastet.
+      RUNTIME_PROFILE: ${RUNTIME_PROFILE:?RUNTIME_PROFILE muss gesetzt sein (production|development)}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DEMO_TRACEABILITY_ENABLED: ${DEMO_TRACEABILITY_ENABLED:-false}
       DEMO_TRACEABILITY_ALLOWED_DBS: ${DEMO_TRACEABILITY_ALLOWED_DBS:-masterfischer_o19_trial}
@@ -143,7 +154,8 @@ services:
 
   # ── Whisper STT Server (Deutsch, small Modell) ─────────────
   whisper:
-    image: onerahmet/openai-whisper-asr-webservice:latest
+    # `:latest` hat keine rekonstruierbare Version — Digest des laufenden Images.
+    image: onerahmet/openai-whisper-asr-webservice:latest@sha256:03b402335881cdab2e4939b24620809df8d6ceec3bf2712217d41c8761a0f5d4
     restart: unless-stopped
     environment:
       ASR_MODEL: small
@@ -164,7 +176,8 @@ services:
   # Laeuft offline auf dem Lab-PC. Nur im Docker-Netz erreichbar (kein Host-Port).
   # Modell nach dem ersten Start laden: docker compose exec ollama ollama pull qwen2.5:7b
   ollama:
-    image: ollama/ollama:latest
+    # `:latest` hat keine rekonstruierbare Version — Digest des laufenden Images.
+    image: ollama/ollama:latest@sha256:f1a705f2bd113fb8d15f85f7c217f0dc5f6bebda6b0cc42b82c3ad165ffcb9dc
     restart: unless-stopped
     environment:
       OLLAMA_KEEP_ALIVE: 24h
@@ -175,7 +188,7 @@ services:
 
   # ── n8n ────────────────────────────────────────────────────
   n8n:
-    image: docker.n8n.io/n8nio/n8n:2.13.3
+    image: docker.n8n.io/n8nio/n8n:2.13.3@sha256:44a8df8aa3de533db83e07ef395f461471d217a965e78e1fc822e641a4904118
     restart: unless-stopped
     depends_on:
       db:
@@ -250,7 +263,8 @@ services:
 
   # ── PWA Static Server ──────────────────────────────────────
   pwa:
-    image: caddy:2-alpine
+    # Bewusst derselbe Pin wie der `caddy`-Dienst.
+    image: caddy:2-alpine@sha256:fce4f15aad23222c0ac78a1220adf63bae7b94355d5ea28eee53910624acedfa
     restart: unless-stopped
     volumes:
       - ./pwa:/srv:ro
@@ -258,6 +272,25 @@ services:
     networks:
       - picking-net
 
+# ── OFFEN: `secrets:`-Block (Foundation Task 15 / R3) ─────────────────────
+# Der Odoo-19-Cutover hat diesen Block BEWUSST NICHT gesetzt. Grund, gemessen
+# und nicht vermutet:
+#   * Das Backend liest KEINE Secret-Dateien. backend/app/config.py kennt nur
+#     direkte Env-Variablen (PWR_*_SECRET_B64, SESSION_THROTTLE_HMAC_SECRET_B64,
+#     N8N_*_SECRET); es gibt weder `read_secret()` noch eine `*_FILE`-Variante,
+#     und `extra="ignore"` wuerde `*_FILE`-Variablen still verschlucken. Die
+#     direkten Variablen durch Datei-Varianten zu ersetzen — wie der Cutover-Plan
+#     Task 5 Step 4 vorsah — haette das Backend startunfaehig gemacht.
+#   * Nur infrastructure/scripts/provision-n8n-credentials.sh liest /run/secrets
+#     (pwr_n8n_native_header, pwr_backend_to_n8n_active_hmac,
+#     pwr_n8n_to_backend_active_hmac; optional pwr_backend_to_n8n_previous_hmac,
+#     pwr_n8n_callback_legacy). Das ist ein manuelles Skript, kein
+#     Container-Start — der laufende Stack ist davon nicht betroffen.
+# Wer den Block nachruestet, MUSS `uid`, `gid` und `mode` explizit setzen
+# (Docker-Default ist root-eigenes 0444, was die Pruefung beider Haelften
+# ablehnt), und muss zusaetzlich ./n8n/scripts nach
+# /home/node/scripts read-only in den n8n-Container mounten — das verlangt
+# provision-n8n-credentials.sh ausdruecklich und heute fehlt der Mount.
 volumes:
   pg_data:
   odoo_data:
