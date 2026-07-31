@@ -1,10 +1,87 @@
 import base64
 import binascii
 import json
+import logging
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Literal
 from urllib.parse import urlparse
 
+from dotenv import dotenv_values
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
+
+# Kept in one place so the dotenv path `reject_removed_env_vars` inspects can
+# never drift from the one `Settings.model_config` actually reads.
+_ENV_FILE = ".env"
+
+# Odoo retains request nonces for 900 seconds (see the addon's nonce model).
+# The backend must never be configured to expect a longer memory than Odoo has,
+# and its signature acceptance window must close well inside that retention.
+ODOO_NONCE_RETENTION_SECONDS = 900
+
+# Settings that were removed rather than renamed. `extra="ignore"` would let a
+# stale value sit in .env looking effective while doing nothing, so refuse to
+# start instead of silently ignoring it.
+_REMOVED_ENV_VARS = ("CORS_ORIGINS",)
+
+
+def reject_removed_env_vars(environ: Mapping[str, str], *, env_file: str | None = _ENV_FILE) -> None:
+    """Fail closed on a removed setting in either source `Settings` reads.
+
+    `pydantic-settings`' dotenv source parses `env_file` directly -- it never
+    populates `os.environ` -- so checking only `environ` misses a stale
+    `CORS_ORIGINS=` line left behind in `.env`. `env_file` is read the same
+    way `Settings.model_config` reads it, so a removed key sitting quietly in
+    the dotenv file fails closed exactly like one exported in the real
+    process environment.
+
+    The comparison is casefolded on both sides: pydantic-settings' dotenv
+    source is case-insensitive by default, so a lowercase `cors_origins=` in
+    `.env` is read by `Settings`, silently dropped by `extra=\"ignore\"`, and
+    would otherwise slip past an exact-case check -- the same silent-stale
+    failure this guard exists to prevent, just spelled in lowercase.
+    """
+    combined: dict[str, str | None] = dict(environ)
+    if env_file:
+        dotenv_path = Path(env_file)
+        if dotenv_path.is_file():
+            combined.update(dotenv_values(dotenv_path))
+    folded_keys = {key.casefold() for key in combined}
+    for name in _REMOVED_ENV_VARS:
+        if name.casefold() in folded_keys:
+            raise ValueError(
+                f"{name} was removed. Configure PWA_ORIGINS instead; it is the "
+                "single origin list and it is validated in production."
+            )
+
+
+def reject_wildcard_origins_with_credentials(
+    origins: tuple[str, ...], *, allow_credentials: bool
+) -> None:
+    """Refuse a wildcard origin combined with credentialed CORS, in every
+    runtime profile -- not only production.
+
+    Starlette's `CORSMiddleware` (as of 0.46.2) does NOT fall back to a safe
+    wildcard when `allow_credentials=True`: it echoes back the request's
+    `Origin` header and still sends `Access-Control-Allow-Credentials: true`.
+    `PWA_ORIGINS=\"*\"` with credentialed CORS therefore lets any origin read
+    authenticated responses (e.g. the `pwr_session` cookie) from a victim's
+    browser. This must hold regardless of `runtime_profile`, since an
+    operator can set the wildcard on a `development` or `test` box that is
+    still reachable on the LAN.
+    """
+    if allow_credentials and "*" in origins:
+        raise ValueError(
+            "Wildcard PWA origin ('*') is forbidden while allow_credentials=True, "
+            "in every runtime profile: Starlette does not apply a safe-wildcard "
+            "fallback for credentialed CORS, so '*' would let any origin read "
+            "authenticated responses."
+        )
 
 
 @dataclass(frozen=True)
@@ -19,7 +96,7 @@ class OdooProfile:
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
     odoo_url: str = "http://odoo:8069"
     odoo_db: str = "picking"
@@ -54,30 +131,29 @@ class Settings(BaseSettings):
     n8n_circuit_breaker_failures: int = 3
     n8n_circuit_breaker_open_seconds: int = 60
 
-    cors_origins: str = "https://localhost"
     log_level: str = "info"
     mobile_claim_ttl_seconds: int = 120
     mobile_claim_heartbeat_seconds: int = 30
     mobile_idempotency_ttl_seconds: int = 86400
-    mobile_header_grace_mode: bool = True
+    mobile_header_grace_mode: bool = False
     demo_traceability_enabled: bool = False
     demo_traceability_allowed_dbs: str = "masterfischer_o19_trial"
 
     # Secure runtime / session / auth configuration (Task 1: Platform Security and
     # Event Contracts Foundation). See docs/superpowers/plans/
     # 2026-07-23-platform-security-event-contracts-foundation.md for rationale.
-    runtime_profile: str = "development"
+    runtime_profile: Literal["development", "test", "production"] = "development"
     pwa_origins: str = "https://localhost"
     trusted_caddy_peers: str = "127.0.0.1"
     session_cookie_name: str = "pwr_session"
     session_max_age_seconds: int = 28800
-    session_role_revalidate_seconds: int = 300
+    session_role_revalidate_seconds: int = Field(default=300, ge=1, le=300)
     session_throttle_hmac_secret_b64: str = ""
     login_failure_limit: int = 5
     login_window_seconds: int = 900
     login_throttle_retention_seconds: int = 86400
-    pwr_hmac_max_skew_seconds: int = 300
-    pwr_nonce_ttl_seconds: int = 600
+    pwr_hmac_max_skew_seconds: int = Field(default=300, ge=1, le=300)
+    pwr_nonce_ttl_seconds: int = 900
     pwr_backend_to_n8n_active_key_id: str = ""
     pwr_backend_to_n8n_active_secret_b64: str = ""
     pwr_backend_to_n8n_previous_key_id: str = ""
@@ -92,7 +168,43 @@ class Settings(BaseSettings):
     dispatcher_lease_seconds: int = 60
     dispatcher_batch_size: int = 50
 
+    @model_validator(mode="after")
+    def _check_replay_window(self) -> "Settings":
+        window = 2 * self.pwr_hmac_max_skew_seconds
+        if self.pwr_nonce_ttl_seconds <= window:
+            raise ValueError(
+                "PWR_NONCE_TTL_SECONDS must exceed the signature acceptance "
+                f"window of {window}s (2 x PWR_HMAC_MAX_SKEW_SECONDS)"
+            )
+        if self.pwr_nonce_ttl_seconds > ODOO_NONCE_RETENTION_SECONDS:
+            raise ValueError(
+                "PWR_NONCE_TTL_SECONDS must not exceed the Odoo nonce retention "
+                f"of {ODOO_NONCE_RETENTION_SECONDS}s"
+            )
+        return self
 
+
+def warn_non_production_runtime_profile(candidate: Settings) -> None:
+    """Log one WARNING line whenever the active profile is not `production`.
+
+    Finding #2 (round 1 fix): the deployed stack never set RUNTIME_PROFILE at
+    all, so the Literal-typed field silently kept its `development` default
+    with nothing surfacing that fact. A missing/wrong profile must never fail
+    a running container's startup (operators depend on it), but it must not
+    be silent either -- this makes the effective posture visible in the logs
+    every time the process starts.
+    """
+    if candidate.runtime_profile != "production":
+        logger.warning(
+            "RUNTIME_PROFILE is %r, not 'production' (mobile_header_grace_mode=%s). "
+            "If this is meant to be a production deployment, RUNTIME_PROFILE was "
+            "not set correctly -- set it explicitly to 'production'.",
+            candidate.runtime_profile,
+            candidate.mobile_header_grace_mode,
+        )
+
+
+reject_removed_env_vars(os.environ)
 settings = Settings()
 ODOO19_TRIAL_PROFILE_NAMES = {"o19", "odoo19", "o19-trial", "odoo19-trial"}
 ODOO19_TRIAL_DB = "masterfischer_o19_trial"
@@ -227,3 +339,4 @@ def validate_runtime_security(candidate: Settings) -> None:
 
 
 validate_runtime_security(settings)
+warn_non_production_runtime_profile(settings)

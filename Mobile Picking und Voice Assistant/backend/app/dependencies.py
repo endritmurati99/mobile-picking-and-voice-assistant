@@ -152,12 +152,13 @@ def get_demo_odoo_client(instance: str = Depends(resolve_instance)) -> OdooClien
 
 
 def _grace_mode_active() -> bool:
-    """Grace-Mode ist nur ausserhalb von `production` UND nur mit dem expliziten
+    """Grace-Mode ist nur im Profil `development` UND nur mit dem expliziten
     Feature-Flag aktiv. `validate_runtime_security` verbietet das Flag in
     production zusaetzlich fail-closed -- diese Funktion ist die zweite,
-    redundante Absicherung direkt an der Nutzungsstelle.
+    redundante Absicherung direkt an der Nutzungsstelle. `test` und jedes
+    kuenftige Profil zaehlen bewusst NICHT als development.
     """
-    return settings.runtime_profile != "production" and settings.mobile_header_grace_mode
+    return settings.runtime_profile == "development" and settings.mobile_header_grace_mode
 
 
 def _resolve_session_service(request: Request) -> SessionService:
@@ -280,6 +281,22 @@ def get_cluster_service(
 def get_mobile_workflow_service(
     odoo: OdooClient = Depends(get_request_odoo_client_or_grace),
 ) -> MobileWorkflowService:
+    return MobileWorkflowService(odoo)
+
+
+def get_legacy_n8n_workflow_service(
+    odoo: OdooClient = Depends(get_odoo_client),
+) -> MobileWorkflowService:
+    """Workflow-Service fuer die fuenf Legacy-n8n-Callbacks (Service-zu-Service).
+
+    Diese Routen sind ueber `require_n8n_callback_secret` autorisiert und sehen
+    NIE einen Browser-Cookie. Sie duerfen deshalb nicht ueber
+    `get_request_odoo_client_or_grace` laufen: der wirft in production 401,
+    bevor der Handler ueberhaupt erreicht wird, und liesse im Development
+    `X-Odoo-Instance` die Idempotenz-Buchfuehrung auf eine andere Instanz
+    umlenken, waehrend der Business-Write ueber `get_odoo_client` fest auf
+    `local` schreibt. Beide Haelften benutzen jetzt denselben Client.
+    """
     return MobileWorkflowService(odoo)
 
 

@@ -152,7 +152,12 @@ services:
       N8N_CIRCUIT_BREAKER_FAILURES: ${N8N_CIRCUIT_BREAKER_FAILURES:-3}
       N8N_CIRCUIT_BREAKER_OPEN_SECONDS: ${N8N_CIRCUIT_BREAKER_OPEN_SECONDS:-60}
       OBSIDIAN_PATH: /obsidian
-      CORS_ORIGINS: "https://${LAN_HOST:-localhost}"
+      PWA_ORIGINS: "https://${LAN_HOST:-localhost}"
+      # Production deployments MUST set RUNTIME_PROFILE=production explicitly.
+      # It is never inferred: an unset value silently keeps the "development"
+      # default (see app/config.py's warn_non_production_runtime_profile,
+      # which logs this at WARNING on every startup where it isn't "production").
+      RUNTIME_PROFILE: ${RUNTIME_PROFILE:-development}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DEMO_TRACEABILITY_ENABLED: ${DEMO_TRACEABILITY_ENABLED:-false}
       DEMO_TRACEABILITY_ALLOWED_DBS: ${DEMO_TRACEABILITY_ALLOWED_DBS:-masterfischer_o19_trial}

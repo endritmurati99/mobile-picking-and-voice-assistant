@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 
 from app.config import settings
-from app.dependencies import get_mobile_workflow_service, get_odoo_client
+from app.dependencies import get_legacy_n8n_workflow_service, get_odoo_client
 from app.main import app
 from app.services.quality_shadow_evaluation import classify_quality_alert_shadow
 from app.services.mobile_workflow import IdempotencyReservation
@@ -19,6 +19,45 @@ def _workflow_mock():
     workflow.finalize_idempotent_request = AsyncMock()
     workflow.abort_idempotent_request = AsyncMock()
     return workflow
+
+
+class _RealServiceOdoo:
+    """Fake Odoo client that lets a test exercise the REAL MobileWorkflowService.
+
+    `execute_kw` transparently answers `picking.assistant.idempotency` calls
+    (reserve/finalize/abort) so the real idempotency bookkeeping inside
+    MobileWorkflowService runs end-to-end without a database. Every other
+    `execute_kw` call -- the actual business write the legacy n8n callback
+    performs -- is forwarded to `business_execute_kw`, which is what tests
+    assert against instead of the multiplexed `execute_kw` mock.
+    """
+
+    def __init__(
+        self,
+        *,
+        idempotency_status: str = "reserved",
+        idempotency_response: dict | None = None,
+        idempotency_status_code: int = 200,
+    ):
+        self.write = AsyncMock(return_value=True)
+        self.search_read = AsyncMock(return_value=[])
+        self.business_execute_kw = AsyncMock(return_value=True)
+        self._idempotency_status = idempotency_status
+        self._idempotency_response = idempotency_response
+        self._idempotency_status_code = idempotency_status_code
+        self.execute_kw = AsyncMock(side_effect=self._route_execute_kw)
+
+    async def _route_execute_kw(self, model, method, args=None, *rest):
+        if model == "picking.assistant.idempotency":
+            if method == "api_reserve_request":
+                return {
+                    "status": self._idempotency_status,
+                    "entry_id": 1,
+                    "response_payload": self._idempotency_response,
+                    "status_code": self._idempotency_status_code,
+                }
+            return {}
+        return await self.business_execute_kw(model, method, args, *rest)
 
 
 def _structured_events(caplog):
@@ -46,13 +85,11 @@ def _shadow_events(caplog):
 
 
 def test_quality_assessment_callback_writes_ai_fields(monkeypatch, caplog):
+    # Exercises the real MobileWorkflowService (via get_legacy_n8n_workflow_service
+    # -> get_odoo_client) instead of a service double, per finding #8.
     monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
     caplog.set_level("INFO", logger="app.routers.n8n_internal")
-    workflow = _workflow_mock()
-    odoo = MagicMock()
-    odoo.write = AsyncMock(return_value=True)
-    odoo.execute_kw = AsyncMock(return_value=True)
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    odoo = _RealServiceOdoo()
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -102,10 +139,10 @@ def test_quality_assessment_callback_writes_ai_fields(monkeypatch, caplog):
     assert write_fields["ai_enhanced_description"] == "Artikel mit starkem Verpackungsschaden"
     assert write_fields["ai_photo_analysis"] == "Eingedrueckte Ecke und Riss an der Aussenverpackung sichtbar."
     assert write_fields["ai_recommended_action"] == "Ware sperren und aussondern."
-    odoo.execute_kw.assert_awaited_once()
-    assert odoo.execute_kw.call_args[0][0] == "quality.alert.custom"
-    assert odoo.execute_kw.call_args[0][1] == "message_post"
-    chatter_body = odoo.execute_kw.call_args[0][3]["body"]
+    odoo.business_execute_kw.assert_awaited_once()
+    assert odoo.business_execute_kw.call_args[0][0] == "quality.alert.custom"
+    assert odoo.business_execute_kw.call_args[0][1] == "message_post"
+    chatter_body = odoo.business_execute_kw.call_args[0][3]["body"]
     assert "KI-verbesserte Beschreibung:" in chatter_body
     assert "Fotoanalyse:" in chatter_body
     assert "<" not in chatter_body
@@ -123,10 +160,11 @@ def test_quality_assessment_callback_writes_ai_fields(monkeypatch, caplog):
 
 
 def test_quality_assessment_ai_callback_logs_shadow_evaluation_without_odoo_write(monkeypatch, caplog):
+    # Exercises the real MobileWorkflowService (via get_legacy_n8n_workflow_service
+    # -> get_odoo_client) instead of a service double, per finding #8.
     monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
     caplog.set_level("INFO", logger="app.routers.n8n_internal")
-    workflow = _workflow_mock()
-    odoo = MagicMock()
+    odoo = _RealServiceOdoo()
     odoo.search_read = AsyncMock(
         return_value=[
             {
@@ -140,9 +178,6 @@ def test_quality_assessment_ai_callback_logs_shadow_evaluation_without_odoo_writ
             }
         ]
     )
-    odoo.write = AsyncMock()
-    odoo.execute_kw = AsyncMock()
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -182,7 +217,7 @@ def test_quality_assessment_ai_callback_logs_shadow_evaluation_without_odoo_writ
     assert response.json()["status"] == "applied"
     odoo.search_read.assert_awaited_once()
     odoo.write.assert_not_awaited()
-    odoo.execute_kw.assert_not_awaited()
+    odoo.business_execute_kw.assert_not_awaited()
     callback_event = next(
         payload
         for payload in _structured_events(caplog)
@@ -202,10 +237,10 @@ def test_quality_assessment_ai_callback_logs_shadow_evaluation_without_odoo_writ
 
 
 def test_quality_assessment_ai_callback_rejects_empty_reason(monkeypatch):
+    # Exercises the real MobileWorkflowService (via get_legacy_n8n_workflow_service
+    # -> get_odoo_client) instead of a service double, per finding #8.
     monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
-    workflow = _workflow_mock()
-    odoo = MagicMock()
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    odoo = _RealServiceOdoo()
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -241,10 +276,10 @@ def test_quality_assessment_ai_callback_rejects_empty_reason(monkeypatch):
 
 
 def test_quality_assessment_ai_callback_requires_matching_idempotency_key(monkeypatch):
+    # Exercises the real MobileWorkflowService (via get_legacy_n8n_workflow_service
+    # -> get_odoo_client) instead of a service double, per finding #8.
     monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
-    workflow = _workflow_mock()
-    odoo = MagicMock()
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    odoo = _RealServiceOdoo()
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -291,13 +326,11 @@ def test_quality_assessment_callback_accepts_legacy_payload_and_ignores_unknown_
     monkeypatch,
     caplog,
 ):
+    # Exercises the real MobileWorkflowService (via get_legacy_n8n_workflow_service
+    # -> get_odoo_client) instead of a service double, per finding #8.
     monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
     caplog.set_level("INFO", logger="app.routers.n8n_internal")
-    workflow = _workflow_mock()
-    odoo = MagicMock()
-    odoo.write = AsyncMock(return_value=True)
-    odoo.execute_kw = AsyncMock(return_value=True)
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    odoo = _RealServiceOdoo()
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -350,6 +383,10 @@ def test_quality_assessment_callback_accepts_legacy_payload_and_ignores_unknown_
 
 
 def test_replenishment_callback_replays_without_duplicate_odoo_write(monkeypatch):
+    # Needs a genuine MobileWorkflowService double to force the "replay"
+    # idempotency status without a real Odoo-backed idempotency store; does
+    # NOT cover the real begin_idempotent_request -> Odoo wiring (see the
+    # get_odoo_client-only tests above for that).
     monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
     workflow = _workflow_mock()
     workflow.begin_idempotent_request = AsyncMock(
@@ -366,7 +403,7 @@ def test_replenishment_callback_replays_without_duplicate_odoo_write(monkeypatch
     )
     odoo = MagicMock()
     odoo.execute_kw = AsyncMock()
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_legacy_n8n_workflow_service] = lambda: workflow
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -396,17 +433,15 @@ def test_replenishment_callback_replays_without_duplicate_odoo_write(monkeypatch
 
 
 def test_replenishment_callback_creates_internal_transfer(monkeypatch):
+    # Exercises the real MobileWorkflowService (via get_legacy_n8n_workflow_service
+    # -> get_odoo_client) instead of a service double, per finding #8.
     monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
-    workflow = _workflow_mock()
-    odoo = MagicMock()
-    odoo.execute_kw = AsyncMock(
-        return_value={
-            "success": True,
-            "replenishment_name": "INT/0007",
-            "replenishment_picking_id": 71,
-        }
-    )
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    odoo = _RealServiceOdoo()
+    odoo.business_execute_kw.return_value = {
+        "success": True,
+        "replenishment_name": "INT/0007",
+        "replenishment_picking_id": 71,
+    }
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -435,19 +470,17 @@ def test_replenishment_callback_creates_internal_transfer(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["status"] == "applied"
-    odoo.execute_kw.assert_awaited_once()
-    assert odoo.execute_kw.call_args[0][0] == "stock.picking"
-    assert odoo.execute_kw.call_args[0][1] == "api_create_replenishment_transfer"
+    odoo.business_execute_kw.assert_awaited_once()
+    assert odoo.business_execute_kw.call_args[0][0] == "stock.picking"
+    assert odoo.business_execute_kw.call_args[0][1] == "api_create_replenishment_transfer"
 
 
 def test_quality_assessment_callback_sets_completed_status(monkeypatch):
     """Verify the quality-assessment callback writes ai_evaluation_status and ai_failure_reason."""
+    # Exercises the real MobileWorkflowService (via get_legacy_n8n_workflow_service
+    # -> get_odoo_client) instead of a service double, per finding #8.
     monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
-    workflow = _workflow_mock()
-    odoo = MagicMock()
-    odoo.write = AsyncMock(return_value=True)
-    odoo.execute_kw = AsyncMock(return_value=True)
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    odoo = _RealServiceOdoo()
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -479,7 +512,7 @@ def test_quality_assessment_callback_sets_completed_status(monkeypatch):
     assert write_fields["ai_failure_reason"] is False
     assert write_fields["ai_enhanced_description"] is False
     assert write_fields["ai_photo_analysis"] is False
-    chatter_call = odoo.execute_kw.call_args
+    chatter_call = odoo.business_execute_kw.call_args
     assert chatter_call[0][0] == "quality.alert.custom"
     assert chatter_call[0][1] == "message_post"
     assert "KI-Bewertung abgeschlossen" in chatter_call[0][3]["body"]
@@ -488,12 +521,11 @@ def test_quality_assessment_callback_sets_completed_status(monkeypatch):
 
 def test_quality_assessment_failed_sets_failed_status(monkeypatch):
     """POST /quality-assessment-failed sets ai_evaluation_status to 'failed'."""
+    # Exercises the real MobileWorkflowService (via get_legacy_n8n_workflow_service
+    # -> get_odoo_client) instead of a service double, per finding #8.
     monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
-    workflow = _workflow_mock()
-    odoo = MagicMock()
-    odoo.write = AsyncMock(return_value=True)
-    odoo.execute_kw = AsyncMock(side_effect=[True, [91], 1])
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    odoo = _RealServiceOdoo()
+    odoo.business_execute_kw.side_effect = [True, [91], 1]
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -528,15 +560,15 @@ def test_quality_assessment_failed_sets_failed_status(monkeypatch):
     write_fields = odoo.write.call_args[0][2]
     assert write_fields["ai_evaluation_status"] == "failed"
     assert write_fields["ai_failure_reason"] == "Workflow timeout"
-    chatter_call = odoo.execute_kw.call_args_list[0]
+    chatter_call = odoo.business_execute_kw.call_args_list[0]
     assert chatter_call[0][0] == "quality.alert.custom"
     assert chatter_call[0][1] == "message_post"
     assert "KI-Bewertung fehlgeschlagen" in chatter_call[0][3]["body"]
     assert "<" not in chatter_call[0][3]["body"]
-    model_search_call = odoo.execute_kw.call_args_list[1]
+    model_search_call = odoo.business_execute_kw.call_args_list[1]
     assert model_search_call[0][0] == "ir.model"
     assert model_search_call[0][1] == "search"
-    activity_call = odoo.execute_kw.call_args_list[2]
+    activity_call = odoo.business_execute_kw.call_args_list[2]
     assert activity_call[0][0] == "mail.activity"
     assert activity_call[0][1] == "create"
     assert activity_call[0][2][0]["summary"] == "KI-Bewertung fehlgeschlagen"
@@ -544,10 +576,10 @@ def test_quality_assessment_failed_sets_failed_status(monkeypatch):
 
 def test_quality_assessment_failed_rejects_wrong_secret(monkeypatch):
     """POST /quality-assessment-failed with wrong secret returns 403."""
+    # Exercises the real MobileWorkflowService (via get_legacy_n8n_workflow_service
+    # -> get_odoo_client) instead of a service double, per finding #8.
     monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
-    workflow = _workflow_mock()
-    odoo = MagicMock()
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    odoo = _RealServiceOdoo()
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -571,10 +603,14 @@ def test_quality_assessment_failed_rejects_wrong_secret(monkeypatch):
 
 
 def test_quality_assessment_failed_requires_idempotency_key(monkeypatch):
+    # Needs a genuine MobileWorkflowService double to assert
+    # begin_idempotent_request was never awaited; does NOT cover the real
+    # get_odoo_client-backed idempotency wiring (see the get_odoo_client-only
+    # tests above for that).
     monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
     workflow = _workflow_mock()
     odoo = MagicMock()
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_legacy_n8n_workflow_service] = lambda: workflow
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -598,11 +634,11 @@ def test_quality_assessment_failed_requires_idempotency_key(monkeypatch):
 
 def test_manual_review_activity_posts_note(monkeypatch):
     """POST /manual-review-activity posts a chatter note via message_post."""
+    # Exercises the real MobileWorkflowService (via get_legacy_n8n_workflow_service
+    # -> get_odoo_client) instead of a service double, per finding #8.
     monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
-    workflow = _workflow_mock()
-    odoo = MagicMock()
-    odoo.execute_kw = AsyncMock(return_value=[1])
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    odoo = _RealServiceOdoo()
+    odoo.business_execute_kw.return_value = [1]
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -626,18 +662,18 @@ def test_manual_review_activity_posts_note(monkeypatch):
     assert response.status_code == 200
     assert response.json()["status"] == "applied"
     # First call should be message_post
-    first_call = odoo.execute_kw.call_args_list[0]
+    first_call = odoo.business_execute_kw.call_args_list[0]
     assert first_call[0][0] == "stock.picking"
     assert first_call[0][1] == "message_post"
 
 
 def test_manual_review_activity_with_execution_url(monkeypatch):
     """POST /manual-review-activity with execution_url includes URL in chatter note."""
+    # Exercises the real MobileWorkflowService (via get_legacy_n8n_workflow_service
+    # -> get_odoo_client) instead of a service double, per finding #8.
     monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
-    workflow = _workflow_mock()
-    odoo = MagicMock()
-    odoo.execute_kw = AsyncMock(return_value=[1])
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    odoo = _RealServiceOdoo()
+    odoo.business_execute_kw.return_value = [1]
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -660,16 +696,20 @@ def test_manual_review_activity_with_execution_url(monkeypatch):
 
     assert response.status_code == 200
     # First call is message_post; check the HTML body contains the URL
-    first_call = odoo.execute_kw.call_args_list[0]
+    first_call = odoo.business_execute_kw.call_args_list[0]
     note_html = first_call[1]["body"] if "body" in (first_call[1] or {}) else first_call[0][3].get("body", "")
     assert "https://n8n.local/execution/123" in note_html
 
 
 def test_manual_review_activity_requires_idempotency_key(monkeypatch):
+    # Needs a genuine MobileWorkflowService double to assert
+    # begin_idempotent_request was never awaited; does NOT cover the real
+    # get_odoo_client-backed idempotency wiring (see the get_odoo_client-only
+    # tests above for that).
     monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
     workflow = _workflow_mock()
     odoo = MagicMock()
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_legacy_n8n_workflow_service] = lambda: workflow
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -699,6 +739,13 @@ def test_manual_review_activity_requires_idempotency_key(monkeypatch):
 # or CSRF requirements. Every successful call must reach the fake Odoo/workflow
 # service with `principal_scope == "service:n8n-v1"`; every call missing the
 # callback secret must be rejected with 403 before any service call.
+#
+# These tests override get_legacy_n8n_workflow_service with a MobileWorkflowService
+# double: they assert on `workflow.begin_idempotent_request`'s call args/await
+# state directly (principal_scope, "not awaited on 403"), which a real service
+# instance would not expose. They therefore do NOT cover the real
+# get_odoo_client-backed idempotency wiring introduced for finding #8 -- see
+# the get_odoo_client-only tests earlier in this file for that coverage.
 
 
 def test_quality_assessment_ai_callback_uses_service_principal_scope(monkeypatch):
@@ -718,7 +765,7 @@ def test_quality_assessment_ai_callback_uses_service_principal_scope(monkeypatch
             }
         ]
     )
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_legacy_n8n_workflow_service] = lambda: workflow
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -757,7 +804,7 @@ def test_quality_assessment_ai_callback_rejects_missing_secret_before_service_ca
     monkeypatch.setattr(settings, "n8n_callback_secret", "top-secret")
     workflow = _workflow_mock()
     odoo = MagicMock()
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_legacy_n8n_workflow_service] = lambda: workflow
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -790,7 +837,7 @@ def test_quality_assessment_callback_uses_service_principal_scope(monkeypatch):
     odoo = MagicMock()
     odoo.write = AsyncMock(return_value=True)
     odoo.execute_kw = AsyncMock(return_value=True)
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_legacy_n8n_workflow_service] = lambda: workflow
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -822,7 +869,7 @@ def test_quality_assessment_callback_rejects_missing_secret_before_service_call(
     workflow = _workflow_mock()
     odoo = MagicMock()
     odoo.write = AsyncMock(return_value=True)
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_legacy_n8n_workflow_service] = lambda: workflow
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -856,7 +903,7 @@ def test_replenishment_callback_uses_service_principal_scope(monkeypatch):
             "replenishment_picking_id": 71,
         }
     )
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_legacy_n8n_workflow_service] = lambda: workflow
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -889,7 +936,7 @@ def test_replenishment_callback_rejects_missing_secret_before_service_call(monke
     workflow = _workflow_mock()
     odoo = MagicMock()
     odoo.execute_kw = AsyncMock()
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_legacy_n8n_workflow_service] = lambda: workflow
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -920,7 +967,7 @@ def test_quality_assessment_failed_uses_service_principal_scope(monkeypatch):
     odoo = MagicMock()
     odoo.write = AsyncMock(return_value=True)
     odoo.execute_kw = AsyncMock(side_effect=[True, [91], 1])
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_legacy_n8n_workflow_service] = lambda: workflow
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -950,7 +997,7 @@ def test_manual_review_activity_uses_service_principal_scope(monkeypatch):
     workflow = _workflow_mock()
     odoo = MagicMock()
     odoo.execute_kw = AsyncMock(return_value=[1])
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_legacy_n8n_workflow_service] = lambda: workflow
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -980,7 +1027,7 @@ def test_manual_review_activity_rejects_missing_secret_before_service_call(monke
     workflow = _workflow_mock()
     odoo = MagicMock()
     odoo.execute_kw = AsyncMock()
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_legacy_n8n_workflow_service] = lambda: workflow
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:
@@ -1019,7 +1066,7 @@ def test_manual_review_activity_replay_returns_cached_response_without_duplicate
     )
     odoo = MagicMock()
     odoo.execute_kw = AsyncMock()
-    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_legacy_n8n_workflow_service] = lambda: workflow
     app.dependency_overrides[get_odoo_client] = lambda: odoo
 
     try:

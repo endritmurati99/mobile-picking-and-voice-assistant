@@ -10,8 +10,8 @@ import re
 from fastapi import APIRouter, Depends, Header, HTTPException
 
 from app.dependencies import (
+    get_legacy_n8n_workflow_service,
     get_legacy_n8n_write_context,
-    get_mobile_workflow_service,
     get_odoo_client,
     require_n8n_callback_secret,
 )
@@ -410,7 +410,7 @@ async def _finalize_error(
 )
 async def quality_assessment_ai_callback(
     body: QualityAssessmentAIRequest,
-    workflow: MobileWorkflowService = Depends(get_mobile_workflow_service),
+    workflow: MobileWorkflowService = Depends(get_legacy_n8n_workflow_service),
     odoo: OdooClient = Depends(get_odoo_client),
     context: WriteRequestContext = Depends(get_legacy_n8n_write_context),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
@@ -550,7 +550,7 @@ async def quality_assessment_ai_callback(
 @router.post("/quality-assessment", response_model=N8NCommandResponse, dependencies=[Depends(require_n8n_callback_secret)])
 async def quality_assessment_callback(
     body: QualityAssessmentCallbackRequest,
-    workflow: MobileWorkflowService = Depends(get_mobile_workflow_service),
+    workflow: MobileWorkflowService = Depends(get_legacy_n8n_workflow_service),
     odoo: OdooClient = Depends(get_odoo_client),
     context: WriteRequestContext = Depends(get_legacy_n8n_write_context),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
@@ -691,7 +691,7 @@ async def quality_assessment_callback(
 @router.post("/replenishment-action", response_model=N8NCommandResponse, dependencies=[Depends(require_n8n_callback_secret)])
 async def replenishment_action_callback(
     body: ReplenishmentActionRequest,
-    workflow: MobileWorkflowService = Depends(get_mobile_workflow_service),
+    workflow: MobileWorkflowService = Depends(get_legacy_n8n_workflow_service),
     odoo: OdooClient = Depends(get_odoo_client),
     context: WriteRequestContext = Depends(get_legacy_n8n_write_context),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
@@ -861,7 +861,7 @@ async def replenishment_action_callback(
 @router.post("/quality-assessment-failed", response_model=N8NCommandResponse, dependencies=[Depends(require_n8n_callback_secret)])
 async def quality_assessment_failed_callback(
     body: QualityAssessmentFailedRequest,
-    workflow: MobileWorkflowService = Depends(get_mobile_workflow_service),
+    workflow: MobileWorkflowService = Depends(get_legacy_n8n_workflow_service),
     odoo: OdooClient = Depends(get_odoo_client),
     context: WriteRequestContext = Depends(get_legacy_n8n_write_context),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
@@ -1016,7 +1016,7 @@ async def quality_assessment_failed_callback(
 @router.post("/manual-review-activity", response_model=N8NCommandResponse, dependencies=[Depends(require_n8n_callback_secret)])
 async def manual_review_activity_callback(
     body: ManualReviewActivityRequest,
-    workflow: MobileWorkflowService = Depends(get_mobile_workflow_service),
+    workflow: MobileWorkflowService = Depends(get_legacy_n8n_workflow_service),
     odoo: OdooClient = Depends(get_odoo_client),
     context: WriteRequestContext = Depends(get_legacy_n8n_write_context),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),

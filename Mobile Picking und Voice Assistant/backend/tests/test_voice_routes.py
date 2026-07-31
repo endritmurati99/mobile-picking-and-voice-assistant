@@ -1,11 +1,24 @@
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from fastapi.testclient import TestClient
 
+from app.config import settings
 from app.dependencies import get_n8n_client, get_odoo_client, get_picking_service, get_request_odoo_client
 from app.main import app
 from app.routers import voice as voice_router
 from app.services.n8n_webhook import N8NEventResult, N8NReply
+
+
+@pytest.fixture(autouse=True)
+def _mobile_header_grace_mode_enabled(monkeypatch):
+    """These route tests authenticate via bare X-Picker-User-Id/X-Device-Id
+    headers instead of a session cookie. Since Task 1 (Security Boundaries),
+    grace mode defaults to off, so it must be enabled explicitly here to keep
+    exercising that header-only identity path in development.
+    """
+    monkeypatch.setattr(settings, "runtime_profile", "development")
+    monkeypatch.setattr(settings, "mobile_header_grace_mode", True)
 
 
 def test_voice_recognize_returns_additive_fields_and_detail_context(monkeypatch):

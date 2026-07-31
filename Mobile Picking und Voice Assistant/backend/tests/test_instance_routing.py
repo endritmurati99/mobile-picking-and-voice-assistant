@@ -16,7 +16,7 @@ class _UnusedSessions:
     missing cookie without needing real session-service secrets configured."""
 
 
-def test_missing_session_rejects_unknown_instance_without_odoo_call():
+def test_missing_session_rejects_unknown_instance_without_odoo_call(monkeypatch):
     """BEWUSSTE AUSNAHME (2026-07-26): der Produktbild-Endpunkt haengt an
     `get_request_odoo_client_or_grace`, nicht mehr am strikten
     `get_request_odoo_client`.
@@ -29,7 +29,12 @@ def test_missing_session_rejects_unknown_instance_without_odoo_call():
 
     Die Instanz-Zusage dieses Moduls bleibt trotzdem intakt: eine unbekannte
     `X-Odoo-Instance` wird abgelehnt, bevor irgendein Odoo-Call zustande kommt.
+
+    Grace-Mode ist seit Task 1 (Security Boundaries) standardmaessig aus; dieser
+    Test aktiviert es explizit, weil er genau dieses Verhalten prueft.
     """
+    monkeypatch.setattr(settings, "runtime_profile", "development")
+    monkeypatch.setattr(settings, "mobile_header_grace_mode", True)
     app.dependency_overrides[get_session_service] = lambda: _UnusedSessions()
     try:
         with TestClient(app) as client:
