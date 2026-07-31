@@ -62,3 +62,9 @@ picking.priority
 
 # Graphify cache
 graphify-out/
+
+# Pre-cutover database/filestore backups (contain credential hashes — never commit)
+infrastructure/backups/
+# File-based Docker secrets (Task 5)
+infrastructure/secrets/*
+!infrastructure/secrets/README.md

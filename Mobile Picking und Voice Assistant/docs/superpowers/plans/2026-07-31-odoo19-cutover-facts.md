@@ -200,6 +200,36 @@ database and reseed it with `seed-odoo.py`.** Anything else — Odoo's paid upgr
 hand-written OpenUpgrade scripts — is work that does not exist here and would have to be
 commissioned separately.
 
+> **REVISION 3 — 2026-07-31, execution attempt. F5's CONCLUSION IS FALSE AND ITS PREMISE IS
+> UNPROVEN. See plan §0.0 for the full evidence.**
+>
+> 1. **`seed-odoo.py` cannot seed an Odoo 19 database.** It was run against a freshly initialised
+>    v19 database and died at the first picking with
+>    `ValueError: Invalid field 'name' on model 'stock.move'`. Line 436 writes `"name": m["name"]`
+>    into the `stock.move` create values, and **Odoo 19 removed `stock.move.name`** (column present
+>    in `masterfischer`, absent in a fresh v19 database). The docstring at line 2 that this fact
+>    list quotes as positive evidence — "Seed-Daten für Odoo 19 Community" — is aspirational. The
+>    script has never run against v19. So "the only path the repository supports" is a path the
+>    repository does not, in fact, support.
+> 2. **`masterfischer_o19_trial` was not produced by `seed-odoo.py`.** It carries the *same*
+>    `database.uuid` (`04909707-097d-11f0-a9b0-2ccf670cb11f`) and the same `database.create_date`
+>    as `masterfischer`, retains the legacy `stock_move.name` column, and matches `masterfischer`
+>    on `res_partner` (9) and `product_product` (54). It is a **copy of `masterfischer` upgraded in
+>    place to v19 on 2026-07-04**, by a route recorded nowhere in this repository.
+> 3. **That route could not be reproduced.** `odoo -u all` under `odoo:19.0` (`19.0-20260630`)
+>    against a restored copy of `masterfischer` fails in about one second at module `base` with
+>    `psycopg2.errors.InvalidTextRepresentation: invalid input syntax for type json / Token "base"
+>    is invalid`, on `ALTER TABLE "ir_model" ALTER COLUMN "state" ... TYPE jsonb`. Identical failure
+>    with the stock addons path only, and identical failure on a restored copy of `lager2` — so it
+>    is neither this repository's addon tree nor specific to `masterfischer`. The same image's `-i`
+>    path creates those columns as plain scalars, so the image is internally inconsistent between
+>    install and upgrade.
+>
+> **Consequence: F5's premise ("Odoo Community has no in-place major upgrade") may well be correct
+> after all, and `masterfischer_o19_trial` is most likely the output of the vendor upgrade service
+> or an OpenUpgrade run performed outside this repository. Task 2 currently has no working
+> implementation by either route.**
+
 ## F6 — What data actually lives in `masterfischer`: **ESTABLISHED — thesis working data, no business records**
 
 > **REVISION 2 — probed read-only.** `stock_picking` **66** rows (46 `done`, 20 `assigned`), created

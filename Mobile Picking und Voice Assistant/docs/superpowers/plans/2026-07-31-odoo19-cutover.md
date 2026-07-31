@@ -27,6 +27,154 @@ established after that file was written.
 
 ---
 
+## 0.0 REVISION 3 (2026-07-31, execution attempt) — Task 2 IS BLOCKED, both ways
+
+> **Do not execute Task 2 as written, and do not execute the clone-and-upgrade alternative
+> either, until this section is resolved.** Revision 3 records what an actual execution run
+> proved on the live machine. It corrects F5 and §0.1. It deliberately does **not** prescribe a
+> replacement procedure, because both candidate procedures were tested and both fail.
+
+### 0.0.1 `seed-odoo.py` is NOT an Odoo 19 seeder, despite its docstring
+
+Task 2 Step 4 was executed and failed:
+
+```
+xmlrpc.client.Fault: <Fault 1: ...
+ValueError: Invalid field 'name' on model 'stock.move'
+```
+
+`infrastructure/scripts/seed-odoo.py:436` writes `"name": m["name"]` into the `stock.move`
+create values. **Odoo 19 removed `stock.move.name`.** Proof, by column introspection:
+
+| database | `stock_move.name` |
+|---|---|
+| `masterfischer` (v18) | present |
+| `masterfischer_o19` (freshly initialised v19) | **absent** |
+
+The docstring at `seed-odoo.py:2` ("Seed-Daten für Odoo 19 Community") is aspirational; the code
+has never run against a v19 database. The seeder creates locations, products and partners fine
+and then dies at the first picking. **Anyone porting it must start at line 436.**
+
+### 0.0.2 `masterfischer_o19_trial` was never seeded — it is a COPY of `masterfischer`
+
+Plan §0.1 and Task 2 Step 4 both claim it was "seeded the same way" and cite its 21 `assigned` +
+45 `done` as calibration for a fresh seed. **That is false.** Evidence:
+
+```
+masterfischer            database.uuid = 04909707-097d-11f0-a9b0-2ccf670cb11f
+masterfischer_o19_trial  database.uuid = 04909707-097d-11f0-a9b0-2ccf670cb11f   <-- IDENTICAL
+                         database.create_date = 2025-03-25 13:28:20 in BOTH
+```
+
+plus: it retains the legacy v18 `stock_move.name` column that a fresh v19 init never creates;
+`res_partner` 9 and `product_product` 54 match `masterfischer` exactly; and its
+`ir_module_module.write_date` clusters at **2026-07-04 13:37 (126 rows) and 13:46 (365 rows)** —
+the moment a v19 upgrade rewrote the module table.
+
+So `masterfischer_o19_trial` is a copy of `masterfischer` that reached Odoo 19 **by some route
+that is not recorded anywhere in this repository and that could not be reproduced** (§0.0.3).
+The 07-30 plan's claim that `seed-odoo.py` populated it is likewise false.
+
+### 0.0.3 In-place `-u all` from v18 to v19 DOES NOT WORK on this stack
+
+The owner re-decided (D1 revised) in favour of clone-and-upgrade on the strength of §0.0.2. That
+procedure was then proved on throwaway copies, per the standing rule that a backup nobody has
+restored is a rumour — and the same rule applied to an upgrade nobody has run. **It failed.**
+
+Procedure tested: `pg_restore` today's proven dump into a throwaway database, stop the live v18
+`odoo` container (mandatory — see §0.0.4), then
+
+```bash
+docker compose --profile odoo19-trial run --rm --no-deps -T odoo19-trial \
+  odoo --no-http --stop-after-init --workers=0 --max-cron-threads=0 -d <throwaway> -u all
+```
+
+Result, reproducible in about one second, at module `base`:
+
+```
+CRITICAL <db> odoo.service.server: Failed to initialize database `<db>`.
+  File ".../odoo/orm/models.py", line 3228, in _auto_init
+    new = field.update_db(self, columns)
+  File ".../odoo/tools/sql.py", line 382, in _convert_column
+psycopg2.errors.InvalidTextRepresentation: invalid input syntax for type json
+DETAIL:  Token "base" is invalid.
+```
+
+The failing statement, captured with `--log-handler=odoo.sql_db:DEBUG`:
+
+```sql
+ALTER TABLE "ir_model" ALTER COLUMN "state" DROP DEFAULT,
+  ALTER COLUMN "state" TYPE jsonb USING "state"::jsonb
+```
+
+`ir_model.state` holds the literal `base` in v18, which is not valid JSON. Immediately before it,
+the same run converts `ir_model.model`, `ir_model.order` and `ir_model.info` to `jsonb` via
+`jsonb_build_object('en_US', ...)`.
+
+**This is an internal inconsistency in the `odoo:19.0` image itself (`19.0-20260630`), not a
+defect in this repository.** The same image, on its own `-i` initialisation path, creates those
+columns as plain scalars:
+
+| column | `masterfischer_o19` (v19, `-i`) | `masterfischer_o19_trial` (v19, upgraded) | what `-u all` demands |
+|---|---|---|---|
+| `ir_model.model` | `character varying` | `character varying` | `jsonb` |
+| `ir_model.order` | `character varying` | `character varying` | `jsonb` |
+| `ir_model.info`  | `text`              | `text`              | `jsonb` |
+| `ir_model.state` | `character varying` | `character varying` | `jsonb` |
+
+So the image's upgrade path wants a schema its own install path does not produce, and which the
+one successfully-upgraded database on this cluster does not have either.
+
+**Isolation performed, so nobody re-runs it:**
+
+- With `--addons-path` restricted to stock Odoo addons only (our tree excluded): **identical
+  failure**. This repository's addon tree is not the cause.
+- On a restored copy of `lager2`, a different v18 database with a different module set:
+  **identical failure**. It is not specific to `masterfischer`.
+
+`grep` confirms no module under `odoo/addons/` inherits, defines or retables `ir.model`.
+
+### 0.0.4 The live v18 cron master must be stopped for any cluster-wide database work
+
+Independently confirmed at execution time, and it upgrades Global Constraint 2 from argument to
+observation. `odoo/odoo.conf` sets `dbfilter = ^(picking|masterfischer)$`, yet the running v18
+service logs:
+
+```
+odoo-1 | WARNING masterfischer_o19 odoo.addons.base.models.ir_cron:
+         Skipping database masterfischer_o19 as its base version is not 18.0.1.3.
+odoo-1 | WARNING masterfischer_o19_foundation_test ... Skipping ...
+odoo-1 | WARNING masterfischer_o19_trial ... Skipping ...
+odoo-1 | WARNING odoo19_smoke_codex ... Skipping ...
+```
+
+The cron master enumerates **every** database on the cluster and ignores `dbfilter` completely,
+exactly as §0.4.1 argued. Two consequences:
+
+1. §0.4.1 is no longer theoretical, and `db_name` in Task 3 stays load-bearing.
+2. The only thing shielding the v19 databases today is Odoo's own base-version guard. A
+   *v18-versioned* copy — which is what any restored clone is at the start of an upgrade — has
+   **no** such shield, so the live `odoo` container must be stopped before any clone-and-upgrade
+   attempt or the v18 cron master will attach to the clone.
+
+### 0.0.5 What is now open
+
+- **F5 is wrong in both directions.** Its conclusion "the only path the repository supports is:
+  create a NEW v19 database and reseed it with `seed-odoo.py`" fails because the seeder is not
+  v19-capable (§0.0.1). Its premise "Odoo Community has no in-place major upgrade" is what
+  `masterfischer_o19_trial` appears to contradict (§0.0.2) — but the contradiction is not
+  reproducible (§0.0.3), so F5's premise may well be right and the trial database may be the
+  product of the vendor upgrade service or an OpenUpgrade run performed outside this repository.
+- **Task 2 has no working implementation today.** Three options exist, all of them new work
+  requiring an owner decision, none of them executable under the current plan:
+  1. Port `seed-odoo.py` to Odoo 19 (starts at line 436; scope unknown beyond that line).
+  2. Establish and document how `masterfischer_o19_trial` actually reached v19, then repeat it.
+  3. Pin a different `odoo:19.0` build whose upgrade path is self-consistent, and retest.
+- **`masterfischer` and `lager2` are untouched and were never opened by a v19 process.** Every
+  upgrade attempt ran against a `pg_restore` copy, and every copy was dropped afterwards.
+
+---
+
 **Goal:** Make Odoo 19 the productive runtime. Delete `odoo/addons18/` in the *same commit* that
 repoints Compose at `odoo/addons/`, so neither `odoo` nor `odoo-lager-2` can ever start with an
 empty addons mount. Stand up two freshly seeded v19 databases. Leave `codex/odoo19-cutover` in a
