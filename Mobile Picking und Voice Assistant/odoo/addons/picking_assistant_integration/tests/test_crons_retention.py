@@ -52,6 +52,43 @@ class TestCronProgressGuard(IntegrationCase):
             getattr(self.env[model_name].sudo(), method)()
         return committed
 
+    def _run_gc_inside_a_cron(self, model_name, method):
+        """Dieselbe GC, aber MIT `ir_cron_progress_id` im Kontext.
+
+        Die Halbzeit, die die beiden `..._without_committing_...`-Tests nicht
+        sehen: sie pruefen nur "nicht AM Guard vorbei". Wer den ganzen
+        `_report_cron_progress(...)`-Aufruf loescht, bleibt dort gruen, und
+        der Cron meldet still gar keinen Fortschritt mehr. Deshalb wird hier
+        `ir.cron._commit_progress` selbst beobachtet -- der einzige Empfaenger,
+        den der Guard bei einem echten Cron-Lauf ansteuern darf.
+        """
+        with mock.patch.object(
+            type(self.env["ir.cron"]), "_commit_progress", autospec=True
+        ) as reported:
+            getattr(
+                self.env[model_name].sudo().with_context(ir_cron_progress_id=1),
+                method,
+            )()
+        return reported
+
+    def _assert_reported(self, reported, processed, remaining):
+        self.assertEqual(
+            reported.call_count,
+            1,
+            "the GC must report progress exactly once through "
+            "`_report_cron_progress` when a real cron runs it",
+        )
+        self.assertEqual(
+            reported.call_args.args[1:],
+            (processed,),
+            "the GC must report the number of rows it actually removed",
+        )
+        self.assertEqual(
+            reported.call_args.kwargs.get("remaining"),
+            remaining,
+            "the GC must report the undrained backlog",
+        )
+
     def test_throttle_gc_deletes_without_committing_outside_a_cron(self):
         now = fields.Datetime.now()
         stale = self.env["picking.assistant.auth.throttle"].sudo().create(
@@ -95,6 +132,69 @@ class TestCronProgressGuard(IntegrationCase):
             committed.called,
             "a GC running outside a cron must not commit the cursor",
         )
+
+    def test_throttle_gc_reports_progress_inside_a_cron(self):
+        now = fields.Datetime.now()
+        throttles = self.env["picking.assistant.auth.throttle"].sudo()
+        # Der Zaehler unten ist nur dann eine Aussage, wenn der Bestand
+        # bekannt ist -- der Testcursor rollt am Ende ohnehin zurueck.
+        throttles.search([]).unlink()
+        stale = throttles.create(
+            {
+                "login_key": "gc-progress",
+                "source_ip_hmac": "f" * 64,
+                "expires_at": now - timedelta(seconds=1),
+            }
+        )
+        throttles.create(
+            {
+                "login_key": "gc-progress-live",
+                "source_ip_hmac": "e" * 64,
+                "expires_at": now + timedelta(hours=1),
+            }
+        )
+
+        reported = self._run_gc_inside_a_cron(
+            "picking.assistant.auth.throttle", "_gc_expired_throttle"
+        )
+
+        self.assertFalse(stale.exists(), "the GC must still do its work")
+        self._assert_reported(reported, processed=1, remaining=0)
+
+    def test_session_gc_reports_progress_inside_a_cron(self):
+        now = fields.Datetime.now()
+        old = now - timedelta(days=8)
+        sessions = self.env["picking.assistant.session"].sudo()
+        sessions.search([]).unlink()
+        stale = sessions.create(
+            {
+                "session_id": "gc-progress-session",
+                "token_hash": "a" * 64,
+                "csrf_hash": "b" * 64,
+                "user_id": self.picker.id,
+                "device_id": "gc-progress-device",
+                "roles_json": "[]",
+                "expires_at": old,
+            }
+        )
+        sessions.create(
+            {
+                "session_id": "gc-progress-session-live",
+                "token_hash": "c" * 64,
+                "csrf_hash": "d" * 64,
+                "user_id": self.picker.id,
+                "device_id": "gc-progress-device-live",
+                "roles_json": "[]",
+                "expires_at": now + timedelta(hours=1),
+            }
+        )
+
+        reported = self._run_gc_inside_a_cron(
+            "picking.assistant.session", "_gc_expired_sessions"
+        )
+
+        self.assertFalse(stale.exists(), "the GC must still do its work")
+        self._assert_reported(reported, processed=1, remaining=0)
 
 
 class TestNonceReplayAndRetention(IntegrationCase):

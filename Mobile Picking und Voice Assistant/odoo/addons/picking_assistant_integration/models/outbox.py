@@ -116,6 +116,33 @@ class PickingAssistantOutbox(models.Model):
         # auf "Outbox lease is not owned by this worker." Eine Klassifizierung
         # hier wuerde stattdessen JEDEN Nebenlaeufigkeitstreffer als
         # Besitzverlust melden, ohne ihn geprueft zu haben.
+        #
+        # ERSCHOEPFUNG des Retry-Budgets (Fix-Runde 2) -- die Referenzstelle
+        # fuer alle zehn transparenten Retry-Sites dieser Lane, weil dies die
+        # umkaempfteste ist: jeder Worker ackt jede Zustellung, waehrend
+        # Lease-Sweeper und Dispatcher dieselben Zeilen schreiben.
+        # `retrying()` (`odoo/service/model.py`, im Image `odoo19-trial`
+        # nachgelesen, nicht vermutet) versucht
+        # `MAX_TRIES_ON_CONCURRENCY_FAILURE` = 5 mal und wirft danach im
+        # Zweig `if not tryleft: raise` die URSPRUENGLICHE
+        # `SerializationFailure` weiter. Der Aufrufer bekommt dann einen
+        # 500er mit Treiber-Traceback statt "Outbox lease is not owned by
+        # this worker." -- das Ack/Nack ist weder angewandt noch benannt
+        # abgelehnt. Das bleibt trotzdem die gewaehlte Alternative:
+        #  * Klassifizieren faengt die Erschoepfung nicht ab, es schaltet den
+        #    Retry ganz ab. Schon der ERSTE verlorene Lock waere dann ein
+        #    "not owned", obwohl die Lease dem Worker meist noch gehoert --
+        #    ein seltener 500er wuerde gegen haeufige falsche Ablehnungen
+        #    getauscht, und jede falsche Ablehnung kostet ein reales Ack.
+        #  * Fuer den einzigen produktiven Aufrufer sind beide Ausgaenge
+        #    ohnehin derselbe Ausgang: der Dispatcher faengt bei ack UND nack
+        #    `Exception`, loggt und laesst die Zeile bis zum Lease-Ablauf
+        #    liegen (`backend/app/services/outbox_dispatcher.py`, Zweige
+        #    "Ack failed after successful delivery" / "Nack failed"). Die
+        #    Zustellung wird wiederholt, der Konsument dedupliziert.
+        #  * Ein erschoepfter Aufruf hinterlaesst keinen Halbzustand: die
+        #    Transaktion rollt vollstaendig zurueck, der Aufruf ist gefahrlos
+        #    wiederholbar.
         self.sudo().flush_model()
         self.env.cr.execute(
             "SELECT id FROM picking_assistant_outbox "
@@ -242,6 +269,12 @@ class PickingAssistantOutbox(models.Model):
         # wieder an. Eine Klassifizierung waere schlicht falsch beschriftet:
         # "Dead outbox event not found." stimmt nicht, wenn ein Fremder nur
         # die Job-Zeile angefasst hat.
+        # Erschoepfung: nach 5 Versuchen wirft `retrying()` die
+        # `SerializationFailure` weiter -- der Aufrufer bekommt einen 500er
+        # statt einer benannten Antwort. Das ist kein Fachurteil, sondern das
+        # Eingestaendnis "zu umkaempft zum Entscheiden"; die Transaktion rollt
+        # dabei vollstaendig zurueck, der Aufruf ist also gefahrlos
+        # wiederholbar (ausfuehrliche Begruendung in `outbox.py::_owned_lease`).
         self.env.cr.execute(
             "SELECT id FROM picking_assistant_integration_job "
             "WHERE id = %s FOR UPDATE",

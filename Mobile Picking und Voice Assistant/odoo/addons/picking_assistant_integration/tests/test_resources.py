@@ -372,7 +372,12 @@ class TestMediaAccess(ResourceCase):
         mismatch, an `AttributeError` from a rename and even `AssertionError`
         -- i.e. it could not tell the uniqueness constraint from the test
         breaking. Pin it to the constraint that actually enforces the
-        invariant."""
+        invariant.
+
+        M3 (Fix-Runde 2): Dies ist bewusst die Datenbank-Wahrheit und nicht
+        das, was ein RPC-Aufrufer sieht -- `retrying()` uebersetzt jeden
+        `IntegrityError` in eine `ValidationError` (`odoo/service/model.py`,
+        Zweig `isinstance(exc, IntegrityError)`)."""
         self.bind_media()
         with self.assertRaises(psycopg2.errors.UniqueViolation) as caught:
             self.bind_media(media_ref="media-1")
