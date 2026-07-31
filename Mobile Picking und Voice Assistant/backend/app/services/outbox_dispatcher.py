@@ -69,6 +69,12 @@ class DispatchStats:
 @dataclass(frozen=True)
 class WatchdogStats:
     recovered: int = 0
+    # Candidates the Odoo batch refused to recover -- today practically only
+    # a receipt whose outbox row is gone (Task 6, finding #11's watchdog
+    # side). A persistently non-zero value is exactly what Task 2 justified
+    # skip-not-abort with ("something you can alert on"); until this field
+    # existed that alert had nowhere to surface outside Odoo's own log.
+    skipped: int = 0
 
 
 class OutboxDispatcher:
@@ -221,7 +227,18 @@ class IntegrationWatchdog:
             "api_recover_stalled_jobs",
             [200],
         )
-        return WatchdogStats(recovered=int(result.get("recovered", 0)))
+        stats = WatchdogStats(
+            recovered=int(result.get("recovered", 0)),
+            skipped=int(result.get("skipped", 0)),
+        )
+        if stats.skipped:
+            logger.warning(
+                "Watchdog on %s skipped %d stalled job(s) it refused to "
+                "recover (likely missing outbox rows)",
+                instance,
+                stats.skipped,
+            )
+        return stats
 
 
 def build_outbox_dispatcher(

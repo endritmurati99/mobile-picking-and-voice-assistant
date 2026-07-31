@@ -43,14 +43,37 @@ MEDIA_REF = "media-1"
 SIGNING_KEY = HmacKey("n2b-test", b"2" * 32)
 FIXED_TS = 1760000000
 NONCE = "123e4567-e89b-42d3-a456-426614174050"
+# Fix-round-1 (#5b): the processing lease token travels as a PATH segment,
+# not a JSON body field -- see the module docstring addition in
+# `app/routers/n8n_v2.py`. Shaped like a real `secrets.token_urlsafe(32)`
+# output (this addon's Odoo side issues those).
+LEASE_TOKEN = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-ABCD"
+OTHER_LEASE_TOKEN = "ZyXwVuTsRqPoNmLkJiHgFeDcBa9876543210_-WXYZ"
 
-MEDIA_PATH = f"/api/internal/instances/o19/jobs/{JOB_ID}/media/{MEDIA_REF}"
+def media_path(
+    media_ref: str = MEDIA_REF,
+    job_id: str = JOB_ID,
+    lease_token: str = LEASE_TOKEN,
+    instance: str = "o19",
+) -> str:
+    return (
+        f"/api/internal/instances/{instance}/jobs/{job_id}"
+        f"/leases/{lease_token}/media/{media_ref}"
+    )
 
 
-def artifact_path(kind: str = "pdf", job_id: str = JOB_ID, event_id: str = EVENT_ID) -> str:
+MEDIA_PATH = media_path()
+
+
+def artifact_path(
+    kind: str = "pdf",
+    job_id: str = JOB_ID,
+    event_id: str = EVENT_ID,
+    lease_token: str = LEASE_TOKEN,
+) -> str:
     return (
         f"/api/internal/instances/o19/jobs/{job_id}"
-        f"/events/{event_id}/artifacts/{kind}"
+        f"/leases/{lease_token}/events/{event_id}/artifacts/{kind}"
     )
 
 
@@ -303,7 +326,7 @@ def test_signed_target_must_equal_the_requested_path(
                 b"",
                 method="GET",
                 idempotency_key=None,
-                signed_target=f"/api/internal/instances/o19/jobs/{OTHER_JOB_ID}/media/{MEDIA_REF}",
+                signed_target=media_path(job_id=OTHER_JOB_ID),
             ),
         )
     else:
@@ -351,14 +374,16 @@ def test_media_passes_job_media_ref_and_signed_generation_to_odoo(client, fake_o
     assert response.status_code == 200
     reserve, read = fake_odoo.calls
     assert reserve[1] == "api_reserve_request_nonce"
-    # Die Nonce-Reservierung ist job- UND generationsgebunden.
+    # Die Nonce-Reservierung ist job-, generations- UND (Fix-Runde 1)
+    # lease-token-gebunden.
     assert reserve[2][0] == "n8n_to_backend"
     assert reserve[2][1] == SIGNING_KEY.key_id
     assert reserve[2][2] == NONCE
     assert JOB_ID in reserve[2]
     assert 7 in reserve[2]
+    assert LEASE_TOKEN in reserve[2]
     assert read[1] == "api_get_job_media"
-    assert read[2] == [JOB_ID, MEDIA_REF, 7]
+    assert read[2] == [JOB_ID, MEDIA_REF, 7, LEASE_TOKEN]
 
 
 def test_artifact_pdf_is_raw_and_job_bound(
@@ -366,7 +391,7 @@ def test_artifact_pdf_is_raw_and_job_bound(
 ):
     path = (
         "/api/internal/instances/o19/jobs/"
-        "4ddb2442-e58a-47fe-9a6f-1ec1d779ef88/events/"
+        f"4ddb2442-e58a-47fe-9a6f-1ec1d779ef88/leases/{LEASE_TOKEN}/events/"
         "a4ff5ca2-4546-4ea4-8e6c-b75bc003ca32/artifacts/pdf"
     )
     response = client.post(
@@ -388,7 +413,7 @@ def test_artifact_passes_source_event_and_signed_generation(
     assert response.status_code == 201
     reserve, store = fake_odoo.calls
     assert reserve[1] == "api_reserve_request_nonce"
-    assert JOB_ID in reserve[2] and 3 in reserve[2]
+    assert JOB_ID in reserve[2] and 3 in reserve[2] and LEASE_TOKEN in reserve[2]
     assert store[2][0] == JOB_ID
     assert store[2][1] == EVENT_ID
     assert store[2][2] == "pdf"
@@ -398,6 +423,7 @@ def test_artifact_passes_source_event_and_signed_generation(
     assert store[2][5] == hashlib.sha256(minimal_pdf).hexdigest()
     assert store[2][6] == "application/pdf"
     assert store[2][7] == f"{JOB_ID}-pdf.pdf"
+    assert store[2][8] == LEASE_TOKEN
 
 
 def test_stale_generation_conflict_from_odoo_becomes_409(client, fake_odoo, minimal_pdf):
@@ -442,7 +468,7 @@ def test_replayed_nonce_conflict_never_reaches_the_resource(client, fake_odoo):
     ],
 )
 def test_malformed_job_id_is_rejected_before_odoo(client, fake_odoo, job_id):
-    path = f"/api/internal/instances/o19/jobs/{job_id}/media/{MEDIA_REF}"
+    path = media_path(job_id=job_id)
     response = client.get(path, headers=signed(path, b"", method="GET", idempotency_key=None))
     assert response.status_code == 400
     assert fake_odoo.calls == []
@@ -453,7 +479,7 @@ def test_malformed_job_id_is_rejected_before_odoo(client, fake_odoo, job_id):
     ["x" * 200, "media~1", "media:1", "-media", ".media", "media%1", "media,1"],
 )
 def test_malformed_media_ref_is_rejected_before_odoo(client, fake_odoo, media_ref):
-    path = f"/api/internal/instances/o19/jobs/{JOB_ID}/media/{media_ref}"
+    path = media_path(media_ref=media_ref)
     response = client.get(
         path, headers=signed(path, b"", method="GET", idempotency_key=None)
     )
@@ -461,11 +487,33 @@ def test_malformed_media_ref_is_rejected_before_odoo(client, fake_odoo, media_re
     assert fake_odoo.calls == []
 
 
+@pytest.mark.parametrize(
+    "lease_token",
+    ["", "short", "token/with/slash", "x" * 200, "token~with~tilde", "token,with,comma"],
+)
+def test_malformed_lease_token_is_rejected_before_odoo(client, fake_odoo, lease_token):
+    """Fix-round-1, Finding 3: the lease token is a path segment now, so it
+    gets the same cheap allowlist treatment as job_id/media_ref -- rejected
+    before any Odoo call, not passed through unchecked.
+
+    Status code is allowed to be 400 (allowlist rejection), 404 (a literal
+    `/` splits the single `{processing_lease_token}` path segment into more
+    segments than the route template has, so it just doesn't match), or 401
+    (a value the HTTP client re-encodes differently than what got signed, as
+    with the existing malformed-media-ref percent-encoding tests) -- all
+    three share the property under test: Odoo is never called.
+    """
+    path = media_path(lease_token=lease_token)
+    response = client.get(path, headers=signed(path, b"", method="GET", idempotency_key=None))
+    assert response.status_code in (400, 401, 404)
+    assert fake_odoo.calls == []
+
+
 def test_percent_encoded_media_ref_is_validated_after_decoding(client, fake_odoo):
     """Der signierte Pfad ist der ROHE Pfad, der Handler sieht den dekodierten
     Wert. Beides muss geprueft werden: die Signatur passt hier, und trotzdem
     darf `média` die Allowlist nicht passieren."""
-    path = f"/api/internal/instances/o19/jobs/{JOB_ID}/media/m%C3%A9dia"
+    path = f"/api/internal/instances/o19/jobs/{JOB_ID}/leases/{LEASE_TOKEN}/media/m%C3%A9dia"
     response = client.get(path, headers=signed(path, b"", method="GET", idempotency_key=None))
     assert response.status_code == 400
     assert fake_odoo.calls == []
@@ -475,14 +523,20 @@ def test_percent_encoded_traversal_never_escapes_the_media_reference(client, fak
     """%2e%2e%2f dekodiert zu "../". Das darf nie zu einem Ressourcenzugriff
     fuehren: entweder passt nach dem Dekodieren kein Routenmuster mehr (404)
     oder die Allowlist weist den Wert ab (400) -- ein 200 waere der Fehler."""
-    path = f"/api/internal/instances/o19/jobs/{JOB_ID}/media/%2e%2e%2f%2e%2e%2fetc%2fpasswd"
+    path = (
+        f"/api/internal/instances/o19/jobs/{JOB_ID}/leases/{LEASE_TOKEN}"
+        "/media/%2e%2e%2f%2e%2e%2fetc%2fpasswd"
+    )
     response = client.get(path, headers=signed(path, b"", method="GET", idempotency_key=None))
     assert response.status_code in (400, 404)
     assert fake_odoo.calls == []
 
 
 def test_traversal_in_the_media_path_matches_no_route(client, fake_odoo):
-    path = f"/api/internal/instances/o19/jobs/{JOB_ID}/media/../../../etc/passwd"
+    path = (
+        f"/api/internal/instances/o19/jobs/{JOB_ID}/leases/{LEASE_TOKEN}"
+        "/media/../../../etc/passwd"
+    )
     response = client.get(path, headers=signed(path, b"", method="GET", idempotency_key=None))
     assert response.status_code in (401, 404)
     assert fake_odoo.calls == []
@@ -719,3 +773,69 @@ def test_artifact_with_unusable_odoo_result_is_a_conflict(client, fake_odoo, min
         fake_odoo.calls.clear()
         fake_odoo.artifact = payload
         assert post_artifact(client, minimal_pdf).status_code == 409
+
+
+# --------------------------------------------------------------------------
+# Fix-round-1 (#5b): the lease token is a signed PATH segment, not a JSON
+# body field -- see the module docstring in `app/routers/n8n_v2.py` for why
+# (bodyless GET, raw-bytes POST body, shared HMAC canonical input). The
+# brief's own two tests are adapted to that shape below: "the field is
+# required" becomes "the pre-fix path shape (without the segment) is no
+# longer a route at all", and "part of the signed bytes" becomes "swapping
+# the token after signing invalidates the signature", since the token lives
+# in the same signed `target` as job_id/media_ref/etc. already do.
+# --------------------------------------------------------------------------
+
+
+def test_media_request_without_a_lease_token_segment_no_longer_matches_a_route(
+    client, fake_odoo
+):
+    """The pre-fix path shape (`/jobs/{job}/media/{ref}`, no `/leases/...`
+    segment) must not silently keep working as some kind of "token optional"
+    fallback -- it should not match a route at all."""
+    old_shape_path = f"/api/internal/instances/o19/jobs/{JOB_ID}/media/{MEDIA_REF}"
+    response = client.get(
+        old_shape_path,
+        headers=signed(old_shape_path, b"", method="GET", idempotency_key=None),
+    )
+    assert response.status_code == 404
+    assert fake_odoo.calls == []
+
+
+def test_artifact_request_without_a_lease_token_segment_no_longer_matches_a_route(
+    client, fake_odoo, minimal_pdf
+):
+    old_shape_path = (
+        f"/api/internal/instances/o19/jobs/{JOB_ID}/events/{EVENT_ID}/artifacts/pdf"
+    )
+    response = client.post(
+        old_shape_path,
+        content=minimal_pdf,
+        headers=signed(old_shape_path, minimal_pdf, content_type="application/pdf"),
+    )
+    assert response.status_code == 404
+    assert fake_odoo.calls == []
+
+
+def test_media_lease_token_is_part_of_the_signed_bytes(client, fake_odoo):
+    """Swapping the token after signing must invalidate the signature -- the
+    token is bound the same way `job_id`/`media_ref` already are (the signed
+    `target` is the raw request path, `hmac_signing.py:117`)."""
+    fake_odoo.media = media_payload(png_bytes())
+    signed_for_a = media_path(lease_token=LEASE_TOKEN)
+    headers = signed(signed_for_a, b"", method="GET", idempotency_key=None)
+    swapped_path = media_path(lease_token=OTHER_LEASE_TOKEN)
+    response = client.get(swapped_path, headers=headers)
+    assert response.status_code == 401
+    assert fake_odoo.calls == []
+
+
+def test_artifact_lease_token_is_part_of_the_signed_bytes(client, fake_odoo, minimal_pdf):
+    signed_for_a = artifact_path(lease_token=LEASE_TOKEN)
+    headers = signed(
+        signed_for_a, minimal_pdf, content_type="application/pdf"
+    )
+    swapped_path = artifact_path(lease_token=OTHER_LEASE_TOKEN)
+    response = client.post(swapped_path, content=minimal_pdf, headers=headers)
+    assert response.status_code == 401
+    assert fake_odoo.calls == []

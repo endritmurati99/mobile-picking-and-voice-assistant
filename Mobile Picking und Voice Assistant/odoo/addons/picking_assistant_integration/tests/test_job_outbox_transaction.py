@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from odoo import fields
-from odoo.exceptions import ValidationError
+from odoo.exceptions import AccessError, ValidationError
 
 from .common import IntegrationCase
 
@@ -107,3 +107,39 @@ class TestJobOutboxTransaction(IntegrationCase):
             model.api_nack_delivery(event_id, "worker-a", "timeout", "stale owner")
         self.assertEqual(outbox.lease_owner, "worker-b")
         self.assertEqual(outbox.state, "leased")
+
+    def test_requeue_dead_event_clears_lease_and_resets_state(self):
+        _job, outbox = self._enqueue("1")
+        outbox.write(
+            {
+                "state": "dead",
+                "attempt_count": 10,
+                "lease_owner": "worker-a",
+                "lease_expires_at": fields.Datetime.now() + timedelta(seconds=60),
+            }
+        )
+        model = self.env["picking.assistant.outbox"].with_user(self.api_user)
+        result = model.api_requeue_dead(
+            outbox.event_id, self.supervisor.id, "manual retry"
+        )
+        self.assertEqual(result, {"state": "pending", "event_id": outbox.event_id})
+        outbox.invalidate_recordset()
+        self.assertEqual(outbox.state, "pending")
+        self.assertEqual(outbox.attempt_count, 0)
+        self.assertFalse(outbox.lease_owner)
+        self.assertFalse(outbox.lease_expires_at)
+        self.assertEqual(outbox.last_error_code, "manual_requeue")
+
+    def test_requeue_refuses_a_row_that_is_not_dead(self):
+        _job, outbox = self._enqueue("1")
+        self.assertEqual(outbox.state, "pending")
+        model = self.env["picking.assistant.outbox"].with_user(self.api_user)
+        with self.assertRaises(ValidationError):
+            model.api_requeue_dead(outbox.event_id, self.supervisor.id, "reason")
+
+    def test_requeue_refuses_a_supervisor_without_the_group(self):
+        _job, outbox = self._enqueue("1")
+        outbox.write({"state": "dead"})
+        model = self.env["picking.assistant.outbox"].with_user(self.api_user)
+        with self.assertRaises(AccessError):
+            model.api_requeue_dead(outbox.event_id, self.picker.id, "reason")

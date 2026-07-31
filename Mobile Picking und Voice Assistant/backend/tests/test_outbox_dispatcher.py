@@ -36,6 +36,7 @@ class FakeOdoo:
         self.acked = []
         self.nacked = []
         self.recover_calls = []
+        self.recover_skipped = 0
 
     async def execute_kw(self, model, method, args, kwargs=None):
         if method == "api_lease_due":
@@ -48,7 +49,7 @@ class FakeOdoo:
             return {"state": "pending"}
         if method == "api_recover_stalled_jobs":
             self.recover_calls.append((model, tuple(args)))
-            return {"recovered": 2}
+            return {"recovered": 2, "skipped": self.recover_skipped}
         raise AssertionError((model, method, args))
 
 
@@ -301,10 +302,27 @@ async def test_watchdog_run_once_returns_recovered_count():
         client_factory=lambda _name: odoo, instance_names=("o19",)
     )
     stats = await watchdog.run_once("o19")
-    assert stats == WatchdogStats(recovered=2)
+    assert stats == WatchdogStats(recovered=2, skipped=0)
     assert odoo.recover_calls == [
         ("picking.assistant.integration.job", (200,))
     ]
+
+
+@pytest.mark.asyncio
+async def test_watchdog_run_once_carries_skipped_count_through(caplog):
+    """Task 6, step 3b: the Odoo RPC's `skipped` count (candidates the batch
+    refused to recover, typically an orphaned receipt with no outbox row)
+    used to be silently dropped by `WatchdogStats(recovered=...)`. It must
+    reach the stats object, and a non-zero value must be logged."""
+    odoo = FakeOdoo()
+    odoo.recover_skipped = 3
+    watchdog = IntegrationWatchdog(
+        client_factory=lambda _name: odoo, instance_names=("o19",)
+    )
+    with caplog.at_level("WARNING"):
+        stats = await watchdog.run_once("o19")
+    assert stats == WatchdogStats(recovered=2, skipped=3)
+    assert any("skipped 3" in message for message in caplog.messages)
 
 
 def _candidate_settings(**overrides) -> Settings:

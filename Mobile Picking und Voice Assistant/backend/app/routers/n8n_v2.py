@@ -23,14 +23,16 @@ Absichtlich NICHT vorhanden: `get_odoo_client`, `WriteRequestContext`,
 bis seine Workflows migriert sind.
 
 Task 11 haengt zwei weitere Routen an denselben Wachposten:
-`GET  /instances/{i}/jobs/{j}/media/{m}` und
-`POST /instances/{i}/jobs/{j}/events/{e}/artifacts/{k}`. Sie tragen Job,
-Quell-Event und Artefaktart im PFAD statt im Body -- der Pfad ist Teil der
+`GET  /instances/{i}/jobs/{j}/leases/{t}/media/{m}` und
+`POST /instances/{i}/jobs/{j}/leases/{t}/events/{e}/artifacts/{k}`. Sie tragen
+Job, Quell-Event und Artefaktart im PFAD statt im Body -- der Pfad ist Teil der
 kanonischen Signatureingabe, ist also genauso gebunden wie ein signiertes
 Body-Feld. Deshalb wurde der Router-Prefix auf `/internal` verkuerzt und die
 v2-Routen tragen ihren Pfad selbst; die vollstaendigen URLs der Task-10-Routen
 bleiben dabei Byte-fuer-Byte dieselben (`/api/internal/n8n/v2/...`), und
-`main.py` (Task 9) musste nicht angefasst werden.
+`main.py` (Task 9) musste nicht angefasst werden. Das `/leases/{t}`-Segment
+kam in Fix-Runde 1 (#5b) dazu, aus demselben Grund: der Processing-Lease-Token
+ist ab da ebenfalls Teil des PFADs statt eines JSON-Koerpers.
 
 Fuer die Binaerrouten gilt zusaetzlich: rohe Bytes rein, rohe Bytes raus.
 Base64 existiert ausschliesslich auf dem internen JSON-RPC-Hop zu Odoo und
@@ -227,12 +229,13 @@ async def apply_callback(
 # durch EINE gemeinsame Reihenfolge, damit keine Verteidigung in der einen
 # Route sitzt und in der anderen fehlt:
 #
-#   1. Pfadform (UUID / Allowlist-Referenz / Allowlist-Artefaktart)
+#   1. Pfadform (UUID / Lease-Token / Allowlist-Referenz / Allowlist-Artefaktart)
 #   2. Idempotency-Key (nur POST -- GET veraendert nichts)
 #   3. Zielinstanz aus dem Pfad, Allowlist gegen das Instanzregister
 #   4. billige Inhaltsvorpruefung (nur POST): Groesse, Magic, deklarierter
 #      Typ, ZPL-Kommandoscan -- linear, ohne Parser und ohne Dekompression
-#   5. Nonce-Reservierung in Odoo -- job- UND generationsgebunden
+#   5. Nonce-Reservierung in Odoo -- job-, generations- UND (Fix-Runde 1)
+#      lease-token-gebunden
 #   6. teure Inhaltsvalidierung (nur POST): PDF-Objektgraph, Expansionsbudget
 #   7. Odoo-Zugriff auf die Ressource
 #
@@ -246,8 +249,30 @@ async def apply_callback(
 #
 # Die Generation stammt IMMER aus der verifizierten Signatur, nie aus Pfad,
 # Query oder Body -- eine veraltete Generation kann damit weder lesen noch
-# anhaengen, und Odoo prueft sie unter Sperre ein zweites Mal.
+# anhaengen, und Odoo prueft sie unter Sperre ein zweites Mal. Das
+# Lease-Token (Fix-Runde 1, #5b) stammt aus dem PFAD -- wie `job_id`,
+# `media_ref`, `source_event_id` und `artifact_kind` bereits -- und ist damit
+# Teil des signierten `target`, ohne die JSON-Koerper-freie Bauart dieser
+# beiden Routen (Task 11: "rohe Bytes rein, rohe Bytes raus") oder die
+# gemeinsame HMAC-Kanonisierung anderer v2-Routen anzufassen.
 
+# Fix-round-1 (#5b, Odoo half was Task 8): the lease token travels as a PATH
+# segment, not a JSON body field. `get_job_media` is a bodyless GET and
+# `store_job_artifact`'s body is the raw artifact bytes ("rohe Bytes rein,
+# rohe Bytes raus", Task 11) -- neither route has a JSON envelope to add a
+# field to without breaking that invariant, and the shared HMAC canonical
+# signature (`hmac_signing.py`) is consumed by every v2 route including
+# events/accept and callbacks/status, so extending IT would be a much larger,
+# separately-reviewed change. A path segment needs neither: `job_id`,
+# `media_ref`, `source_event_id` and `artifact_kind` are already path
+# segments and are therefore already part of the signed `target`
+# (`hmac_signing.py:117`, verified byte-for-byte against `raw_path` in
+# `dependencies.py::verify_n8n_to_backend_request` -- percent-encoding tricks
+# don't bypass it either, same as the existing path segments). Tampering the
+# token after signing changes the signed target and therefore invalidates the
+# signature (401), which is what makes it "part of the signed bytes" without
+# a second mechanism.
+_LEASE_TOKEN = re.compile(r"[A-Za-z0-9_-]{16,128}", re.ASCII)
 _MEDIA_REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", re.ASCII)
 # RFC-9110-Feldwert ohne Whitespace: druckbares ASCII, 1..128 Zeichen. Damit
 # sind Zeilenumbrueche (Header-/Log-Injection) und alles Nicht-ASCII raus.
@@ -305,10 +330,13 @@ def _odoo_text(result: Any, key: str) -> str:
     return result[key]
 
 
-async def _reserve_signed_nonce(odoo, verified: VerifiedInternalRequest, job_id: str):
-    """Reserviert die Nonce der verifizierten Signatur, gebunden an Job UND
-    Generation. Autoritativ ist der Store in Odoo (Task 8, 900s Retention) --
-    ein prozesslokaler Cache waere pro Worker getrennt und damit kein
+async def _reserve_signed_nonce(
+    odoo, verified: VerifiedInternalRequest, job_id: str, processing_lease_token: str
+):
+    """Reserviert die Nonce der verifizierten Signatur, gebunden an Job,
+    Generation UND (seit Fix-Runde 1) das Lease-Token des Aufrufers.
+    Autoritativ ist der Store in Odoo (Task 8, 900s Retention) -- ein
+    prozesslokaler Cache waere pro Worker getrennt und damit kein
     Replay-Schutz."""
     try:
         return await odoo.execute_kw(
@@ -321,16 +349,21 @@ async def _reserve_signed_nonce(odoo, verified: VerifiedInternalRequest, job_id:
                 False,
                 job_id,
                 verified.signature.delivery_generation,
+                processing_lease_token,
             ],
         )
     except OdooAPIError as exc:
         raise HTTPException(status_code=409, detail="Resource request conflict.") from exc
 
 
-@router.get("/instances/{odoo_instance}/jobs/{job_id}/media/{media_ref}")
+@router.get(
+    "/instances/{odoo_instance}/jobs/{job_id}"
+    "/leases/{processing_lease_token}/media/{media_ref}"
+)
 async def get_job_media(
     odoo_instance: str,
     job_id: str,
+    processing_lease_token: str,
     media_ref: str,
     verified: VerifiedInternalRequest = Depends(verify_n8n_to_backend_request),
 ) -> Response:
@@ -340,18 +373,24 @@ async def get_job_media(
     Odoo ist fuer diese Route eine Datenquelle wie jede andere, und ein
     Anhang, der auf anderem Weg in die Datenbank gekommen ist, darf hier
     nicht ungeprueft an einen Workflow gereicht werden.
+
+    `processing_lease_token` bindet den Zugriff an DIE Lease, die der
+    Aufrufer tatsaechlich haelt (#5b, Fix-Runde 1) -- vorher pruefte Odoo nur
+    "Generation passt und irgendeine Lease ist aktiv".
     """
     _require_canonical_uuid(job_id, "job id")
+    if not _LEASE_TOKEN.fullmatch(processing_lease_token):
+        raise HTTPException(status_code=400, detail="Malformed processing lease token.")
     if not _MEDIA_REF.fullmatch(media_ref):
         raise HTTPException(status_code=400, detail="Malformed media reference.")
     odoo = get_callback_odoo_client(odoo_instance)
     generation = verified.signature.delivery_generation
-    await _reserve_signed_nonce(odoo, verified, job_id)
+    await _reserve_signed_nonce(odoo, verified, job_id, processing_lease_token)
     try:
         result = await odoo.execute_kw(
             "picking.assistant.integration.job",
             "api_get_job_media",
-            [job_id, media_ref, generation],
+            [job_id, media_ref, generation, processing_lease_token],
         )
     except OdooAPIError as exc:
         raise HTTPException(status_code=409, detail="Media access conflict.") from exc
@@ -382,12 +421,13 @@ async def get_job_media(
 
 @router.post(
     "/instances/{odoo_instance}/jobs/{job_id}"
-    "/events/{source_event_id}/artifacts/{artifact_kind}",
+    "/leases/{processing_lease_token}/events/{source_event_id}/artifacts/{artifact_kind}",
     status_code=201,
 )
 async def store_job_artifact(
     odoo_instance: str,
     job_id: str,
+    processing_lease_token: str,
     source_event_id: str,
     artifact_kind: str,
     verified: VerifiedInternalRequest = Depends(verify_n8n_to_backend_request),
@@ -399,10 +439,16 @@ async def store_job_artifact(
     201 fuer ein neues Artefakt, 200 fuer eine identische Wiedervorlage --
     die Unterscheidung trifft Odoo unter Sperre (gleiche Bytes = Replay,
     andere Bytes unter derselben Art = Konflikt), nicht diese Route.
+
+    `processing_lease_token` bindet den Zugriff an DIE Lease, die der
+    Aufrufer tatsaechlich haelt (#5b, Fix-Runde 1) -- vorher pruefte Odoo nur
+    "Generation passt und irgendeine Lease ist aktiv".
     """
     if artifact_kind not in ARTIFACT_KINDS:
         raise HTTPException(status_code=400, detail="Unknown artifact kind.")
     _require_canonical_uuid(job_id, "job id")
+    if not _LEASE_TOKEN.fullmatch(processing_lease_token):
+        raise HTTPException(status_code=400, detail="Malformed processing lease token.")
     _require_canonical_uuid(source_event_id, "source event id")
     _require_idempotency_key(idempotency_key)
     odoo = get_callback_odoo_client(odoo_instance)
@@ -417,7 +463,7 @@ async def store_job_artifact(
     generation = verified.signature.delivery_generation
     # Phase 2: das Replay-Gate. Erst hier faellt eine Nonce -- und nur fuer
     # eine Anfrage, die Phase 1 bereits bestanden hat.
-    await _reserve_signed_nonce(odoo, verified, job_id)
+    await _reserve_signed_nonce(odoo, verified, job_id, processing_lease_token)
     # Phase 3: der teure Durchlauf (Objektgraph, Expansionsbudget).
     validated = _validated(
         lambda: validate_artifact(
@@ -439,6 +485,7 @@ async def store_job_artifact(
                 validated.sha256,
                 validated.mime_type,
                 filename,
+                processing_lease_token,
             ],
         )
     except OdooAPIError as exc:

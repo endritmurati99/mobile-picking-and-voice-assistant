@@ -1,9 +1,15 @@
 import json
+import logging
+import time
 from datetime import timedelta
 from uuid import uuid4
 
+import psycopg2
+
 from odoo import api, fields, models
 from odoo.exceptions import ValidationError
+
+_logger = logging.getLogger(__name__)
 
 JOB_STATES = [
     ("queued", "Queued"),
@@ -14,16 +20,24 @@ JOB_STATES = [
     ("failed", "Failed"),
 ]
 TERMINAL_STATES = {"succeeded", "review_required", "failed"}
-# Documented amendment to the brief's frozen table: queued -> retry_scheduled
-# is the watchdog recovery edge (a processing lease can expire before the
-# first callback moves the job to running). The brief's watchdog spec
-# requires the edge; recording it here keeps TRANSITIONS the single source
-# of truth instead of a parallel rule inside the watchdog helper.
+# TRANSITIONS ist die Tabelle der Kanten, die `_transition()` erzeugen darf --
+# also der Kanten, die ein Callback ausloest.
+#
+# `queued -> retry_scheduled` steht hier BEWUSST NICHT (mehr) drin. Als nackte
+# Kante in `_transition()` waere sie eine reine Zustandsaenderung: Generation
+# unveraendert, Lease unangetastet, Outbox-Zeile nicht requeued -- genau der
+# Zustand, in dem ein alter Worker mit gueltiger Generation weiterarbeitet.
+# Die Kante ist nur noch als NEBENWIRKUNG von `_recover_expired_lease`
+# erlaubt, und dort untrennbar mit allen vier Effekten verbunden.
 TRANSITIONS = {
-    "queued": {"running", "retry_scheduled"},
+    "queued": {"running"},
     "running": {"succeeded", "review_required", "retry_scheduled", "failed"},
     "retry_scheduled": {"running"},
 }
+# Aus diesen Zustaenden darf eine abgelaufene Lease zurueckgeholt werden. Der
+# Ablauf kann vor dem ersten Callback eintreten (Job noch `queued`) oder
+# danach (`running`).
+LEASE_RECOVERY_SOURCE_STATES = {"queued", "running"}
 
 # Audit retention windows (days); every cleanup skips legal_hold jobs.
 RETENTION_DELIVERED_OUTBOX_DAYS = 30
@@ -32,6 +46,10 @@ RETENTION_EVENT_RECEIPT_DAYS = 90
 RETENTION_CALLBACK_RECEIPT_DAYS = 90
 RETENTION_JOB_DAYS = 90
 SESSION_GC_GRACE_DAYS = 7
+# Minor M2: bound how long a single ten-minute cron tick may spend draining
+# the nonce backlog. Long enough to clear a real burst in one run, short
+# enough that the cron thread is never mistaken for a hang.
+NONCE_GC_TIME_BUDGET_SECONDS = 30
 
 
 class PickingAssistantIntegrationJob(models.Model):
@@ -175,24 +193,157 @@ class PickingAssistantIntegrationJob(models.Model):
             values["processing_lease_expires_at"] = False
         self.write(values)
 
-    def _watchdog_retry_scheduled(self):
-        """Watchdog recovery transition, validated against the authoritative
-        TRANSITIONS table (which explicitly lists the queued/running ->
-        retry_scheduled recovery edges). Bumps the delivery generation and
-        clears the processing lease atomically with the state change."""
-        self.ensure_one()
-        if "retry_scheduled" not in TRANSITIONS.get(self.state, set()):
+    @api.model
+    def _recover_expired_lease(self, job, receipt, now):
+        """Die EINZIGE erlaubte Art, aus einer abgelaufenen Lease herauszukommen.
+
+        Generation erhoehen, Lease loeschen, Job auf `retry_scheduled` setzen
+        und die Outbox-Zeile requeuen -- alles zusammen, unter den bereits
+        gehaltenen Locks in der globalen Reihenfolge nonce -> job -> receipt ->
+        outbox. Ein alter Worker wird dadurch automatisch wertlos: seine
+        Generation stimmt danach nicht mehr.
+
+        Eine Neuvergabe des Tokens innerhalb derselben Generation ist verboten.
+        Sie liess Consumer weiterlaufen, die an "Generation plus irgendeine
+        aktive Lease" gebunden waren statt an das Token.
+
+        DIESE Funktion ist auch der einzige Erzeuger der Kante
+        `queued -> retry_scheduled` (Entscheidung §3.3). Sie schreibt den
+        Zustand deshalb absichtlich selbst statt ueber `_transition()`: die
+        Kante existiert nur zusammen mit den drei anderen Effekten, und
+        `_transition()` kennt sie nicht mehr. Ein zweiter Weg in diesen
+        Zustand -- der frueher als `_watchdog_retry_scheduled` daneben stand --
+        gibt es nicht mehr; der Watchdog-Batch ruft diese Funktion auf.
+
+        Der Aufrufer MUSS Job und Receipt gesperrt und neu gelesen haben.
+
+        Alle Vorbedingungen werden HIER geprueft, nicht beim Aufrufer. Dass es
+        heute nur einen Aufrufer gibt und der Name mit `_` beginnt, ist keine
+        Absicherung -- dieses Programm ist genau daran schon einmal
+        vorbeigelaufen.
+        """
+        job.ensure_one()
+        receipt.ensure_one()
+        if job.state not in LEASE_RECOVERY_SOURCE_STATES:
+            raise ValidationError(f"Illegal lease recovery from {job.state}.")
+        if receipt.job_record_id.id != job.id:
+            raise ValidationError("Receipt does not belong to this job.")
+        # Recovery entwertet einen Worker, indem sie die Generation weiterdreht.
+        # Auf eine LEBENDE Lease angewandt toetet sie still einen gesunden
+        # Worker mitten im Lauf. Geprueft wird mit DEMSELBEN Praedikat, das
+        # `_assert_active_lease` und `api_accept_event` benutzen -- es gibt
+        # weiterhin genau eine Definition von "abgelaufen".
+        if not self.env["picking.assistant.event.receipt"]._lease_has_expired(
+            receipt, now
+        ):
+            raise ValidationError("Processing lease is not expired.")
+        # Outbox ZUERST sperren und pruefen -- VOR jedem Schreiben auf Job
+        # oder Receipt. Task 6 (Finding #11): ein Job, der nach
+        # `retry_scheduled` wandert, obwohl es keine Outbox-Zeile mehr gibt,
+        # hat nichts mehr auszuliefern und sitzt dort fest, egal wie oft der
+        # Cron danach laeuft. Frueher wurde retry_scheduled zuerst geschrieben
+        # und dieser Check erst danach unter demselben Savepoint zurueckgerollt
+        # -- das verhinderte retry_scheduled zwar auch schon, liess den Job
+        # aber unsichtbar in seinem alten Zustand haengen (als "skipped"
+        # gezaehlt, ohne dass irgendwer eingreifen konnte). Jetzt bricht die
+        # Funktion NICHT mehr per Exception ab, sondern faellt bewusst auf
+        # `review_required`, damit ein Mensch die verwaiste Zeile sieht.
+        #
+        # Erreichbar VOR Task 6, weil `_cron_cleanup_audit` gelieferte/tote
+        # Outbox-Zeilen unabhaengig vom Job-Zustand loeschte, Receipts aber bis
+        # 90 Tage leben. Retention loescht die Outbox eines nicht-terminalen
+        # Jobs seit Task 6 nicht mehr (siehe `_cron_cleanup_audit`); dieser
+        # Zweig bleibt trotzdem als Fail-Closed-Verteidigung fuer jeden
+        # anderen Weg, auf dem eine Outbox-Zeile fehlen koennte.
+        #
+        # Der Aufrufer (`_recover_stalled_jobs_batch`) haelt bereits den
+        # Job-Lock, BEVOR diese Funktion aufgerufen wird -- der Outbox-Lock
+        # hier ist also der dritte Lock in LOCK_ORDER (job -> receipt ->
+        # outbox), keine Umkehrung. Unter Odoo's REPEATABLE READ (Task 3)
+        # loest ein verlorenes `FOR UPDATE` gegen eine Zeile, die eine
+        # nebenlaeufige Transaktion bereits geaendert und committet hat,
+        # KEIN Blockieren-dann-neue-Tupel-Lesen aus, sondern sofort
+        # `SerializationFailure` (SQLSTATE 40001) an dieser Anweisung --
+        # derselbe Mechanismus wie bei `api_requeue_dead` (outbox.py) und
+        # `api_accept_event` (receipts.py). Klassifiziert nach der
+        # Fehlerklasse des Treibers statt nach einem erneuten, unter dem
+        # Snapshot ohnehin veralteten SELECT.
+        outboxes = self.env["picking.assistant.outbox"].sudo()
+        outboxes.flush_model()
+        try:
+            with self.env.cr.savepoint():
+                self.env.cr.execute(
+                    "SELECT id FROM picking_assistant_outbox "
+                    "WHERE event_id = %s FOR UPDATE",
+                    (receipt.event_id,),
+                )
+                # Innerhalb des Savepoints geholt: `RELEASE SAVEPOINT` bei
+                # `with`-Austritt wuerde sonst das anstehende Ergebnis dieses
+                # SELECTs zerstoeren.
+                outbox_row = self.env.cr.fetchone()
+        except psycopg2.errors.SerializationFailure as exc:
             raise ValidationError(
-                f"Illegal watchdog recovery from {self.state}."
+                "Outbox event changed during lease recovery."
+            ) from exc
+        if not outbox_row:
+            _logger.warning(
+                "lease recovery found no outbox row for job %s; "
+                "failing closed to review_required",
+                job.id,
             )
-        self.write(
+            if job.state == "queued":
+                job._transition("running", sequence=job.sequence + 1)
+            job._transition(
+                "review_required",
+                sequence=job.sequence + 1,
+                error={"reason": "missing_outbox_row"},
+            )
+            job.write(
+                {
+                    "processing_lease_token": False,
+                    "processing_lease_expires_at": False,
+                }
+            )
+            receipt.write(
+                {
+                    "state": "completed",
+                    "processing_lease_token": False,
+                    "processing_lease_expires_at": False,
+                    "last_received_at": now,
+                }
+            )
+            return "review_required"
+        job.write(
             {
                 "state": "retry_scheduled",
-                "delivery_generation": self.delivery_generation + 1,
+                "delivery_generation": job.delivery_generation + 1,
                 "processing_lease_token": False,
                 "processing_lease_expires_at": False,
             }
         )
+        receipt.write(
+            {
+                "state": "retryable",
+                "processing_lease_token": False,
+                "processing_lease_expires_at": False,
+                "delivery_generation": job.delivery_generation,
+                "last_received_at": now,
+            }
+        )
+        # Dritter Lock in der globalen Reihenfolge job -> receipt -> outbox.
+        # Dieselbe Zeile, unveraenderter Envelope: der Retry liefert das
+        # gleiche Event erneut aus, nur unter neuer Generation.
+        outbox = outboxes.browse(outbox_row[0])
+        outbox.invalidate_recordset()
+        outbox.write(
+            {
+                "state": "pending",
+                "next_attempt_at": now,
+                "lease_owner": False,
+                "lease_expires_at": False,
+            }
+        )
+        return "recovered"
 
     # ------------------------------------------------------------------
     # Crons
@@ -212,19 +363,28 @@ class PickingAssistantIntegrationJob(models.Model):
         SAME locked batch as the minute cron and returns ONLY counts — never
         lease tokens or any other row data."""
         self.env["picking.assistant.api.mixin"]._require_api_service()
-        return {"recovered": self._recover_stalled_jobs_batch(limit)}
+        return self._recover_stalled_jobs_batch(limit)
 
     @api.model
     def _cron_recover_stalled_jobs(self, limit=200):
         """Every minute: recover event receipts whose processing lease expired
         without a terminal callback. Bumps the delivery generation and returns
         the same outbox event (unchanged envelope) to pending."""
-        recovered = self._recover_stalled_jobs_batch(limit)
-        self._report_cron_progress(recovered)
+        counts = self._recover_stalled_jobs_batch(limit)
+        # Beide Zahlen sind verarbeitete Kandidaten; ein uebersprungener wird
+        # in dieser Runde nicht noch einmal angefasst.
+        self._report_cron_progress(counts["recovered"] + counts["skipped"])
 
     @api.model
     def _recover_stalled_jobs_batch(self, limit=200):
-        """Locked recovery batch shared by the cron and the guarded API."""
+        """Locked recovery batch shared by the cron and the guarded API.
+
+        Liefert `{"recovered": n, "skipped": m}`. `skipped` zaehlt Kandidaten,
+        deren Recovery sich geweigert hat -- heute praktisch nur der
+        verwaiste Receipt ohne Outbox-Zeile. Ein dauerhaft von Null
+        verschiedenes `skipped` ist alarmierbar; ein Cron, der jede Minute
+        fliegt, ist Laerm, den der Betrieb stummschaltet.
+        """
         now = fields.Datetime.now()
         receipts = self.env["picking.assistant.event.receipt"].sudo()
         outboxes = self.env["picking.assistant.outbox"].sudo()
@@ -242,6 +402,7 @@ class PickingAssistantIntegrationJob(models.Model):
         )
         candidates = self.env.cr.fetchall()
         recovered = 0
+        skipped = 0
         for receipt_id, job_record_id in candidates:
             self.env.cr.execute(
                 "SELECT id FROM picking_assistant_integration_job "
@@ -263,33 +424,45 @@ class PickingAssistantIntegrationJob(models.Model):
             job = self.sudo().browse(job_record_id)
             receipt.invalidate_recordset()
             job.invalidate_recordset()
-            if job.state in ("queued", "running"):
-                job._watchdog_retry_scheduled()
-                receipt.write(
-                    {
-                        "state": "retryable",
-                        "processing_lease_token": False,
-                        "processing_lease_expires_at": False,
-                    }
-                )
-                # Third lock in the global job -> receipt -> outbox order.
-                self.env.cr.execute(
-                    "SELECT id FROM picking_assistant_outbox "
-                    "WHERE event_id = %s FOR UPDATE",
-                    (receipt.event_id,),
-                )
-                outbox_row = self.env.cr.fetchone()
-                if outbox_row:
-                    outbox = outboxes.browse(outbox_row[0])
-                    outbox.invalidate_recordset()
-                    outbox.write(
-                        {
-                            "state": "pending",
-                            "next_attempt_at": now,
-                            "lease_owner": False,
-                            "lease_expires_at": False,
-                        }
+            if job.state in LEASE_RECOVERY_SOURCE_STATES:
+                # Der Watchdog hat keine eigene Recovery-Logik: er sucht die
+                # Kandidaten und sperrt sie, die vier Effekte macht die EINE
+                # Recovery-Funktion.
+                #
+                # Savepoint pro KANDIDAT, nicht pro Batch. Verlangt war
+                # Atomaritaet je Recovery: entweder alle vier Effekte oder
+                # keiner. Liesse man die Weigerung aus der Schleife heraus,
+                # stuerbe der ganze Batch -- und der vergiftete Kandidat steht
+                # deterministisch VORN, weil der Kandidaten-Scan nach
+                # `processing_lease_expires_at` sortiert und ein Receipt genau
+                # dann verwaist ist, wenn er alt genug fuer die Retention war.
+                # Eine einzige solche Zeile wuerde jede Minute jede Recovery
+                # verhindern -- und Recovery ist inzwischen der einzige Ausgang
+                # aus einer abgelaufenen Lease.
+                try:
+                    with self.env.cr.savepoint():
+                        outcome = self._recover_expired_lease(job, receipt, now)
+                except ValidationError:
+                    # Odoo setzt den ORM-Cache beim Savepoint-Rollback NICHT
+                    # zurueck. Ohne dies liefen die zurueckgerollten Job- und
+                    # Receipt-Werte in die naechsten Schleifendurchlaeufe.
+                    self.env.invalidate_all()
+                    _logger.error(
+                        "lease recovery refused for receipt %s on job %s",
+                        receipt_id,
+                        job_record_id,
+                        exc_info=True,
                     )
+                    skipped += 1
+                    continue
+                if outcome == "review_required":
+                    # Fail-closed (Task 6): the write already happened and
+                    # committed with the savepoint above -- unlike the
+                    # ValidationError branch, nothing here was rolled back.
+                    # Still counted as `skipped`, matching this counter's
+                    # existing meaning (a candidate recovery refused itself).
+                    skipped += 1
+                    continue
             else:
                 # Job already terminal/retry_scheduled: only release the
                 # stale receipt lease, never touch generation or outbox.
@@ -303,21 +476,41 @@ class PickingAssistantIntegrationJob(models.Model):
                     }
                 )
             recovered += 1
-        return recovered
+        return {"recovered": recovered, "skipped": skipped}
 
     @api.model
     def _cron_cleanup_ephemeral(self, limit=1000):
         """Every ten minutes: purge expired nonces, throttle rows, and stale
         sessions. Nonces are only removed after their expires_at, which is
-        always >= 600 seconds past reservation (replay-window retention)."""
+        always >= 600 seconds past reservation (replay-window retention).
+
+        Minor M2: the nonce step used to be a single capped batch that
+        always reported `remaining=0`, so a backlog above the cap grew with
+        no signal at all. It now drains `_gc_expired` in a loop -- bounded
+        by `NONCE_GC_TIME_BUDGET_SECONDS`, not by an unconditional single
+        pass -- and logs a warning if it still exits with rows pending."""
         now = fields.Datetime.now()
         size = max(1, int(limit))
         removed = 0
-        nonces = self.env["picking.assistant.webhook.nonce"].sudo().search(
-            [("expires_at", "<=", now)], limit=size
-        )
-        removed += len(nonces)
-        nonces.unlink()
+        nonce_model = self.env["picking.assistant.webhook.nonce"]
+        nonce_remaining = 0
+        deadline = time.monotonic() + NONCE_GC_TIME_BUDGET_SECONDS
+        while True:
+            result = nonce_model._gc_expired(batch_size=size)
+            removed += result["deleted"]
+            nonce_remaining = result["remaining"]
+            if not nonce_remaining or not result["deleted"]:
+                break
+            if time.monotonic() >= deadline:
+                break
+        if nonce_remaining:
+            _logger.warning(
+                "nonce GC exited with %d expired row(s) still pending after "
+                "the %ss time budget; the next run will continue draining "
+                "the backlog",
+                nonce_remaining,
+                NONCE_GC_TIME_BUDGET_SECONDS,
+            )
         throttles = self.env["picking.assistant.auth.throttle"].sudo().search(
             [("expires_at", "<=", now)], limit=size
         )
@@ -338,7 +531,7 @@ class PickingAssistantIntegrationJob(models.Model):
         )
         removed += len(sessions)
         sessions.unlink()
-        self._report_cron_progress(removed)
+        self._report_cron_progress(removed, remaining=nonce_remaining)
 
     @api.model
     def _cron_cleanup_audit(self, limit=1000):
@@ -376,8 +569,13 @@ class PickingAssistantIntegrationJob(models.Model):
         removed += len(event_receipts)
         event_receipts.unlink()
 
+        # Eine Outbox-Zeile ist die einzige Lieferanweisung eines Jobs. Sie zu
+        # loeschen, waehrend der Job noch nicht terminal ist, laesst einen Job
+        # zurueck, den der Watchdog zwar auf retry setzt, fuer den es aber
+        # nichts mehr zu liefern gibt.
         outboxes = self.env["picking.assistant.outbox"].sudo().search(
             [
+                ("job_record_id.state", "in", sorted(TERMINAL_STATES)),
                 ("job_record_id", "not in", held_job_ids),
                 "|",
                 "&",
