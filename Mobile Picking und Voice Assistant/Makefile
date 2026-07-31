@@ -48,7 +48,7 @@ logs-odoo: ## Odoo-Logs
 	docker compose logs -f --tail=50 odoo
 
 seed: ## Seed-Daten laden
-	python infrastructure/scripts/seed-odoo.py --url http://localhost:8069 --db $${ODOO_DB:-picking} --user $${ODOO_USER:-admin} --api-key $${ODOO_API_KEY}
+	python infrastructure/scripts/seed-odoo.py --url http://localhost:8069 --db $${ODOO_DB:-masterfischer_o19} --user $${ODOO_USER:-admin} --api-key $${ODOO_API_KEY}
 
 test: ## Backend-Tests
 	cd backend && PYTHONPATH=.deps python -m pytest -p pytest_asyncio tests/ -v
@@ -116,7 +116,7 @@ clean: ## Alles entfernen
 	docker compose down -v --rmi local
 
 shell-odoo: ## Odoo Shell
-	docker compose exec odoo odoo shell -d $${ODOO_DB:-picking}
+	docker compose exec odoo odoo shell -d $${ODOO_DB:-masterfischer_o19}
 
 shell-db: ## PostgreSQL Shell
-	docker compose exec db psql -U $${POSTGRES_USER:-odoo} -d $${ODOO_DB:-picking}
+	docker compose exec db psql -U $${POSTGRES_USER:-odoo} -d $${ODOO_DB:-masterfischer_o19}

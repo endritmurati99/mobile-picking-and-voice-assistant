@@ -169,7 +169,7 @@ def build_demo_cluster_products():
 def main():
     parser = argparse.ArgumentParser(description="Odoo Seed-Daten")
     parser.add_argument("--url", default="http://localhost:8069")
-    parser.add_argument("--db", default="masterfischer")
+    parser.add_argument("--db", default="masterfischer_o19")
     parser.add_argument("--user", default="admin")
     parser.add_argument("--api-key", required=True)
     parser.add_argument("--bom-mode", action="store_true",

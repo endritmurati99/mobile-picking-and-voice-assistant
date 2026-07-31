@@ -2,7 +2,7 @@
  * LIVE end-to-end cluster click-through against the REAL running stack.
  *
  * Unlike e2e/cluster.spec.js (mocked API), this drives the actual PWA at
- * https://localhost (Caddy -> FastAPI backend -> Odoo masterfischer) with NO
+ * https://localhost (Caddy -> FastAPI backend -> Odoo masterfischer_o19) with NO
  * route mocking. It logs in as a picker, builds a multi-order cluster batch,
  * walks + confirms every line, validates the whole batch, and asserts the
  * completion screen. Screenshots + video are written to .claude/artifacts.

@@ -37,14 +37,25 @@ docker compose up -d
 ```
 
 ### 5. Odoo initialisieren
-- Browser: `http://<HOST>:8069/web/database/manager`
-- Neue DB erstellen: Name `picking`, Admin-Passwort setzen
-- Demo-Daten NICHT laden (wir nutzen eigene Seed-Daten)
+- **Der Datenbank-Manager ist seit dem Odoo-19-Cutover nicht mehr erreichbar**
+  (`list_db = False` in `odoo/odoo19.conf`). Datenbanken werden per CLI angelegt:
+
+```bash
+docker compose run --rm --no-deps -T odoo \
+  odoo --no-http --stop-after-init --workers=0 --max-cron-threads=0 \
+  -d masterfischer_o19 --without-demo=all \
+  -i base,mail,stock,stock_picking_batch,picking_assistant_core,picking_assistant_integration,quality_alert_custom
+```
+
+- Demo-Daten NICHT laden (`--without-demo=all`); wir nutzen eigene Seed-Daten.
 
 ### 6. Odoo API-Key generieren
 - fuer den Live-Betrieb einen dedizierten technischen Service-User verwenden
 - Odoo einloggen → Benutzermenü → Einstellungen → API-Schlüssel
 - API-Key in `.env` als `ODOO_API_KEY` eintragen
+- **API-Keys gelten pro Datenbank.** Nach dem Cutover auf eine neue DB muss der
+  Key neu ausgestellt werden; ein Key aus der alten DB fuehrt zu einem Backend,
+  das sauber startet und dann bei jedem JSON-RPC-Aufruf 401 liefert.
 - keinen Passwort- oder `admin`-Fallback fuer den produktiven Backend-Betrieb verwenden
 - `docker compose restart backend`
 
@@ -62,11 +73,11 @@ Eine zweite lokale Testinstanz kann ueber das optionale Compose-Profil `second-o
 docker compose --profile second-odoo up -d odoo-lager-2
 ```
 
-Sie nutzt Port `8070`, ein eigenes Filestore-Volume und die Odoo-Datenbank `lager2`.
+Sie nutzt Port `8070`, ein eigenes Filestore-Volume und die Odoo-Datenbank `lager2_o19`.
 Das Backend wird erst ueber `.env` bzw. die Shell-Umgebung auf dieses Profil aufmerksam:
 
 ```powershell
-ODOO_INSTANCES_JSON={"lager-2":{"display_name":"Lager 2","url":"http://odoo-lager-2:8069","db":"lager2","user":"admin","password":"<passwort-oder-api-key>"}}
+ODOO_INSTANCES_JSON={"lager-2":{"display_name":"Lager 2","url":"http://odoo-lager-2:8069","db":"lager2_o19","user":"admin","password":"<passwort-oder-api-key>"}}
 ```
 
 Regeln:
@@ -75,7 +86,13 @@ Regeln:
 - `url`, `db`, `user`, `api_key` und ggf. `password` bleiben lokal in `.env` oder der Shell; keine Secrets committen.
 - `local` kommt immer aus den bestehenden `ODOO_*`-Variablen und wird nicht aus `ODOO_INSTANCES_JSON` ueberschrieben.
 - Nach Aenderung von `.env`: `docker compose up -d backend --force-recreate` oder Stack neu starten.
-- Fuer eine frische `lager2`-DB: Custom-Module installieren und dann `seed-odoo.py --url http://localhost:8070 --db lager2 --user admin --api-key <passwort-oder-api-key>` ausfuehren.
+- Fuer eine frische `lager2_o19`-DB: Custom-Module installieren (CLI wie in Schritt 5,
+  aber `-d lager2_o19`) und dann
+  `seed-odoo.py --url http://localhost:8070 --db lager2_o19 --user admin --api-key <key>`
+  ausfuehren.
+- **Reihenfolge beachten:** Der PWA-Lagerumschalter bleibt kaputt, bis
+  `ODOO_INSTANCES_JSON` in `.env` auf `lager2_o19` zeigt. Nicht erst waehrend
+  einer Demo bemerken.
 
 Fachliche Mindestdaten fuer einen echten Live-Test:
 
@@ -128,7 +145,7 @@ Regeln:
 ```bash
 python infrastructure/scripts/seed-odoo.py \
   --url http://localhost:8069 \
-  --db picking \
+  --db masterfischer_o19 \
   --user admin \
   --api-key <dein-api-key>
 ```
@@ -140,9 +157,18 @@ python infrastructure/scripts/seed-odoo.py \
 - n8n: `https://<LAN-IP>/n8n/`
 
 > Hinweis: Odoo 19 wird im aktuellen Setup für die Administration direkt über Port `8069` verwendet.
-> Bestehende Odoo-18-Datenbanken nicht blind mit dem Odoo-19-Container starten.
-> Vor einem Wechsel der Hauptinstanz: Datenbank sichern und eine echte Major-Migration
-> durchführen. Für technische Smokes eine frische Odoo-19-Datenbank verwenden.
+>
+> **Bestehende Odoo-18-Datenbanken nicht mit dem Odoo-19-Container starten.** Der
+> sanktionierte Weg ist der Cutover in
+> `docs/superpowers/plans/2026-07-31-odoo19-cutover.md`: eine NEUE v19-Datenbank
+> anlegen und neu seeden. Ein In-Place-`-u all` von 18 auf 19 funktioniert auf
+> diesem Image nachweislich NICHT (Plan §0.0.3).
+>
+> Der Schutz dagegen ist `db_name` in `odoo/odoo19.conf` bzw.
+> `odoo/odoo19-lager2.conf` — **nicht** `dbfilter`. `dbfilter` wirkt nur im
+> HTTP-Layer; Odoos Cron-Master zaehlt jede Datenbank des Clusters auf und
+> ignoriert ihn (am laufenden Stack beobachtet, Plan §0.0.4). `db_name` ist der
+> einzige Schluessel, den der Cron-Master beachtet.
 
 ### 10. n8n Public API einrichten
 - In n8n: `Settings > n8n API`
