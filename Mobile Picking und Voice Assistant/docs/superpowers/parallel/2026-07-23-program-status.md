@@ -445,6 +445,43 @@ Finding #14 is therefore **remediated, pending only the fix round's review**.
   revisiting, the fix is an intrinsic-dimension check, never a return to trusting declared
   dimensions.
 
+## 5a. Gate run of 2026-07-31 on the merged tree
+
+Branch `integration/foundation-remediation`, merge commit `5f8b433`, carrying
+`remediation/r1-backend` `20965a1`, `remediation/r3-n8n` `e777f91` and `remediation/r2-odoo`
+`e7ffef3`. Second merge of the day; still **zero textual conflicts**.
+
+| Gate item | Result |
+|---|---|
+| full backend suite | **750 passed** |
+| full Odoo-19 addon suite, incl. the multi-cursor concurrency tests | **0 failed, 0 errors of 128 tests** |
+| n8n node tests (`node --test n8n/tests/*.test.mjs`) | **46 passed** |
+| `verify-workflows.py` | **exit 0** — but see the dormancy caveat below |
+| infrastructure suite | **121 passed** + the 1 known R4 failure |
+| the v18 auth-port suite | **moot** — decision §3.4 resolved to *delete*, so there is no port to test |
+| empty-volume PostgreSQL bring-up | **passed** (R4 Task 1 probe, recorded above) |
+| full migration plus rollback against a disposable cluster | R4 Task 2, in progress |
+| hostile-origin browser tests | Task 16, blocked by design |
+| crash-after-external-effect drill | Task 15, blocked by design |
+| two-database, restart and contention gate | Task 17, blocked by design |
+
+The addon run was made with the only correct command (`--profile odoo19-trial run --rm --no-deps
+-T`, `--workers=0 --max-cron-threads=0`) against `masterfischer_o19_foundation_test`, with the live
+stack up. The `could not serialize access due to concurrent update` lines in that log are the race
+tests provoking the collision on purpose — `test_concurrent_row_creation_never_raises_a_raw_typeerror`
+is named for exactly that — and are not failures.
+
+`odoo/` in the merged tree is byte-identical to `remediation/r2-odoo` and `n8n/custom-nodes/` to
+`remediation/r3-n8n`, so the addon result above transfers, and the TypeScript custom-node tests
+(run green on the R3 lane) were not re-run in the merged worktree, which has no `node_modules`.
+
+**So the remediation gate is green. The Foundation gate is not, and cannot be** — its remaining
+three rows belong to Tasks 15, 16 and 17, which are blocked behind the Odoo-19 handoff by design.
+Two caveats that a green line above does not carry: `verify-workflows.py` exit 0 proves only that
+the **v1** contract still holds, since all eight registry workflows are generation v1 and the v2
+path is dormant; and every backend↔Odoo interaction in the pytest suites is a test double, so a
+wrong RPC key name surfaces as a 409 rather than a test failure.
+
 ## 5. Whole-branch gate
 
 Before the branch is approved again, all of the following must be green in one run on the merged
