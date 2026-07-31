@@ -20,12 +20,27 @@ CONTAINER_SCRIPT_PATH="${N8N_SCRIPTS_CONTAINER_PATH:-/home/node/scripts/provisio
 # provisions them under a different, explicitly intended account.
 PWR_SECRET_OWNER="${PWR_SECRET_OWNER:-root}"
 
-SECRET_FILES=(
-  "/run/secrets/pwr_n8n_native_header"
-  "/run/secrets/pwr_backend_to_n8n_active_hmac"
-  "/run/secrets/pwr_backend_to_n8n_previous_hmac"
-  "/run/secrets/pwr_n8n_to_backend_active_hmac"
-  "/run/secrets/pwr_n8n_callback_legacy"
+# Overridable so tests can point at a synthetic secret directory without
+# touching the real one; the real script always uses the default. Note that
+# this is the HOST path -- inside the container the same files live at the
+# same names in a different namespace (see check_secret_permissions).
+PWR_SECRET_DIR="${PWR_SECRET_DIR:-/run/secrets}"
+
+# Required for every mode: provision-credentials.mjs refuses to run without
+# them, so a missing one here is always a misconfigured host.
+REQUIRED_SECRET_FILES=(
+  "$PWR_SECRET_DIR/pwr_n8n_native_header"
+  "$PWR_SECRET_DIR/pwr_backend_to_n8n_active_hmac"
+  "$PWR_SECRET_DIR/pwr_n8n_to_backend_active_hmac"
+)
+
+# Legitimately absent outside their own mode: the previous HMAC only exists
+# during a rotation (and is added to the required list below for `rotate`),
+# and the legacy callback secret is optional by design. "Absent" is a valid
+# state for these two -- for everything else it is an error, not a shrug.
+OPTIONAL_SECRET_FILES=(
+  "$PWR_SECRET_DIR/pwr_backend_to_n8n_previous_hmac"
+  "$PWR_SECRET_DIR/pwr_n8n_callback_legacy"
 )
 
 usage() {
@@ -41,13 +56,28 @@ leave the container.
 EOF
 }
 
+# EARLY CONVENIENCE CHECK -- NOT THE SECURITY BOUNDARY.
+#
+# This inspects paths in the HOST namespace, but provision-credentials.mjs
+# reads identically named paths INSIDE the container: same name, different
+# file. Passing here therefore says nothing about what will actually be
+# read. Its only job is to fail a misconfigured host loudly and early,
+# before anything reaches docker. The check that counts sits immediately
+# before the read, in n8n/scripts/provision-credentials.mjs, and uses lstat.
+#
+# A missing file is a hard failure here. It used to return 0, which meant a
+# host with no secrets at all sailed straight through to docker; callers
+# decide which files are required for the current mode (see below) rather
+# than this function shrugging at absence.
 check_secret_permissions() {
   local path="$1"
+  if [[ -L "$path" ]]; then
+    echo "ERROR: $path is a symlink; a secret file must be a regular file" >&2
+    exit 1
+  fi
   if [[ ! -e "$path" ]]; then
-    # Optional secrets (e.g. the previous HMAC during normal, non-rotation
-    # operation) may not exist; the Node module itself enforces which ones
-    # are required for which mode.
-    return 0
+    echo "ERROR: $path does not exist" >&2
+    exit 1
   fi
   local mode
   mode="$(stat -c '%a' "$path" 2>/dev/null || stat -f '%Lp' "$path" 2>/dev/null || echo '')"
@@ -72,8 +102,25 @@ case "$MODE" in
     ;;
 esac
 
-for secret_path in "${SECRET_FILES[@]}"; do
+required_secret_files=("${REQUIRED_SECRET_FILES[@]}")
+if [[ "$MODE" == "rotate" ]]; then
+  required_secret_files+=("$PWR_SECRET_DIR/pwr_backend_to_n8n_previous_hmac")
+fi
+
+for secret_path in "${required_secret_files[@]}"; do
   check_secret_permissions "$secret_path"
+done
+
+# The genuinely optional ones are only checked once they exist -- but a
+# dangling symlink counts as "present" here, so it is rejected rather than
+# silently skipped.
+for secret_path in "${OPTIONAL_SECRET_FILES[@]}"; do
+  if [[ "$MODE" == "rotate" && "$secret_path" == *"pwr_backend_to_n8n_previous_hmac" ]]; then
+    continue  # already checked as required above
+  fi
+  if [[ -e "$secret_path" || -L "$secret_path" ]]; then
+    check_secret_permissions "$secret_path"
+  fi
 done
 
 metadata_file="$(mktemp "${TMPDIR:-/tmp}/n8n-credentials-metadata.XXXXXX.json")"

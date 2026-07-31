@@ -93,7 +93,12 @@ run_verify_workflows() {
   echo "=== Verifying workflow contracts ==="
   (
     cd "$ROOT_DIR"
-    python "$VERIFY_PY"
+    # --registry is mandatory here, exactly as for every other registry
+    # consumer in this script: verify-workflows.py falls back to the default
+    # registry and never reads the environment, so without it the contract
+    # gate would validate the repo's workflows and then let this run import
+    # a completely different registry's workflows unverified.
+    python "$VERIFY_PY" --registry "$REGISTRY_PATH"
   )
 }
 
@@ -305,16 +310,27 @@ stage_workflow_file() {
   local credential_metadata_file="$4"
   local output_file="$5"
 
+  # The bindings come from credential_bindings_json (line 79), the one
+  # helper that already passes --registry correctly. Re-invoking
+  # workflow_registry.py inline here is what created the defect where this
+  # staging step silently read the DEFAULT registry: two call sites, one of
+  # them wrong. There is now exactly one invocation to get right.
+  local bindings_json
+  if ! bindings_json="$(credential_bindings_json "$file_name")"; then
+    echo "ERROR: could not resolve credential bindings for $file_name" >&2
+    exit 1
+  fi
+
   python - "$WORKFLOW_DIR/$file_name" "$state_file" "$file_name" \
     "$error_workflow_id" "$credential_metadata_file" "$STAGE_PY" \
-    "$REGISTRY_PY" "$output_file" <<'PY'
+    "$bindings_json" "$output_file" <<'PY'
 import json
 import subprocess
 import sys
 
 (
     source_path, state_path, file_name, error_workflow_id,
-    credential_metadata_path, stage_py, registry_py, output_path,
+    credential_metadata_path, stage_py, bindings_json, output_path,
 ) = sys.argv[1:9]
 
 with open(source_path, encoding="utf-8") as handle:
@@ -324,23 +340,30 @@ with open(state_path, encoding="utf-8") as handle:
 with open(credential_metadata_path, encoding="utf-8") as handle:
     credential_metadata = json.load(handle)
 
-bindings = json.loads(
-    subprocess.run(
-        ["python", registry_py, "credential-bindings", file_name],
-        check=True, capture_output=True, text=True,
-    ).stdout
-)
+bindings = json.loads(bindings_json)
 
-credentials_by_name_type = {
-    (item["name"], item["type"]): item for item in credential_metadata.get("credentials", [])
-}
+# Wire format for credential_index: a list of
+# {"logical_name", "credential_type", "credentials"} rows (JSON object keys
+# cannot carry the (name, type) tuple directly). "credentials" is itself a
+# list of every candidate found for that key, so a real duplicate (more
+# than one candidate) is representable and stage_workflow's own "exactly
+# one" check actually has something to reject.
+#
+# Eine LISTE aller Kandidaten, nicht der eine "beste" Treffer: nur so ist
+# ein echtes Duplikat ueberhaupt darstellbar und die "genau einer"-Pruefung
+# in stage_workflow.py hat etwas abzulehnen. Diese Datei und
+# stage_workflow.py:227 tragen dieselbe Spezifikation im selben Wortlaut --
+# sie sind die zwei Haelften desselben Vertrags.
 credential_index = [
     {
         "logical_name": binding["logical_name"],
         "credential_type": binding["credential_type"],
-        "credential": credentials_by_name_type.get(
-            (binding["logical_name"], binding["credential_type"])
-        ),
+        "credentials": [
+            item
+            for item in credential_metadata.get("credentials", [])
+            if item["name"] == binding["logical_name"]
+            and item["type"] == binding["credential_type"]
+        ],
     }
     for binding in bindings
 ]
@@ -357,8 +380,17 @@ payload = {
 
 result = subprocess.run(
     ["python", stage_py, "stage"],
-    input=json.dumps(payload), check=True, capture_output=True, text=True,
+    input=json.dumps(payload), capture_output=True, text=True,
 )
+if result.returncode != 0:
+    # Forward stage_workflow.py's own diagnostic (logical credential names
+    # and candidate counts only) so a fail-closed refusal is legible to the
+    # operator. Its stdout -- the staged workflow, which carries the
+    # resolved credential IDs -- is never echoed, and neither is anything
+    # the n8n CLI produced: CLI output can echo back credential-shaped
+    # material and must never reach a message, a log line or a crash dump.
+    sys.stderr.write(result.stderr)
+    raise SystemExit(1)
 
 with open(output_path, "w", encoding="utf-8") as handle:
     handle.write(result.stdout)

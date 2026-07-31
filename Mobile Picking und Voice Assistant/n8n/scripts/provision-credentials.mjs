@@ -24,7 +24,8 @@
  * ever logged.
  */
 import {randomUUID} from 'node:crypto';
-import {chmod, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {constants} from 'node:fs';
+import {chmod, mkdtemp, open, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
@@ -112,15 +113,76 @@ function decodeBase64Secret(label, base64Value) {
     return decoded;
 }
 
-async function readSecretFile(path) {
+/**
+ * The three properties a secret file must have. Pure and exported so every
+ * branch -- including the ownership one -- is testable without root: feed it
+ * a synthetic stat-like object.
+ *
+ * `info` MUST come from fstat on an already-open descriptor, never from a
+ * second lookup by path. See readSecretFile.
+ */
+export function assertSecretFileSafe(info, path) {
+    if (!info.isFile()) {
+        throw new Error(`credential file ${path} is not a regular file`);
+    }
+    if ((info.mode & 0o077) !== 0) {
+        throw new Error(`credential file ${path} is group- or world-accessible`);
+    }
+    if (info.uid !== process.getuid()) {
+        throw new Error(`credential file ${path} is not owned by the runtime user`);
+    }
+}
+
+/**
+ * Read one secret file, checking its permissions on the very descriptor it
+ * then reads from.
+ *
+ * Der Host-Pfad-Check in provision-n8n-credentials.sh prueft eine andere
+ * Datei als die, die hier gelesen wird -- gleicher Name, anderer Namespace.
+ * Die einzige Pruefung, die zaehlt, sitzt hier, im Container, unmittelbar am
+ * Lesevorgang.
+ *
+ * Zweimal ueber den PFAD aufzuloesen -- erst lstat, dann readFile -- laesst
+ * genau die Tuer offen, die lstat schliessen sollte: zwischen Pruefung und
+ * Lesen kann ein Angreifer mit Schreibrecht im Secret-Verzeichnis die
+ * regulaere 0600-Datei durch einen Symlink ersetzen (TOCTOU). Deshalb wird
+ * hier EINMAL mit O_NOFOLLOW geoeffnet -- ein Symlink schlaegt damit schon
+ * beim open fehl (ELOOP), nicht erst bei einer Pruefung, die er ueberholen
+ * koennte -- und danach ausschliesslich ueber diesen Deskriptor gearbeitet:
+ * fstat und read sehen zwingend dasselbe Objekt.
+ *
+ * O_NONBLOCK verhindert, dass ein untergeschobener FIFO das open blockiert;
+ * auf regulaere Dateien hat es keine Wirkung. Bekannte Restgrenze: O_NOFOLLOW
+ * schuetzt nur die letzte Pfadkomponente, ein ausgetauschtes ELTERNVERZEICHNIS
+ * bleibt moeglich -- dagegen hilft nur ein Verzeichnis, in das der Angreifer
+ * gar nicht schreiben kann.
+ *
+ * A file that is simply absent is not an error: several of these secrets
+ * are optional (the previous HMAC outside a rotation, the legacy callback
+ * secret), and buildConfig decides which ones the current mode requires.
+ */
+export async function readSecretFile(path) {
+    let handle;
     try {
-        const raw = await readFile(path, 'utf8');
-        return raw.trim();
+        handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     } catch (error) {
         if (error.code === 'ENOENT') {
             return '';
         }
+        if (error.code === 'ELOOP') {
+            throw new Error(`credential file ${path} is not a regular file`);
+        }
         throw error;
+    }
+    try {
+        assertSecretFileSafe(await handle.stat(), path);
+        const raw = await handle.readFile('utf8');
+        return raw.trim();
+    } finally {
+        // A rejecting close() in a finally block replaces the original error
+        // -- e.g. the "not a regular file" / permission finding above -- with
+        // a close failure. Closing is best-effort; the finding is not.
+        await handle.close().catch(() => {});
     }
 }
 

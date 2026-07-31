@@ -165,6 +165,7 @@ args="$*"
 case "$args" in
   *"unpublish:workflow"*) op="unpublish" ;;
   *"publish:workflow"*) op="publish" ;;
+  *"import:workflow"*) op="import" ;;
   *"sh -lc"*"wget -qO-"*) op="healthcheck" ;;
   *"sh -lc"*"export:workflow --all"*) op="export_all" ;;
   *"node "*"verify"*) op="credential_verify" ;;
@@ -183,13 +184,134 @@ case "$op" in
   healthcheck) exit 0 ;;
   export_all) cat "$DOCKER_MOCK_STATE_DIR/export-all.json" ;;
   credential_verify) cat "$DOCKER_MOCK_STATE_DIR/credential-metadata.json" ;;
-  publish|unpublish|restart) exit 0 ;;
+  publish|unpublish|restart|import) exit 0 ;;
   *)
     echo "unhandled fake docker invocation: $args" >&2
     exit 1
     ;;
 esac
 """
+
+
+# ---------------------------------------------------------------------------
+# A minimal but GENUINELY v2-contract-compliant workflow. Both harnesses use
+# it, because `import` and `activate-test` now both run the contract gate
+# against the fixture registry -- previously the gate silently validated the
+# repo's eight v1 workflows instead, so a fixture that satisfies none of the
+# nine v2 obligations sailed through. It satisfies all nine: one headerAuth
+# POST webhook on the registered path, the Signature Gate as the mandatory
+# first node with literal expectations, a terminal respondToWebhook on the
+# rejection output, exactly one signed request on the acceptance route, and a
+# process == true gate dominated by it whose false branch ends without effect.
+# ---------------------------------------------------------------------------
+
+V2_WEBHOOK_NODE = "PWR Webhook"
+SMOKE_WEBHOOK_PATH = "/webhook/pwr/v2/smoke"
+ACCEPTANCE_TARGET_PATH = "/api/internal/n8n/v2/events/accept"
+
+
+def valid_v2_workflow(name):
+    return {
+        "name": name,
+        "nodes": [
+            {
+                "name": V2_WEBHOOK_NODE,
+                "type": "n8n-nodes-base.webhook",
+                "parameters": {
+                    "authentication": "headerAuth",
+                    "httpMethod": "POST",
+                    "path": "pwr/v2/smoke",
+                    "options": {"rawBody": True},
+                },
+            },
+            {
+                "name": "PWR Signature Gate",
+                "type": "n8n-nodes-pwr.pwrSignatureGate",
+                "parameters": {
+                    "expectedMethod": "POST",
+                    "expectedTarget": SMOKE_WEBHOOK_PATH,
+                },
+            },
+            {
+                "name": "PWR Accept Event",
+                "type": "n8n-nodes-pwr.pwrSignedHttpRequest",
+                "parameters": {
+                    "target": ACCEPTANCE_TARGET_PATH,
+                    "method": "POST",
+                    "host": "backend",
+                    "body": {
+                        "event_id": "={{ $json.event_id }}",
+                        "odoo_instance": "={{ $json.odoo_instance }}",
+                        "idempotency_key": "={{ $json.event_id }}",
+                    },
+                },
+            },
+            {
+                "name": "Process Gate",
+                "type": "n8n-nodes-base.if",
+                "parameters": {
+                    "conditions": {
+                        "conditions": [
+                            {
+                                "leftValue": "={{ $json.process }}",
+                                "rightValue": True,
+                                "operator": {"type": "boolean", "operation": "equal"},
+                            }
+                        ]
+                    }
+                },
+            },
+            {
+                "name": "Reject Response",
+                "type": "n8n-nodes-base.respondToWebhook",
+                "parameters": {},
+            },
+        ],
+        "connections": {
+            V2_WEBHOOK_NODE: {
+                "main": [[{"node": "PWR Signature Gate", "type": "main", "index": 0}]]
+            },
+            "PWR Signature Gate": {
+                "main": [
+                    [{"node": "PWR Accept Event", "type": "main", "index": 0}],
+                    [{"node": "Reject Response", "type": "main", "index": 0}],
+                ]
+            },
+            "PWR Accept Event": {
+                "main": [[{"node": "Process Gate", "type": "main", "index": 0}]]
+            },
+            "Process Gate": {"main": [[], []]},
+        },
+    }
+
+
+def _make_secret_dir(tmp_path):
+    """A synthetic stand-in for the host's /run/secrets.
+
+    provision-n8n-credentials.sh's host-side check refuses a *missing*
+    required secret file, so every harness that lets the script run has to
+    provide the required files at the mode/ownership the check demands.
+    """
+    secret_dir = tmp_path / "secrets"
+    secret_dir.mkdir(exist_ok=True)
+    for name in (
+        "pwr_n8n_native_header",
+        "pwr_backend_to_n8n_active_hmac",
+        "pwr_n8n_to_backend_active_hmac",
+    ):
+        secret_file = secret_dir / name
+        secret_file.write_text("test-only-placeholder\n", encoding="utf-8")
+        secret_file.chmod(0o600)
+    return secret_dir
+
+
+def _secret_env(tmp_path):
+    import getpass
+
+    return {
+        "PWR_SECRET_DIR": str(_make_secret_dir(tmp_path)),
+        "PWR_SECRET_OWNER": getpass.getuser(),
+    }
 
 
 @pytest.fixture
@@ -216,14 +338,14 @@ def docker_harness(tmp_path):
                     "name": "Foundation Smoke Test",
                     "generation": "v2",
                     "event_names": [],
-                    "webhook_paths": [],
-                    "callback_paths": [],
+                    "webhook_paths": [SMOKE_WEBHOOK_PATH],
+                    "callback_paths": [ACCEPTANCE_TARGET_PATH],
                     "authentication": "native_header_hmac",
                     "managed": True,
                     "production_activation": False,
                     "test_only": True,
                     "activation_order": None,
-                    "allowed_target_hosts": [],
+                    "allowed_target_hosts": ["backend"],
                     "credential_bindings": [],
                 }
             ],
@@ -231,8 +353,7 @@ def docker_harness(tmp_path):
         encoding="utf-8",
     )
     (workflows_dir / "smoke-test.json").write_text(
-        json.dumps({"name": "Foundation Smoke Test", "nodes": [], "connections": {}}),
-        encoding="utf-8",
+        json.dumps(valid_v2_workflow("Foundation Smoke Test")), encoding="utf-8"
     )
 
     state_dir = tmp_path / "docker-state"
@@ -268,6 +389,7 @@ def docker_harness(tmp_path):
     env["COMPOSE_FILE"] = str(tmp_path / "unused-compose.yml")
     env["DOCKER_MOCK_LOG"] = str(docker_log)
     env["DOCKER_MOCK_STATE_DIR"] = str(state_dir)
+    env.update(_secret_env(tmp_path))
 
     def run(*args, allowed_ops=""):
         # allowed_ops is the exact, explicit set of docker operation kinds
@@ -401,4 +523,394 @@ def test_deactivate_test_refuses_mismatched_file_without_touching_docker(docker_
     assert len(after_lines) == before_lines, (
         "a file-name mismatch must be refused before any further docker call "
         "(no extra publish/unpublish invocation)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Importer harness: drives `import-workflows.sh import` end to end against a
+# synthetic registry that -- unlike every workflow in the real registry --
+# actually has a credential binding. That gap is why finding #13 survived:
+# the importer's `credential_index` rows were never once fed to
+# stage_workflow.py with a nonempty binding list, in a test or in production.
+#
+# Everything below runs the REAL shell script. The only stand-ins are the
+# external processes it shells out to: `docker` (the fake above) and a
+# transparent `python` wrapper that tees the staging payload to a file
+# before exec'ing the real interpreter. The script itself, stage_workflow.py,
+# workflow_registry.py and provision-n8n-credentials.sh are all the genuine
+# articles.
+# ---------------------------------------------------------------------------
+
+# Tees the JSON payload that import-workflows.sh pipes into
+# `stage_workflow.py stage` and then execs the real interpreter with the
+# untouched stdin. It reimplements nothing: it observes the wire, so a test
+# can assert on the exact bytes crossing between the two halves.
+PYTHON_TEE_SHIM = r"""#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == *"stage_workflow.py stage" ]]; then
+  payload="$(mktemp "${TMPDIR:-/tmp}/stage-payload.XXXXXX")"
+  cat >"$payload"
+  cat "$payload" >>"$STAGE_PAYLOAD_LOG"
+  printf '\n' >>"$STAGE_PAYLOAD_LOG"
+  exec "$REAL_PYTHON" "$@" <"$payload"
+fi
+exec "$REAL_PYTHON" "$@"
+"""
+
+ERROR_TRIGGER_FILE = "error-trigger.json"
+BOUND_WORKFLOW_FILE = "smoke-test.json"
+BOUND_WORKFLOW_NAME = "Foundation Smoke Test"
+BOUND_NODE_NAME = V2_WEBHOOK_NODE
+
+# The exact operation set a successful `import` legitimately performs:
+# credential verification (twice: the verify gate and the metadata read),
+# the healthcheck poll, the state exports, one import per managed workflow,
+# and the closing "keep everything inactive" unpublish sweep.
+IMPORTER_ALLOWED_OPS = "credential_verify,healthcheck,export_all,import,unpublish"
+
+
+@pytest.fixture
+def tmp_registry(tmp_path):
+    registry_dir = tmp_path / "registry"
+    workflows_dir = registry_dir / "workflows"
+    workflows_dir.mkdir(parents=True)
+
+    registry_path = registry_dir / "workflow-registry.json"
+    registry_path.write_text(
+        json.dumps({
+            "schema_version": "v1",
+            "credentials": {"pwr.v2.inbound-header": {"type": "httpHeaderAuth"}},
+            "workflows": [
+                {
+                    "file": ERROR_TRIGGER_FILE,
+                    "name": "PWR Error Trigger",
+                    "generation": "v1",
+                    "event_names": [],
+                    "webhook_paths": [],
+                    "callback_paths": [],
+                    "authentication": "error_trigger_v1",
+                    "managed": True,
+                    "production_activation": False,
+                    "test_only": False,
+                    "activation_order": 1,
+                    "allowed_target_hosts": [],
+                    "credential_bindings": [],
+                },
+                {
+                    "file": BOUND_WORKFLOW_FILE,
+                    "name": BOUND_WORKFLOW_NAME,
+                    "generation": "v2",
+                    "event_names": [],
+                    "webhook_paths": [SMOKE_WEBHOOK_PATH],
+                    "callback_paths": [ACCEPTANCE_TARGET_PATH],
+                    "authentication": "native_header_hmac",
+                    "managed": True,
+                    "production_activation": False,
+                    "test_only": True,
+                    "activation_order": 2,
+                    "allowed_target_hosts": ["backend"],
+                    "credential_bindings": [
+                        {
+                            "node": BOUND_NODE_NAME,
+                            "credential_type": "httpHeaderAuth",
+                            "logical_name": "pwr.v2.inbound-header",
+                        }
+                    ],
+                },
+            ],
+        }),
+        encoding="utf-8",
+    )
+    (workflows_dir / ERROR_TRIGGER_FILE).write_text(
+        json.dumps({"name": "PWR Error Trigger", "nodes": [], "connections": {}}),
+        encoding="utf-8",
+    )
+    (workflows_dir / BOUND_WORKFLOW_FILE).write_text(
+        json.dumps(valid_v2_workflow(BOUND_WORKFLOW_NAME)), encoding="utf-8"
+    )
+
+    backup_dir = tmp_path / "import-backup"
+    backup_dir.mkdir()
+    (backup_dir / "original-state.json").write_text(
+        json.dumps({
+            "workflows": {
+                ERROR_TRIGGER_FILE: {
+                    "name": "PWR Error Trigger", "id": None, "active": False, "exists": False,
+                },
+                BOUND_WORKFLOW_FILE: {
+                    "name": BOUND_WORKFLOW_NAME, "id": None, "active": False, "exists": False,
+                },
+            },
+            "duplicates": {},
+        }),
+        encoding="utf-8",
+    )
+
+    def break_bound_workflow_contract():
+        """Remove the Signature Gate, violating v2 obligation 2.
+
+        The gate must abort the import on this -- but only if it verifies
+        THIS registry's workflows. Reading the repo registry instead (the old
+        behaviour) validates eight unrelated v1 files, passes, and imports
+        this one unverified. `smoke-test.json` does not exist in the repo at
+        all, so its name appearing in the failure is the proof.
+        """
+        broken = valid_v2_workflow(BOUND_WORKFLOW_NAME)
+        broken["nodes"] = [
+            node for node in broken["nodes"] if node["name"] != "PWR Signature Gate"
+        ]
+        (workflows_dir / BOUND_WORKFLOW_FILE).write_text(
+            json.dumps(broken), encoding="utf-8"
+        )
+
+    return {
+        "registry_path": registry_path,
+        "workflows_dir": workflows_dir,
+        "backup_dir": backup_dir,
+        "break_bound_workflow_contract": break_bound_workflow_contract,
+    }
+
+
+@pytest.fixture
+def mocked_docker(tmp_path, tmp_registry):
+    import os
+    import stat
+    import subprocess
+    import sys
+
+    state_dir = tmp_path / "importer-docker-state"
+    state_dir.mkdir()
+    (state_dir / "export-all.json").write_text(
+        json.dumps({
+            "data": [
+                {"id": "wf-error-1", "name": "PWR Error Trigger", "active": False},
+                {"id": "wf-smoke-1", "name": BOUND_WORKFLOW_NAME, "active": False},
+            ]
+        }),
+        encoding="utf-8",
+    )
+    (state_dir / "credential-metadata.json").write_text(
+        json.dumps({"credentials": []}), encoding="utf-8"
+    )
+
+    bin_dir = tmp_path / "importer-bin"
+    bin_dir.mkdir()
+    for name, body in (("docker", FAKE_DOCKER_SCRIPT), ("python", PYTHON_TEE_SHIM)):
+        stub = bin_dir / name
+        stub.write_text(body, encoding="utf-8")
+        stub.chmod(stub.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+    docker_log = tmp_path / "importer-docker.log"
+    docker_log.write_text("", encoding="utf-8")
+    payload_log = tmp_path / "stage-payloads.jsonl"
+    payload_log.write_text("", encoding="utf-8")
+
+    env = dict(os.environ)
+    env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+    env["REGISTRY_PATH"] = str(tmp_registry["registry_path"])
+    env["WORKFLOW_DIR"] = str(tmp_registry["workflows_dir"])
+    env["COMPOSE_FILE"] = str(tmp_path / "unused-compose.yml")
+    env["DOCKER_MOCK_LOG"] = str(docker_log)
+    env["DOCKER_MOCK_STATE_DIR"] = str(state_dir)
+    env["STAGE_PAYLOAD_LOG"] = str(payload_log)
+    env["REAL_PYTHON"] = sys.executable
+    secret_env = _secret_env(tmp_path)
+    env.update(secret_env)
+
+    def run(*args, allowed_ops=IMPORTER_ALLOWED_OPS):
+        script = ROOT / "infrastructure/scripts/import-workflows.sh"
+        call_env = dict(env)
+        call_env["DOCKER_MOCK_ALLOWED_OPS"] = allowed_ops
+        return subprocess.run(
+            ["bash", str(script), *args],
+            env=call_env, cwd=str(ROOT), capture_output=True, text=True, timeout=120,
+        )
+
+    def stage_payloads():
+        return [
+            json.loads(line)
+            for line in payload_log.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+
+    return {
+        "run": run,
+        "state_dir": state_dir,
+        "secret_dir": Path(secret_env["PWR_SECRET_DIR"]),
+        "stage_payloads": stage_payloads,
+        "log_ops": lambda: [
+            line.split("|", 1)[0]
+            for line in docker_log.read_text(encoding="utf-8").splitlines()
+            if line
+        ],
+    }
+
+
+def _run_importer(mocked_docker, tmp_registry, *, credentials, cli_stdout=""):
+    """Run the real `import-workflows.sh import` with the given credential
+    metadata coming back from the (faked) n8n CLI inside the container."""
+    metadata = {"credentials": credentials}
+    if cli_stdout:
+        # Injected into the n8n CLI's *stdout*, which is where a real
+        # credential export would carry secret-shaped material.
+        metadata["cli_noise"] = cli_stdout
+    (mocked_docker["state_dir"] / "credential-metadata.json").write_text(
+        json.dumps(metadata), encoding="utf-8"
+    )
+    return mocked_docker["run"]("import", str(tmp_registry["backup_dir"]))
+
+
+def _run_importer_and_capture_stage_payload(mocked_docker, tmp_registry, *, credentials):
+    """Run the importer and return the payload it actually piped into
+    `stage_workflow.py stage` for the credential-bound workflow."""
+    _run_importer(mocked_docker, tmp_registry, credentials=credentials)
+    payloads = [
+        payload
+        for payload in mocked_docker["stage_payloads"]()
+        if payload["source"].get("name") == BOUND_WORKFLOW_NAME
+    ]
+    assert payloads, "the importer never staged the credential-bound workflow"
+    return payloads[-1]
+
+
+def test_importer_emits_the_wire_format_the_stager_reads(mocked_docker, tmp_registry):
+    """The importer emitted "credential" (one object); the stager reads
+    "credentials" (a list). Every real binding resolved to zero candidates.
+    Regression cover for finding #13."""
+    payload = _run_importer_and_capture_stage_payload(
+        mocked_docker,
+        tmp_registry,
+        credentials=[{"id": "id-1", "name": "pwr.v2.inbound-header", "type": "httpHeaderAuth"}],
+    )
+
+    rows = payload["credential_index"]
+    assert rows, "a workflow with a binding must produce at least one row"
+    for row in rows:
+        assert set(row) == {"logical_name", "credential_type", "credentials"}
+        assert isinstance(row["credentials"], list)
+
+
+def test_exactly_one_matching_credential_imports_successfully(mocked_docker, tmp_registry):
+    result = _run_importer(
+        mocked_docker,
+        tmp_registry,
+        credentials=[{"id": "id-1", "name": "pwr.v2.inbound-header", "type": "httpHeaderAuth"}],
+    )
+    assert result.returncode == 0, result.stderr
+
+    # The exact operation sequence a real `import` performs. It is asserted
+    # here mainly as proof that these tests drive the ACTUAL shell script:
+    # this order is a property of import_workflows() in the .sh (verify
+    # credentials, wait for health, re-read the credential metadata, import
+    # the error workflow, re-export, import the rest, re-export, then the
+    # closing "stay inactive" sweep), and no Python stand-in produces it.
+    assert mocked_docker["log_ops"]() == [
+        "credential_verify", "healthcheck", "credential_verify",
+        "import", "export_all", "import", "export_all",
+        "unpublish", "unpublish",
+    ]
+
+
+def test_zero_matching_credentials_fails_closed(mocked_docker, tmp_registry):
+    result = _run_importer(mocked_docker, tmp_registry, credentials=[])
+    assert result.returncode != 0
+    assert "credential" in result.stderr.lower()
+
+
+def test_two_matching_credentials_fail_closed(mocked_docker, tmp_registry):
+    result = _run_importer(
+        mocked_docker,
+        tmp_registry,
+        credentials=[
+            {"id": "id-1", "name": "pwr.v2.inbound-header", "type": "httpHeaderAuth"},
+            {"id": "id-2", "name": "pwr.v2.inbound-header", "type": "httpHeaderAuth"},
+        ],
+    )
+    assert result.returncode != 0
+    assert "duplicate" in result.stderr.lower() or "exactly one" in result.stderr.lower()
+
+
+def test_no_cli_output_is_embedded_in_the_error(mocked_docker, tmp_registry):
+    """n8n CLI stdout can carry secrets. It must never reach a raised error."""
+    result = _run_importer(
+        mocked_docker, tmp_registry, credentials=[], cli_stdout="SECRET-VALUE-abc123"
+    )
+    assert "SECRET-VALUE-abc123" not in result.stderr
+    assert "SECRET-VALUE-abc123" not in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Host-side secret check (provision-n8n-credentials.sh). It runs on paths in
+# the HOST namespace, while the files are actually read at identically named
+# paths INSIDE the container -- so it is an early convenience check, not the
+# security boundary (that one lives in provision-credentials.mjs, immediately
+# before the read). What it must not do is stay silent: a missing required
+# secret used to return 0, which is how a misconfigured host reached docker
+# at all.
+# ---------------------------------------------------------------------------
+
+
+def test_missing_required_secret_stops_before_any_docker_call(mocked_docker, tmp_registry):
+    (mocked_docker["secret_dir"] / "pwr_n8n_native_header").unlink()
+    result = _run_importer(
+        mocked_docker,
+        tmp_registry,
+        credentials=[{"id": "id-1", "name": "pwr.v2.inbound-header", "type": "httpHeaderAuth"}],
+    )
+    assert result.returncode != 0
+    assert "pwr_n8n_native_header" in result.stderr
+    assert mocked_docker["log_ops"]() == [], (
+        "a missing required secret must be refused before anything reaches docker"
+    )
+
+
+def test_group_readable_secret_stops_before_any_docker_call(mocked_docker, tmp_registry):
+    (mocked_docker["secret_dir"] / "pwr_backend_to_n8n_active_hmac").chmod(0o640)
+    result = _run_importer(
+        mocked_docker,
+        tmp_registry,
+        credentials=[{"id": "id-1", "name": "pwr.v2.inbound-header", "type": "httpHeaderAuth"}],
+    )
+    assert result.returncode != 0
+    assert "pwr_backend_to_n8n_active_hmac" in result.stderr
+    assert mocked_docker["log_ops"]() == []
+
+
+def test_optional_previous_hmac_secret_may_be_absent(mocked_docker, tmp_registry):
+    # The previous-HMAC secret only exists during a rotation. Requiring it
+    # unconditionally would break every ordinary run, so its absence must
+    # stay legal -- the mode/owner rules still apply once it does exist.
+    assert not (mocked_docker["secret_dir"] / "pwr_backend_to_n8n_previous_hmac").exists()
+    result = _run_importer(
+        mocked_docker,
+        tmp_registry,
+        credentials=[{"id": "id-1", "name": "pwr.v2.inbound-header", "type": "httpHeaderAuth"}],
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_contract_violation_in_the_fixture_registry_aborts_the_import(
+    mocked_docker, tmp_registry
+):
+    """The contract gate must verify the registry this run actually imports.
+
+    `verify-workflows.py` defaults to the repo registry and never reads the
+    environment, so without an explicit --registry the gate happily validated
+    the repo's eight v1 workflows and then let the run import a completely
+    different registry's workflows having verified none of them.
+    """
+    tmp_registry["break_bound_workflow_contract"]()
+    result = _run_importer(
+        mocked_docker,
+        tmp_registry,
+        credentials=[{"id": "id-1", "name": "pwr.v2.inbound-header", "type": "httpHeaderAuth"}],
+    )
+    assert result.returncode != 0
+    assert "Workflow validation failed" in result.stdout
+    assert BOUND_WORKFLOW_FILE in result.stdout, (
+        "the gate must report the FIXTURE registry's workflow, not the repo's"
+    )
+    assert "v2 workflow has no PWR Signature Gate node" in result.stdout
+    assert mocked_docker["log_ops"]() == [], (
+        "a failing contract gate must abort before anything reaches docker"
     )

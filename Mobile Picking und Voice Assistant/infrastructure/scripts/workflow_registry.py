@@ -6,7 +6,35 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-DEFAULT_REGISTRY_PATH = Path(__file__).resolve().parents[2] / "n8n" / "workflow-registry.json"
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+DEFAULT_REGISTRY_PATH = _REPO_ROOT / "n8n" / "workflow-registry.json"
+
+# The generation allowlist has two readers in two different runtimes: this
+# module (always in a repo checkout) and backend/app/services/workflow_targets.py
+# (inside the backend image, where only backend/app/ ships and there is no
+# `infrastructure/` at all). The single declaration therefore lives on the side
+# that exists in BOTH trees, and this side -- which always has the repo -- is
+# the one that reaches across. See backend/app/services/workflow_generations.py.
+_BACKEND_ROOT = _REPO_ROOT / "backend"
+if str(_BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_ROOT))
+
+from app.services.workflow_generations import (  # noqa: E402
+    GRANDFATHERED_V1_FILES,
+    KNOWN_GENERATIONS,
+)
+
+__all__ = [
+    "GRANDFATHERED_V1_FILES",
+    "KNOWN_GENERATIONS",
+    "CredentialBinding",
+    "WorkflowSpec",
+    "WorkflowRegistry",
+    "DEFAULT_REGISTRY_PATH",
+    "load_registry",
+    "main",
+]
 
 
 @dataclass(frozen=True)
@@ -108,6 +136,17 @@ def load_registry(
     }
     workflows: list[WorkflowSpec] = []
     for value in raw.get("workflows") or []:
+        generation = value["generation"]
+        if generation not in KNOWN_GENERATIONS:
+            raise ValueError(
+                f"{value['file']}: unknown generation {generation!r}; "
+                f"expected one of {KNOWN_GENERATIONS}"
+            )
+        if generation == "v1" and value["file"] not in GRANDFATHERED_V1_FILES:
+            raise ValueError(
+                f"{value['file']}: new v1 entries are forbidden (not grandfathered); "
+                "new workflows must be v2"
+            )
         bindings = tuple(
             CredentialBinding(
                 node=item["node"],
@@ -172,12 +211,13 @@ def load_registry(
                 raise ValueError(f"{workflow.file}: credential type mismatch")
 
     root = workflow_root or path.parent / "workflows"
-    disk = {item.name for item in root.glob("*.json")}
-    if set(files) != disk:
-        raise ValueError(
-            f"registry/disk mismatch: missing={sorted(disk - set(files))}, "
-            f"unknown={sorted(set(files) - disk)}"
-        )
+    if root.is_dir():
+        disk = {item.name for item in root.glob("*.json")}
+        if set(files) != disk:
+            raise ValueError(
+                f"registry/disk mismatch: missing={sorted(disk - set(files))}, "
+                f"unknown={sorted(set(files) - disk)}"
+            )
     return WorkflowRegistry(credentials=credential_types, workflows=tuple(workflows))
 
 
