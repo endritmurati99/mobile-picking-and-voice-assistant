@@ -22,16 +22,72 @@ Spec: `docs/superpowers/specs/2026-07-23-platform-security-event-contracts-desig
 | 5 | Odoo session, throttle and ACL models | done |
 | 6 | Backend session stack | done |
 | 7 | Grace-mode gates | done |
-| 8 | Atomic Odoo jobs, outbox, receipts, leases | done, defects open (R2) |
-| 9 | Backend-to-n8n event transport | done, defects open (R2) |
+| 8 | Atomic Odoo jobs, outbox, receipts, leases | done, R2 defects closed |
+| 9 | Backend-to-n8n event transport | done, R2 defects closed |
 | 10 | Signed v2 routes | done |
-| 11 | Job-bound media and artifact contracts | done, defects open (R1/R2) |
-| 12 | Odoo-19 core idempotency handoff | **blocked** — no `codex/odoo19-cutover`, no cutover plan, so no `wave1-odoo19-handoff` tag |
-| 13 | Postgres role separation | **statically complete, live acceptance open** (R4) |
-| 14 | n8n credential management | done, defects open (R3) |
-| 15 | Custom n8n image, network boundaries, Caddy, TLS | **blocked** by 12; scope amended, see §3 |
+| 11 | Job-bound media and artifact contracts | done, R1/R2 defects closed |
+| 12 | Odoo-19 core idempotency handoff | **STARTABLE** — `wave1-odoo19-handoff` placed 2026-07-31 on `e8742b4` |
+| 13 | Postgres role separation | **live acceptance PARTIAL** — see the R4 entry; two endpoints are not achievable as specified |
+| 14 | n8n credential management | done, R3 defects closed |
+| 15 | Custom n8n image, network boundaries, Caddy, TLS | **STARTABLE** — 12's gate is open; scope amended, see §3, and it inherits four things the cutover deliberately did not do |
 | 16 | Production route surface and browser idempotency | **blocked** — plan L7999 declares it consumes Task 12 and Task 15 |
 | 17 | Two-database, concurrency, restart, rollout gates | blocked by everything above |
+
+### The Odoo-19 cutover was EXECUTED on 2026-07-31
+
+Tag `wave1-odoo19-handoff` is on `e8742b4`, branch `integration/foundation-remediation` — placed on the
+verified post-cutover state rather than on the merge commit of `codex/odoo19-cutover`, because the
+cutover was executed on top of that merge and the tag should name a state that was *proven*, not one
+that was merely mergeable.
+
+Commits: `ee9171f` (the atomic commit — `odoo/addons18/` deleted and Compose reworked together),
+`1f334dc` (every image pinned by digest, `RUNTIME_PROFILE` fail-closed), `bb00213` (the seeder ported
+to Odoo 19), `e8742b4` (defaults and docs repointed).
+
+Handoff evidence: H1 `addons18/` gone, zero tracked files. H2 the `odoo` service builds
+`odoo:19.0@sha256:e415f992…` and mounts `./odoo/addons`. H3 no `odoo19-trial` profile remains. H4 the
+addon suite run **from the productive image**, with the live `odoo` stopped: `0 failed, 0 error(s) of
+128 tests`. H5 `masterfischer_o19` and `lager2_o19` seeded, `picking_assistant_integration
+19.0.1.0.0 installed`. H7 `masterfischer` 66/46 and `lager2` 9 intact, both still `base 18.0.1.3`.
+H8 `db_name` set in both new config files. Live chain proven end to end: the backend container's own
+`OdooClient` read real pickings out of `masterfischer_o19`. Backend suite 750 passed.
+
+**Two paths were proved dead before the reseed was accepted, and both proofs are worth keeping:**
+1. **Clone-and-upgrade fails on this image.** `-u all` runs
+   `ALTER TABLE ir_model ALTER COLUMN state TYPE jsonb USING state::jsonb` and dies with
+   `invalid input syntax for type json, Token "base" is invalid`. Reproduced on three throwaway
+   restores, isolated to stock Odoo addons only and to a `lager2` copy as well, and root-caused: the
+   image demands a schema its own fresh initialisation does not produce (`ir_model.state` is
+   `varchar` in a fresh v19 init).
+2. **`masterfischer_o19_trial` is not a template.** It carries the same `database.uuid` as
+   `masterfischer`, so it really is an upgraded copy — but made on 2026-07-04 with a tool that is not
+   in this repository, and it has since diverged: 698 `stock_move_line` rows against 420, 6 active
+   users against 7, and `picking_assistant_integration` **not installed**.
+   `seed-odoo.py` was also **not** a v19 seeder despite its docstring; five incompatibilities were
+   found and fixed, each proved against a running v19 server (`stock.move.name` removed,
+   `res.users.groups_id` → `group_ids`, a hardcoded `product_uom`, `action_apply_inventory` returning
+   `None` through a marshaller that forbids it — which made the seeder report 15 skipped bookings it
+   had in fact committed — and a dead module check swallowing a `KeyError`).
+
+**Executed answers to §3.4 and the gate:** the Odoo-18 port did **not** survive — it is deleted, so
+the whole-branch gate line *"the v18 auth-port suite, if that port survives decision §3.4"* is
+**struck, not pending**. Two standing live-system exposures are thereby **resolved by execution**:
+production no longer runs the unfixed `_lock_or_create` throttle path, nor the **High** M1
+session-revocation hole.
+
+**Operator actions still owed on the live stack:** the admin password on both v19 databases is still
+the fresh-init default `admin`, and `RUNTIME_PROFILE` is still `development`, so
+`validate_runtime_security` returns immediately and the backend says so at every start. The rollback
+window stays open until submission by the owner's decision — `masterfischer`, `lager2`, the dumps and
+the filestores all remain.
+
+**One caveat on the smoke test, recorded rather than hidden:** `infrastructure/scripts/test-api.py`
+reports 5/7. Both failures are `401 Ungueltige oder abgelaufene Sitzung` on `/api/pickings` and
+`/api/quality-alerts` — the script still authenticates the pre-remediation way, and
+`mobile_header_grace_mode` now defaults to `False` (that default was finding #1). This is the
+hardening working as designed, not a cutover regression: `/api/health` and both `scan/validate` cases
+pass, and the direct `OdooClient` read proves the Odoo path. The smoke script needs updating for
+session-based auth; nearest owner is Task 16.
 
 **Correction of record:** an earlier ledger entry claimed Task 16 was startable next. It is not.
 The plan's own Interfaces block for Task 16 reads
