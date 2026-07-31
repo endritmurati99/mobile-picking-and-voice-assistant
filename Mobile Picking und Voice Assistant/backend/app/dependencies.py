@@ -20,7 +20,7 @@ from app.services.llm_client import LlmClient
 from app.services.n8n_webhook import N8NWebhookClient
 from app.services.odoo_client import OdooClient
 from app.services.picking_service import PickingService
-from app.config import settings, decode_secret_b64, get_instance_registry
+from app.config import settings, decode_secret_b64, get_instance_registry, parse_origins
 from app.models.auth import Principal
 # Task 10 additions (kept as separate import lines so concurrent branches that
 # touch the block above merge cleanly).
@@ -103,9 +103,7 @@ def get_session_service() -> SessionService:
         throttle_secret=decode_secret_b64(
             "SESSION_THROTTLE_HMAC_SECRET_B64", settings.session_throttle_hmac_secret_b64
         ),
-        allowed_origins=set(
-            item.strip() for item in settings.pwa_origins.split(",") if item.strip()
-        ),
+        allowed_origins=set(parse_origins(settings.pwa_origins)),
         session_seconds=settings.session_max_age_seconds,
         revalidate_seconds=settings.session_role_revalidate_seconds,
     )
