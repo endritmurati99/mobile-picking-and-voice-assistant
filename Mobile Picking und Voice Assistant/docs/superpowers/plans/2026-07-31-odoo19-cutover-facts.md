@@ -4,11 +4,14 @@ All facts established at `1e240f5` on branch `codex/odoo19-cutover`, worktree
 `/mnt/c/Users/endri/Desktop/Bachelor-wt/odoo19-cutover`. Paths below are relative to
 `Mobile Picking und Voice Assistant/` unless stated otherwise.
 
-**Docker was NOT running during this investigation.** `docker.exe version` returned
-`failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine … Das System kann
-die angegebene Datei nicht finden.` No live probe, no `odoo --version`, no read-only SQL against
-`masterfischer` was possible. Every fact below is derived from files. Facts that could only be
-settled by a live probe are marked **UNESTABLISHED**.
+**Docker was NOT running during the original (Phase 1) investigation.** Every fact below is derived
+from files.
+
+> **REVISION 2 — 2026-07-31, Docker Desktop up.** Every fact previously marked **UNESTABLISHED** has
+> since been settled by read-only SQL against the live cluster. **The live-probe results are recorded
+> in §0.1 of `2026-07-31-odoo19-cutover.md`, which is the authority for them**; the markers below are
+> resolved in place and point there. The `docs/superpowers/parallel/` documents named in F0 were also
+> located and read — see the F0 revision note.
 
 ---
 
@@ -27,6 +30,15 @@ settled by a live probe are marked **UNESTABLISHED**.
 
 **Consequence:** frozen decisions §3.4 / §3.8 and the debt register could not be read at source.
 Where this plan cites them it cites them as *reported by the commission*, not as verified.
+
+> **REVISION 2 — RESOLVED.** The two documents exist in the **main tree** and were read there:
+> `/mnt/c/Users/endri/Desktop/Bachelor/Mobile Picking und Voice Assistant/docs/superpowers/parallel/2026-07-23-program-status.md`
+> (310 lines; frozen decisions §3, debt register §4, whole-branch gate §5) and `…/2026-07-29-handoff.md`
+> (182 lines). They are absent from **this branch** only. §3.4 and §3.8 are now quoted verbatim in
+> §0.2 of the plan, and §0.3 records why no step edits the register from this branch — the register
+> itself already logged that failure shape once, for R1's exit gate.
+> `docs/superpowers/plans/2026-07-29-r4-postgres-handoff.md` still does not exist anywhere; the
+> house-style reference remains unavailable and is not needed.
 
 ## F0b — An uncommitted cutover plan for the same work already exists
 
@@ -84,8 +96,12 @@ Where this plan cites them it cites them as *reported by the commission*, not as
 **So the "already v19, plan collapses" escape hatch does NOT apply.** `masterfischer` is a v18
 database served by a v18 container.
 
-**UNESTABLISHED (needs Docker):** the `base` module's `latest_version` row in `masterfischer`.
-The read-only confirmation query, to be run before cutover, is in the plan's Task 0.
+> **REVISION 2 — ESTABLISHED, not inferred.** `SELECT name, latest_version FROM ir_module_module`
+> against the live `masterfischer` returns `base = 18.0.1.3`, `stock = 18.0.1.1`,
+> `picking_assistant_integration = 18.0.1.0.0`. Installed modules:
+> `picking_assistant_core 18.0.1.0.0`, `picking_assistant_integration 18.0.1.0.0`,
+> `quality_alert_custom 18.0.1.1.0`, `stock 18.0.1.1`, `stock_picking_batch 18.0.1.0`,
+> `stock_sms 18.0.1.0`. The escape hatch is definitively closed. See plan §0.1.
 
 ## F3 — v19 vs v18 addon trees
 
@@ -139,6 +155,16 @@ same commit or it breaks too.**
   `HOST: db` (line 79). n8n sets `DB_POSTGRESDB_HOST: db` (line 218).
 - Therefore **`masterfischer`, `masterfischer_o19_trial`, `masterfischer_o19_foundation_test`,
   `n8n` and `picking` are all databases inside the SAME cluster on the SAME `pg_data` volume.**
+
+> **REVISION 2 — the actual inventory, probed.** `SELECT datname FROM pg_database` returns
+> `lager2`, `masterfischer`, `masterfischer_o19_foundation_test`, `masterfischer_o19_trial`, `n8n`,
+> `odoo19_smoke_codex`, `picking`, `postgres` (+ `template0/1`). **`lager2` and `odoo19_smoke_codex`
+> were missing from the list above.** Odoo majors: `masterfischer`/`lager2`/`picking` are all
+> `base 18.0.1.3`; `masterfischer_o19_trial`/`masterfischer_o19_foundation_test`/`odoo19_smoke_codex`
+> are `base 19.0.1.3`. Only `masterfischer_o19_foundation_test` has
+> `picking_assistant_integration 19.0.1.0.0` installed — it is the standing proof the v19 addon
+> installs cleanly. `odoo19_smoke_codex` is declared in no Compose file and no `.conf`; nobody has
+> claimed it. See plan §0.1.
 - `masterfischer_o19_foundation_test` appears only as a Foundation-plan test database
   (`docs/superpowers/plans/2026-07-23-platform-security-event-contracts-foundation.md:2167-2168,
   2412-2413, 3099-3100`, always with `--db-filter '^masterfischer_o19_foundation_test$'`). It is not
@@ -174,9 +200,21 @@ database and reseed it with `seed-odoo.py`.** Anything else — Odoo's paid upgr
 hand-written OpenUpgrade scripts — is work that does not exist here and would have to be
 commissioned separately.
 
-## F6 — What data actually lives in `masterfischer`: **UNESTABLISHED** (strong circumstantial evidence for seed-only)
+## F6 — What data actually lives in `masterfischer`: **ESTABLISHED — thesis working data, no business records**
 
-Could not be verified: Docker is down, so no read-only `SELECT` was possible.
+> **REVISION 2 — probed read-only.** `stock_picking` **66** rows (46 `done`, 20 `assigned`), created
+> 2026-03-22 .. 2026-07-25. `stock_move_line` 420. `res_partner` 9. `product_product` 54.
+> `res_users` 7. `mail_message` 1558, spanning 2025-01-13 .. 2026-07-25. **`sale_order` and
+> `account_move` do not exist as tables** — the sale and accounting modules were never installed.
+> So the circumstantial "seed-only" reading below was too weak *and* the "real business history"
+> fear was too strong: it is **thesis working data — no customer records, no accounting, no
+> invoices**. `lager2` holds 9 `assigned` pickings and no completed ones.
+>
+> **The owner decided on this evidence (D1): reseed, and `masterfischer` is not deleted.** The 46
+> completed pickings will not be visible in the new stack; nothing is destroyed. See plan §0.1 and
+> Global Constraint 1.
+
+Original Phase-1 reasoning, retained for the record:
 
 Circumstantial evidence that it is seed data:
 - `seed-odoo.py`'s own documented target database is `masterfischer` (docstring line 11).
@@ -213,6 +251,18 @@ register (§3.8) lives in the missing `docs/superpowers/parallel/` (F0).
 `infrastructure/caddy/Caddyfile` (45 lines) contains no `request_body` directive today. The plan
 therefore treats "Caddy >= 2.10 for `request_body max_size`" as a **commissioned requirement taken
 on trust**, not as a fact re-derived from this branch.
+
+> **REVISION 2 — RESOLVED at source, and the ownership was wrong.** Frozen decision §3.8 reads:
+> *"The request body limit is a Task 15 obligation and needs two layers. `await request.body()`
+> necessarily precedes signature verification, and `Content-Length` is bypassable with chunked
+> encoding. Caddy's `request_body max_size` protects the edge only and requires Caddy >= 2.10,
+> which is a second reason to pin the image. Direct n8n → backend calls need an ASGI-level
+> streaming limit as well."*
+> So `request_body max_size` is **Foundation Task 15's, not the cutover's**, and it needs a second
+> ASGI-level layer this plan cannot supply. §3.5 likewise assigns `trusted_proxies` to Task 15 and
+> names the **Caddy image pin** as an obligation. The cutover plan therefore does the pin (at a
+> >= 2.10 tag) and nothing else on that surface. See plan §0.2. Revision 1's decision **D5** — a
+> blind `16MB` value — is withdrawn.
 
 ## F8 — `secrets:` and `RUNTIME_PROFILE` — what exists and what does not
 
