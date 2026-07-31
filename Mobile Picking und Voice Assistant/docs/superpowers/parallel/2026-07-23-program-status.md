@@ -394,9 +394,31 @@ Finding #14 is therefore **remediated, pending only the fix round's review**.
 
 ### Deployment obligation created by remediation lane R3
 
+- **Corrected 2026-07-31 — the rule is a mask, not a mode literal, and both halves now enforce it.**
+  The earlier text below said "mode `0400`, owned by the `node` runtime user". The code enforced
+  neither literal, and worse, the host preflight and the container boundary enforced *different*
+  predicates: `provision-n8n-credentials.sh` demanded mode exactly `600` or `400`, while
+  `provision-credentials.mjs` demanded `mode & 0o077 == 0` — so `0700` passed one and failed the
+  other. Unified in `e777f91` onto one rule, stated once:
+  > A credential secret file must be a regular file, must have **no group or other permission bits**
+  > (`mode & 0o077 == 0`), and must be **owned by the account that reads it**.
+
+  `0600`, `0400` and `0700` all pass; `0640` and `0604` do not. The owner half is namespace-local by
+  construction: on the host it is `PWR_SECRET_OWNER` (default `root`); inside the container it is the
+  uid the n8n process actually runs as. The host script is a **preflight**; the container script is
+  the **security boundary** — it opens the file once with `O_NOFOLLOW|O_NONBLOCK`, `fstat`s that
+  descriptor and reads only through it. Passing the preflight says nothing about what the boundary
+  will see. The guard that pins this runs **both real implementations** over the same mode matrix and
+  fails unless their verdicts agree; a source-text assertion would not have caught the divergence,
+  since each file was internally consistent.
+  **Still owed, and it has no owner yet:** the two owner halves can still conflict in a real
+  deployment — a root-owned secret plus a non-root n8n process satisfies the host default and fails
+  the container. That cannot be settled until the deployment path exists, because `docker-compose.yml`
+  declares no `secrets:` block, mounts nothing at `/run/secrets`, and does not mount `./n8n/scripts`
+  into the container. Until then neither half of #16 runs in anger.
+
 - **Compose `secrets:` must set `uid`, `gid` and `mode`.** R3 Task 3 moved the credential-file
-  permission check into the container, immediately before the read, using `lstat`. It requires the
-  mounted secret to be a regular file, mode `0400`, owned by the `node` runtime user.
+  permission check into the container, immediately before the read.
   `docker-compose.yml` currently declares **no `secrets:` block at all**, and Docker's default for
   mounted secrets is root-owned `0444` — which the new check rejects on both counts. Whoever wires
   the compose `secrets:` block (Task 15, or whoever deploys first) must set `uid`, `gid` and `mode`
