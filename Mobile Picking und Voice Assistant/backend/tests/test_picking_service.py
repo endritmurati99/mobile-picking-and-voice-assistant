@@ -13,6 +13,7 @@ import pytest
 
 from app.services.mobile_workflow import PickerIdentity
 from app.services.n8n_webhook import N8NEventResult
+from app.services.odoo_client import OdooAPIError
 from app.services.picking_service import PickingService
 
 
@@ -422,6 +423,50 @@ class TestConfirmPickLine:
         await service.confirm_pick_line(1, 20, "4006381333931", 0)
 
         odoo.write.assert_called_once_with("stock.move.line", [20], {"quantity": 5.0, "picked": True})
+
+    @pytest.mark.anyio
+    async def test_a_failed_validate_is_reported_and_logged_not_swallowed(
+        self, service, odoo, n8n, caplog
+    ):
+        """Bug 2, "Auftrag wird nach der letzten Position nicht beendet".
+
+        Jede Zeile ist gepickt, `button_validate` schlaegt fehl -- typisch bei
+        Mehrzeilen-Auftraegen, wo eine Zeile noch ein Los oder eine
+        Seriennummer verlangt. Bisher fing `except OdooAPIError` das ohne eine
+        einzige Logzeile ab: der Auftrag blieb in Odoo offen, der Picker las
+        "Bestaetigt.", und niemand konnte hinterher sagen, warum. Genau diese
+        Kombination -- sichtbar falsch, unsichtbar begruendet -- macht den
+        Fehler im Betrieb unauffindbar.
+
+        Der Aufruf darf NICHT scheitern: die Position ist wirklich gebucht.
+        Aber `picking_complete` muss falsch sein, die Meldung muss den
+        Unterschied benennen, und der Grund muss im Log stehen.
+        """
+        odoo.execute_kw.side_effect = [
+            [{"id": 20, "product_id": [5, "Schraube M8"], "quantity": 3}],
+            [{"id": 20, "picked": True}, {"id": 21, "picked": True}],
+        ]
+        odoo.search_read.return_value = [{"id": 5, "barcode": "4006381333931"}]
+        odoo.write = AsyncMock(return_value=True)
+        odoo.call_method = AsyncMock(
+            side_effect=OdooAPIError("Sie müssen ein Los für das Produkt angeben.")
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = await service.confirm_pick_line(1, 20, "4006381333931", 3.0)
+
+        assert result["success"] is True, "die Position selbst wurde gebucht"
+        assert result["picking_complete"] is False
+        assert "Bestätigt." != result["message"], (
+            "the message must distinguish 'line booked, order still open' from "
+            "an ordinary confirmation, or the picker walks away from an open order"
+        )
+        assert "1" in caplog.text and "Los" in caplog.text, (
+            "the reason Odoo refused must reach the log; without it this failure "
+            f"is undiagnosable. Log was: {caplog.text!r}"
+        )
+        # Kein Abschluss-Event fuer einen Auftrag, der nicht abgeschlossen ist.
+        n8n.fire_event.assert_not_called()
 
     @pytest.mark.anyio
     async def test_fires_n8n_webhook_when_picking_complete(self, service, odoo, n8n):

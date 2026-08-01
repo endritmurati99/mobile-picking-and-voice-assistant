@@ -890,6 +890,7 @@ class PickingService:
         all_done = bool(move_lines) and all(line.get("picked") for line in move_lines)
 
         picking_complete = False
+        validate_error = ""
         if all_done:
             try:
                 await self._odoo.call_method(
@@ -899,8 +900,21 @@ class PickingService:
                     context={"skip_immediate": True, "skip_backorder": True},
                 )
                 picking_complete = True
-            except OdooAPIError:
+            except OdooAPIError as exc:
+                # Jede Zeile ist gepickt, und Odoo weigert sich trotzdem --
+                # typisch, wenn eine Zeile noch ein Los oder eine Seriennummer
+                # verlangt. Frueher verschwand der Grund hier spurlos: der
+                # Auftrag blieb offen, der Picker las "Bestaetigt." und ging
+                # weiter. Sichtbar falsch und unsichtbar begruendet ist die
+                # Kombination, die einen Fehler im Betrieb unauffindbar macht.
                 picking_complete = False
+                validate_error = str(exc)
+                logger.warning(
+                    "button_validate refused picking %s after the last line was "
+                    "confirmed: %s",
+                    picking_id,
+                    validate_error,
+                )
 
             if picking_complete:
                 completed_by = "mobile-picking-assistant"
@@ -954,9 +968,22 @@ class PickingService:
                     }
 
         _emit_serial_confirm(True, picking_id, move_line_id, product_id, bool(recorded_serial), _t0)
+        if picking_complete:
+            message = "Auftrag abgeschlossen."
+        elif validate_error:
+            # Der Picker muss den Unterschied hoeren: die Position ist gebucht,
+            # der AUFTRAG aber nicht -- sonst legt er das Geraet weg und der
+            # Auftrag bleibt offen liegen. Odoos Begruendung steht im Log, nicht
+            # in der Antwort: sie enthaelt Modell- und Feldnamen.
+            message = (
+                "Position gebucht, aber der Auftrag konnte nicht abgeschlossen "
+                "werden. Bitte im Lagerbüro melden."
+            )
+        else:
+            message = "Bestätigt."
         return {
             "success": True,
-            "message": "Auftrag abgeschlossen." if picking_complete else "Bestätigt.",
+            "message": message,
             "picking_complete": picking_complete,
             "recorded_serial": recorded_serial,
         }

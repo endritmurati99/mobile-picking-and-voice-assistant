@@ -1,10 +1,12 @@
-// v14: the session login (api.js, app.js, app.css). Bumping this is NOT
+// v15: order-completion fix in app.js. v14 was the session login.
+//
+// Bumping this is NOT
 // cosmetic -- all three files are precached below, so a browser that has ever
 // opened this app keeps serving the pre-login versions until the name changes:
 // no login screen, legacy identity headers that the backend no longer honours,
 // and a health probe against a route that does not exist. The symptom is an app
 // that looks merely broken, which is the worst kind of stale cache.
-const CACHE_NAME = 'picking-v14';
+const CACHE_NAME = 'picking-v15';
 const PRECACHE = [
     '/',
     '/index.html',

@@ -2348,22 +2348,42 @@ async function handleScan(barcode) {
         }
 
         feedbackSuccess();
-        showToast(result.message, 'success');
 
         if (result.picking_complete) {
+            showToast(result.message, 'success');
             await releaseCurrentClaim();
             speak('Fertig.');
             setState({ currentLineIndex: lines.length });
             renderResponsiveCurrentLine();
         } else {
             const nextIdx = currentLineIndex + 1;
+
+            if (nextIdx >= lines.length) {
+                // Letzte Position gebucht, der Auftrag ist trotzdem NICHT
+                // abgeschlossen -- Odoo hat `button_validate` abgelehnt (etwa
+                // wegen eines fehlenden Loses auf einer anderen Zeile).
+                //
+                // Frueher lief hier derselbe Zweig wie sonst, und weil
+                // `renderResponsiveCurrentLine` allein auf
+                // `currentLineIndex >= lines.length` schaut, erschien der
+                // Abschluss-Screen. Der Picker las "Auftrag abgeschlossen",
+                // legte das Geraet weg, und der Auftrag blieb in Odoo offen.
+                // Der Bildschirm darf nie mehr behaupten als der Server.
+                showToast(result.message, 'error');
+                feedbackError();
+                speak('Auftrag nicht abgeschlossen.');
+                // Der Server ist die Wahrheit: neu laden statt aus dem lokalen
+                // Zustand weiterraten. `refreshActivePickingDetail` klemmt den
+                // Index zusaetzlich auf die letzte gueltige Zeile, der
+                // Abschluss-Screen kann also gar nicht erscheinen.
+                await refreshActivePickingDetail();
+                return;
+            }
+
+            showToast(result.message, 'success');
             setState({ currentLineIndex: nextIdx });
             renderResponsiveCurrentLine();
-
-            if (nextIdx < lines.length) {
-                const nextLine = lines[nextIdx];
-                speak(getLineSpeechPrompt(nextLine));
-            }
+            speak(getLineSpeechPrompt(lines[nextIdx]));
         }
     } catch (error) {
         if (error instanceof ApiError && error.status === 409 && typeof error.detail === 'object') {
@@ -2477,6 +2497,9 @@ async function handleConfirmAll(picking, lines, startIndex) {
         'info',
     );
 
+    let pickingWasCompleted = false;
+    let lastMessage = '';
+
     for (const [offset, pickLine] of remaining.entries()) {
         const lineIdx = startIndex + offset;
 
@@ -2520,13 +2543,33 @@ async function handleConfirmAll(picking, lines, startIndex) {
             setState({ currentLineIndex: lineIdx + 1 });
             renderResponsiveCurrentLine();
 
-            if (result.picking_complete) break;
+            if (result.picking_complete) {
+                pickingWasCompleted = true;
+                break;
+            }
+            lastMessage = result.message || '';
         } catch (error) {
             if (isAbortError(error)) return;
             speak('Verbindungsfehler.');
             showToast(error.message || 'Verbindungsfehler', 'error');
             return;
         }
+    }
+
+    if (!pickingWasCompleted) {
+        // Alle Positionen durch, und der Server hat den Auftrag trotzdem nie
+        // als abgeschlossen gemeldet -- dieselbe Lage wie beim
+        // Einzelbestaetigen: Odoo hat `button_validate` abgelehnt. Frueher lief
+        // dieser Zweig unbedingt und behauptete "Alles erledigt.", woraufhin
+        // der Abschluss-Screen erschien und der Auftrag offen liegen blieb.
+        feedbackError();
+        speak('Auftrag nicht abgeschlossen.');
+        showToast(
+            lastMessage || 'Positionen gebucht, aber der Auftrag ist nicht abgeschlossen.',
+            'error',
+        );
+        await refreshActivePickingDetail();
+        return;
     }
 
     await releaseCurrentClaim();
