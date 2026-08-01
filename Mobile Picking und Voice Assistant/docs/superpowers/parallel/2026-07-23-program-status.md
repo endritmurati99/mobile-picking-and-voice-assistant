@@ -30,8 +30,8 @@ Spec: `docs/superpowers/specs/2026-07-23-platform-security-event-contracts-desig
 | 13 | Postgres role separation | **live acceptance PARTIAL** — see the R4 entry; two endpoints are not achievable as specified |
 | 14 | n8n credential management | done, R3 defects closed |
 | 15 | Custom n8n image, network boundaries, Caddy, TLS | **STARTABLE** — 12's gate is open; scope amended, see §3, and it inherits four things the cutover deliberately did not do |
-| 16 | Production route surface and browser idempotency | **security half DONE** (`27c58c0`) — **finding #2b is CLOSED**; the `RuntimeServices` half is not started |
-| 17 | Two-database, concurrency, restart, rollout gates | blocked by everything above |
+| 16 | Production route surface and browser idempotency | **DONE** (`27c58c0`, `2654309`, `f515618`, `ff4b771`) — #2b closed, edge deny-list extended, `RuntimeServices` bound to `app.state`. It also uncovered that **the PWA had no login at all**; that is now built. |
+| 17 | Two-database, concurrency, restart, rollout gates | **WRITTEN** (`e09eb96`) — live tests, fixtures, 18 stack-free self-tests, scripts and runbook. **Never RUN:** needs two seeded databases, an Odoo probe surface that does not exist (`api_create_smoke_job`, `api_get_job_probe`), R4 for role provisioning, plus a second LAN host and a mobile device. |
 
 ### The Odoo-19 cutover was EXECUTED on 2026-07-31
 
