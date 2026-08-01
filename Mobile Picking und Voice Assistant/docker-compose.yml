@@ -115,6 +115,9 @@ services:
       LLM_ENDPOINT: ${LLM_ENDPOINT:-http://ollama:11434}
       LLM_MODEL: ${LLM_MODEL:-qwen2.5:7b}
       LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-90000}
+      # Voice-Intent-Modell beim Start vorwaermen (haelt die erste Aeusserung
+      # aus dem Kaltstart heraus; Ollama KEEP_ALIVE haelt es danach 24h).
+      VOICE_LLM_WARMUP: ${VOICE_LLM_WARMUP:-true}
       N8N_WEBHOOK_BASE: http://n8n:5678/webhook
       N8N_WEBHOOK_PATH_QUALITY_ALERT_CREATED: ${N8N_WEBHOOK_PATH_QUALITY_ALERT_CREATED:-quality-alert-created}
       N8N_WEBHOOK_PATH_VOICE_EXCEPTION_QUERY: ${N8N_WEBHOOK_PATH_VOICE_EXCEPTION_QUERY:-voice-exception-query}

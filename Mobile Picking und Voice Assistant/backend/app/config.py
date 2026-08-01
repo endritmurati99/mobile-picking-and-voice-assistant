@@ -118,6 +118,10 @@ class Settings(BaseSettings):
     # Kleines, schnelles Modell nur fuer den Voice-Intent-Fallback (nicht Qualitaet).
     llm_voice_model: str = "qwen2.5:1.5b"
     llm_voice_timeout_ms: int = 4000
+    # Beim Start das Voice-Modell in Ollama vorwaermen, damit die erste unsichere
+    # Sprachaeusserung nicht den Kaltstart (bis ~13s) bezahlt. Default False, damit
+    # Tests kein erreichbares Ollama brauchen; im Compose auf true gesetzt.
+    voice_llm_warmup: bool = False
     openai_api_key: str = ""
 
     n8n_webhook_base: str = "http://n8n:5678/webhook"

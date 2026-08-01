@@ -16,6 +16,7 @@ import threading  # noqa: E402
 from contextlib import asynccontextmanager  # noqa: E402
 
 from app.config import Settings, get_instance_registry  # noqa: E402
+from app.services.voice_intent_classifier import get_classifier  # noqa: E402
 from app.dependencies import (  # noqa: E402
     get_integration_watchdog,
     get_outbox_dispatcher,
@@ -76,6 +77,15 @@ def build_lifespan(candidate_settings: Settings):
                             pass
 
                 tasks.append(asyncio.create_task(watchdog_loop()))
+
+            # Voice-LLM-Warmup (best-effort, nicht blockierend): laedt das
+            # Ollama-Modell in den Speicher, damit die ERSTE unsichere
+            # Sprachaeusserung nicht den Kaltstart (gemessen bis ~13s) bezahlt.
+            # Eigenes Opt-in-Flag (nicht an den Dispatcher gekoppelt, der hier
+            # aus ist); Default False haelt Tests ohne erreichbares Ollama frei.
+            if candidate_settings.voice_llm_warmup:
+                warmup_task = asyncio.create_task(get_classifier().warmup())
+                tasks.append(warmup_task)
             yield
         finally:
             stop_event.set()

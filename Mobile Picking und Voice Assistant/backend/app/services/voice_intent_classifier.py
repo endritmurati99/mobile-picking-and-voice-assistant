@@ -52,23 +52,37 @@ class VoiceIntentClassifier:
         seconds = max(1.0, timeout_ms / 1000.0)
         self._timeout = httpx.Timeout(connect=3.0, read=seconds, write=5.0, pool=3.0)
         self._transport = transport
+        self._client: httpx.AsyncClient | None = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        # Persistenter Client: ein neuer AsyncClient pro classify() kostet
+        # TCP+Setup auf JEDER unsicheren Aeusserung. Mit keep-alive bleibt die
+        # Verbindung zu Ollama offen — im Hands-free-Fluss zaehlt jede 100ms.
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=self._timeout,
+                transport=self._transport,
+                limits=httpx.Limits(max_keepalive_connections=2, keepalive_expiry=300.0),
+            )
+        return self._client
 
     async def classify(self, text: str) -> VoiceIntentResult:
         payload = {
             "model": self._model,
             "stream": False,
             "format": "json",
-            "options": {"temperature": 0},
+            # num_predict kappt die Ausgabe: die JSON-Antwort ist ~15 Tokens, ohne
+            # Cap generiert qwen ungebremst weiter (gemessen bis 13s kalt). Mit Cap
+            # ist der warme Pfad ~0.3-0.8s statt mehrerer Sekunden.
+            "options": {"temperature": 0, "num_predict": 32},
             "messages": [
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": (text or "").strip()},
             ],
         }
         try:
-            async with httpx.AsyncClient(
-                timeout=self._timeout, transport=self._transport
-            ) as client:
-                resp = await client.post(f"{self._endpoint}/api/chat", json=payload)
+            client = self._get_client()
+            resp = await client.post(f"{self._endpoint}/api/chat", json=payload)
             resp.raise_for_status()
             content = resp.json().get("message", {}).get("content")
             return self._parse(content)
@@ -77,6 +91,16 @@ class VoiceIntentClassifier:
                 json.dumps({"event_type": "voice_intent_llm_failed", "error": str(exc)})
             )
             return VoiceIntentResult(ok=False, model=self._model)
+
+    async def warmup(self) -> bool:
+        """Laedt das Modell beim Start in den Ollama-Speicher (KEEP_ALIVE haelt es
+        dann). Ohne Warmup bezahlt die ERSTE unsichere Aeusserung des Nutzers den
+        Kaltstart (bis ~13s). Fehler werden geschluckt — Warmup ist best-effort."""
+        try:
+            result = await self.classify("bestaetigen")
+            return result.ok
+        except Exception:  # noqa: BLE001 - Warmup nie fatal
+            return False
 
     def _parse(self, content: str | None) -> VoiceIntentResult:
         if not content or not isinstance(content, str):
