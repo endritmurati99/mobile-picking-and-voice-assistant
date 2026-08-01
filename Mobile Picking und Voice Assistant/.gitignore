@@ -60,6 +60,11 @@ n8n/tmp/
 infrastructure/scripts/load-test-results.json
 picking.priority
 
+# Task 17 live-gate evidence. Host-owned, mode 0700, holds seed metadata with
+# real database ids -- and it is written by the orchestrator on the HOST, never
+# by a container, so the gate does not depend on the Odoo image's UID.
+/.artifacts/
+
 # Graphify cache
 graphify-out/
 
