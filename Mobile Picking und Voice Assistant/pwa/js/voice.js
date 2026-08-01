@@ -29,7 +29,10 @@ let ttsBusy = false;
 let voiceState = VOICE_STATES.IDLE;
 
 const SPEECH_RMS = 18;
-const SILENCE_AFTER_SPEECH = 300;
+// 700 statt 300 ms: bei 300 ms schnitt eine natuerliche Sprechpause das
+// Kommando-Ende ab ("hinten nicht geklappt"). 700 ms toleriert die Pause
+// zwischen Woertern und wartet auf ein echtes Sprechende.
+const SILENCE_AFTER_SPEECH = 700;
 const NO_SPEECH_TIMEOUT = 6000;
 const MIN_SPEECH_MS = 100;
 const MAX_RECORDING_MS = 10000;
@@ -350,6 +353,15 @@ export function speak(text) {
             return;
         }
 
+        // Zuerst alles Laufende beenden. Ohne das stapelten sich die Ansagen:
+        // schnelles Mehrfach-"Bestätigen" reihte pro Position ein Piper-Audio
+        // an, `beginSpeechInterlock` stoppte das vorige nicht, und die App las
+        // die Liste wie ein Transkript weiter -- auch noch, nachdem der Auftrag
+        // laengst abgeschlossen war. Jede Ansage ersetzt jetzt die vorige;
+        // stopSpeaking() erhoeht die Epoche (bricht ein noch laufendes
+        // Piper-Fetch ab) und pausiert das aktuelle Audio.
+        stopSpeaking();
+
         beginSpeechInterlock(text);
         const epoch = _speechEpoch;
 
@@ -588,6 +600,13 @@ async function startListeningCycle() {
         try {
             const result = await recognizeVoice(capture.blob, getRecognitionOptions());
             const transcript = result?.text || '';
+            // Diagnose: was hat Whisper WIRKLICH gehoert? Ohne diese Zeile sieht
+            // man nur den Status "erkannt", nicht den Text -- und kann nicht
+            // unterscheiden zwischen "Audio schlecht" (Text ist Muell) und
+            // "Intent nicht getroffen" (Text stimmt, Zuordnung nicht). In der
+            // Browser-Konsole (F12) ablesbar.
+            console.log('[Voice] gehört:', JSON.stringify(transcript),
+                '| intent:', result?.intent, '| conf:', result?.confidence);
             const staleResult =
                 capture.generation !== recognitionGeneration ||
                 capture.startedAt <= lastTtsEndedAt + POST_TTS_COOLDOWN_MS;

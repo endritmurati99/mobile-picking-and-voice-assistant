@@ -6,7 +6,12 @@ export const VOICE_STATES = Object.freeze({
     COOLDOWN: 'cooldown',
 });
 
-export const POST_TTS_COOLDOWN_MS = 500;
+// 250 statt 500 ms: nach der Ansage war das Mikro eine halbe Sekunde taub, und
+// wer sofort auf den Prompt antwortete, dessen Kommando wurde verworfen ("vorne
+// nicht geklappt"). 250 ms reicht, damit der TTS-Ausklang (mit aktiver
+// echoCancellation) nicht als Sprache zaehlt, laesst aber die natuerliche,
+// unmittelbare Antwort durch.
+export const POST_TTS_COOLDOWN_MS = 250;
 const PIPER_MIN_TEXT_LENGTH = 24;
 
 export function normalizePromptText(text) {

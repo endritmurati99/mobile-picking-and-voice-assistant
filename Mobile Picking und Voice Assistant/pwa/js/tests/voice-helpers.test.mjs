@@ -49,8 +49,12 @@ test('transitionVoiceState follows the intended cycle', () => {
     assert.equal(state, VOICE_STATES.IDLE);
 });
 
-test('cooldown remains conservative enough for post-TTS gating', () => {
-    assert.equal(POST_TTS_COOLDOWN_MS, 500);
+test('cooldown is short enough to catch an immediate reply, non-zero to skip TTS tail', () => {
+    // 250 ms: long enough that the TTS tail (with echoCancellation on) is not
+    // mistaken for speech, short enough that a picker answering right after the
+    // prompt is not dropped. Must stay > 0 so the gate exists at all.
+    assert.equal(POST_TTS_COOLDOWN_MS, 250);
+    assert.ok(POST_TTS_COOLDOWN_MS > 0);
 });
 
 test('short system replies bypass Piper to avoid network TTS latency', () => {
