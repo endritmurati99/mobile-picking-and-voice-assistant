@@ -70,7 +70,14 @@ async function networkFirst(request) {
 }
 
 self.addEventListener('install', (event) => {
-    event.waitUntil(precacheShell());
+    // skipWaiting is NOT optional here. Without it a new service worker installs
+    // but WAITS until every tab of the old one is closed, so the old worker keeps
+    // serving the old cached app.js/api.js against a backend that has already
+    // moved on -- session login gone, legacy headers rejected, health probe 404.
+    // The symptom is a screen that silently breaks or blanks on a machine where
+    // the deployed files are provably current. Activate the new worker at once;
+    // `clients.claim()` below then makes it control the open page immediately.
+    event.waitUntil(precacheShell().then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {
