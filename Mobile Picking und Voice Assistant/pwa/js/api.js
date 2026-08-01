@@ -52,7 +52,21 @@ function safeStorageRemove(key) {
 
 function generateUuid() {
     if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
-    return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    // The fallback MUST still be a syntactic UUID. `PickerSessionLoginRequest`
+    // types `device_id` as `UUID`, so `1730villig-a3f2`-style ids are rejected
+    // with a 422 and the login is unusable. `crypto.randomUUID` needs a secure
+    // context, so this path is exactly the http:// LAN case -- the one where
+    // nobody would look for a login bug.
+    const bytes = new Uint8Array(16);
+    if (globalThis.crypto?.getRandomValues) {
+        globalThis.crypto.getRandomValues(bytes);
+    } else {
+        for (let i = 0; i < 16; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+    }
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;  // version 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;  // variant 10
+    const hex = [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function normalizePicker(picker) {
@@ -199,24 +213,20 @@ function clearSessionClientState() {
     clearActivePicker();
 }
 
-function getLegacyIdentityHeaders() {
-    // Dev-Grace-Mode: ohne Session-Cookie identifiziert das Backend den Picker
-    // ueber diese Header (resolve_legacy_header_identity). Mit gueltiger Session
-    // ignoriert das Backend sie — der Principal gewinnt immer.
-    const headers = {};
-    if (activePicker) headers['X-Picker-User-Id'] = String(activePicker.id);
-    headers['X-Device-Id'] = getDeviceId();
-    const instance = getActiveInstance();
-    if (instance && instance !== 'local') headers['X-Odoo-Instance'] = instance;
-    return headers;
-}
-
+// Die PWA sendet KEINE Identitaetsheader mehr. `X-Picker-User-Id`,
+// `X-Device-Id` und `X-Odoo-Instance` waren der Legacy-Pfad
+// (`resolve_legacy_header_identity`), den das Backend nur noch im Grace-Mode
+// liest -- also nie in production. Das Session-Cookie ist die einzige
+// Identitaet, `getDeviceId()` reist ausschliesslich im Login-Body mit.
+// Ein Client, der beides schickt, verdeckt genau den Fall, den man testen
+// will: er sieht funktionsfaehig aus, solange der Grace-Mode an ist, und
+// faellt beim Umschalten auf production um.
 function getReadHeaders() {
-    return getLegacyIdentityHeaders();
+    return {};
 }
 
 function getWriteHeaders(idempotencyKey) {
-    const headers = getLegacyIdentityHeaders();
+    const headers = {};
     if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
     const csrfToken = getCsrfToken();
     if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
@@ -298,6 +308,14 @@ export async function logoutPickerSession(options = {}) {
 
 export async function getPickers(options = {}) {
     return request('GET', '/pickers', null, { signal: options.signal });
+}
+
+export async function getAuthInstances(options = {}) {
+    // `/api/auth/instances` is on the pre-auth allowlist; `/api/instances` is a
+    // development-only router that `create_app` does not even include in
+    // production. The login screen must use this one -- it is the only instance
+    // list a client without a session can read.
+    return request('GET', '/auth/instances', null, { signal: options.signal });
 }
 
 export async function getInstances(options = {}) {
@@ -403,7 +421,15 @@ export async function recognizeVoice(audioBlob, options = {}) {
     if (typeof options.active_line_present === 'boolean') {
         formData.append('active_line_present', options.active_line_present ? 'true' : 'false');
     }
-    return request('POST', '/voice/recognize', formData);
+    // Task 16: the app-wide gate now demands session + Origin/CSRF on every
+    // mutating browser route. This POST used to send no headers at all and
+    // would get a 403. `/api/voice/recognize` is idempotency-exempt
+    // (`route_policy.IDEMPOTENCY_EXEMPT_ROUTES` -- pure transcription, no
+    // business write), so no key is passed.
+    return request('POST', '/voice/recognize', formData, {
+        headers: getWriteHeaders(),
+        signal: options.signal,
+    });
 }
 
 export async function assistVoice(payload, options = {}) {
@@ -441,5 +467,8 @@ export async function validateBatch(batchId, options = {}) {
 }
 
 export async function healthCheck() {
-    return request('GET', '/health');
+    // `/api/health` does not exist -- `health.py` defines `/health/live` only,
+    // and that is the path on the pre-auth allowlist. `/api/health` was a 404
+    // that every caller read as "backend down".
+    return request('GET', '/health/live');
 }

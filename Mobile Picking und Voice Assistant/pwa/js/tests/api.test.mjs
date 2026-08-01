@@ -6,11 +6,15 @@ import {
     clearActivePicker,
     confirmLine,
     getActiveInstance,
+    getAuthInstances,
     getCachedPickers,
+    getDeviceId,
     getInstances,
     getPickings,
     getTraceabilityDemo,
+    healthCheck,
     loginPickerSession,
+    logoutPickerSession,
     recognizeVoice,
     setActivePicker,
     setActiveInstance,
@@ -49,6 +53,140 @@ test('recognizeVoice sends the UI context as additive form fields', async () => 
     assert.equal(capturedBody.get('remaining_line_count'), '2');
     assert.equal(capturedBody.get('active_line_present'), 'true');
     assert.equal(capturedBody.get('audio').name, 'recording.webm');
+});
+
+test('recognizeVoice carries session CSRF, because the app-wide gate now refuses a bare POST', async () => {
+    // Task 16: `/api/voice/recognize` sits behind the browser gate at router
+    // inclusion. It used to send no headers at all and would take a 403. It is
+    // in `route_policy.IDEMPOTENCY_EXEMPT_ROUTES`, so it must NOT send a key.
+    const originalFetch = global.fetch;
+    const originalSessionStorage = global.sessionStorage;
+    const store = new Map([['picking-assistant-csrf', 'csrf-voice']]);
+    global.sessionStorage = {
+        getItem: key => store.get(key) ?? null,
+        setItem: (key, value) => store.set(key, value),
+        removeItem: key => store.delete(key),
+    };
+    let captured = null;
+    global.fetch = async (url, options) => {
+        captured = { url, options };
+        return { ok: true, status: 200, json: async () => ({ intent: 'confirm' }) };
+    };
+
+    try {
+        await recognizeVoice(new Blob(['voice'], { type: 'audio/webm' }));
+    } finally {
+        global.fetch = originalFetch;
+        global.sessionStorage = originalSessionStorage;
+    }
+
+    assert.equal(captured.url, '/api/voice/recognize');
+    assert.equal(captured.options.credentials, 'same-origin');
+    assert.equal(captured.options.headers['X-CSRF-Token'], 'csrf-voice');
+    assert.equal(captured.options.headers['Idempotency-Key'], undefined);
+    // FormData must keep its own multipart boundary Content-Type.
+    assert.equal(captured.options.headers['Content-Type'], undefined);
+});
+
+test('getAuthInstances uses the pre-auth instance list, not the dev-only router', async () => {
+    // `/api/instances` lives on a router `create_app` does not include in
+    // production, and it is behind the session gate anyway. A login screen that
+    // reads it can never render before someone is already logged in.
+    const originalFetch = global.fetch;
+    let capturedUrl = null;
+    global.fetch = async (url) => {
+        capturedUrl = url;
+        return {
+            ok: true,
+            status: 200,
+            json: async () => ([{ name: 'local', display_name: 'Lokal' }]),
+        };
+    };
+    try {
+        const list = await getAuthInstances();
+        assert.deepEqual(list, [{ name: 'local', display_name: 'Lokal' }]);
+    } finally {
+        global.fetch = originalFetch;
+    }
+    assert.equal(capturedUrl, '/api/auth/instances');
+});
+
+test('the device id stays a syntactic UUID without crypto.randomUUID', async () => {
+    // `PickerSessionLoginRequest.device_id` is typed `UUID`; anything else is a
+    // 422 and the login is simply impossible. `crypto.randomUUID` requires a
+    // secure context, so this is the http:// LAN case.
+    const originalCrypto = globalThis.crypto;
+    const originalStorage = global.localStorage;
+    const store = new Map();
+    global.localStorage = {
+        getItem(key) { return store.has(key) ? store.get(key) : null; },
+        setItem(key, value) { store.set(key, value); },
+        removeItem(key) { store.delete(key); },
+    };
+    Object.defineProperty(globalThis, 'crypto', {
+        value: { getRandomValues: originalCrypto.getRandomValues.bind(originalCrypto) },
+        configurable: true,
+        writable: true,
+    });
+
+    try {
+        const deviceId = getDeviceId();
+        assert.match(
+            deviceId,
+            /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+        );
+        // Stable across calls, or every request would look like a new device.
+        assert.equal(getDeviceId(), deviceId);
+    } finally {
+        Object.defineProperty(globalThis, 'crypto', {
+            value: originalCrypto,
+            configurable: true,
+            writable: true,
+        });
+        global.localStorage = originalStorage;
+    }
+});
+
+test('logout sends the CSRF token, or the server keeps the session alive', async () => {
+    const originalFetch = global.fetch;
+    const originalSessionStorage = global.sessionStorage;
+    const store = new Map([['picking-assistant-csrf', 'csrf-logout']]);
+    global.sessionStorage = {
+        getItem: key => store.get(key) ?? null,
+        setItem: (key, value) => store.set(key, value),
+        removeItem: key => store.delete(key),
+    };
+    let captured = null;
+    global.fetch = async (url, options) => {
+        captured = { url, options };
+        return { ok: true, status: 204, json: async () => null };
+    };
+    try {
+        await logoutPickerSession();
+    } finally {
+        global.fetch = originalFetch;
+        global.sessionStorage = originalSessionStorage;
+    }
+    assert.equal(captured.url, '/api/auth/logout');
+    assert.equal(captured.options.method, 'POST');
+    assert.equal(captured.options.headers['X-CSRF-Token'], 'csrf-logout');
+});
+
+test('healthCheck calls the route that exists', async () => {
+    // `health.py` defines `/health/live` only, and that is the path on the
+    // pre-auth allowlist. `/api/health` was a 404 read as "backend down".
+    const originalFetch = global.fetch;
+    let capturedUrl = null;
+    global.fetch = async (url) => {
+        capturedUrl = url;
+        return { ok: true, status: 200, json: async () => ({ status: 'ok' }) };
+    };
+    try {
+        await healthCheck();
+    } finally {
+        global.fetch = originalFetch;
+    }
+    assert.equal(capturedUrl, '/api/health/live');
 });
 
 test('assistVoice sends a JSON payload without authority headers', async () => {

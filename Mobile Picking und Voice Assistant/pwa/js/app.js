@@ -25,22 +25,22 @@ import {
     validateBatch,
     getActivePicker,
     getActiveInstance,
-    getCachedPickers,
+    getAuthInstances,
+    getCurrentSession,
     getDeviceId,
     getInstances,
     getLineStock,
-    getPickers,
     getPickingDetail,
     getPickings,
     getTraceabilityDemo,
     getStoredHighContrastEnabled,
     getStoredPreferredZone,
     getStoredSearchQuery,
+    loginPickerSession,
+    logoutPickerSession,
     requestReplenishment,
     releasePicking,
-    setActivePicker,
     setActiveInstance,
-    setCachedPickers,
     setStoredHighContrastEnabled,
     setStoredPreferredZone,
     setStoredSearchQuery,
@@ -377,7 +377,6 @@ let mobileSearchOpen = Boolean(searchQuery);
 let preferredZone = getStoredPreferredZone();
 let highContrastEnabled = getStoredHighContrastEnabled();
 let sessionState = 'profile_required';
-let pickerCatalog = getCachedPickers();
 let lastLifecycleRefreshAt = 0;
 let lifecycleRefreshPromise = null;
 const pendingRequestControllers = new Set();
@@ -431,13 +430,48 @@ function createManagedAbortController() {
     return controller;
 }
 
-async function withManagedRequest(task) {
+// A session can expire mid-shift, and every gated route then answers 401. This
+// is the one seam every API call in this module passes through, so the fallback
+// to the login screen lives here rather than in ~30 catch blocks that would each
+// have to remember it.
+//
+// `handleExpiry: false` is mandatory for the calls that are ALLOWED to see a
+// 401 as their own answer -- the login itself (wrong password) and the session
+// probe (no session yet). Without that they would recurse into this handler.
+let sessionExpiryPending = false;
+
+async function withManagedRequest(task, { handleExpiry = true } = {}) {
     const controller = createManagedAbortController();
     try {
         return await task(controller.signal);
+    } catch (error) {
+        if (handleExpiry && error instanceof ApiError && error.status === 401) {
+            handleSessionExpired();
+        }
+        throw error;
     } finally {
         pendingRequestControllers.delete(controller);
     }
+}
+
+function handleSessionExpired() {
+    if (sessionExpiryPending || sessionState === 'profile_required') return;
+    sessionExpiryPending = true;
+    // `api.js` has already dropped the CSRF token and the active picker on the
+    // 401 itself; this clears the view state that mirrors them.
+    clearStoredPicker();
+    setState({
+        currentPicker: null,
+        currentPicking: null,
+        currentLineIndex: 0,
+        pickings: [],
+    });
+    stopClaimHeartbeat();
+    void showLoginScreen({
+        statusNote: 'Die Sitzung ist abgelaufen. Bitte melde dich erneut an.',
+    }).finally(() => {
+        sessionExpiryPending = false;
+    });
 }
 
 function abortPendingRequests() {
@@ -862,7 +896,7 @@ async function refreshCurrentView() {
 
         if (!getState().currentPicker) {
             if (sessionState === 'profile_required') {
-                await showProfileSelection({ preferCache: true });
+                await showLoginScreen();
             }
             return;
         }
@@ -1519,149 +1553,162 @@ async function releaseCurrentClaim(options = {}) {
     }
 }
 
-function renderPickerUnavailable({ message, detail = 'Bitte prüfe die Verbindung und versuche es erneut.' } = {}) {
+// ---------------------------------------------------------------------------
+// Anmeldung.
+//
+// Bis Foundation-Task 16 war der "Login" eine Kachelauswahl: ein Tipp auf ein
+// Profil setzte `activePicker`, und die Identitaet reiste als
+// `X-Picker-User-Id` mit. Dieser Pfad ist tot. Das App-weite Gate haengt an
+// `get_current_principal`, und das kennt nur das `pwr_session`-Cookie -- ohne
+// Cookie 401, unabhaengig vom Runtime-Profil. Der Katalog `/api/pickers` liegt
+// selbst hinter dem Gate und ist vor der Anmeldung gar nicht lesbar, weshalb
+// es hier keine Kacheln mehr geben KANN.
+// ---------------------------------------------------------------------------
+
+function renderLoginScreen({ instances, statusNote = '', errorText = '', login = '' } = {}) {
     updateToolbar('profile_required');
     renderFilterChips([]);
     updateTaskCounter(0);
+
+    const selected = getActiveInstance();
+    const options = instances.map(instance => `
+        <option value="${escapeHtml(instance.name)}"${instance.name === selected ? ' selected' : ''}>
+            ${escapeHtml(instance.display_name || instance.name)}
+        </option>
+    `).join('');
+
     setMainContent(`
         <div class="picker-screen">
             <section class="picker-card">
-                <div class="picker-card__eyebrow">Session-Start</div>
-                <h2 class="picker-card__title">Profile konnten nicht geladen werden</h2>
-                <p class="picker-card__text">${escapeHtml(message)}</p>
-                <p class="picker-card__text">${escapeHtml(detail)}</p>
-                <div class="picker-device">Gerät: ${getDeviceId()}</div>
-                <div class="picker-card__actions">
-                    <button id="picker-retry" class="picker-option picker-option--primary">Erneut versuchen</button>
-                </div>
-            </section>
-        </div>
-    `);
-
-    document.getElementById('picker-retry')?.addEventListener('click', () => {
-        showProfileSelection({ preferCache: false });
-    });
-}
-
-function renderPickerOption(picker) {
-    return `
-        <button class="picker-option picker-option--profile" data-picker-id="${picker.id}">
-            <span class="picker-option__avatar" aria-hidden="true">${escapeHtml(getPickerShortLabel(picker))}</span>
-            <span class="picker-option__copy">
-                <span class="picker-option__name">${escapeHtml(picker.name)}</span>
-                <span class="picker-option__meta">Odoo Benutzer</span>
-            </span>
-        </button>
-    `;
-}
-
-function renderPickerSelection(
-    pickers,
-    {
-        title = 'Profil auswählen',
-        intro = 'Bitte wähle deinen Odoo-Benutzer für diese Session.',
-        statusNote = '',
-    } = {},
-) {
-    updateToolbar('profile_required');
-    renderFilterChips([]);
-    updateTaskCounter(0);
-    setMainContent(`
-        <div class="picker-screen">
-            <section class="picker-card">
-                <div class="picker-card__eyebrow">Session-Start</div>
-                <h2 class="picker-card__title">${escapeHtml(title)}</h2>
-                <p class="picker-card__text">${escapeHtml(intro)}</p>
+                <div class="picker-card__eyebrow">Anmeldung</div>
+                <h2 class="picker-card__title">Mit Odoo-Benutzer anmelden</h2>
+                <p class="picker-card__text">Bitte melde dich mit deinen Odoo-Zugangsdaten an.</p>
                 ${statusNote ? `<p class="picker-card__text">${escapeHtml(statusNote)}</p>` : ''}
+                <form id="login-form" class="login-form" autocomplete="on">
+                    <label class="login-field">
+                        <span class="login-field__label">Instanz</span>
+                        <select id="login-instance" class="login-field__input" ${instances.length > 1 ? '' : 'disabled'}>
+                            ${options}
+                        </select>
+                    </label>
+                    <label class="login-field">
+                        <span class="login-field__label">Benutzer</span>
+                        <input id="login-user" class="login-field__input" type="text"
+                               name="username" autocomplete="username" autocapitalize="none"
+                               spellcheck="false" required value="${escapeHtml(login)}">
+                    </label>
+                    <label class="login-field">
+                        <span class="login-field__label">Passwort</span>
+                        <input id="login-password" class="login-field__input" type="password"
+                               name="password" autocomplete="current-password" required>
+                    </label>
+                    <p id="login-error" class="login-error" role="alert" aria-live="assertive">${escapeHtml(errorText)}</p>
+                    <button id="login-submit" type="submit" class="picker-option picker-option--primary">
+                        Anmelden
+                    </button>
+                </form>
                 <div class="picker-device">Gerät: ${getDeviceId()}</div>
-                <div class="picker-options">
-                    ${pickers.map((picker) => renderPickerOption(picker)).join('')}
-                </div>
             </section>
         </div>
     `);
 
-    mainEl().querySelectorAll('[data-picker-id]').forEach(button => {
-        button.addEventListener('click', async () => {
-            const pickerId = Number(button.dataset.pickerId);
-            const picker = pickers.find(item => item.id === pickerId);
-            if (!picker) return;
-            setActivePicker(picker);
-            setState({ currentPicker: picker, deviceId: getDeviceId() });
-            updatePickerIndicator();
-            const firstName = picker.name?.split(/\s+/)[0] || picker.name || '';
-            const hour = new Date().getHours();
-            const salutation = hour < 12 ? 'Guten Morgen' : hour < 18 ? 'Guten Tag' : 'Guten Abend';
-            speak(`${salutation} ${firstName}.`);
-            await loadPickingList({ skipRelease: true });
-        });
+    // `instances.length <= 1` disables the select, and a disabled control has no
+    // form value -- so the submit handler reads the instance from here, not from
+    // the element, or a single-instance deployment would post an empty string.
+    const fallbackInstance = instances[0]?.name || selected;
+    document.getElementById('login-form')?.addEventListener('submit', (event) => {
+        event.preventDefault();
+        void submitLogin(fallbackInstance);
     });
+    document.getElementById('login-user')?.focus();
 }
 
-async function refreshPickerCatalogInBackground() {
+async function submitLogin(fallbackInstance) {
+    const userEl = document.getElementById('login-user');
+    const passwordEl = document.getElementById('login-password');
+    const instanceEl = document.getElementById('login-instance');
+    const submitEl = document.getElementById('login-submit');
+    const errorEl = document.getElementById('login-error');
+    if (!userEl || !passwordEl) return;
+
+    const login = userEl.value.trim();
+    const password = passwordEl.value;
+    const odooInstance = (instanceEl && !instanceEl.disabled ? instanceEl.value : '') || fallbackInstance;
+    if (!login || !password) {
+        if (errorEl) errorEl.textContent = 'Benutzer und Passwort werden benötigt.';
+        return;
+    }
+
+    if (submitEl) {
+        submitEl.disabled = true;
+        submitEl.textContent = 'Melde an …';
+    }
+    if (errorEl) errorEl.textContent = '';
+
     try {
-        const pickers = await withManagedRequest((signal) => getPickers({ signal }));
-        if (!Array.isArray(pickers) || !pickers.length) return;
-        pickerCatalog = pickers;
-        setCachedPickers(pickers);
-        if (sessionState === 'profile_required') {
-            renderPickerSelection(pickerCatalog);
-        }
+        const session = await withManagedRequest((signal) => loginPickerSession(
+            { login, password, odoo_instance: odooInstance },
+            { signal },
+        ), { handleExpiry: false });
+        // The password never outlives the request: it is not stored, not put in
+        // state, and the field is cleared before the next view renders.
+        passwordEl.value = '';
+        const picker = {
+            id: session.principal.picker_user_id,
+            name: session.principal.picker_name,
+        };
+        setState({ currentPicker: picker, deviceId: getDeviceId() });
+        updatePickerIndicator();
+        const firstName = picker.name?.split(/\s+/)[0] || picker.name || '';
+        const hour = new Date().getHours();
+        const salutation = hour < 12 ? 'Guten Morgen' : hour < 18 ? 'Guten Tag' : 'Guten Abend';
+        speak(`${salutation} ${firstName}.`);
+        await loadPickingList({ skipRelease: true });
     } catch (error) {
-        if (!isAbortError(error)) {
-            console.warn('Picker-Refresh fehlgeschlagen:', error);
+        if (isAbortError(error)) return;
+        passwordEl.value = '';
+        if (submitEl) {
+            submitEl.disabled = false;
+            submitEl.textContent = 'Anmelden';
         }
+        if (errorEl) {
+            // The backend answers a wrong password and an unknown user with the
+            // same 401 and the same text, deliberately. Do not embellish it here
+            // -- a client-side "user does not exist" would hand back exactly the
+            // enumeration the backend refuses to give.
+            errorEl.textContent = error instanceof ApiError
+                ? error.message
+                : 'Anmeldung fehlgeschlagen. Besteht eine Verbindung zum Server?';
+        }
+        document.getElementById('login-password')?.focus();
     }
 }
 
-async function showProfileSelection({ preferCache = true } = {}) {
+async function showLoginScreen({ statusNote = '', errorText = '', login = '' } = {}) {
     updateToolbar('profile_required');
     renderFilterChips([]);
     updateTaskCounter(0);
-
-    const cachedPickers = preferCache ? getCachedPickers() : [];
-    if (cachedPickers.length) {
-        pickerCatalog = cachedPickers;
-        renderPickerSelection(
-            pickerCatalog,
-            navigator.onLine
-                ? {}
-                : {
-                    statusNote: 'Offline: Verwende zuletzt geladene Profile. Die Auftragsliste braucht wieder Netz.',
-                },
-        );
-        if (navigator.onLine) {
-            void refreshPickerCatalogInBackground();
-        }
-        return false;
-    }
-
     setMainContent(renderLoading());
+
+    let instances = [];
     try {
-        const pickers = await withManagedRequest((signal) => getPickers({ signal }));
-        if (!Array.isArray(pickers) || !pickers.length) {
-            renderPickerUnavailable({
-                message: 'Keine aktiven Picker in Odoo gefunden.',
-                detail: 'Lege mindestens einen internen Benutzer in Odoo an.',
-            });
-            return false;
-        }
-        pickerCatalog = pickers;
-        setCachedPickers(pickers);
-        renderPickerSelection(pickers);
-        return false;
+        instances = await withManagedRequest((signal) => getAuthInstances({ signal }));
     } catch (error) {
         if (isAbortError(error)) return false;
-        renderPickerUnavailable({
-            message: navigator.onLine
-                ? `Picker konnten nicht geladen werden: ${error.message}`
-                : 'Es besteht aktuell keine Verbindung zum Server.',
-            detail: navigator.onLine
-                ? 'Bitte erneut versuchen.'
-                : 'Ohne bereits gecachte Profile ist keine Profilauswahl möglich.',
-        });
-        return false;
+        // A login screen without a reachable instance list is still better than
+        // an error page: the stored selection is enough to post a login.
+        instances = [];
     }
+    if (!Array.isArray(instances) || !instances.length) {
+        const fallback = getActiveInstance();
+        instances = [{ name: fallback, display_name: fallback }];
+        statusNote = statusNote || (navigator.onLine
+            ? 'Instanzliste nicht erreichbar — verwende die zuletzt gewählte Instanz.'
+            : 'Offline: Die Anmeldung braucht eine Verbindung zum Server.');
+    }
+
+    renderLoginScreen({ instances, statusNote, errorText, login });
+    return false;
 }
 
 async function ensurePickerSelection() {
@@ -1672,7 +1719,32 @@ async function ensurePickerSelection() {
         return true;
     }
 
-    await showProfileSelection();
+    // A `pwr_session` cookie outlives a reload, so ask the server before
+    // demanding a password. `getCurrentSession()` is the only thing that can
+    // answer this: the client-side picker is a display value and proves nothing.
+    try {
+        const principal = await withManagedRequest(
+            (signal) => getCurrentSession({ signal }),
+            { handleExpiry: false },
+        );
+        setState({
+            currentPicker: {
+                id: principal.picker_user_id,
+                name: principal.picker_name,
+            },
+            deviceId: getDeviceId(),
+        });
+        updatePickerIndicator();
+        return true;
+    } catch (error) {
+        if (isAbortError(error)) return false;
+        // 401 is the ordinary "no session yet" case and needs no message.
+        if (!(error instanceof ApiError && error.status === 401)) {
+            console.warn('Sitzungspruefung fehlgeschlagen:', error);
+        }
+    }
+
+    await showLoginScreen();
     return false;
 }
 
@@ -1686,6 +1758,10 @@ async function switchProfile() {
     if (isVoiceModeActive()) stopVoiceMode();
     btnVoice()?.classList.remove('nav-btn--ptt');
     await releaseCurrentClaim();
+    // Ends the session SERVER-side too. Without this the cookie stays valid and
+    // the next person on this handheld inherits the previous picker's session
+    // by pressing reload -- the profile switch would be cosmetic.
+    await logoutPickerSession();
     clearActivePicker();
     clearStoredPicker();
     setState({
@@ -1696,7 +1772,7 @@ async function switchProfile() {
     });
     resetOperatorUiState();
     updatePickerIndicator();
-    await showProfileSelection();
+    await showLoginScreen();
 }
 
 async function loadPickingList({ skipRelease = false } = {}) {
@@ -3090,7 +3166,10 @@ async function init() {
     });
 
     try {
-        const response = await fetch('/api/health', { cache: 'no-store' });
+        // `/api/health` does not exist -- `health.py` defines `/health/live`
+        // only. This probe answered 404 and `response.ok` was false, so the
+        // connectivity indicator took the same path online and offline.
+        const response = await fetch('/api/health/live', { cache: 'no-store' });
         if (response.ok) {
             updateConnectivityStatus();
         }
@@ -3101,7 +3180,11 @@ async function init() {
     await initInstanceSwitch();
     await initDemoTraceabilitySwitch();
     updateToolbar('profile_required');
-    await showProfileSelection();
+    // Restores an existing cookie session; only falls through to the login
+    // screen when the server refuses it.
+    if (await ensurePickerSelection()) {
+        await loadPickingList({ skipRelease: true });
+    }
 }
 
 function goToLine(idx) {

@@ -2360,6 +2360,63 @@ main > * {
     color: color-mix(in oklab, var(--primary-ink) 72%, transparent);
 }
 
+/* ===== LOGIN ===== */
+.login-form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.login-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.login-field__label {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--ink-muted);
+}
+
+.login-field__input {
+    /* 48px minimum: this is operated with gloves on a handheld. */
+    min-height: 48px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: var(--surface-2);
+    color: var(--ink);
+    /* 16px keeps iOS Safari from zooming the viewport on focus, which on a
+       handheld leaves the operator in a scrolled-off layout. */
+    font-size: 1rem;
+    font-family: inherit;
+    width: 100%;
+}
+
+.login-field__input:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+.login-field__input:disabled {
+    color: var(--ink-muted);
+    opacity: 1;
+}
+
+.login-error {
+    color: var(--danger, #b3261e);
+    font-size: 0.86rem;
+    font-weight: 600;
+    min-height: 1.2em;
+    margin: 0;
+}
+
+.picker-option--primary:disabled {
+    opacity: 0.6;
+    cursor: progress;
+}
+
 /* ===== QA FORM ===== */
 .qa-shell {
     display: flex;
