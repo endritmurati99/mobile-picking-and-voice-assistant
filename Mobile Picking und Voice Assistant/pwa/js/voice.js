@@ -6,7 +6,7 @@
  * - Hands-free bleibt moeglich.
  * - Long-Press Push-to-Talk ist als sicherer Fallback verfuegbar.
  */
-import { recognizeVoice } from './api.js';
+import { getCsrfToken, recognizeVoice } from './api.js';
 import {
     POST_TTS_COOLDOWN_MS,
     VOICE_STATES,
@@ -256,16 +256,35 @@ async function _tryPiper(text, epoch) {
         // Kein permanentes Disable bei Timeout — nur bei echten Server-Fehlern.
         const timerId = window.setTimeout(() => controller.abort(), 5000);
 
+        // `/api/voice/tts` liegt seit Task 16 hinter dem Browser-Gate: eine
+        // mutierende Methode (POST) braucht das CSRF-Token, sonst 403. Ohne den
+        // Token schlug jeder Piper-Aufruf fehl, `_piperHealthy` wurde dauerhaft
+        // false, und die App fiel FUER IMMER auf die Browser-Standardstimme
+        // zurueck. Der Endpunkt ist idempotency-exempt (reine Synthese), also
+        // reicht Session-Cookie + CSRF; kein Idempotency-Key noetig.
+        const headers = { 'Content-Type': 'application/json' };
+        const csrf = getCsrfToken();
+        if (csrf) headers['X-CSRF-Token'] = csrf;
+
         const response = await fetch('/api/voice/tts', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
+            credentials: 'same-origin',
             body: JSON.stringify({ text, lang: 'de-DE' }),
             signal: controller.signal,
         });
         window.clearTimeout(timerId);
 
+        if (response.status === 403 || response.status === 401) {
+            // Auth-/CSRF-Problem, KEIN toter Piper -- nicht permanent
+            // deaktivieren, sonst bleibt die Browser-Stimme kleben, obwohl der
+            // Dienst laeuft. Beim naechsten Versuch (mit gueltiger Session)
+            // erneut probieren.
+            _piperHealthy = null;
+            return false;
+        }
         if (!response.ok) {
-            // Server-Fehler (4xx/5xx): Service ist down → permanent deaktivieren
+            // Echter Server-Fehler (5xx): Service ist down → deaktivieren
             _piperHealthy = false;
             return false;
         }

@@ -127,9 +127,11 @@ test('non-write intent acts from the act threshold (no dead band)', () => {
     assert.equal(c.canHandle, true);
 });
 
-test('speech prompt is product, qty, short location', () => {
+test('speech prompt is a natural instruction: go there, then pick', () => {
     const line = { product_short_name: 'Pink Brick', quantity_demand: 2, location_src_zone: 'Regal 3' };
-    assert.equal(buildSpeechPrompt(line), 'Pink Brick, 2 Stück, Regal 3');
+    // Location first (where to walk), then what to take -- the order the picker
+    // executes it in, not a robotic "product, qty, location" list.
+    assert.equal(buildSpeechPrompt(line), 'Gehe zu Regal 3 und hole 2 Stück Pink Brick.');
 });
 
 test('location never spells out a raw fach code digit by digit', () => {

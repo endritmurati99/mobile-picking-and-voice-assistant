@@ -82,7 +82,13 @@ export function buildSpeechPrompt(line) {
     const product = line.ui_display || line.product_short_name || line.product_name || 'Produkt';
     const qty = line.quantity_demand != null ? `${line.quantity_demand} Stück` : '';
     const loc = formatLocationForSpeech(line);
-    return [product, qty, loc].filter(Boolean).join(', ');
+    // Natuerliche Anweisung statt roboterhafter Komma-Liste "Produkt, Menge,
+    // Ort". Der Picker braucht die Information in der Reihenfolge, in der er sie
+    // ausfuehrt: erst WOHIN gehen, dann WAS holen.
+    const pick = [qty, product].filter(Boolean).join(' ');
+    if (loc && pick) return `Gehe zu ${loc} und hole ${pick}.`;
+    if (loc) return `Gehe zu ${loc}.`;
+    return pick ? `Hole ${pick}.` : '';
 }
 
 export function buildReadbackPrompt(intent, { line, remainingCount } = {}) {
