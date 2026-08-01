@@ -24,6 +24,7 @@ Idempotenz: an einem `PWR_MIGRATED`-Marker-Produkt erkennt das Skript einen
 zweiten Lauf und bricht ab, statt doppelt anzulegen.
 """
 import os
+import re
 import sys
 
 import psycopg2
@@ -68,7 +69,7 @@ log(f"v18: {len(src_products)} Produkte gelesen")
 
 cur.execute(
     """
-    select p.id, p.name, p.scheduled_date, coalesce(p.priority, '0')
+    select p.id, p.name, p.scheduled_date, coalesce(p.priority, '0'), p.origin
     from stock_picking p
     join stock_picking_type t on t.id = p.picking_type_id
     where p.state = 'assigned' and t.code = 'internal'
@@ -76,6 +77,15 @@ cur.execute(
     """
 )
 src_pickings = cur.fetchall()
+
+
+def model_name(origin):
+    """Der v18-`origin` einer Fertigungs-Komponentenentnahme nennt das Modell,
+    z. B. "[498235] Blume (BOM 498235)" -> "Blume". Genau das gehoert auf die
+    Auftragskarte: der Picker baut ein MODELL (Blume, Ente Henri), nicht einen
+    losen Baustein. Faellt auf den Rohtext zurueck, wenn das Muster fehlt."""
+    match = re.search(r"\]\s*(.+?)\s*\(BOM", origin or "")
+    return (match.group(1).strip() if match else (origin or "").strip()) or "Modell"
 
 cur.execute(
     """
@@ -174,7 +184,7 @@ output_loc = picking_type.default_location_dest_id
 log(f"v19: Typ '{picking_type.display_name}', {stock_loc.display_name} -> {output_loc.display_name}")
 
 created = assigned = 0
-for pid, name, sched, prio in src_pickings:
+for pid, name, sched, prio, origin in src_pickings:
     lines = moves_by_picking.get(pid, [])
     move_vals = []
     for code, qty in lines:
@@ -195,7 +205,7 @@ for pid, name, sched, prio in src_pickings:
         "location_dest_id": output_loc.id,
         "scheduled_date": sched,
         "priority": prio if prio in ("0", "1") else "0",
-        "origin": f"migriert aus {name}",
+        "origin": model_name(origin),
         "move_ids": move_vals,
     })
     picking.action_confirm()
