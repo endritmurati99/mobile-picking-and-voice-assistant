@@ -56,8 +56,9 @@ def _grace_on(monkeypatch):
     monkeypatch.setattr(settings, "mobile_header_grace_mode", True)
 
 
-def _write_probe_app():
+def _write_probe_app(odoo_client=None):
     app = FastAPI()
+    _probe_runtime(app, odoo_client)
 
     @app.post("/write-probe")
     async def write_probe(ctx=Depends(get_write_request_context)):
@@ -69,8 +70,24 @@ def _write_probe_app():
     return app
 
 
-def _identity_probe_app():
+def _probe_runtime(app, odoo_client=None):
+    """Task 16: Dependencies loesen den Odoo-Client ueber `app.state.runtime`
+    auf. Eine blanke `FastAPI()` bringt keins mit, also bekommt jede Probe-App
+    hier eines -- und der Test patcht genau dieses, statt ein Modul-Global.
+    """
+    from app.config import settings
+    from app.runtime import RuntimeServices
+
+    runtime = RuntimeServices(settings)
+    if odoo_client is not None:
+        runtime.odoo_client = odoo_client
+    app.state.runtime = runtime
+    return app
+
+
+def _identity_probe_app(odoo_client=None):
     app = FastAPI()
+    _probe_runtime(app, odoo_client)
 
     @app.get("/identity-probe")
     async def identity_probe(identity=Depends(get_required_picker_identity)):
@@ -79,8 +96,9 @@ def _identity_probe_app():
     return app
 
 
-def _odoo_probe_app():
+def _odoo_probe_app(odoo_client=None):
     app = FastAPI()
+    _probe_runtime(app, odoo_client)
 
     @app.get("/odoo-probe")
     async def odoo_probe(_odoo=Depends(get_request_odoo_client_or_grace)):
@@ -118,8 +136,7 @@ def test_session_principal_wins_over_legacy_headers_in_grace_mode(monkeypatch):
     _grace_on(monkeypatch)
     # get_required_picker_identity zieht ueber get_mobile_workflow_service einen
     # Odoo-Client fuer die Principal-Instanz -- keinen echten HTTP-Client bauen.
-    monkeypatch.setattr("app.dependencies._get_cached_client", lambda name: object())
-    app = _identity_probe_app()
+    app = _identity_probe_app(odoo_client=lambda name: object())
     app.dependency_overrides[get_current_principal] = lambda: PRINCIPAL
     response = TestClient(app).get("/identity-probe", headers=LEGACY_HEADERS)
     assert response.status_code == 200

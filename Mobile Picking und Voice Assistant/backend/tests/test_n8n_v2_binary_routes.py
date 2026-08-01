@@ -162,9 +162,10 @@ def fake_odoo(monkeypatch):
         for name in ("local", "o19")
     }
     monkeypatch.setattr(dependencies, "get_instance_registry", lambda: registry)
+    monkeypatch.setattr(app.state.runtime, "_instances", registry)
     monkeypatch.setattr(
-        dependencies,
-        "_get_cached_client",
+        app.state.runtime,
+        "odoo_client",
         lambda name: fake if name == "o19" else (_ for _ in ()).throw(KeyError(name)),
     )
     return fake

@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import httpx
 
-from app.config import read_secret, settings
+from app.config import Settings, read_secret, settings
 
 logger = logging.getLogger(__name__)
 
@@ -95,23 +95,27 @@ def coerce_event_result(result: Any) -> N8NEventResult:
 
 
 class N8NWebhookClient:
-    def __init__(self):
-        self._base = settings.n8n_webhook_base.rstrip("/")
+    def __init__(self, candidate: Settings = settings):
+        """`candidate` folgt der Konvention von `get_instance_registry` und
+        `build_outbox_dispatcher`: die App-Factory reicht ihre Settings-Instanz
+        durch, der Default existiert nur fuer Aufrufer ohne App-Kontext."""
+        self._settings = candidate
+        self._base = candidate.n8n_webhook_base.rstrip("/")
         self._secret = read_secret(
-            settings.n8n_webhook_secret, settings.n8n_webhook_secret_file
+            candidate.n8n_webhook_secret, candidate.n8n_webhook_secret_file
         )
         self._path_overrides = {
-            "quality-alert-created": settings.n8n_webhook_path_quality_alert_created,
-            "voice-exception-query": settings.n8n_webhook_path_voice_exception_query,
-            "shortage-reported": settings.n8n_webhook_path_shortage_reported,
-            "pick-confirmed": settings.n8n_webhook_path_pick_confirmed,
+            "quality-alert-created": candidate.n8n_webhook_path_quality_alert_created,
+            "voice-exception-query": candidate.n8n_webhook_path_voice_exception_query,
+            "shortage-reported": candidate.n8n_webhook_path_shortage_reported,
+            "pick-confirmed": candidate.n8n_webhook_path_pick_confirmed,
         }
-        self._default_sync_timeout_ms = settings.n8n_sync_timeout_ms
-        self._breaker_threshold = max(1, settings.n8n_circuit_breaker_failures)
-        self._breaker_open_seconds = max(1, settings.n8n_circuit_breaker_open_seconds)
+        self._default_sync_timeout_ms = candidate.n8n_sync_timeout_ms
+        self._breaker_threshold = max(1, candidate.n8n_circuit_breaker_failures)
+        self._breaker_open_seconds = max(1, candidate.n8n_circuit_breaker_open_seconds)
         self._breaker_states: dict[str, BreakerState] = {}
         self._client = httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=settings.n8n_connect_timeout_ms / 1000.0, read=10.0, write=10.0, pool=5.0),
+            timeout=httpx.Timeout(connect=candidate.n8n_connect_timeout_ms / 1000.0, read=10.0, write=10.0, pool=5.0),
             limits=httpx.Limits(
                 max_keepalive_connections=5,
                 max_connections=10,

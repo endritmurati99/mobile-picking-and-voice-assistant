@@ -22,16 +22,37 @@ def _principal_for(instance: str) -> Principal:
     )
 
 
+REGISTRY = {
+    "local": OdooProfile("local", "Lokal", "http://odoo:8069", "picking", "admin", "k", "p"),
+    "logilab": OdooProfile("logilab", "LogILab", "https://logilab:8069", "logilab", "bot", "x", ""),
+}
+
+
 @pytest.fixture(autouse=True)
 def _fake_registry(monkeypatch):
-    reg = {
-        "local": OdooProfile("local", "Lokal", "http://odoo:8069", "picking", "admin", "k", "p"),
-        "logilab": OdooProfile("logilab", "LogILab", "https://logilab:8069", "logilab", "bot", "x", ""),
-    }
-    monkeypatch.setattr(dependencies, "get_instance_registry", lambda: reg)
-    dependencies._clients.clear()
+    monkeypatch.setattr(dependencies, "get_instance_registry", lambda: REGISTRY)
     yield
-    dependencies._clients.clear()
+
+
+@pytest.fixture
+def runtime():
+    """Task 16: Cache und Register gehoeren einem RuntimeServices. Ein frisches
+    pro Test ersetzt das fruehere `dependencies._clients.clear()` -- es gibt
+    keinen prozessweiten Cache mehr, den ein Test leeren muesste."""
+    from app.config import settings
+    from app.runtime import RuntimeServices
+
+    services = RuntimeServices(settings)
+    services._instances = REGISTRY
+    return services
+
+
+def _request_for(runtime, principal):
+    """Minimaler Request-Ersatz: die Dependencies lesen ausschliesslich
+    `request.app.state.runtime`."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(runtime=runtime)))
 
 
 def test_resolve_instance_defaults_to_local():
@@ -52,19 +73,20 @@ def test_resolve_instance_unknown_raises_400():
     assert exc.value.status_code == 400
 
 
-def test_request_client_cached_per_profile():
-    a = get_request_odoo_client(_principal_for("logilab"))
-    b = get_request_odoo_client(_principal_for("logilab"))
+def test_request_client_cached_per_profile(runtime):
+    req = _request_for(runtime, None)
+    a = get_request_odoo_client(req, _principal_for("logilab"))
+    b = get_request_odoo_client(req, _principal_for("logilab"))
     assert a is b
     assert a._db == "logilab"
-    assert get_request_odoo_client(_principal_for("local")) is not a
-    assert get_odoo_client() is get_request_odoo_client(_principal_for("local"))
+    assert get_request_odoo_client(req, _principal_for("local")) is not a
+    assert get_odoo_client(req) is get_request_odoo_client(req, _principal_for("local"))
 
 
-def test_request_client_ignores_instance_header_and_uses_principal_instance():
+def test_request_client_ignores_instance_header_and_uses_principal_instance(runtime):
     """`get_request_odoo_client` resolves the Odoo client from the Principal's
     `odoo_instance` -- a request-scoped `X-Odoo-Instance` header (not part of
     this dependency's signature at all) can never redirect it elsewhere.
     """
-    a = get_request_odoo_client(_principal_for("logilab"))
+    a = get_request_odoo_client(_request_for(runtime, None), _principal_for("logilab"))
     assert a._db == "logilab"

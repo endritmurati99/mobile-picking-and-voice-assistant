@@ -117,20 +117,29 @@ def test_cors_middleware_uses_the_single_validated_origin_list():
     assert tuple(cors[0].kwargs["allow_origins"]) == parse_origins(settings.pwa_origins)
 
 
-def test_grace_mode_is_inactive_outside_development(monkeypatch):
+def _runtime_with(**overrides):
+    """Task 16: der Grace-Mode-Schalter liest die Settings DER APP. Ein Runtime
+    aus den gewuenschten Settings ersetzt das fruehere Patchen des Globals."""
+    from app.runtime import RuntimeServices
+    from tests.security_settings import make_secure_settings
+
+    return RuntimeServices(make_secure_settings(**overrides))
+
+
+def test_grace_mode_is_inactive_outside_development():
     from app import dependencies
 
-    monkeypatch.setattr(dependencies.settings, "runtime_profile", "test")
-    monkeypatch.setattr(dependencies.settings, "mobile_header_grace_mode", True)
-    assert dependencies._grace_mode_active() is False
+    runtime = _runtime_with(runtime_profile="test", mobile_header_grace_mode=True)
+    assert dependencies._grace_mode_active(runtime) is False
 
 
-def test_grace_mode_still_works_in_development_when_explicitly_enabled(monkeypatch):
+def test_grace_mode_still_works_in_development_when_explicitly_enabled():
     from app import dependencies
 
-    monkeypatch.setattr(dependencies.settings, "runtime_profile", "development")
-    monkeypatch.setattr(dependencies.settings, "mobile_header_grace_mode", True)
-    assert dependencies._grace_mode_active() is True
+    runtime = _runtime_with(
+        runtime_profile="development", mobile_header_grace_mode=True
+    )
+    assert dependencies._grace_mode_active(runtime) is True
 
 
 # --- Round 1 fix findings -----------------------------------------------
@@ -257,30 +266,28 @@ def test_reject_removed_env_vars_catches_a_lowercase_process_env_entry():
         reject_removed_env_vars({"cors_origins": "*"}, env_file=None)
 
 
-def test_get_session_service_allowed_origins_uses_the_shared_parse_origins(monkeypatch):
+def test_session_service_allowed_origins_uses_the_shared_parse_origins(monkeypatch):
     """Minor 5 (cross-lane merge review): the CORS allowlist (app/main.py)
-    and the SessionService Origin allowlist (app/dependencies.py) must be
-    derived from the same `parse_origins()` function, not two independent
-    hand-rolled splits that can silently drift apart (e.g. if parse_origins
-    later learns to lowercase or strip trailing slashes).
+    and the SessionService Origin allowlist must be derived from the same
+    `parse_origins()` function, not two independent hand-rolled splits that
+    can silently drift apart (e.g. if parse_origins later learns to lowercase
+    or strip trailing slashes).
 
     This pins the *source*, not just today's identical behaviour: it
-    monkeypatches the `parse_origins` name inside app.dependencies and
-    asserts the SessionService actually receives what that function
-    returns. An inline `settings.pwa_origins.split(",")` in dependencies.py
-    would not be affected by this monkeypatch and would make this test fail.
+    monkeypatches the `parse_origins` name where the SessionService is now
+    built -- `app.runtime` since Task 16 -- and asserts the service actually
+    receives what that function returns. An inline
+    `settings.pwa_origins.split(",")` there would not be affected by this
+    monkeypatch and would make this test fail.
     """
-    from app import dependencies
+    from app import runtime as runtime_module
+    from tests.security_settings import make_secure_settings
 
     sentinel_origins = ("https://sentinel.example.com",)
-    monkeypatch.setattr(dependencies, "parse_origins", lambda value: sentinel_origins)
-    monkeypatch.setattr(dependencies.settings, "pwa_origins", "https://real.example.com")
-    monkeypatch.setattr(
-        dependencies.settings, "session_throttle_hmac_secret_b64", _b64_secret()
+    monkeypatch.setattr(runtime_module, "parse_origins", lambda value: sentinel_origins)
+    candidate = make_secure_settings(
+        pwa_origins="https://real.example.com",
+        session_throttle_hmac_secret_b64=_b64_secret(),
     )
-    dependencies._build_session_service.cache_clear()
-    try:
-        service = dependencies._build_session_service()
-        assert service._allowed_origins == set(sentinel_origins)
-    finally:
-        dependencies._build_session_service.cache_clear()
+    service = runtime_module.RuntimeServices(candidate).session_service()
+    assert service._allowed_origins == set(sentinel_origins)

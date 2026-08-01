@@ -25,13 +25,20 @@ PRINCIPAL = Principal(
 
 
 def test_spoofed_headers_do_not_change_identity_or_instance(monkeypatch):
+    from app.config import settings as app_settings
+    from app.runtime import RuntimeServices
+
     app = FastAPI()
     sentinel = object()
     app.dependency_overrides[get_current_principal] = lambda: PRINCIPAL
-    monkeypatch.setattr(
-        "app.dependencies._get_cached_client",
-        lambda name: sentinel if name == "o19" else (_ for _ in ()).throw(AssertionError(name)),
+    # Task 16: der Client-Cache haengt an der App, also wird er hier an der App
+    # gesetzt. Ein Aufruf fuer eine andere Instanz als die des Principals lässt
+    # den Test hart fallen -- genau das ist die Behauptung.
+    runtime = RuntimeServices(app_settings)
+    runtime.odoo_client = (
+        lambda name: sentinel if name == "o19" else (_ for _ in ()).throw(AssertionError(name))
     )
+    app.state.runtime = runtime
 
     @app.get("/probe")
     async def probe(

@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings, parse_origins, reject_wildcard_origins_with_credentials
 from app.middleware import RequestBodySizeLimitMiddleware
 from app.route_policy import assert_exemptions_are_real_routes, collect_routes
+from app.runtime import RuntimeServices
 from app.routers import auth, cluster, demo, health, instances, integration, llm, n8n_internal, obsidian, pickings, quality, scan, voice
 # Task 10: eigene Importzeile, damit parallele Branches die Zeile oben nicht anfassen muessen.
 from app.routers import n8n_v2
@@ -56,9 +57,9 @@ def build_lifespan(candidate_settings: Settings):
         # every later enabled lifespan in this process.
         try:
             if guard_held:
-                dispatcher = get_outbox_dispatcher(candidate_settings)
+                dispatcher = get_outbox_dispatcher(app.state.runtime)
                 tasks.append(asyncio.create_task(dispatcher.run(stop_event)))
-                watchdog = get_integration_watchdog(candidate_settings)
+                watchdog = get_integration_watchdog(app.state.runtime)
 
                 async def watchdog_loop():
                     while not stop_event.is_set():
@@ -117,6 +118,13 @@ def create_app(candidate_settings: Settings = settings) -> FastAPI:
         openapi_url=None if production else "/api/openapi.json",
         lifespan=build_lifespan(candidate_settings),
     )
+
+    # Task 16, RuntimeServices: ab hier gehoert der langlebige Zustand DIESER
+    # App -- Odoo-Clients, SessionService, n8n-/LLM-Client, Keyring. Vorher
+    # hingen sie an Modul-Globals in `app.dependencies`, womit `candidate_settings`
+    # unterhalb der Routentabelle wirkungslos war. Dependencies loesen sie ueber
+    # `request.app.state.runtime` auf.
+    application.state.runtime = RuntimeServices(candidate_settings)
 
     pwa_origins = parse_origins(candidate_settings.pwa_origins)
     # Unconditional, in every runtime profile -- see reject_wildcard_origins_with_credentials.

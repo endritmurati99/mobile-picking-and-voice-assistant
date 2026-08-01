@@ -1,11 +1,9 @@
 """Dependency Injection fuer FastAPI."""
 from collections.abc import Callable
-from functools import lru_cache
 import inspect
 import logging
 import re
 import secrets
-import threading
 
 from fastapi import Depends, Header, HTTPException, Query, Request
 
@@ -21,14 +19,16 @@ from app.services.llm_client import LlmClient
 from app.services.n8n_webhook import N8NWebhookClient
 from app.services.odoo_client import OdooClient
 from app.services.picking_service import PickingService
+# `settings` wird hier bewusst NICHT mehr importiert: jede Konfiguration kommt
+# aus `get_runtime(request).settings`. Ein Import dieses Namens waere die
+# Einladung, versehentlich wieder am App-Kontext vorbei zu lesen -- und genau
+# das war der Defekt, den Task 16 schliesst.
 from app.config import (
-    settings,
-    decode_secret_b64,
     get_instance_registry,
-    parse_origins,
     read_secret,
 )
 from app.models.auth import Principal
+from app.runtime import RuntimeServices
 from app.route_policy import MUTATING_METHODS, requires_idempotency_key
 # Task 10 additions (kept as separate import lines so concurrent branches that
 # touch the block above merge cleanly).
@@ -42,43 +42,27 @@ from app.services.hmac_signing import SignatureError, verify_signature
 logger = logging.getLogger(__name__)
 
 
-# Per-Profil-Client-Cache: je Odoo-Instanz EIN langlebiger Client
-# (eigener uid/secret-Cache + httpx-Pool). Reine Funktion (keine Dependency),
-# damit der Instanz-Name nicht als Query-Param auf jedem Endpunkt auftaucht.
-_clients: dict[str, OdooClient] = {}
-# sync DI läuft im FastAPI-Threadpool → double-checked locking verhindert,
-# dass zwei gleichzeitige First-Requests denselben Client doppelt anlegen.
-_clients_lock = threading.Lock()
+# Task 16: der langlebige Zustand gehoert der App, nicht diesem Modul. Er wird
+# in `create_app` als `RuntimeServices` an `app.state.runtime` gebunden und hier
+# ausschliesslich ueber den Request aufgeloest. Vorher lagen Client-Cache,
+# SessionService und LLM-Client als Modul-Globals bzw. `lru_cache` hier -- zwei
+# Apps in einem Prozess teilten sie, und das `candidate`-Argument von
+# `create_app` war unterhalb der Routentabelle wirkungslos.
+def get_runtime(request: Request) -> RuntimeServices:
+    return request.app.state.runtime
 
 
-def _get_cached_client(name: str) -> OdooClient:
-    client = _clients.get(name)
-    if client is None:
-        with _clients_lock:
-            client = _clients.get(name)
-            if client is None:
-                client = OdooClient(get_instance_registry()[name])
-                _clients[name] = client
-    return client
-
-
-def get_odoo_client() -> OdooClient:
+def get_odoo_client(request: Request) -> OdooClient:
     """Lokale/Default-Instanz. Genutzt von n8n-Callbacks (bewusst immer local)."""
-    return _get_cached_client("local")
+    return get_runtime(request).odoo_client("local")
 
 
-@lru_cache()
-def get_n8n_client() -> N8NWebhookClient:
-    return N8NWebhookClient()
+def get_n8n_client(request: Request) -> N8NWebhookClient:
+    return get_runtime(request).n8n_client()
 
 
-@lru_cache()
-def get_llm_client() -> LlmClient:
-    return LlmClient(
-        endpoint=settings.llm_endpoint,
-        model=settings.llm_model,
-        timeout_ms=settings.llm_timeout_ms,
-    )
+def get_llm_client(request: Request) -> LlmClient:
+    return get_runtime(request).llm_client()
 
 
 def resolve_instance(
@@ -97,32 +81,8 @@ def resolve_instance(
     return name
 
 
-@lru_cache()
-def _build_session_service() -> SessionService:
-    """Ein gecachter SessionService fuer alle Instanzen (analog zu `_get_cached_client`).
-
-    Nutzt niemals ein anderes globales Settings-Objekt als `app.config.settings` und
-    baut den Odoo-Client je Instanz ueber `_get_cached_client` (ein langlebiger Client
-    pro Odoo-Profil).
-    """
-    return SessionService(
-        client_factory=_get_cached_client,
-        instance_names=set(get_instance_registry().keys()),
-        throttle_secret=decode_secret_b64(
-            "SESSION_THROTTLE_HMAC_SECRET_B64",
-            read_secret(
-                settings.session_throttle_hmac_secret_b64,
-                settings.session_throttle_hmac_secret_file,
-            ),
-        ),
-        allowed_origins=set(parse_origins(settings.pwa_origins)),
-        session_seconds=settings.session_max_age_seconds,
-        revalidate_seconds=settings.session_role_revalidate_seconds,
-    )
-
-
-def get_session_service() -> SessionService:
-    """Fail-closed Wrapper um `_build_session_service`.
+def get_session_service(request: Request) -> SessionService:
+    """Fail-closed Wrapper um `RuntimeServices.session_service`.
 
     Ein fehlendes oder unlesbares `SESSION_THROTTLE_HMAC_SECRET_B64` ist eine
     Fehlkonfiguration, kein Programmfehler: vorher schlug `decode_secret_b64`
@@ -132,7 +92,7 @@ def get_session_service() -> SessionService:
     fehlende Secret in dieser Datei: 503, Route geschlossen, Grund nur im Log.
     """
     try:
-        return _build_session_service()
+        return get_runtime(request).session_service()
     except (ValueError, OSError) as exc:
         logger.error("Session service is not configured: %s", exc)
         raise HTTPException(
@@ -150,7 +110,7 @@ async def get_current_principal(
     `X-Picker-User-Id`/`X-Device-Id`/`X-Odoo-Instance` sind hier nie autoritativ.
     Bei einem fehlenden oder ungueltigen Token wird kein Server-Zustand veraendert.
     """
-    token = request.cookies.get(settings.session_cookie_name)
+    token = request.cookies.get(get_runtime(request).settings.session_cookie_name)
     if not token:
         raise HTTPException(status_code=401, detail="Ungueltige oder abgelaufene Sitzung.")
     try:
@@ -160,6 +120,7 @@ async def get_current_principal(
 
 
 def get_request_odoo_client(
+    request: Request,
     principal: Principal = Depends(get_current_principal),
 ) -> OdooClient:
     """Odoo-Client fuer die aktuelle Anfrage, ausschliesslich ueber die
@@ -167,10 +128,13 @@ def get_request_odoo_client(
     autoritativ -- ein Client fuer eine andere Instanz kann durch Header-
     Spoofing nicht erreicht werden.
     """
-    return _get_cached_client(principal.odoo_instance)
+    return get_runtime(request).odoo_client(principal.odoo_instance)
 
 
-def get_demo_odoo_client(instance: str = Depends(resolve_instance)) -> OdooClient:
+def get_demo_odoo_client(
+    request: Request,
+    instance: str = Depends(resolve_instance),
+) -> OdooClient:
     """Odoo-Client fuer die anonymen Demo-Traceability-Endpunkte.
 
     Diese Endpunkte pruefen ihre eigene Autorisierung ueber
@@ -178,17 +142,20 @@ def get_demo_odoo_client(instance: str = Depends(resolve_instance)) -> OdooClien
     sind bewusst nicht Principal-gebunden -- genau der Fall, den `resolve_instance`
     in seinem eigenen Docstring als Ausnahme benennt.
     """
-    return _get_cached_client(instance)
+    return get_runtime(request).odoo_client(instance)
 
 
-def _grace_mode_active() -> bool:
+def _grace_mode_active(runtime: RuntimeServices) -> bool:
     """Grace-Mode ist nur im Profil `development` UND nur mit dem expliziten
     Feature-Flag aktiv. `validate_runtime_security` verbietet das Flag in
     production zusaetzlich fail-closed -- diese Funktion ist die zweite,
     redundante Absicherung direkt an der Nutzungsstelle. `test` und jedes
     kuenftige Profil zaehlen bewusst NICHT als development.
     """
-    return settings.runtime_profile == "development" and settings.mobile_header_grace_mode
+    return (
+        runtime.settings.runtime_profile == "development"
+        and runtime.settings.mobile_header_grace_mode
+    )
 
 
 def _resolve_session_service(request: Request) -> SessionService:
@@ -203,7 +170,7 @@ def _resolve_session_service(request: Request) -> SessionService:
     override = request.app.dependency_overrides.get(get_session_service)
     if override is not None:
         return override()
-    return get_session_service()
+    return get_session_service(request)
 
 
 async def _resolve_principal_or_none_for_grace(request: Request) -> Principal | None:
@@ -232,7 +199,7 @@ async def _resolve_principal_or_none_for_grace(request: Request) -> Principal | 
             result = await result
         return result
 
-    token = request.cookies.get(settings.session_cookie_name)
+    token = request.cookies.get(get_runtime(request).settings.session_cookie_name)
     if not token:
         return None
     sessions = _resolve_session_service(request)
@@ -285,13 +252,13 @@ async def get_request_odoo_client_or_grace(
 
     principal = await _resolve_principal_or_none_for_grace(request)
     if principal is not None:
-        return _get_cached_client(principal.odoo_instance)
-    if not _grace_mode_active():
+        return get_runtime(request).odoo_client(principal.odoo_instance)
+    if not _grace_mode_active(get_runtime(request)):
         raise HTTPException(status_code=401, detail="Ungueltige oder abgelaufene Sitzung.")
     name = (x_odoo_instance or instance or "local").strip().lower()
     if name not in get_instance_registry():
         raise HTTPException(status_code=400, detail=f"Unbekannte Odoo-Instanz: {name}")
-    return _get_cached_client(name)
+    return get_runtime(request).odoo_client(name)
 
 
 def get_picking_service(
@@ -331,6 +298,7 @@ def get_legacy_n8n_workflow_service(
 
 
 def resolve_legacy_header_identity(
+    request: Request,
     picker_user_id: str | None = Header(default=None, alias="X-Picker-User-Id"),
     device_id: str | None = Header(default=None, alias="X-Device-Id"),
     x_odoo_instance: str | None = Header(default=None, alias="X-Odoo-Instance"),
@@ -343,7 +311,7 @@ def resolve_legacy_header_identity(
     `validate_runtime_security` bereits fail-closed verboten). Loggt hoechstens
     eine Warnung pro Aufruf, niemals die Header-Werte selbst.
     """
-    if not _grace_mode_active():
+    if not _grace_mode_active(get_runtime(request)):
         return None
     if picker_user_id is None and device_id is None and x_odoo_instance is None:
         return None
@@ -382,7 +350,7 @@ async def get_required_picker_identity(
             odoo_instance=principal.odoo_instance,
             roles=principal.roles,
         )
-    if not _grace_mode_active():
+    if not _grace_mode_active(get_runtime(request)):
         raise HTTPException(status_code=401, detail="Ungueltige oder abgelaufene Sitzung.")
     if legacy_identity is None:
         raise HTTPException(status_code=400, detail="X-Picker-User-Id ist erforderlich.")
@@ -473,7 +441,7 @@ async def require_browser_session(request: Request) -> None:
     principal = await _resolve_principal_or_none_for_grace(request)
     if principal is not None:
         return
-    if not _grace_mode_active():
+    if not _grace_mode_active(get_runtime(request)):
         raise HTTPException(
             status_code=401, detail="Ungueltige oder abgelaufene Sitzung."
         )
@@ -502,7 +470,7 @@ async def require_csrf_on_browser_mutation(
         return
     principal = await _resolve_principal_or_none_for_grace(request)
     if principal is None:
-        if not _grace_mode_active():
+        if not _grace_mode_active(get_runtime(request)):
             raise HTTPException(
                 status_code=401, detail="Ungueltige oder abgelaufene Sitzung."
             )
@@ -555,7 +523,7 @@ async def get_write_request_context(
             ),
             principal_scope=f"user:{principal.picker_user_id}",
         )
-    if not _grace_mode_active():
+    if not _grace_mode_active(get_runtime(request)):
         raise HTTPException(status_code=401, detail="Ungueltige oder abgelaufene Sitzung.")
     return WriteRequestContext(
         idempotency_key=idempotency_key,
@@ -600,11 +568,13 @@ def require_roles(*required: str) -> Callable:
 
 
 def require_n8n_callback_secret(
+    request: Request,
     provided_secret: str | None = Header(default=None, alias="X-N8N-Callback-Secret"),
 ) -> None:
     try:
+        candidate = get_runtime(request).settings
         expected_secret = read_secret(
-            settings.n8n_callback_secret, settings.n8n_callback_secret_file
+            candidate.n8n_callback_secret, candidate.n8n_callback_secret_file
         )
     except (ValueError, OSError) as exc:
         # An unreadable/misconfigured secret file is a 503 exactly like a
@@ -651,46 +621,11 @@ def get_signature_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def build_n8n_to_backend_keyring(candidate: Settings) -> HmacKeyring:
-    """Keyring fuer die n8n -> Backend Richtung aus der uebergebenen
-    `candidate`-Settings-Instanz (niemals ein anderes globales Settings-Objekt).
-
-    `decode_secret_b64` erzwingt >= 32 entschluesselte Bytes und faellt bei
-    fehlender/ungueltiger Konfiguration mit ValueError aus -- fail closed, es
-    gibt keinen Pfad zu einem leeren oder Default-Secret.
-    """
-    active = HmacKey(
-        candidate.pwr_n8n_to_backend_active_key_id,
-        decode_secret_b64(
-            "PWR_N8N_TO_BACKEND_ACTIVE_SECRET_B64",
-            read_secret(
-                candidate.pwr_n8n_to_backend_active_secret_b64,
-                candidate.pwr_n8n_to_backend_active_secret_file,
-            ),
-        ),
-    )
-    previous = None
-    if candidate.pwr_n8n_to_backend_previous_key_id:
-        previous = HmacKey(
-            candidate.pwr_n8n_to_backend_previous_key_id,
-            decode_secret_b64(
-                "PWR_N8N_TO_BACKEND_PREVIOUS_SECRET_B64",
-                read_secret(
-                    candidate.pwr_n8n_to_backend_previous_secret_b64,
-                    candidate.pwr_n8n_to_backend_previous_secret_file,
-                ),
-            ),
-        )
-    return HmacKeyring(active=active, previous=previous)
-
-
-def get_n8n_to_backend_keyring() -> HmacKeyring:
-    # Transitional dependency until Task 16 binds the keyring to
-    # app.state.runtime. Bis dahin wird der Keyring pro Request aus
-    # `app.config.settings` gebaut -- absichtlich NICHT gecacht, damit eine
-    # Key-Rotation keinen Prozess-Neustart braucht.
+def get_n8n_to_backend_keyring(request: Request) -> HmacKeyring:
+    # Der Keyring kommt aus den Settings DIESER App und ist absichtlich NICHT
+    # gecacht, damit eine Key-Rotation keinen Prozess-Neustart braucht.
     try:
-        return build_n8n_to_backend_keyring(settings)
+        return get_runtime(request).n8n_to_backend_keyring()
     except (ValueError, OSError) as exc:
         # Fehlendes/ungueltiges Secret => 503, exakt wie
         # `require_n8n_callback_secret` fuer den Legacy-Pfad. Es gibt keinen
@@ -743,7 +678,7 @@ async def verify_n8n_to_backend_request(
             headers=dict(request.headers),
             keyring=keyring,
             now=now,
-            max_skew_seconds=settings.pwr_hmac_max_skew_seconds,
+            max_skew_seconds=get_runtime(request).settings.pwr_hmac_max_skew_seconds,
         )
     except SignatureError as exc:
         raise HTTPException(
@@ -753,7 +688,7 @@ async def verify_n8n_to_backend_request(
     return VerifiedInternalRequest(signature=signature, raw_body=raw_body)
 
 
-def get_callback_odoo_client(odoo_instance: str) -> OdooClient:
+def get_callback_odoo_client(runtime: RuntimeServices, odoo_instance: str) -> OdooClient:
     """Odoo-Client fuer die signierten v2-Routen, ausschliesslich aus dem
     Instanznamen im SIGNIERTEN Body aufgeloest.
 
@@ -765,9 +700,9 @@ def get_callback_odoo_client(odoo_instance: str) -> OdooClient:
     unbekannte Instanz endet in 403 mit einer Meldung, die nicht verraet,
     welche Instanzen existieren.
     """
-    if odoo_instance not in get_instance_registry():
+    if odoo_instance not in runtime.instances:
         raise HTTPException(status_code=403, detail="Unbekannte Callback-Instanz.")
-    return _get_cached_client(odoo_instance)
+    return runtime.odoo_client(odoo_instance)
 
 
 # ---------------------------------------------------------------------------
@@ -787,13 +722,19 @@ from app.services.outbox_dispatcher import (  # noqa: E402
 from app.services.workflow_targets import load_event_targets  # noqa: E402
 
 
-def get_outbox_dispatcher(candidate: Settings = settings) -> OutboxDispatcher:
-    """Dispatcher fuer die uebergebene Settings-Instanz. Die Event-zu-Pfad-
-    Zuordnung kommt ausschliesslich aus dem einen Registry-File
-    (`load_event_targets`), nie aus einer Python-Konstante."""
-    targets = load_event_targets(Path(candidate.workflow_registry_path))
-    return build_outbox_dispatcher(candidate, _get_cached_client, targets)
+def get_outbox_dispatcher(runtime: RuntimeServices) -> OutboxDispatcher:
+    """Dispatcher fuer die Settings DIESER App. Die Event-zu-Pfad-Zuordnung
+    kommt ausschliesslich aus dem einen Registry-File (`load_event_targets`),
+    nie aus einer Python-Konstante.
+
+    Nimmt bewusst das Runtime und nicht die Settings: der Dispatcher laeuft als
+    Hintergrund-Task ueber die ganze Lebensdauer der App und muss dieselben
+    Odoo-Clients benutzen wie die Requests -- ein eigener Client-Cache hier
+    hiesse ein zweiter uid-Cache und ein zweiter httpx-Pool pro Instanz.
+    """
+    targets = load_event_targets(Path(runtime.settings.workflow_registry_path))
+    return build_outbox_dispatcher(runtime.settings, runtime.odoo_client, targets)
 
 
-def get_integration_watchdog(candidate: Settings = settings) -> IntegrationWatchdog:
-    return build_integration_watchdog(candidate, _get_cached_client)
+def get_integration_watchdog(runtime: RuntimeServices) -> IntegrationWatchdog:
+    return build_integration_watchdog(runtime.settings, runtime.odoo_client)

@@ -229,9 +229,11 @@ async def test_the_limit_fires_before_signature_verification_on_the_real_app(
     from app.middleware import RequestBodySizeLimitMiddleware as Limiter
 
     # The keyring is configured, so the route really does get as far as
-    # reading the raw body in order to verify the signature over it.
+    # reading the raw body in order to verify the signature over it. Task 16:
+    # the keyring comes from the settings of THIS app, so that is what gets
+    # replaced -- a patched module global would no longer reach it.
     monkeypatch.setattr(
-        dependencies,
+        main.app.state.runtime,
         "settings",
         Settings(
             pwr_n8n_to_backend_active_key_id="n2b-test",

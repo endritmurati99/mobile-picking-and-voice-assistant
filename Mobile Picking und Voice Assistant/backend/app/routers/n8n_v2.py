@@ -60,6 +60,7 @@ from pydantic import ValidationError
 from app.dependencies import (
     VerifiedInternalRequest,
     get_callback_odoo_client,
+    get_runtime,
     verify_n8n_to_backend_request,
 )
 from app.models.events import (
@@ -77,6 +78,7 @@ from app.services.binary_validation import (
     validate_artifact,
     validate_image,
 )
+from app.runtime import RuntimeServices
 from app.services.odoo_client import OdooAPIError
 
 router = APIRouter(prefix="/internal")
@@ -153,12 +155,13 @@ def _receipt_response(model, **values):
 @router.post(V2 + "/events/accept", response_model=EventAcceptanceResponse)
 async def accept_event(
     verified: VerifiedInternalRequest = Depends(verify_n8n_to_backend_request),
+    runtime: RuntimeServices = Depends(get_runtime),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     body = _verified_body(
         EventAcceptanceRequest, verified, idempotency_key, "event_id"
     )
-    odoo = get_callback_odoo_client(body.odoo_instance)
+    odoo = get_callback_odoo_client(runtime, body.odoo_instance)
     try:
         result = await odoo.execute_kw(
             "picking.assistant.event.receipt",
@@ -189,12 +192,13 @@ async def accept_event(
 @router.post(V2 + "/callbacks/status", response_model=CallbackApplyResponse)
 async def apply_callback(
     verified: VerifiedInternalRequest = Depends(verify_n8n_to_backend_request),
+    runtime: RuntimeServices = Depends(get_runtime),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     body = _verified_body(
         CallbackEnvelopeV2, verified, idempotency_key, "callback_id"
     )
-    odoo = get_callback_odoo_client(body.odoo_instance)
+    odoo = get_callback_odoo_client(runtime, body.odoo_instance)
     try:
         result = await odoo.execute_kw(
             "picking.assistant.callback.receipt",
@@ -366,6 +370,7 @@ async def get_job_media(
     processing_lease_token: str,
     media_ref: str,
     verified: VerifiedInternalRequest = Depends(verify_n8n_to_backend_request),
+    runtime: RuntimeServices = Depends(get_runtime),
 ) -> Response:
     """Liefert ein job-gebundenes Bild als ROHE Bytes.
 
@@ -383,7 +388,7 @@ async def get_job_media(
         raise HTTPException(status_code=400, detail="Malformed processing lease token.")
     if not _MEDIA_REF.fullmatch(media_ref):
         raise HTTPException(status_code=400, detail="Malformed media reference.")
-    odoo = get_callback_odoo_client(odoo_instance)
+    odoo = get_callback_odoo_client(runtime, odoo_instance)
     generation = verified.signature.delivery_generation
     await _reserve_signed_nonce(odoo, verified, job_id, processing_lease_token)
     try:
@@ -431,6 +436,7 @@ async def store_job_artifact(
     source_event_id: str,
     artifact_kind: str,
     verified: VerifiedInternalRequest = Depends(verify_n8n_to_backend_request),
+    runtime: RuntimeServices = Depends(get_runtime),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     content_type: str | None = Header(default=None, alias="Content-Type"),
 ) -> JSONResponse:
@@ -451,7 +457,7 @@ async def store_job_artifact(
         raise HTTPException(status_code=400, detail="Malformed processing lease token.")
     _require_canonical_uuid(source_event_id, "source event id")
     _require_idempotency_key(idempotency_key)
-    odoo = get_callback_odoo_client(odoo_instance)
+    odoo = get_callback_odoo_client(runtime, odoo_instance)
     declared_mime = _declared_media_type(content_type)
     # Phase 1: billig und streng gebunden (Groesse, Magic, deklarierter Typ,
     # ZPL-Kommandoscan). Kein Parser, keine Dekompression.

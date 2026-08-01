@@ -254,7 +254,7 @@ def test_a_previous_secret_file_without_its_key_id_fails(tmp_path):
 
 
 def test_n8n_to_backend_keyring_builds_from_files_only(tmp_path):
-    from app.dependencies import build_n8n_to_backend_keyring
+    from app.services.hmac_keyrings import build_n8n_to_backend_keyring
 
     candidate = file_production_settings(
         tmp_path,
@@ -284,46 +284,55 @@ def test_outbox_dispatcher_transport_builds_from_files_only(tmp_path):
     assert transport._native_secret == WEBHOOK_NATIVE
 
 
-def test_session_service_throttle_secret_builds_from_a_file(tmp_path, monkeypatch):
-    import app.dependencies as dependencies
+def test_session_service_throttle_secret_builds_from_a_file(tmp_path):
+    from app.runtime import RuntimeServices
 
+    # Task 16: der SessionService gehoert einem RuntimeServices, nicht mehr
+    # einem `lru_cache` im Dependency-Modul. Damit braucht dieser Test weder
+    # ein gepatchtes Modul-Global noch ein `cache_clear` -- er baut ein Runtime
+    # aus den Kandidaten-Settings und liest, was dieses Runtime aufloest.
     candidate = file_production_settings(tmp_path)
-    monkeypatch.setattr(dependencies, "settings", candidate)
-    dependencies._build_session_service.cache_clear()
-    try:
-        service = dependencies._build_session_service()
-    finally:
-        dependencies._build_session_service.cache_clear()
+    service = RuntimeServices(candidate).session_service()
     assert service._throttle_secret == b"0" * 32
 
 
-def test_legacy_callback_guard_accepts_a_file_provided_secret(tmp_path, monkeypatch):
+def _request_with_settings(candidate):
+    """Der Guard liest das Callback-Secret aus den Settings DIESER App, also
+    braucht er einen Request, der auf ein passendes Runtime zeigt."""
+    from types import SimpleNamespace
+
+    runtime = SimpleNamespace(settings=candidate)
+    return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(runtime=runtime)))
+
+
+def test_legacy_callback_guard_accepts_a_file_provided_secret(tmp_path):
     import app.dependencies as dependencies
 
     candidate = file_production_settings(tmp_path)
-    monkeypatch.setattr(dependencies, "settings", candidate)
     # Correct secret from the file: no exception.
-    dependencies.require_n8n_callback_secret(provided_secret=CALLBACK_NATIVE)
+    dependencies.require_n8n_callback_secret(
+        _request_with_settings(candidate), provided_secret=CALLBACK_NATIVE
+    )
 
 
-def test_legacy_callback_guard_still_rejects_a_wrong_secret(tmp_path, monkeypatch):
+def test_legacy_callback_guard_still_rejects_a_wrong_secret(tmp_path):
     from fastapi import HTTPException
 
     import app.dependencies as dependencies
 
     candidate = file_production_settings(tmp_path)
-    monkeypatch.setattr(dependencies, "settings", candidate)
     with pytest.raises(HTTPException) as excinfo:
-        dependencies.require_n8n_callback_secret(provided_secret="wrong")
+        dependencies.require_n8n_callback_secret(
+            _request_with_settings(candidate), provided_secret="wrong"
+        )
     assert excinfo.value.status_code == 403
 
 
-def test_legacy_n8n_webhook_client_reads_the_native_secret_from_a_file(
-    tmp_path, monkeypatch
-):
+def test_legacy_n8n_webhook_client_reads_the_native_secret_from_a_file(tmp_path):
     import app.services.n8n_webhook as n8n_webhook
 
+    # Der Client nimmt die Settings jetzt als Argument, statt sie sich aus dem
+    # Modul zu holen -- deshalb kein `monkeypatch` auf das Modul-Global mehr.
     candidate = file_production_settings(tmp_path)
-    monkeypatch.setattr(n8n_webhook, "settings", candidate)
-    client = n8n_webhook.N8NWebhookClient()
+    client = n8n_webhook.N8NWebhookClient(candidate)
     assert client._secret == WEBHOOK_NATIVE

@@ -79,8 +79,8 @@ def test_spoofed_instance_header_is_ignored_and_principal_instance_wins(
     fake = AsyncMock()
     fake.search_read.return_value = []
     monkeypatch.setattr(
-        dependencies,
-        "_get_cached_client",
+        app.state.runtime,
+        "odoo_client",
         lambda name: fake if name == "o19" else (_ for _ in ()).throw(AssertionError(name)),
     )
     with TestClient(app) as client:

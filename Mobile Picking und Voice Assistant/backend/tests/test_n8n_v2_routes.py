@@ -131,7 +131,13 @@ def signed_env(monkeypatch):
         for name in clients
     }
     monkeypatch.setattr(dependencies, "get_instance_registry", lambda: registry)
-    monkeypatch.setattr(dependencies, "_get_cached_client", clients.__getitem__)
+    # Task 16: der Client-Cache gehoert jetzt der App (`app.state.runtime`), nicht
+    # mehr `app.dependencies`. Der Seam wandert damit an dieselbe Stelle, an der
+    # der Produktionscode nachschlaegt -- ein gepatchtes Modul-Global koennte eine
+    # App, die ihr eigenes Runtime benutzt, gar nicht mehr beeinflussen.
+    runtime = app.state.runtime
+    monkeypatch.setattr(runtime, "_instances", registry)
+    monkeypatch.setattr(runtime, "odoo_client", clients.__getitem__)
     app.dependency_overrides[get_signature_now] = lambda: datetime.fromtimestamp(
         FIXED_TS, tz=timezone.utc
     )
