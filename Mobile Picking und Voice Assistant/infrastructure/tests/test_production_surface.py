@@ -107,6 +107,7 @@ def test_caddy_blocks_internal_before_public_api_and_has_no_admin_proxy():
         assert forbidden not in caddy, "Caddy still exposes %s" % forbidden
     for path in (
         "/api/internal/*",
+        "/api/integration/*",
         "/api/obsidian/*",
         "/api/demo/*",
         "/api/docs*",

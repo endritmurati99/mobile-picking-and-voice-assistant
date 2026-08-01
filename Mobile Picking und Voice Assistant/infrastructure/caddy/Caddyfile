@@ -17,7 +17,10 @@
 #   * an Odoo redirect pointed a browser at the ERP port, which the same task
 #     stops publishing at all.
 #   * `/api/*` reached `/api/internal/*` -- the signed n8n callback surface --
-#     from any browser.
+#     from any browser. `/api/integration/*` is the same class: `POST
+#     /api/integration/log` is gated on the n8n callback secret alone, and n8n
+#     dials the backend directly over `automation-net`, so it never needs the
+#     edge. Exposing it hands a browser a secret-guessing oracle for free.
 
 {
 	servers {
@@ -42,7 +45,7 @@
 		max_size 16MB
 	}
 
-	@blocked path /docs /docs/* /redoc /redoc/* /openapi.json /api/docs* /api/redoc* /api/openapi.json /api/internal/* /api/obsidian/* /api/demo/*
+	@blocked path /docs /docs/* /redoc /redoc/* /openapi.json /api/docs* /api/redoc* /api/openapi.json /api/internal/* /api/integration/* /api/obsidian/* /api/demo/*
 	handle @blocked {
 		respond 404
 	}
