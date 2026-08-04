@@ -13,6 +13,26 @@
   },
   "workflows": [
     {
+      "file": "error-trigger.json",
+      "name": "Error Trigger",
+      "generation": "v1",
+      "event_names": [],
+      "webhook_paths": [],
+      "callback_paths": [
+        "/api/integration/log"
+      ],
+      "artifact_path_templates": [],
+      "authentication": "error_trigger_v1",
+      "managed": true,
+      "production_activation": true,
+      "test_only": false,
+      "activation_order": 10,
+      "allowed_target_hosts": [
+        "backend"
+      ],
+      "credential_bindings": []
+    },
+    {
       "file": "quality-assessment-v2.json",
       "name": "Quality Assessment v2",
       "generation": "v2",
@@ -32,7 +52,7 @@
       "managed": true,
       "production_activation": true,
       "test_only": false,
-      "activation_order": 10,
+      "activation_order": 20,
       "allowed_target_hosts": [
         "backend"
       ],

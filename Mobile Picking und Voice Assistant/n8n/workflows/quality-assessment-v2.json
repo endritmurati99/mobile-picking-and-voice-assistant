@@ -26,12 +26,13 @@
         "options": {
           "rawBody": true
         }
-      }
+      },
+      "webhookId": "d9f1c4a7-6b2e-4c53-9a1f-2f7e5c8b3d10"
     },
     {
       "id": "c7e14a30-0000-4000-8000-000000000002",
       "name": "PWR Signature Gate",
-      "type": "n8n-nodes-pwr.pwrSignatureGate",
+      "type": "CUSTOM.pwrSignatureGate",
       "typeVersion": 1,
       "position": [
         -100,
@@ -134,7 +135,7 @@
     {
       "id": "c7e14a30-0000-4000-8000-000000000005",
       "name": "PWR Signed Acceptance",
-      "type": "n8n-nodes-pwr.pwrSignedHttpRequest",
+      "type": "CUSTOM.pwrSignedHttpRequest",
       "typeVersion": 1,
       "position": [
         340,
@@ -230,7 +231,7 @@
     {
       "id": "c7e14a30-0000-4000-8000-000000000009",
       "name": "PWR Signed Assessment",
-      "type": "n8n-nodes-pwr.pwrSignedHttpRequest",
+      "type": "CUSTOM.pwrSignedHttpRequest",
       "typeVersion": 1,
       "position": [
         1220,
@@ -348,7 +349,7 @@
     {
       "id": "c7e14a30-0000-4000-8000-000000000013",
       "name": "PWR Signed Terminal Callback",
-      "type": "n8n-nodes-pwr.pwrSignedHttpRequest",
+      "type": "CUSTOM.pwrSignedHttpRequest",
       "typeVersion": 1,
       "position": [
         1880,

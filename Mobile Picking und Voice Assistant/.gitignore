@@ -73,3 +73,6 @@ infrastructure/backups/
 # File-based Docker secrets (Task 5)
 infrastructure/secrets/*
 !infrastructure/secrets/README.md
+
+# Importlaeufe legen hier Zeitstempel-Verzeichnisse mit Live-Zustand ab.
+n8n/backups/
