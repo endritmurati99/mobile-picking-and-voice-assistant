@@ -1012,11 +1012,14 @@ class TestConfirmClusterLine:
 
 class TestValidateBatch:
     @pytest.mark.anyio
-    async def test_calls_action_done_with_backorder_ctx_and_fires_n8n(self, service, odoo, n8n):
-        from app.services.n8n_webhook import N8NEventResult
+    async def test_calls_action_done_with_backorder_ctx(self, service, odoo, n8n):
+        """Der Batch-Abschluss selbst -- ohne n8n.
+
+        Der v1-Workflow `batch-confirmed` existiert nicht mehr; validate_batch
+        schliesst in Odoo ab und meldet das, mehr nicht.
+        """
         odoo.search_read.return_value = [{"id": 99, "picking_ids": [1, 2], "user_id": [7, "Max"]}]
         odoo.call_method.return_value = True
-        n8n.fire_event.return_value = N8NEventResult(delivered=True, error=None, correlation_id="c1")
 
         from app.services.mobile_workflow import PickerIdentity
         result = await service.validate_batch(99, PickerIdentity(user_id=7))
@@ -1027,8 +1030,9 @@ class TestValidateBatch:
         assert done_call[0].args[2] == [99]
         assert done_call[0].kwargs["context"]["skip_backorder"] is True
         assert done_call[0].kwargs["context"]["picking_ids_not_to_backorder"] == [1, 2]
-        n8n.fire_event.assert_called_once()
+        n8n.fire_event.assert_not_called()
         assert result["batch_complete"] is True
+        assert "integration_status" not in result
 
     @pytest.mark.anyio
     async def test_reports_pending_when_action_done_returns_wizard(self, service, odoo, n8n):

@@ -915,22 +915,10 @@ class ClusterService:
                     "message": ("Batch-Abschluss erfordert eine manuelle Bestätigung in Odoo "
                                 f"({result.get('res_model')}).")}
 
-        completed_by = "mobile-picking-assistant"
-        user_id = False
-        if picker_identity and getattr(picker_identity, "user_id", None):
-            completed_by = getattr(picker_identity, "picker_name", None) or completed_by
-            user_id = picker_identity.user_id
-
-        event = coerce_event_result(await self._n8n.fire_event(
-            "batch-confirmed",
-            {"batch_id": batch_id, "completed_by": completed_by, "completed_by_user_id": user_id},
-            picker={"user_id": user_id or None, "name": completed_by},
-        ))
-        if not event.delivered:
-            self._emit_batch_validate(True, batch_id, "success_degraded", t0)
-            return {"success": True, "batch_complete": True, "integration_status": "degraded",
-                    "integration_error": event.error,
-                    "message": "Batch abgeschlossen, n8n-Folgeprozess degradiert."}
+        # Hier feuerte der v1-Workflow `batch-confirmed`, den es nicht mehr
+        # gibt. Der Batch ist in Odoo abgeschlossen -- ein n8n-Folgeprozess
+        # existiert fuer diesen Fall nicht, also gibt es auch keinen
+        # degradierten Ausgang mehr.
         self._emit_batch_validate(True, batch_id, "success", t0)
         return {"success": True, "batch_complete": True, "message": "Batch abgeschlossen."}
 

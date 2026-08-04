@@ -916,57 +916,10 @@ class PickingService:
                     validate_error,
                 )
 
-            if picking_complete:
-                completed_by = "mobile-picking-assistant"
-                completed_by_user_id = False
-                completed_by_device_id = ""
-                if picker_identity and picker_identity.user_id:
-                    completed_by = picker_identity.picker_name or completed_by
-                    completed_by_user_id = picker_identity.user_id
-                    completed_by_device_id = picker_identity.device_id or ""
-
-                event_result = coerce_event_result(await self._n8n.fire_event(
-                    "pick-confirmed",
-                    {
-                        "picking_id": picking_id,
-                        "completed_by": completed_by,
-                        "completed_by_user_id": completed_by_user_id,
-                        "completed_by_device_id": completed_by_device_id,
-                    },
-                    picker={
-                        "user_id": completed_by_user_id or None,
-                        "name": completed_by,
-                    },
-                    device_id=completed_by_device_id or None,
-                    picking_context={
-                        "picking_id": picking_id,
-                        "move_line_id": move_line_id,
-                        "product_id": product_id,
-                        "location_id": None,
-                        "priority": None,
-                        "origin": None,
-                    },
-                ))
-                if not event_result.delivered:
-                    # The pick (and serial) was recorded in Odoo — only the n8n
-                    # follow-up degraded. Emit a success event so this confirm still
-                    # counts in the telemetry denominator.
-                    _emit_serial_confirm(
-                        True, picking_id, move_line_id, product_id, bool(recorded_serial), _t0
-                    )
-                    return {
-                        "success": True,
-                        "message": (
-                            "Auftrag abgeschlossen, aber der n8n-Folgeprozess konnte nicht gestartet werden. "
-                            "Bitte manuell prüfen."
-                        ),
-                        "picking_complete": True,
-                        "integration_status": "degraded",
-                        "integration_error": event_result.error,
-                        "correlation_id": event_result.correlation_id,
-                        "recorded_serial": recorded_serial,
-                    }
-
+            # Bei `picking_complete` feuerte hier der v1-Workflow
+            # `pick-confirmed`, den es nicht mehr gibt. Die Buchung passiert in
+            # Odoo; ein n8n-Folgeprozess existiert fuer diesen Fall nicht mehr,
+            # also bleibt auch kein degradierter Zweig zu melden.
         _emit_serial_confirm(True, picking_id, move_line_id, product_id, bool(recorded_serial), _t0)
         if picking_complete:
             message = "Auftrag abgeschlossen."
@@ -1043,46 +996,20 @@ class PickingService:
             requested_by_user_id = picker_identity.user_id
             requested_by_device_id = picker_identity.device_id or None
 
-        event_result = coerce_event_result(await self._n8n.fire_event(
-            "shortage-reported",
-            {
-                "text": reason or "Kein Bestand am aktuellen Lagerplatz.",
-                "intent": "out_of_stock_decision",
-                "recommendation": recommendation,
-                "requested_by_user_id": requested_by_user_id,
-            },
-            picker={
-                "user_id": requested_by_user_id,
-                "name": requested_by,
-            },
-            device_id=requested_by_device_id,
-            picking_context={
-                "picking_id": picking_id,
-                "move_line_id": move_line_id,
-                "product_id": product_id,
-                "location_id": location_id,
-                "priority": None,
-                "origin": None,
-            },
-        ))
-        if not event_result.delivered:
-            return {
-                "success": False,
-                "message": (
-                    "Nachschub konnte nicht an n8n uebergeben werden. "
-                    f"{event_result.error or 'Bitte manuell pruefen.'}"
-                ),
-                "correlation_id": event_result.correlation_id,
-                "stock_context": stock_snapshot,
-            }
-
+        # Kein Anstoss ueber n8n mehr: der v1-Workflow `shortage-reported`
+        # ist weg, und es gibt keinen Nachfolger, der den Nachschub buchen
+        # wuerde. Die Antwort nennt deshalb den Befund und den Alternativplatz,
+        # behauptet aber keine ausgeloeste Anforderung -- eine Meldung
+        # "Nachschub angefordert", der nichts folgt, ist schlimmer als gar
+        # keine: der Picker wartet dann auf Ware, die niemand bewegt.
         return {
             "success": True,
             "message": (
-                "Nachschub angefordert. "
-                f"Quelle: {recommendation.get('recommended_location', 'Alternativplatz')}."
+                "Kein verfuegbarer Bestand am aktuellen Platz. "
+                f"Ware liegt in {recommendation.get('recommended_location', 'einem Alternativplatz')}. "
+                "Bitte im Lagerbuero melden."
             ),
-            "correlation_id": event_result.correlation_id,
+            "replenishment_triggered": False,
             "recommended_location_id": recommendation.get("recommended_location_id"),
             "recommended_location": recommendation.get("recommended_location"),
             "stock_context": stock_snapshot,

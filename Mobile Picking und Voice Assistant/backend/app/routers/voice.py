@@ -3,12 +3,13 @@ Voice endpoints: server-side Whisper STT, deterministic intent parsing, Piper TT
 """
 import logging
 import time
+from uuid import uuid4
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
-from app.dependencies import get_n8n_client, get_odoo_client, get_picking_service, get_request_odoo_client_or_grace, get_write_request_context
+from app.dependencies import get_odoo_client, get_picking_service, get_request_odoo_client_or_grace, get_write_request_context
 from app.models.n8n import VoiceAssistRequest, VoiceAssistResponse
 from app.models.voice import TTSRequest
 from app.services.obsidian_context import format_obsidian_hits, search_obsidian_notes
@@ -24,7 +25,7 @@ from app.services.intent_engine import (
 )
 from app.services.voice_intent_classifier import get_classifier
 from app.services.mobile_workflow import WriteRequestContext
-from app.services.n8n_webhook import N8NReply, N8NWebhookClient, coerce_event_result
+from app.services.n8n_webhook import N8NReply
 from app.services.odoo_client import OdooClient
 from app.services.picking_service import PickingService
 from app.utils.audio import convert_to_wav
@@ -179,9 +180,12 @@ def _build_local_assist_answer(
         return stock_context.get("stock_summary_text") or f"Ich habe keinen belastbaren Bestand fuer {line_name} gefunden.", recommendation
 
     if body.intent == "problem" and recommendation:
+        # Sagt, was IST, nicht was jemand tut: den Nachschub stoesst seit dem
+        # Wegfall des v1-Workflows niemand automatisch an, und eine Ansage
+        # "ich leite ein" waere damit eine Behauptung ohne Deckung.
         text = (
             f"Fuer {line_name} ist am aktuellen Platz kein verfuegbarer Bestand mehr vorhanden. "
-            f"Ich leite einen Nachschub aus {recommendation.get('recommended_location', 'einem Alternativplatz')} ein."
+            f"Ware liegt in {recommendation.get('recommended_location', 'einem Alternativplatz')}."
         )
         return text, recommendation
 
@@ -362,7 +366,6 @@ async def recognize_speech(
 async def assist_voice(
     body: VoiceAssistRequest,
     service: PickingService = Depends(get_picking_service),
-    n8n: N8NWebhookClient = Depends(get_n8n_client),
     odoo: OdooClient = Depends(get_request_odoo_client_or_grace),
     context: WriteRequestContext = Depends(get_write_request_context),
 ):
@@ -415,88 +418,36 @@ async def assist_voice(
         "priority": picking_detail.get("priority"),
         "origin": picking_detail.get("origin"),
     }
-    reply = await n8n.request_reply(
-        "voice-exception-query",
-        {
-            "text": body.text,
-            "intent": body.intent,
-            "surface": body.surface,
-            "remaining_line_count": body.remaining_line_count,
-            "kit_name": picking_detail.get("kit_name", ""),
-            "reference_code": picking_detail.get("reference_code", ""),
-            "line_display_name": (line_context or {}).get("ui_display", ""),
-            "current_location_label": (line_context or {}).get("location_src", ""),
-            "voice_intro": picking_detail.get("voice_intro", ""),
-            "stock_summary_text": stock_context.get("stock_summary_text", ""),
-            "alternative_locations": stock_context.get("alternative_locations", []),
-            "default_recommendation": stock_context.get("recommendation"),
-            "obsidian_hits": obsidian_hits,
-            "obsidian_context_text": format_obsidian_hits(obsidian_hits),
-        },
-        picker={
-            "user_id": context.identity.user_id,
-            "name": None,
-        },
-        device_id=context.identity.device_id,
-        picking_context=picking_context,
-        fallback_text=_fallback_tts(body.intent),
+    # Die Antwort entsteht lokal, nicht in n8n.
+    #
+    # Frueher fragte diese Route synchron den v1-Workflow `voice-exception-query`
+    # und fiel nach `N8N_SYNC_TIMEOUT_MS` (7 s) auf genau diese lokale Antwort
+    # zurueck. Seit der Workflow weg ist, war dieser Timeout der Regelfall: jede
+    # Sprachanfrage wartete sieben Sekunden auf eine Antwort, die nie kam, und
+    # meldete sich danach als `fallback` -- was die PWA als Warnung anzeigt.
+    # Die lokale Antwort IST jetzt das Produkt, also traegt sie auch `ok`.
+    local_started_at = time.monotonic()
+    local_tts_text, recommendation = _build_local_assist_answer(
+        body=body,
+        picking_detail=picking_detail,
+        line_context=line_context,
+        stock_context=stock_context,
+        obsidian_hits=obsidian_hits,
+    )
+    reply = N8NReply(
+        status="ok",
+        tts_text=local_tts_text or _fallback_tts(body.intent),
+        source="fastapi-local-context",
+        correlation_id=str(uuid4()),
+        latency_ms=round((time.monotonic() - local_started_at) * 1000),
+        recommendation=recommendation,
     )
 
-    recommendation = reply.recommendation or stock_context.get("recommendation")
-    if reply.status == "fallback":
-        local_tts_text, recommendation = _build_local_assist_answer(
-            body=body,
-            picking_detail=picking_detail,
-            line_context=line_context,
-            stock_context=stock_context,
-            obsidian_hits=obsidian_hits,
-        )
-        reply = N8NReply(
-            status="fallback",
-            tts_text=local_tts_text,
-            source="fastapi-local-context",
-            correlation_id=reply.correlation_id,
-            latency_ms=reply.latency_ms,
-            fallback_reason=reply.fallback_reason,
-            recommendation=recommendation,
-        )
-
-    should_trigger_shortage_flow = (
-        recommendation
-        and recommendation.get("action") == "trigger_replenishment"
-        and body.picking_id
-        and (body.intent == "problem" or _requires_problem_assist(body.text))
-    )
-    if should_trigger_shortage_flow:
-        event_result = coerce_event_result(await n8n.fire_event(
-            "shortage-reported",
-            {
-                "text": body.text,
-                "intent": body.intent,
-                "recommendation": recommendation,
-                "requested_by_user_id": context.identity.user_id,
-            },
-            picker={
-                "user_id": context.identity.user_id,
-                "name": None,
-            },
-            device_id=context.identity.device_id,
-            picking_context=picking_context,
-        ))
-        if not event_result.delivered:
-            reply = N8NReply(
-                status="fallback",
-                tts_text=(
-                    f"{reply.tts_text} "
-                    "Ich konnte den Nachschubprozess gerade nicht starten. Bitte manuell pruefen."
-                ).strip(),
-                source=reply.source,
-                correlation_id=event_result.correlation_id or reply.correlation_id,
-                latency_ms=reply.latency_ms,
-                fallback_reason=reply.fallback_reason or "shortage_dispatch_failed",
-                recommendation=recommendation,
-            )
-
+    # Kein automatischer Nachschub-Anstoss mehr.
+    #
+    # Hier feuerte der v1-Workflow `shortage-reported`, den es nicht mehr gibt.
+    # Die Empfehlung selbst bleibt in der Antwort und damit sichtbar -- nur
+    # ausgeloest wird nichts, und der Text unten behauptet es auch nicht mehr.
     logger.info(
         "Voice assist: intent=%s picking=%s source=%s status=%s latency=%dms end_to_end=%dms",
         body.intent,

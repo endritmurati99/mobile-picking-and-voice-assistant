@@ -469,30 +469,12 @@ class TestConfirmPickLine:
         n8n.fire_event.assert_not_called()
 
     @pytest.mark.anyio
-    async def test_fires_n8n_webhook_when_picking_complete(self, service, odoo, n8n):
-        odoo.execute_kw.side_effect = [
-            [{"id": 20, "product_id": [5, "Schraube M8"], "quantity": 3}],
-            [{"id": 20, "picked": True}],
-        ]
-        odoo.search_read.return_value = [{"id": 5, "barcode": "4006381333931"}]
-        odoo.write = AsyncMock(return_value=True)
-        odoo.call_method = AsyncMock(return_value=True)
+    async def test_completion_does_not_call_n8n(self, service, odoo, n8n):
+        """Der Abschluss ist eine reine Odoo-Sache.
 
-        result = await service.confirm_pick_line(1, 20, "4006381333931", 3.0)
-
-        assert result["picking_complete"] is True
-        n8n.fire_event.assert_called_once()
-        call_args = n8n.fire_event.call_args
-        assert call_args[0][0] == "pick-confirmed"
-        assert call_args[0][1]["picking_id"] == 1
-        assert call_args[0][1]["completed_by"] == "mobile-picking-assistant"
-        assert call_args[0][1]["completed_by_user_id"] is False
-        assert call_args[0][1]["completed_by_device_id"] == ""
-        assert call_args[1]["picker"]["name"] == "mobile-picking-assistant"
-        assert call_args[1]["picking_context"]["move_line_id"] == 20
-
-    @pytest.mark.anyio
-    async def test_includes_picker_identity_in_completion_webhook(self, service, odoo, n8n):
+        Frueher ging von hier der v1-Workflow `pick-confirmed` raus. Den gibt
+        es nicht mehr; die Buchung und ihre Meldung haengen an nichts Externem.
+        """
         odoo.execute_kw.side_effect = [
             [{"id": 20, "product_id": [5, "Schraube M8"], "quantity": 3}],
             [{"id": 20, "picked": True}],
@@ -514,13 +496,9 @@ class TestConfirmPickLine:
         )
 
         assert result["picking_complete"] is True
-        n8n.fire_event.assert_called_once()
-        payload = n8n.fire_event.call_args[0][1]
-        assert payload["completed_by"] == "Mina Muster"
-        assert payload["completed_by_user_id"] == 7
-        assert payload["completed_by_device_id"] == "device-42"
-        assert n8n.fire_event.call_args[1]["picker"]["user_id"] == 7
-        assert n8n.fire_event.call_args[1]["device_id"] == "device-42"
+        assert result["message"] == "Auftrag abgeschlossen."
+        assert "integration_status" not in result
+        n8n.fire_event.assert_not_called()
 
     @pytest.mark.anyio
     async def test_no_n8n_when_picking_incomplete(self, service, odoo, n8n):
@@ -592,31 +570,6 @@ class TestConfirmPickLineSerial:
         result = await service.confirm_pick_line(1, 20, "irgendetwas", 1.0)
 
         assert result["success"] is True
-
-    @pytest.mark.anyio
-    async def test_completion_stays_successful_when_pick_confirmed_dispatch_fails(self, service, odoo, n8n):
-        odoo.execute_kw.side_effect = [
-            [{"id": 20, "product_id": [5, "Schraube M8"], "quantity": 3}],
-            [{"id": 20, "picked": True}],
-        ]
-        odoo.search_read.return_value = [{"id": 5, "barcode": "4006381333931"}]
-        odoo.write = AsyncMock(return_value=True)
-        odoo.call_method = AsyncMock(return_value=True)
-        n8n.fire_event = AsyncMock(
-            return_value=N8NEventResult(
-                delivered=False,
-                correlation_id="corr-pick-1",
-                error="n8n antwortete mit HTTP 503.",
-            )
-        )
-
-        result = await service.confirm_pick_line(1, 20, "4006381333931", 3.0)
-
-        assert result["success"] is True
-        assert result["picking_complete"] is True
-        assert result["integration_status"] == "degraded"
-        assert result["correlation_id"] == "corr-pick-1"
-        assert "n8n-Folgeprozess" in result["message"]
 
     @pytest.mark.anyio
     async def test_does_not_write_lot_name_for_untracked_product(self, service, odoo, n8n):
@@ -802,7 +755,15 @@ class TestReturnSerialReconcile:
 
 class TestRequestReplenishment:
     @pytest.mark.anyio
-    async def test_returns_failure_when_shortage_event_cannot_be_dispatched(self, service, odoo, n8n):
+    async def test_names_the_alternative_location_without_claiming_a_request(self, service, odoo, n8n):
+        """Befund statt Versprechen.
+
+        Der v1-Workflow `shortage-reported` ist weg und niemand bucht den
+        Nachschub. Eine Meldung "Nachschub angefordert" waere damit eine
+        Zusage, der nichts folgt -- der Picker wartet auf Ware, die keiner
+        bewegt. Also nennt die Antwort den Alternativplatz und sagt, wer
+        weitermachen muss.
+        """
         odoo.execute_kw.return_value = [
             {
                 "id": 20,
@@ -814,48 +775,16 @@ class TestRequestReplenishment:
             {"quantity": 0, "reserved_quantity": 0, "location_id": [9, "WH/Stock/A-01"]},
             {"quantity": 4, "reserved_quantity": 0, "location_id": [12, "WH/Stock/B-01"]},
         ]
-        n8n.fire_event = AsyncMock(
-            return_value=N8NEventResult(
-                delivered=False,
-                correlation_id="corr-shortage-1",
-                error="n8n Transportfehler.",
-            )
-        )
-
-        result = await service.request_replenishment(44, 20, reason="Fehlmenge")
-
-        assert result["success"] is False
-        assert result["correlation_id"] == "corr-shortage-1"
-        assert "Nachschub konnte nicht an n8n uebergeben werden." in result["message"]
-
-    @pytest.mark.anyio
-    async def test_returns_success_with_recommended_location_when_dispatch_works(self, service, odoo, n8n):
-        odoo.execute_kw.return_value = [
-            {
-                "id": 20,
-                "product_id": [5, "Schraube M8"],
-                "location_id": [9, "WH/Stock/A-01"],
-            }
-        ]
-        odoo.search_read.return_value = [
-            {"quantity": 0, "reserved_quantity": 0, "location_id": [9, "WH/Stock/A-01"]},
-            {"quantity": 4, "reserved_quantity": 0, "location_id": [12, "WH/Stock/B-01"]},
-        ]
-        n8n.fire_event = AsyncMock(
-            return_value=N8NEventResult(
-                delivered=True,
-                correlation_id="corr-shortage-2",
-                status_code=202,
-            )
-        )
 
         result = await service.request_replenishment(44, 20, reason="Fehlmenge")
 
         assert result["success"] is True
-        assert result["correlation_id"] == "corr-shortage-2"
+        assert result["replenishment_triggered"] is False
         assert result["recommended_location_id"] == 12
         assert result["recommended_location"] == "WH/Stock/B-01"
-
+        assert "WH/Stock/B-01" in result["message"]
+        assert "angefordert" not in result["message"]
+        n8n.fire_event.assert_not_called()
 
 def _serial_confirm_events(caplog) -> list[dict]:
     """Extract structured serial_confirm telemetry events from captured logs."""
@@ -924,7 +853,14 @@ class TestConfirmPickLineTelemetry:
         assert events[0]["success"] is True
 
     @pytest.mark.anyio
-    async def test_emits_exactly_one_event_on_degraded_completion(self, service, odoo, n8n, caplog):
+    async def test_emits_exactly_one_event_on_completion(self, service, odoo, n8n, caplog):
+        """Genau EIN Telemetrie-Event pro Confirm -- die Invariante bleibt.
+
+        Frueher pruefte dieser Test den degradierten n8n-Zweig, in dem das
+        Event doppelt zu emittieren drohte. Der Zweig ist mit dem v1-Workflow
+        weggefallen; die Invariante gilt weiter und wird hier auf dem
+        verbliebenen Erfolgspfad festgehalten.
+        """
         odoo.execute_kw.side_effect = [
             [{"id": 20, "product_id": [5, "Schraube M8"], "quantity": 3, "move_id": [10, "MOVE/10"]}],
             [{"id": 20, "picked": True}],
@@ -932,14 +868,11 @@ class TestConfirmPickLineTelemetry:
         odoo.search_read.return_value = [{"id": 5, "barcode": "4006381333931"}]
         odoo.write = AsyncMock(return_value=True)
         odoo.call_method = AsyncMock(return_value=True)
-        n8n.fire_event = AsyncMock(
-            return_value=N8NEventResult(delivered=False, correlation_id="c1", error="HTTP 503")
-        )
 
         with caplog.at_level(logging.INFO, logger="app.services.picking_service"):
             result = await service.confirm_pick_line(1, 20, "4006381333931", 3.0)
 
-        assert result["integration_status"] == "degraded"
+        assert result["success"] is True
         events = _serial_confirm_events(caplog)
         assert len(events) == 1
         assert events[0]["success"] is True
