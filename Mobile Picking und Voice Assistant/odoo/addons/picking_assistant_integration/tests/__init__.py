@@ -8,3 +8,4 @@ from . import concurrency_common
 from . import test_lease_expiry
 from . import test_lock_order
 from . import test_requeue_concurrency
+from . import test_instance_name
