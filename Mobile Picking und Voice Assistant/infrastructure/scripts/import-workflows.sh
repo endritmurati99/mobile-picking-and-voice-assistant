@@ -131,9 +131,16 @@ wait_for_n8n() {
 
 export_all_workflows() {
   local output_file="$1"
-  compose_shell \
+  # Eine fabrikneue Instanz hat keine Workflows, und `export:workflow --all`
+  # beantwortet das mit Exit 1 statt mit einer leeren Liste -- also genau im
+  # Bootstrap-Fall, in dem ein Backup nichts zu sichern hat. Eine leere Liste
+  # ist hier die richtige Antwort, kein Abbruch.
+  if ! compose_shell \
     "rm -f /tmp/codex-export-all.json && n8n export:workflow --all --output=/tmp/codex-export-all.json >/dev/null && cat /tmp/codex-export-all.json" \
-    >"$output_file"
+    >"$output_file"; then
+    echo "  (keine Workflows in n8n -- leerer Ausgangszustand)"
+    echo "[]" >"$output_file"
+  fi
 }
 
 export_workflow_by_id() {

@@ -328,6 +328,20 @@ services:
     environment:
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY muss gesetzt sein}
       PWR_SECRET_DIR: /run/secrets
+      # Der Provisioner arbeitet ueber die n8n-CLI. Ohne DIESELBE
+      # Datenbankkonfiguration wie der Server faellt die CLI auf ihre lokale
+      # SQLite zurueck: die Credentials entstuenden sauber -- nur eben in einem
+      # Container, den niemand je wieder anfasst.
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: db
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: ${POSTGRES_USER:-odoo}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+      # Key-IDs kommen aus derselben Quelle wie beim Backend; die Secrets
+      # selbst liest das Skript aus /run/secrets.
+      PWR_BACKEND_TO_N8N_ACTIVE_KEY_ID: ${PWR_BACKEND_TO_N8N_ACTIVE_KEY_ID:?PWR_BACKEND_TO_N8N_ACTIVE_KEY_ID muss gesetzt sein}
+      PWR_N8N_TO_BACKEND_ACTIVE_KEY_ID: ${PWR_N8N_TO_BACKEND_ACTIVE_KEY_ID:?PWR_N8N_TO_BACKEND_ACTIVE_KEY_ID muss gesetzt sein}
     volumes:
       - ./n8n/scripts:/home/node/scripts:ro
     secrets:

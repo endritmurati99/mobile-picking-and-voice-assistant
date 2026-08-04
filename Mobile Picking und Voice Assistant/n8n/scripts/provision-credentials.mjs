@@ -296,20 +296,37 @@ function n8nSubcommand(args) {
     return args[0] || 'n8n';
 }
 
-function runN8n(args) {
+function runN8n(args, {tolerate} = {}) {
     const result = spawnSync('n8n', args, {encoding: 'utf8'});
     if (result.error) {
         throw new Error(`n8n ${n8nSubcommand(args)} could not be started: ${result.error.code || 'unknown error'}`);
     }
     if (result.status !== 0) {
+        // `tolerate` bekommt die Ausgabe NUR zum Mustervergleich; sie wird
+        // weder zurueckgegeben noch in eine Fehlermeldung gehoben.
+        if (tolerate && tolerate(`${result.stdout || ''}\n${result.stderr || ''}`)) {
+            return null;
+        }
         throw new Error(`n8n ${n8nSubcommand(args)} failed (exit ${result.status})`);
     }
     return result;
 }
 
+// Eine fabrikneue Instanz hat keine Credentials, und `export:credentials`
+// beantwortet das mit Exit 1 statt mit einer leeren Liste -- also genau im
+// Bootstrap-Fall, fuer den dieses Skript existiert. Das ist kein Fehler,
+// sondern die Ausgangslage.
+const NO_CREDENTIALS_MARKER = /No credentials found/i;
+
 async function exportCredentials(exportPath) {
     process.env.CREDENTIAL_EXPORT_PATH = exportPath;
-    runN8n(['export:credentials', '--all', `--output=${exportPath}`]);
+    const run = runN8n(
+        ['export:credentials', '--all', `--output=${exportPath}`],
+        {tolerate: (output) => NO_CREDENTIALS_MARKER.test(output)},
+    );
+    if (run === null) {
+        return [];
+    }
     const raw = JSON.parse(await readFile(exportPath, 'utf8'));
     const list = Array.isArray(raw) ? raw : raw.data || [];
     // Only id/name/type are ever read from the export -- never any secret
