@@ -19,6 +19,23 @@ from app.services.signed_webhook_transport import (
     WebhookAcceptanceResult,
 )
 
+@pytest.fixture(autouse=True)
+def skip_instance_name_check(monkeypatch):
+    """Die Startpruefung der Instanznamen spricht echtes Odoo an.
+
+    Diese Datei prueft Lifespan-MECHANIK -- Guard, Task-Aufraeumen, Abbruch --
+    und nicht, ob eine Instanz richtig benannt ist. Dass die Pruefung greift,
+    beweist `tests/test_instance_name_startup.py`; hier wuerde sie nur einen
+    Netzwerkaufruf gegen ein nicht existierendes Odoo erzwingen.
+    """
+    from app import main as main_module
+
+    async def _accept_all(client_factory, instance_names):
+        return None
+
+    monkeypatch.setattr(main_module, "verify_instance_names", _accept_all)
+
+
 EVENT = {
     "event_id": "a4ff5ca2-4546-4ea4-8e6c-b75bc003ca32",
     "job_id": "4ddb2442-e58a-47fe-9a6f-1ec1d779ef88",

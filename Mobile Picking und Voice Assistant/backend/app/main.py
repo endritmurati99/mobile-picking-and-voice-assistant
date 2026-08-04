@@ -27,11 +27,51 @@ from app.dependencies import (  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
+# `uvicorn --log-level info` konfiguriert NUR die "uvicorn.*"-Logger. Der
+# Root-Logger blieb ohne Handler, also verschwand jedes logger.info() der App --
+# darunter die STT-Diagnosezeile in routers/voice.py, die zeigt WAS Whisper
+# gehoert und WELCHEN Intent die Engine daraus gemacht hat. Ohne sie ist im
+# Live-Betrieb nicht unterscheidbar, ob das Audio schlecht war oder die
+# Zuordnung danebengriff. settings.log_level war definiert, aber nirgends
+# angewandt; force=True ueberschreibt einen evtl. vorhandenen Notfall-Handler.
+logging.basicConfig(
+    level=getattr(logging, settings.log_level.upper(), logging.INFO),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    force=True,
+)
+
 # Process-local guard: exactly ONE dispatcher/watchdog pair per process.
 # Every dispatcher in this process shares the same hostname:pid worker id,
 # so a second concurrently entered lifespan would silently double delivery
 # work under one lease identity — refuse it instead.
 _dispatcher_process_guard = threading.Lock()
+
+
+async def verify_instance_names(client_factory, instance_names) -> None:
+    """Jede Odoo-Instanz muss sich selbst so nennen, wie das Backend sie kennt.
+
+    Der Name steht in JEDEM Envelope (`source.odoo_instance`) und entscheidet
+    beim Callback, in welche Datenbank zurueckgeschrieben wird. Nennt sich
+    Lager 2 faelschlich `local`, landet dessen Bewertung in Lager 1 -- ohne
+    Fehlermeldung, weil beide Instanzen dieselben Modelle haben. Ein
+    Startfehler ist die einzige ehrliche Antwort darauf; eine Warnung im Log
+    wuerde genau so lange uebersehen, bis die Daten vermischt sind.
+    """
+    for name in instance_names:
+        try:
+            reported = await client_factory(name).execute_kw(
+                "picking.assistant.api.mixin", "_instance_name", []
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"Odoo-Instanz {name!r} meldet keinen Instanznamen: {exc}"
+            ) from exc
+        if reported != name:
+            raise RuntimeError(
+                f"Odoo-Instanz {name!r} nennt sich selbst {reported!r}; "
+                "picking_assistant.instance_name stimmt nicht mit dem Profil "
+                "ueberein."
+            )
 
 
 def build_lifespan(candidate_settings: Settings):
@@ -58,6 +98,12 @@ def build_lifespan(candidate_settings: Settings):
         # every later enabled lifespan in this process.
         try:
             if guard_held:
+                # Erst pruefen, dann zustellen: ein falsch benannter Envelope
+                # ist nicht reparierbar, sobald er einmal draussen ist.
+                await verify_instance_names(
+                    app.state.runtime.odoo_client,
+                    tuple(get_instance_registry(candidate_settings)),
+                )
                 dispatcher = get_outbox_dispatcher(app.state.runtime)
                 tasks.append(asyncio.create_task(dispatcher.run(stop_event)))
                 watchdog = get_integration_watchdog(app.state.runtime)
