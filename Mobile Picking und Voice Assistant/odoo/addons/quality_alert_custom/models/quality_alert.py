@@ -1,4 +1,5 @@
 from odoo import models, fields, api
+from odoo.exceptions import ValidationError
 from markupsafe import Markup, escape
 
 
@@ -84,6 +85,10 @@ class QualityAlert(models.Model):
         [
             ("pending", "Ausstehend"),
             ("completed", "Abgeschlossen"),
+            # Vierter Wert: das Modell hat NICHT geantwortet, und niemand hat
+            # ersatzweise geraten. Ohne diesen Zustand muesste ein Ausfall als
+            # "fehlgeschlagen" oder -- schlimmer -- als Bewertung erscheinen.
+            ("review_required", "Manuelle Pruefung noetig"),
             ("failed", "Fehlgeschlagen"),
         ],
         string="Analyse-Status",
@@ -152,6 +157,47 @@ class QualityAlert(models.Model):
     # ai_*-Rueckschreiben hochzaehlt, wuerde die eigene Antwort als Aenderung
     # des Sachverhalts missverstehen.
     _REVISION_TRIGGER_FIELDS = ("description", "priority", "photo")
+
+    # Abbildung Callback-Status -> Analyse-Status. Nur `succeeded` darf ein
+    # Urteil schreiben; alles andere laesst ai_disposition leer, damit im
+    # System nie eine Bewertung steht, die kein Modell getroffen hat.
+    _ASSESSMENT_STATUS_MAP = {
+        "succeeded": "completed",
+        "review_required": "review_required",
+        "failed": "failed",
+    }
+
+    def api_apply_assessment(self, status, result, error):
+        """Traegt das Ergebnis der Kette in die ai_*-Felder.
+
+        Aufgerufen aus `picking.assistant.callback.receipt.api_apply_callback`,
+        also in DERSELBEN Transaktion wie Job- und Receipt-Zustand: entweder
+        der Callback gilt vollstaendig, oder er gilt gar nicht.
+        """
+        self.ensure_one()
+        mapped = self._ASSESSMENT_STATUS_MAP.get(status)
+        if mapped is None:
+            raise ValidationError(f"Unbekannter Bewertungsstatus: {status!r}")
+        result = result or {}
+        error = error or {}
+        values = {
+            "ai_evaluation_status": mapped,
+            "ai_last_analyzed_at": fields.Datetime.now(),
+            "ai_failure_reason": error.get("message") or False,
+        }
+        if mapped == "completed":
+            values.update(
+                {
+                    "ai_disposition": result.get("disposition") or False,
+                    "ai_confidence": result.get("confidence") or 0.0,
+                    "ai_summary": result.get("summary") or False,
+                    "ai_recommended_action": result.get("recommended_action") or False,
+                    "ai_provider": result.get("provider") or False,
+                    "ai_model": result.get("model") or False,
+                }
+            )
+        self.sudo().write(values)
+        return True
 
     def write(self, vals):
         bumps = any(field in vals for field in self._REVISION_TRIGGER_FIELDS)
