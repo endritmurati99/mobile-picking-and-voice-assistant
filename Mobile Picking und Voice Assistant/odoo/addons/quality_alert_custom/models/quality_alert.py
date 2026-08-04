@@ -91,6 +91,13 @@ class QualityAlert(models.Model):
     )
     ai_failure_reason = fields.Char(string="Fehlergrund")
 
+    # Monoton steigende Revision des Datensatzes. `_enqueue_job_event` verlangt
+    # `aggregate_revision >= 1`; ein spaeteres Ereignis zum selben Alert traegt
+    # damit eine hoehere Revision und kann ein aelteres abloesen.
+    integration_revision = fields.Integer(
+        string="Integrationsrevision", default=1, required=True, copy=False,
+    )
+
     # Fotos
     photo = fields.Binary(string="Foto", attachment=True)
     photo_filename = fields.Char(string="Dateiname")
@@ -140,6 +147,21 @@ class QualityAlert(models.Model):
         return self.env["quality.alert.stage.custom"].search(
             [], order="sequence asc", limit=1
         )
+
+    # Nur Felder, die die Bewertung beeinflussen. Eine Revision, die bei jedem
+    # ai_*-Rueckschreiben hochzaehlt, wuerde die eigene Antwort als Aenderung
+    # des Sachverhalts missverstehen.
+    _REVISION_TRIGGER_FIELDS = ("description", "priority", "photo")
+
+    def write(self, vals):
+        bumps = any(field in vals for field in self._REVISION_TRIGGER_FIELDS)
+        if not bumps or "integration_revision" in vals:
+            return super().write(vals)
+        for record in self:
+            super(QualityAlert, record).write(
+                dict(vals, integration_revision=record.integration_revision + 1)
+            )
+        return True
 
     @api.model
     def _read_group_stage_ids(self, stages, domain):
