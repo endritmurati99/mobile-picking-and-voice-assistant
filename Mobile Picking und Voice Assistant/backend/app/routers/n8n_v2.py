@@ -60,6 +60,7 @@ from pydantic import ValidationError
 from app.dependencies import (
     VerifiedInternalRequest,
     get_callback_odoo_client,
+    get_llm_client,
     get_runtime,
     verify_n8n_to_backend_request,
 )
@@ -68,7 +69,10 @@ from app.models.events import (
     CallbackEnvelopeV2,
     EventAcceptanceRequest,
     EventAcceptanceResponse,
+    QualityAssessmentV2Request,
+    QualityAssessmentV2Response,
 )
+from app.services.llm_client import LlmClient
 from app.services.binary_validation import (
     ARTIFACT_KINDS,
     BinaryValidationError,
@@ -222,6 +226,46 @@ async def apply_callback(
         status=_required(result, "status"),
         job_id=_required(result, "job_id"),
         sequence=_required(result, "sequence"),
+    )
+
+
+@router.post(V2 + "/assessments/quality", response_model=QualityAssessmentV2Response)
+async def assess_quality(
+    verified: VerifiedInternalRequest = Depends(verify_n8n_to_backend_request),
+    llm: LlmClient = Depends(get_llm_client),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    """Bewertung durch das lokale Modell -- ohne jeden Schreibzugriff auf Odoo.
+
+    Die v2-Entsprechung von `/api/internal/llm/quality-disposition`. Sie
+    existiert, weil `PwrSignedHttpRequest` nur `pwrOutboundHmac` kennt und
+    seine Header selbst baut: das `X-N8N-Callback-Secret`, auf dem die alte
+    Route besteht, kann ein v2-Workflow gar nicht mitschicken.
+
+    Kein Odoo-Aufruf, keine Lease-Pruefung: diese Route entscheidet nichts und
+    aendert nichts, sie fragt nur das Modell. Ueber Wirkung entscheidet
+    ausschliesslich der Callback.
+    """
+    body = _verified_body(
+        QualityAssessmentV2Request, verified, idempotency_key, "event_id"
+    )
+    result = await llm.classify_disposition(
+        description=body.description,
+        priority=body.priority,
+        photo_count=body.photo_count,
+        product_id=body.product_id,
+        location_id=body.location_id,
+    )
+    # Bei `ok=False` bleibt JEDES Urteilsfeld leer. Ein halb gefuelltes
+    # Ergebnis waere die Einladung, im Workflow doch daraus zu schliessen.
+    return QualityAssessmentV2Response(
+        llm_ok=result.ok,
+        disposition=result.disposition if result.ok else None,
+        confidence=result.confidence if result.ok else None,
+        summary=result.summary if result.ok else None,
+        recommended_action=result.recommended_action if result.ok else None,
+        provider=LlmClient.PROVIDER,
+        model=result.model,
     )
 
 

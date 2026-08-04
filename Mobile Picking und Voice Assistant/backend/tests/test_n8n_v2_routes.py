@@ -684,7 +684,14 @@ def test_v2_router_has_no_browser_or_legacy_dependencies():
         for route in app.routes
         if getattr(route, "path", "").startswith("/api/internal/n8n/v2/")
     ]
-    assert {route.path for route in v2_routes} == {ACCEPT_TARGET, CALLBACK_TARGET}
+    # Vollstaendige Aufzaehlung, kein Teilmengen-Vergleich: eine neu
+    # angehaengte v2-Route soll diesen Test brechen und damit durch die
+    # Pruefungen darunter gezwungen werden.
+    assert {route.path for route in v2_routes} == {
+        ACCEPT_TARGET,
+        CALLBACK_TARGET,
+        "/api/internal/n8n/v2/assessments/quality",
+    }
     for route in v2_routes:
         used = transitive_calls(route.dependant)
         assert not (used & forbidden), route.path

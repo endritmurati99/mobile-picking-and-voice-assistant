@@ -103,6 +103,45 @@ class CallbackEnvelopeV2(StrictModel):
         return value
 
 
+class QualityAssessmentV2Request(StrictModel):
+    """Anfrage des v2-Workflows an die lokale Bewertung.
+
+    Traegt Job, Lease und Generation mit, obwohl die Route nichts davon zum
+    Bewerten braucht: der Verifier verlangt, dass ein Knoten hinter der
+    Annahme `event_id`, `odoo_instance` und mindestens ein
+    Delivery-/Lease-/Idempotenz-Feld nennt. Wer die Felder mitschickt, kann
+    spaeter auch dagegen pruefen.
+    """
+
+    schema_version: Literal["v2"]
+    event_id: UUID
+    job_id: UUID
+    odoo_instance: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
+    delivery_generation: int = Field(ge=1)
+    processing_lease_token: str = Field(min_length=32, max_length=256)
+    description: str = ""
+    priority: str = "0"
+    photo_count: int = Field(default=0, ge=0)
+    product_id: int | None = None
+    location_id: int | None = None
+
+
+class QualityAssessmentV2Response(StrictModel):
+    """Antwort der Bewertung.
+
+    Bei `llm_ok=False` bleibt JEDES Urteilsfeld leer -- der Workflow meldet
+    dann `review_required` statt eines Ersatzurteils.
+    """
+
+    llm_ok: bool
+    disposition: str | None = None
+    confidence: float | None = None
+    summary: str | None = None
+    recommended_action: str | None = None
+    provider: str
+    model: str
+
+
 class EventAcceptanceRequest(StrictModel):
     schema_version: Literal["v2"]
     event_id: UUID
