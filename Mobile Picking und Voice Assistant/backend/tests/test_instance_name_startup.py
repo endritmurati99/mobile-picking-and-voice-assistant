@@ -31,7 +31,7 @@ async def test_matching_names_pass():
     factory, clients = factory_for({"local": "local", "lager-2": "lager-2"})
     await verify_instance_names(factory, ["local", "lager-2"])
     assert clients["local"].calls == [
-        ("picking.assistant.api.mixin", "_instance_name")
+        ("picking.assistant.api.mixin", "api_instance_name")
     ]
 
 

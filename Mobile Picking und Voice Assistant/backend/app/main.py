@@ -60,7 +60,7 @@ async def verify_instance_names(client_factory, instance_names) -> None:
     for name in instance_names:
         try:
             reported = await client_factory(name).execute_kw(
-                "picking.assistant.api.mixin", "_instance_name", []
+                "picking.assistant.api.mixin", "api_instance_name", []
             )
         except Exception as exc:
             raise RuntimeError(

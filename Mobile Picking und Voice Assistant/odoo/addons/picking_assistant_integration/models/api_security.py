@@ -37,6 +37,18 @@ class PickingAssistantApiMixin(models.AbstractModel):
             )
         return value
 
+    @api.model
+    def api_instance_name(self):
+        """RPC-Fassade fuer `_instance_name`.
+
+        Odoo lehnt Methoden mit fuehrendem Unterstrich ueber RPC ab ("Private
+        methods cannot be called remotely"), und die Startpruefung des Backends
+        fragt genau diesen Namen ab. Die Fassade traegt dieselbe Wache wie
+        jede andere api_*-Methode dieses Moduls.
+        """
+        self._require_api_service()
+        return self._instance_name()
+
 
 class ResUsers(models.Model):
     _inherit = "res.users"

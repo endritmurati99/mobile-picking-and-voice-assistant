@@ -115,6 +115,18 @@ services:
       LLM_ENDPOINT: ${LLM_ENDPOINT:-http://ollama:11434}
       LLM_MODEL: ${LLM_MODEL:-qwen2.5:7b}
       LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-90000}
+      # Ohne dieses Flag laeuft der Outbox-Dispatcher nicht und KEIN Ereignis
+      # wird je zugestellt (Default in config.py ist False).
+      DISPATCHER_ENABLED: ${DISPATCHER_ENABLED:-true}
+      # Signierschluessel der v2-Strecke. Mit aktivem Dispatcher sind sie
+      # Pflicht: ohne sie kann das Backend keinen Envelope signieren, und ein
+      # stiller Default waere eine Signatur, der die Gegenseite nicht traut.
+      # Dieselben Werte liegen als Dateien unter infrastructure/secrets/ und
+      # speisen von dort den n8n-Credential-Provisioner.
+      PWR_BACKEND_TO_N8N_ACTIVE_KEY_ID: ${PWR_BACKEND_TO_N8N_ACTIVE_KEY_ID:?PWR_BACKEND_TO_N8N_ACTIVE_KEY_ID muss gesetzt sein}
+      PWR_BACKEND_TO_N8N_ACTIVE_SECRET_B64: ${PWR_BACKEND_TO_N8N_ACTIVE_SECRET_B64:?PWR_BACKEND_TO_N8N_ACTIVE_SECRET_B64 muss gesetzt sein}
+      PWR_N8N_TO_BACKEND_ACTIVE_KEY_ID: ${PWR_N8N_TO_BACKEND_ACTIVE_KEY_ID:?PWR_N8N_TO_BACKEND_ACTIVE_KEY_ID muss gesetzt sein}
+      PWR_N8N_TO_BACKEND_ACTIVE_SECRET_B64: ${PWR_N8N_TO_BACKEND_ACTIVE_SECRET_B64:?PWR_N8N_TO_BACKEND_ACTIVE_SECRET_B64 muss gesetzt sein}
       # Voice-Intent-Modell beim Start vorwaermen (haelt die erste Aeusserung
       # aus dem Kaltstart heraus; Ollama KEEP_ALIVE haelt es danach 24h).
       VOICE_LLM_WARMUP: ${VOICE_LLM_WARMUP:-true}
@@ -171,7 +183,15 @@ services:
       # Ohne das prueft huggingface_hub beim Start die Revision ONLINE und
       # scheitert auf dem internen Netz, obwohl das Modell im Cache liegt.
       HF_HUB_OFFLINE: "1"
+      # CPython importiert `sitecustomize` beim Start automatisch. Der Patch in
+      # whisper/sitecustomize.py verkleinert das feste 30-s-Mel-Fenster von
+      # faster-whisper auf die tatsaechliche Audiolaenge -- gemessen 1418 -> 257 ms
+      # bei gleichem Transkript. Auf "0" setzen deaktiviert ihn ohne Neustart der
+      # Compose-Datei-Struktur.
+      PYTHONPATH: /patch
+      WHISPER_ADAPTIVE_WINDOW: ${WHISPER_ADAPTIVE_WINDOW:-1}
     volumes:
+      - ./whisper/sitecustomize.py:/patch/sitecustomize.py:ro
       # automation-net ist `internal`, also OHNE Weg nach draussen. Ohne
       # persistenten Cache laedt faster-whisper sein Modell bei jedem
       # Neuerstellen erneut herunter und bleibt dann in einer Restart-Schleife
@@ -265,7 +285,10 @@ services:
       EXECUTIONS_PROCESS: main
       EXECUTIONS_DATA_PRUNE: "true"
       EXECUTIONS_DATA_MAX_AGE: 168
-      EXECUTIONS_DATA_SAVE_ON_SUCCESS: none
+      # Erfolgslaeufe werden gespeichert: ohne sie gibt es keinen
+      # Ausfuehrungsnachweis fuer die Kette -- nur Fehler zu behalten heisst,
+      # dass ein funktionierender Durchlauf keine Spur hinterlaesst.
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: all
       EXECUTIONS_DATA_SAVE_ON_ERROR: all
       EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS: "true"
       EXECUTIONS_DATA_SAVE_ON_PROGRESS: "true"

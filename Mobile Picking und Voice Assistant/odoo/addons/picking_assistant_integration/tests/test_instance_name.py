@@ -29,3 +29,18 @@ class TestInstanceName(IntegrationCase):
         self._set("Lager 2")
         with self.assertRaisesRegex(ValidationError, "instance_name"):
             self._mixin()._instance_name()
+
+    def test_rpc_facade_returns_the_name_for_the_api_user(self):
+        """Odoo lehnt Methoden mit fuehrendem Unterstrich ueber RPC ab, deshalb
+        fragt das Backend `api_instance_name` -- nicht `_instance_name`."""
+        self._set("local")
+        model = self.env["picking.assistant.api.mixin"].with_user(self.api_user)
+        self.assertEqual(model.api_instance_name(), "local")
+
+    def test_rpc_facade_refuses_a_user_without_the_api_group(self):
+        from odoo.exceptions import AccessError
+
+        self._set("local")
+        model = self.env["picking.assistant.api.mixin"].with_user(self.picker)
+        with self.assertRaises(AccessError):
+            model.api_instance_name()
