@@ -585,6 +585,36 @@ class PickingAssistantCallbackReceipt(models.Model):
         "UNIQUE(job_record_id, sequence)", "Job callback sequence must be unique."
     )
 
+    # Nur terminale Zustaende projizieren. `running` ist eine Zwischenmeldung
+    # und darf den fachlichen Datensatz nicht anfassen.
+    _PROJECTED_STATUSES = ("succeeded", "review_required", "failed")
+
+    def _project_quality_result(
+        self, *, aggregate_model, aggregate_res_id, callback_name, status, result, error
+    ):
+        """Traegt das Ergebnis in derselben Transaktion in den Fachdatensatz.
+
+        Bewusst eine WEICHE Kopplung ueber den Modellnamen statt eines Imports:
+        dieses Modul kennt `quality_alert_custom` nicht und darf es nicht
+        kennen -- die Abhaengigkeit laeuft andersherum. Ist das Modell nicht
+        installiert oder der Datensatz weg, passiert nichts; der Callback
+        selbst bleibt gueltig.
+        """
+        if callback_name != "quality.assessment.status.v1":
+            return False
+        if status not in self._PROJECTED_STATUSES:
+            return False
+        if aggregate_model != "quality.alert.custom":
+            return False
+        model = self.env.get(aggregate_model)
+        if model is None:
+            return False
+        alert = model.sudo().browse(int(aggregate_res_id)).exists()
+        if not alert:
+            return False
+        alert.api_apply_assessment(status, result, error)
+        return True
+
     def _store_response(self, job, callback_id, source_event_id, sequence,
                         fingerprint, response):
         """Persist the deterministic response for the no-mutation
@@ -771,6 +801,17 @@ class PickingAssistantCallbackReceipt(models.Model):
                             "processing_lease_expires_at": False,
                             "last_received_at": now,
                         }
+                    )
+                    # Letzter Schritt der Kette, in DERSELBEN Transaktion wie
+                    # Job- und Receipt-Zustand: entweder der Callback gilt
+                    # vollstaendig, oder er gilt gar nicht.
+                    self._project_quality_result(
+                        aggregate_model=job.aggregate_model,
+                        aggregate_res_id=job.aggregate_res_id,
+                        callback_name=callback.get("callback_name"),
+                        status=status,
+                        result=result,
+                        error=error,
                     )
                 else:  # retry_scheduled
                     # Dieselbe Menge wie in beiden Geschwisterzweigen oben
