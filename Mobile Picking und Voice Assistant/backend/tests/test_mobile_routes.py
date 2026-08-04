@@ -419,19 +419,22 @@ def test_quality_alert_requires_full_identity_headers():
     n8n.fire_event.assert_not_awaited()
 
 
-def test_quality_alert_uses_local_fallback_when_n8n_dispatch_fails_after_odoo_create():
+def test_quality_alert_creation_leaves_the_verdict_to_the_chain():
+    """Kein Ersatzurteil mehr, und kein v1-Webhook.
+
+    Frueher schrieb diese Route eine Stichwortheuristik mit
+    `ai_provider=backend-local-fallback`, sobald der synchrone n8n-Aufruf nicht
+    zustellte. Seit der Alert sein Ereignis selbst in die Outbox einreiht,
+    waere das ein ZWEITER Schreiber auf dieselben Felder -- und eine Bewertung,
+    die kein Modell getroffen hat. Odoo setzt beim Anlegen `pending`; alles
+    Weitere kommt ueber die v2-Kette.
+    """
     workflow = _create_workflow_mock()
     odoo = MagicMock()
     odoo.execute_kw = AsyncMock(return_value={"alert_id": 42, "name": "QA/0042"})
     odoo.write = AsyncMock(return_value=True)
     n8n = MagicMock()
-    n8n.fire_event = AsyncMock(
-        return_value=N8NEventResult(
-            delivered=False,
-            correlation_id="corr-qa-1",
-            error="n8n antwortete mit HTTP 503.",
-        )
-    )
+    n8n.fire_event = AsyncMock()
     _override_dependencies(workflow=workflow, odoo=odoo, n8n=n8n)
 
     try:
@@ -451,13 +454,9 @@ def test_quality_alert_uses_local_fallback_when_n8n_dispatch_fails_after_odoo_cr
     assert response.status_code == 200
     payload = response.json()
     assert payload["alert_id"] == 42
-    assert payload["ai_evaluation_status"] == "completed"
-    assert payload["ai_fallback"] is True
+    assert payload["ai_evaluation_status"] == "pending"
+    assert "ai_fallback" not in payload
 
-    odoo.write.assert_awaited_once()
-    write_args = odoo.write.await_args.args
-    assert write_args[0] == "quality.alert.custom"
-    assert write_args[1] == [42]
-    write_fields = write_args[2]
-    assert write_fields["ai_evaluation_status"] == "completed"
-    assert write_fields["ai_provider"] == "backend-local-fallback"
+    # Weder eine Ersatzbewertung noch der alte synchrone Webhook.
+    odoo.write.assert_not_awaited()
+    n8n.fire_event.assert_not_awaited()
