@@ -209,4 +209,24 @@ class QualityAlert(models.Model):
                 "mimetype": "image/jpeg",
             })
 
+        # Transactional Outbox: der Beleg entsteht in DERSELBEN Transaktion wie
+        # der Datensatz. Entweder beides oder nichts -- ein Alert ohne Ereignis
+        # waere eine Bewertung, die nie kommt, ein Ereignis ohne Alert eine
+        # Bewertung fuer nichts. Der Anhang-Zaehler steht erst hier fest,
+        # deshalb wird der Envelope nach den Anhaengen gebaut.
+        alert.sudo().write({"ai_evaluation_status": "pending"})
+        built = self.env["quality.alert.event.builder"].build(alert)
+        self.env["picking.assistant.integration.job"]._enqueue_job_event(
+            job_type="quality_assessment",
+            aggregate_model=alert._name,
+            aggregate_res_id=alert.id,
+            aggregate_revision=alert.integration_revision,
+            event_id=built["event_id"],
+            event_name="quality.assessment.requested.v1",
+            envelope_text=built["envelope_text"],
+            payload_fingerprint=built["payload_fingerprint"],
+            correlation_id=built["correlation_id"],
+            job_id=built["job_id"],
+        )
+
         return {"alert_id": alert.id, "name": alert.name}
