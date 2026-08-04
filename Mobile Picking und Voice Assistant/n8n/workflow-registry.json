@@ -1,86 +1,41 @@
 {
   "schema_version": "v1",
   "credentials": {
-    "pwr.v2.inbound-header": {"type": "httpHeaderAuth"},
-    "pwr.v2.backend-to-n8n-hmac": {"type": "pwrInboundHmac"},
-    "pwr.v2.n8n-to-backend-hmac": {"type": "pwrOutboundHmac"}
+    "pwr.v2.inbound-header": {
+      "type": "httpHeaderAuth"
+    },
+    "pwr.v2.backend-to-n8n-hmac": {
+      "type": "pwrInboundHmac"
+    },
+    "pwr.v2.n8n-to-backend-hmac": {
+      "type": "pwrOutboundHmac"
+    }
   },
   "workflows": [
     {
-      "file": "batch-confirmed.json",
-      "name": "Batch Confirmed",
-      "generation": "v1",
-      "event_names": ["batch-confirmed"],
-      "webhook_paths": ["batch-confirmed"],
-      "callback_paths": [],
-      "authentication": "legacy_v1",
-      "managed": false,
-      "production_activation": false,
-      "activation_order": null,
-      "allowed_target_hosts": [],
-      "credential_bindings": []
-    },
-    {
-      "file": "daily-report.json",
-      "name": "Daily Picking Report",
-      "generation": "v1",
-      "event_names": [],
-      "webhook_paths": [],
-      "callback_paths": [],
-      "authentication": "scheduled_v1",
-      "managed": false,
-      "production_activation": false,
-      "activation_order": null,
-      "allowed_target_hosts": [],
-      "credential_bindings": []
-    },
-    {
-      "file": "error-trigger.json",
-      "name": "Error Trigger",
-      "generation": "v1",
-      "event_names": [],
-      "webhook_paths": [],
-      "callback_paths": ["/api/integration/log"],
-      "authentication": "error_trigger_v1",
-      "managed": true,
-      "production_activation": true,
-      "activation_order": 10,
-      "allowed_target_hosts": ["backend"],
-      "credential_bindings": []
-    },
-    {
-      "file": "pick-confirmed.json",
-      "name": "Pick Confirmed",
-      "generation": "v1",
-      "event_names": ["pick-confirmed"],
-      "webhook_paths": ["pick-confirmed"],
-      "callback_paths": [],
-      "authentication": "legacy_v1",
-      "managed": false,
-      "production_activation": false,
-      "activation_order": null,
-      "allowed_target_hosts": [],
-      "credential_bindings": []
-    },
-    {
-      "file": "pwr-foundation-smoke-v2.json",
-      "name": "PWR Foundation Smoke v2",
+      "file": "quality-assessment-v2.json",
+      "name": "Quality Assessment v2",
       "generation": "v2",
-      "event_names": ["quality.assessment.requested.v1"],
-      "webhook_paths": ["quality-assessment-v2"],
+      "event_names": [
+        "quality.assessment.requested.v1"
+      ],
+      "webhook_paths": [
+        "quality-assessment-v2"
+      ],
       "callback_paths": [
         "/api/internal/n8n/v2/events/accept",
+        "/api/internal/n8n/v2/assessments/quality",
         "/api/internal/n8n/v2/callbacks/status"
       ],
-      "artifact_path_templates": [
-        "/api/internal/instances/{odoo_instance}/jobs/{job_id}/leases/{processing_lease_token}/events/{source_event_id}/artifacts/zpl"
-      ],
+      "artifact_path_templates": [],
       "authentication": "native_header_hmac",
       "managed": true,
-      "production_activation": false,
-      "test_only": true,
-      "activation_order": 90,
-      "allowed_target_hosts": ["backend"],
+      "production_activation": true,
+      "test_only": false,
+      "activation_order": 10,
+      "allowed_target_hosts": [
+        "backend"
+      ],
       "credential_bindings": [
         {
           "node": "Webhook",
@@ -98,12 +53,7 @@
           "logical_name": "pwr.v2.n8n-to-backend-hmac"
         },
         {
-          "node": "PWR Signed Running Callback",
-          "credential_type": "pwrOutboundHmac",
-          "logical_name": "pwr.v2.n8n-to-backend-hmac"
-        },
-        {
-          "node": "PWR Signed Artifact",
+          "node": "PWR Signed Assessment",
           "credential_type": "pwrOutboundHmac",
           "logical_name": "pwr.v2.n8n-to-backend-hmac"
         },
@@ -113,62 +63,6 @@
           "logical_name": "pwr.v2.n8n-to-backend-hmac"
         }
       ]
-    },
-    {
-      "file": "quality-alert-ai-evaluation.json",
-      "name": "Quality Alert AI Evaluation",
-      "generation": "v1",
-      "event_names": [],
-      "webhook_paths": [],
-      "callback_paths": ["/api/internal/n8n/quality-assessment-ai"],
-      "authentication": "subworkflow_v1",
-      "managed": false,
-      "production_activation": false,
-      "activation_order": null,
-      "allowed_target_hosts": ["backend"],
-      "credential_bindings": []
-    },
-    {
-      "file": "quality-alert-created.json",
-      "name": "Quality Alert Created",
-      "generation": "v1",
-      "event_names": ["quality-alert-created"],
-      "webhook_paths": ["quality-alert-created"],
-      "callback_paths": ["/api/internal/n8n/quality-assessment"],
-      "authentication": "legacy_v1",
-      "managed": true,
-      "production_activation": true,
-      "activation_order": 30,
-      "allowed_target_hosts": ["backend"],
-      "credential_bindings": []
-    },
-    {
-      "file": "shortage-reported.json",
-      "name": "Shortage Reported",
-      "generation": "v1",
-      "event_names": ["shortage-reported"],
-      "webhook_paths": ["shortage-reported"],
-      "callback_paths": ["/api/internal/n8n/replenishment-action"],
-      "authentication": "legacy_v1",
-      "managed": true,
-      "production_activation": true,
-      "activation_order": 40,
-      "allowed_target_hosts": ["backend"],
-      "credential_bindings": []
-    },
-    {
-      "file": "voice-exception-query.json",
-      "name": "Voice Exception Query",
-      "generation": "v1",
-      "event_names": ["voice-exception-query"],
-      "webhook_paths": ["voice-exception-query"],
-      "callback_paths": ["/api/internal/n8n/manual-review-activity"],
-      "authentication": "legacy_v1",
-      "managed": true,
-      "production_activation": true,
-      "activation_order": 20,
-      "allowed_target_hosts": ["backend"],
-      "credential_bindings": []
     }
   ]
 }

@@ -1,0 +1,509 @@
+{
+  "name": "Quality Assessment v2",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "none",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false
+  },
+  "nodes": [
+    {
+      "id": "c7e14a30-0000-4000-8000-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        0
+      ],
+      "parameters": {
+        "path": "quality-assessment-v2",
+        "httpMethod": "POST",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      }
+    },
+    {
+      "id": "c7e14a30-0000-4000-8000-000000000002",
+      "name": "PWR Signature Gate",
+      "type": "n8n-nodes-pwr.pwrSignatureGate",
+      "typeVersion": 1,
+      "position": [
+        -100,
+        0
+      ],
+      "parameters": {
+        "expectedMethod": "POST",
+        "expectedTarget": "/webhook/quality-assessment-v2"
+      }
+    },
+    {
+      "id": "c7e14a30-0000-4000-8000-000000000003",
+      "name": "Reject Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        120,
+        180
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": "={{ $json.pwr.status_code }}",
+        "responseBody": "={{ JSON.stringify({ reason_code: $json.pwr.reason_code }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "c7e14a30-0000-4000-8000-000000000004",
+      "name": "Build Acceptance",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        120,
+        -80
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a01",
+              "name": "event_id",
+              "type": "string",
+              "value": "={{ $json.body.event_id }}"
+            },
+            {
+              "id": "a02",
+              "name": "job_id",
+              "type": "string",
+              "value": "={{ $json.body.payload.job_id }}"
+            },
+            {
+              "id": "a03",
+              "name": "odoo_instance",
+              "type": "string",
+              "value": "={{ $json.body.source.odoo_instance }}"
+            },
+            {
+              "id": "a04",
+              "name": "correlation_id",
+              "type": "string",
+              "value": "={{ $json.body.correlation_id }}"
+            },
+            {
+              "id": "a05",
+              "name": "delivery_generation",
+              "type": "number",
+              "value": "={{ $json.pwr.delivery_generation }}"
+            },
+            {
+              "id": "a06",
+              "name": "idempotency_key",
+              "type": "string",
+              "value": "={{ $json.body.event_id }}"
+            },
+            {
+              "id": "a07",
+              "name": "callback_ids_by_generation",
+              "type": "object",
+              "value": "={{ $json.body.payload.callback_ids_by_generation }}"
+            },
+            {
+              "id": "a08",
+              "name": "payload",
+              "type": "object",
+              "value": "={{ $json.body.payload }}"
+            },
+            {
+              "id": "a09",
+              "name": "acceptance_body",
+              "type": "object",
+              "value": "={{ ({ schema_version: 'v2', event_id: $json.body.event_id, job_id: $json.body.payload.job_id, odoo_instance: $json.body.source.odoo_instance, payload_fingerprint: $json.pwr.body_sha256, ingress_key_id: $json.pwr.key_id, ingress_nonce: $json.pwr.nonce, delivery_generation: $json.pwr.delivery_generation }) }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c7e14a30-0000-4000-8000-000000000005",
+      "name": "PWR Signed Acceptance",
+      "type": "n8n-nodes-pwr.pwrSignedHttpRequest",
+      "typeVersion": 1,
+      "position": [
+        340,
+        -80
+      ],
+      "parameters": {
+        "method": "POST",
+        "target": "/api/internal/n8n/v2/events/accept",
+        "host": "backend",
+        "bodyMode": "json",
+        "jsonProperty": "acceptance_body",
+        "contentType": "application/json",
+        "deliveryGenerationProperty": "delivery_generation",
+        "idempotencyKeyProperty": "idempotency_key",
+        "responseMode": "json",
+        "timeoutMs": 10000
+      }
+    },
+    {
+      "id": "c7e14a30-0000-4000-8000-000000000006",
+      "name": "Accepted Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        560,
+        -80
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 202,
+        "responseBody": "={{ JSON.stringify({ accepted: true, event_id: $json.event_id }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "c7e14a30-0000-4000-8000-000000000007",
+      "name": "If Process",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        780,
+        -80
+      ],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.process }}",
+              "operation": "equal",
+              "value2": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c7e14a30-0000-4000-8000-000000000008",
+      "name": "Build Assessment Request",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1000,
+        -180
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a01",
+              "name": "delivery_generation",
+              "type": "number",
+              "value": "={{ $('Build Acceptance').item.json.delivery_generation }}"
+            },
+            {
+              "id": "a02",
+              "name": "idempotency_key",
+              "type": "string",
+              "value": "={{ $('Build Acceptance').item.json.event_id }}"
+            },
+            {
+              "id": "a03",
+              "name": "assessment_body",
+              "type": "object",
+              "value": "={{ ({ schema_version: 'v2', event_id: $('Build Acceptance').item.json.event_id, job_id: $('Build Acceptance').item.json.job_id, odoo_instance: $('Build Acceptance').item.json.odoo_instance, delivery_generation: $('Build Acceptance').item.json.delivery_generation, processing_lease_token: $('PWR Signed Acceptance').item.json.processing_lease_token, description: String($('Build Acceptance').item.json.payload.description || ''), priority: String($('Build Acceptance').item.json.payload.priority || '0'), photo_count: Number($('Build Acceptance').item.json.payload.photo_count) || 0, product_id: $('Build Acceptance').item.json.payload.product_id ?? null, location_id: $('Build Acceptance').item.json.payload.location_id ?? null }) }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c7e14a30-0000-4000-8000-000000000009",
+      "name": "PWR Signed Assessment",
+      "type": "n8n-nodes-pwr.pwrSignedHttpRequest",
+      "typeVersion": 1,
+      "position": [
+        1220,
+        -180
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "target": "/api/internal/n8n/v2/assessments/quality",
+        "host": "backend",
+        "bodyMode": "json",
+        "jsonProperty": "assessment_body",
+        "contentType": "application/json",
+        "deliveryGenerationProperty": "delivery_generation",
+        "idempotencyKeyProperty": "idempotency_key",
+        "responseMode": "json",
+        "timeoutMs": 120000
+      }
+    },
+    {
+      "id": "c7e14a30-0000-4000-8000-000000000010",
+      "name": "If Assessment OK",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        -180
+      ],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.llm_ok }}",
+              "operation": "equal",
+              "value2": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c7e14a30-0000-4000-8000-000000000011",
+      "name": "Build Success Callback",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1660,
+        -280
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a01",
+              "name": "delivery_generation",
+              "type": "number",
+              "value": "={{ $('Build Acceptance').item.json.delivery_generation }}"
+            },
+            {
+              "id": "a02",
+              "name": "idempotency_key",
+              "type": "string",
+              "value": "={{ (() => { const acc = $('Build Acceptance').item.json; const ids = acc.callback_ids_by_generation[String(acc.delivery_generation)]; if (!ids || !ids.terminal) { throw new Error('no callback id for signed delivery generation'); } return ids.terminal; })() }}"
+            },
+            {
+              "id": "a03",
+              "name": "callback_body",
+              "type": "object",
+              "value": "={{ (() => { const acc = $('Build Acceptance').item.json; const ids = acc.callback_ids_by_generation[String(acc.delivery_generation)]; if (!ids || !ids.terminal) { throw new Error('no callback id for signed delivery generation'); } return { schema_version: 'v2', callback_name: 'quality.assessment.status.v1', callback_id: ids.terminal, source_event_id: acc.event_id, correlation_id: acc.correlation_id, odoo_instance: acc.odoo_instance, job_id: acc.job_id, sequence: 1, attempt: 1, delivery_generation: acc.delivery_generation, processing_lease_token: $('PWR Signed Acceptance').item.json.processing_lease_token, status: 'succeeded', execution_id: String($execution.id), occurred_at: new Date().toISOString(), next_retry_at: null, result: { disposition: $json.disposition, confidence: $json.confidence, summary: $json.summary, recommended_action: $json.recommended_action, provider: $json.provider, model: $json.model }, error: null, metrics: { assessment_provider: String($json.provider || 'unknown') } }; })() }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c7e14a30-0000-4000-8000-000000000012",
+      "name": "Build Review Callback",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1660,
+        -80
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a01",
+              "name": "delivery_generation",
+              "type": "number",
+              "value": "={{ $('Build Acceptance').item.json.delivery_generation }}"
+            },
+            {
+              "id": "a02",
+              "name": "idempotency_key",
+              "type": "string",
+              "value": "={{ (() => { const acc = $('Build Acceptance').item.json; const ids = acc.callback_ids_by_generation[String(acc.delivery_generation)]; if (!ids || !ids.terminal) { throw new Error('no callback id for signed delivery generation'); } return ids.terminal; })() }}"
+            },
+            {
+              "id": "a03",
+              "name": "callback_body",
+              "type": "object",
+              "value": "={{ (() => { const acc = $('Build Acceptance').item.json; const ids = acc.callback_ids_by_generation[String(acc.delivery_generation)]; if (!ids || !ids.terminal) { throw new Error('no callback id for signed delivery generation'); } return { schema_version: 'v2', callback_name: 'quality.assessment.status.v1', callback_id: ids.terminal, source_event_id: acc.event_id, correlation_id: acc.correlation_id, odoo_instance: acc.odoo_instance, job_id: acc.job_id, sequence: 1, attempt: 1, delivery_generation: acc.delivery_generation, processing_lease_token: $('PWR Signed Acceptance').item.json.processing_lease_token, status: 'review_required', execution_id: String($execution.id), occurred_at: new Date().toISOString(), next_retry_at: null, result: {}, error: { code: 'llm_unavailable', message: String($json.error?.message || $json.message || 'assessment unavailable') }, metrics: { assessment_provider: String($json.provider || 'unknown') } }; })() }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c7e14a30-0000-4000-8000-000000000013",
+      "name": "PWR Signed Terminal Callback",
+      "type": "n8n-nodes-pwr.pwrSignedHttpRequest",
+      "typeVersion": 1,
+      "position": [
+        1880,
+        -180
+      ],
+      "parameters": {
+        "method": "POST",
+        "target": "/api/internal/n8n/v2/callbacks/status",
+        "host": "backend",
+        "bodyMode": "json",
+        "jsonProperty": "callback_body",
+        "contentType": "application/json",
+        "deliveryGenerationProperty": "delivery_generation",
+        "idempotencyKeyProperty": "idempotency_key",
+        "responseMode": "json",
+        "timeoutMs": 10000
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "PWR Signature Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PWR Signature Gate": {
+      "main": [
+        [
+          {
+            "node": "Build Acceptance",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Acceptance": {
+      "main": [
+        [
+          {
+            "node": "PWR Signed Acceptance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PWR Signed Acceptance": {
+      "main": [
+        [
+          {
+            "node": "Accepted Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Accepted Response": {
+      "main": [
+        [
+          {
+            "node": "If Process",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Process": {
+      "main": [
+        [
+          {
+            "node": "Build Assessment Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Build Assessment Request": {
+      "main": [
+        [
+          {
+            "node": "PWR Signed Assessment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PWR Signed Assessment": {
+      "main": [
+        [
+          {
+            "node": "If Assessment OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Assessment OK": {
+      "main": [
+        [
+          {
+            "node": "Build Success Callback",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Review Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Success Callback": {
+      "main": [
+        [
+          {
+            "node": "PWR Signed Terminal Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Review Callback": {
+      "main": [
+        [
+          {
+            "node": "PWR Signed Terminal Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
