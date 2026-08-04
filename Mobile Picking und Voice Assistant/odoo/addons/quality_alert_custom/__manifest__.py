@@ -4,7 +4,10 @@
     "author": "Mobile Picking Assistant",
     "category": "Inventory/Quality",
     "summary": "Leichtgewichtiges Quality-Alert-Modul für Community Edition",
-    "depends": ["stock", "mail"],
+    # picking_assistant_integration liefert den API-Mixin, ueber den der
+    # Event-Builder den Instanznamen erfaehrt, und die Outbox, in die der
+    # Alert sein Ereignis einreiht.
+    "depends": ["stock", "mail", "picking_assistant_integration"],
     "data": [
         "security/quality_alert_security.xml",
         "security/ir.model.access.csv",
