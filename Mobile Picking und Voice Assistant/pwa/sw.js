@@ -1,3 +1,6 @@
+// v22: Idempotenzschluessel prozentkodiert + gefaltet (api.js) -- ohne Bump
+// schickt der alte Worker weiter rohe Umlaute und Leerzeichen im Header und
+// jede Qualitaetsmeldung mit deutschem Beschreibungstext bleibt bei 400.
 // v16: Piper TTS CSRF + natural speech phrasing (voice.js, voice-runtime.mjs).
 // v15: order-completion fix in app.js. v14 was the session login.
 //
@@ -7,7 +10,7 @@
 // no login screen, legacy identity headers that the backend no longer honours,
 // and a health probe against a route that does not exist. The symptom is an app
 // that looks merely broken, which is the worst kind of stale cache.
-const CACHE_NAME = 'picking-v17';
+const CACHE_NAME = 'picking-v22';
 const PRECACHE = [
     '/',
     '/index.html',

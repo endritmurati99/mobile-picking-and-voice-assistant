@@ -180,10 +180,44 @@ export function setStoredSearchQuery(value) {
     safeStorageSet(STORAGE_KEYS.searchQuery, normalized);
 }
 
+// Das Backend-Gate (`dependencies.validate_idempotency_key`) laesst nur
+// `[\x21-\x7e]{1,128}` durch: sichtbares ASCII, KEIN Leerzeichen, hoechstens
+// 128 Zeichen. Ein roh zusammengefuegter Schluessel verletzt das, sobald
+// Freitext hineingeht -- "Artikel beschädigt" scheitert am Leerzeichen UND am
+// `ä`, ein Dateiname treibt die Laenge ueber 128. Der Schluessel MUSS den
+// Freitext aber enthalten: zwei Meldungen mit verschiedener Beschreibung sind
+// verschiedene Anfragen, und ein gemeinsamer Schluessel liesse die zweite als
+// Wiederholung der ersten durchfallen.
+const IDEMPOTENCY_KEY_MAX = 128;
+
+function encodeKeyPart(value) {
+    // Prozentkodierung liefert per Definition nur sichtbares ASCII.
+    return encodeURIComponent(String(value));
+}
+
+function foldKeyParts(text) {
+    // FNV-1a auf zwei 32-Bit-Bahnen mit verschiedenen Mischkonstanten, also
+    // 64 Bit Ergebnis. Deterministisch -- das ist die eine Eigenschaft, die
+    // ein Idempotenzschluessel braucht; ein Zufallswert waere hier falsch.
+    let a = 0x811c9dc5;
+    let b = 0xcbf29ce4;
+    for (let i = 0; i < text.length; i += 1) {
+        const c = text.charCodeAt(i);
+        a = Math.imul(a ^ c, 0x01000193) >>> 0;
+        b = Math.imul(b ^ c, 0x85ebca6b) >>> 0;
+    }
+    return a.toString(16).padStart(8, '0') + b.toString(16).padStart(8, '0');
+}
+
 export function createIdempotencyKey(scope, parts = [], { unique = false } = {}) {
-    const keyParts = [scope, getDeviceId(), ...parts.map(String)];
+    const safeScope = encodeKeyPart(scope);
+    const keyParts = [safeScope, getDeviceId(), ...parts.map(encodeKeyPart)];
     if (unique) keyParts.push(generateUuid());
-    return keyParts.join(':');
+    const key = keyParts.join(':');
+    if (key.length <= IDEMPOTENCY_KEY_MAX) return key;
+    // Praefix bleibt lesbar (Scope + Geraet, zusammen unter 60 Zeichen), der
+    // variable Rest wird gefaltet. Ergebnis immer <= 76 Zeichen.
+    return `${safeScope}:${getDeviceId()}:${foldKeyParts(key)}`;
 }
 
 const CSRF_STORAGE_KEY = 'picking-assistant-csrf';
