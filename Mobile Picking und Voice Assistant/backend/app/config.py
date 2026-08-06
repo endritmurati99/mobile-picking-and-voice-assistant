@@ -118,6 +118,23 @@ class Settings(BaseSettings):
     # Kleines, schnelles Modell nur fuer den Voice-Intent-Fallback (nicht Qualitaet).
     llm_voice_model: str = "qwen2.5:1.5b"
     llm_voice_timeout_ms: int = 4000
+    # Eigenes Modell fuer die Bildpruefung. EIN Modell fuer Text und Bild
+    # scheidet gemessen aus: qwen2.5vl:7b stufte "Verpackung defekt" als scrap
+    # ein ("Verpackungsdefekt deutet auf Totalschaden hin"), wo qwen2.5:7b
+    # korrekt sellable sagt -- und qwen2.5vl:3b antwortete auf alle vier
+    # Pruefbilder "smooth and continuous everywhere", auch auf den
+    # offensichtlichen Bruch.
+    #
+    # Beide 7B-Modelle gleichzeitig resident zu halten braucht rund 11 GB. Auf
+    # 12 GB WSL-Speicher passt das nicht neben den uebrigen Diensten; der
+    # Rechner hat 33 GB, die .wslconfig muss auf 20 GB stehen.
+    vision_model: str = "qwen2.5vl:7b"
+    # Notausgang: auf false verhaelt sich die Kette wie vor dem Bild-Umbau,
+    # ohne dass jemand Code zurueckdrehen muss.
+    vision_enabled: bool = True
+    # Vier Bildaufrufe (Artikelabgleich plus bis zu drei Schadenspruefungen) zu
+    # je rund 21 s resident. Der n8n-Knoten wartet 180 s.
+    vision_timeout_ms: int = 170000
     # Beim Start das Voice-Modell in Ollama vorwaermen, damit die erste unsichere
     # Sprachaeusserung nicht den Kaltstart (bis ~13s) bezahlt. Default False, damit
     # Tests kein erreichbares Ollama brauchen; im Compose auf true gesetzt.
