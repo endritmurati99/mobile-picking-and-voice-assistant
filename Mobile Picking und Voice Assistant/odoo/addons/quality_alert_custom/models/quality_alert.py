@@ -1,5 +1,8 @@
+import base64
+
 from odoo import models, fields, api
 from odoo.exceptions import ValidationError
+from odoo.tools.mimetypes import guess_mimetype
 from markupsafe import Markup, escape
 
 
@@ -199,6 +202,70 @@ class QualityAlert(models.Model):
         self.sudo().write(values)
         return True
 
+    # Mehr als drei Fotos zu pruefen kostet je Bild rund 21 Sekunden und bringt
+    # selten mehr Erkenntnis. Die Gesamtzahl reist trotzdem mit, damit niemand
+    # glaubt, es sei alles angesehen worden.
+    _MAX_ASSESSMENT_PHOTOS = 3
+
+    @api.model
+    def api_get_assessment_media(self, job_id, delivery_generation, processing_lease_token):
+        """Liefert dem Bewertungsschritt Meldefoto und Katalogbild.
+
+        Der Zugriff haengt am JOB, nicht an einer mitgeschickten Alert-Kennung:
+        wer den Alert frei waehlen koennte, kaeme mit einer einzigen gueltigen
+        Signatur an jedes Foto im System. Dieselbe Lease- und
+        Generationspruefung wie bei `api_get_job_media` -- eine abgelaufene
+        Bearbeitung darf nichts mehr lesen.
+
+        Gelesen werden ausschliesslich Anhaenge mit `res_field = False`. Odoo
+        legt je Foto ZWEI Zeilen an: die Ablage des Binaerfeldes `photo` (von
+        Odoo neu kodiert, und es gibt sie nur einmal, auch bei mehreren Fotos)
+        und diese hier mit den urspruenglichen Bytes und dem urspruenglichen
+        Dateinamen.
+
+        Der gespeicherte `mimetype` wird bewusst NICHT mitgeliefert. Die
+        Leseseite bestimmt den Typ aus den Bytes -- derselbe Grundsatz, nach
+        dem auf den signierten Routen ein deklarierter Content-Type nie als
+        Beweis gilt.
+        """
+        job = self.env["picking.assistant.integration.job"].sudo().search(
+            [("job_id", "=", job_id), ("aggregate_model", "=", self._name)],
+            limit=1,
+        )
+        if not job:
+            raise ValidationError(f"Unbekannter Job: {job_id!r}")
+        job._require_current_generation(delivery_generation, processing_lease_token)
+
+        alert = self.sudo().browse(job.aggregate_res_id).exists()
+        if not alert:
+            raise ValidationError(f"Zum Job {job_id!r} fehlt der Alert.")
+
+        attachments = self.env["ir.attachment"].sudo()
+        domain = [
+            ("res_model", "=", self._name),
+            ("res_id", "=", alert.id),
+            ("res_field", "=", False),
+        ]
+        total = attachments.search_count(domain)
+        photos = attachments.search(
+            domain, order="id asc", limit=self._MAX_ASSESSMENT_PHOTOS
+        )
+
+        template = alert.product_id.product_tmpl_id
+        reference = template.image_1920 if template else False
+        return {
+            "photos": [
+                {
+                    "filename": photo.name or "",
+                    "data_b64": (photo.datas or b"").decode("ascii"),
+                }
+                for photo in photos
+            ],
+            "photo_total": total,
+            "reference_image_b64": reference.decode("ascii") if reference else False,
+            "product_label": alert.product_id.display_name if alert.product_id else "",
+        }
+
     def write(self, vals):
         bumps = any(field in vals for field in self._REVISION_TRIGGER_FIELDS)
         if not bumps or "integration_revision" in vals:
@@ -252,7 +319,13 @@ class QualityAlert(models.Model):
                 "datas": p["data_b64"],
                 "res_model": self._name,
                 "res_id": alert.id,
-                "mimetype": "image/jpeg",
+                # Der Typ kommt aus den Bytes, nicht aus einer Annahme. Vorher
+                # stand hier hart "image/jpeg" -- auch fuer PNG und WebP, und
+                # die Bestandsanhaenge tragen deshalb einen falschen Wert. Die
+                # Leseseite (`api_get_assessment_media` -> Backend) glaubt ihn
+                # ohnehin nicht; korrigiert wird er trotzdem, weil ein falscher
+                # Wert in der Datenbank irgendwann jemanden in die Irre fuehrt.
+                "mimetype": guess_mimetype(base64.b64decode(p["data_b64"])),
             })
 
         # Transactional Outbox: der Beleg entsteht in DERSELBEN Transaktion wie
