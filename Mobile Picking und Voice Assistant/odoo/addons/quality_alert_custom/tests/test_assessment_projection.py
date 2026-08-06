@@ -54,3 +54,37 @@ class TestAssessmentProjection(TransactionCase):
         alert = self._alert()
         with self.assertRaises(ValidationError):
             alert.api_apply_assessment("erfunden", RESULT, None)
+
+    def test_photo_analysis_is_stored_on_success(self):
+        alert = self._alert()
+        alert.api_apply_assessment(
+            "succeeded",
+            dict(RESULT, photo_analysis="Schadenspruefung: aufgerissene Zone."),
+            None,
+        )
+        self.assertIn("aufgerissene Zone", alert.ai_photo_analysis)
+
+    def test_photo_analysis_is_stored_on_review_required(self):
+        """Beim Hundefoto IST review_required das Ergebnis, und der Grund dafuer
+        ist der wertvollste Teil des Vorgangs. Die Regel darunter -- nur
+        `succeeded` darf schreiben -- schuetzt davor, dass ein URTEIL ohne
+        Modell entsteht. Eine Beobachtung ist kein Urteil."""
+        alert = self._alert()
+        alert.api_apply_assessment(
+            "review_required",
+            {"photo_analysis": "Foto zeigt nicht den gemeldeten Artikel."},
+            {"message": "Widerspruch"},
+        )
+        self.assertIn("nicht den gemeldeten Artikel", alert.ai_photo_analysis)
+        self.assertFalse(alert.ai_disposition)
+        self.assertFalse(alert.ai_confidence)
+
+    def test_a_result_without_photo_analysis_clears_the_field(self):
+        """Kein Rest vom vorigen Durchlauf: eine Wiederholung ohne Bildbefund
+        darf nicht den alten stehen lassen."""
+        alert = self._alert()
+        alert.api_apply_assessment(
+            "succeeded", dict(RESULT, photo_analysis="alter Befund"), None
+        )
+        alert.api_apply_assessment("succeeded", RESULT, None)
+        self.assertFalse(alert.ai_photo_analysis)

@@ -187,6 +187,17 @@ class QualityAlert(models.Model):
             "ai_evaluation_status": mapped,
             "ai_last_analyzed_at": fields.Datetime.now(),
             "ai_failure_reason": error.get("message") or False,
+            # Die Fotoanalyse wird bei JEDEM Status geschrieben, auch bei
+            # `review_required`. Die Regel darunter -- nur `succeeded` darf
+            # schreiben -- verhindert, dass ein URTEIL ohne Modell entsteht.
+            # Eine Beobachtung ist kein Urteil, und beim Hundefoto IST
+            # review_required das Ergebnis: der Grund dafuer ist das
+            # Wertvollste am ganzen Vorgang und darf nicht verschwinden.
+            #
+            # Ohne Bildbefund wird das Feld geleert, nicht stehen gelassen:
+            # ein Rest vom vorigen Durchlauf waere eine Aussage ueber ein
+            # Foto, das gerade niemand angesehen hat.
+            "ai_photo_analysis": result.get("photo_analysis") or False,
         }
         if mapped == "completed":
             values.update(

@@ -10,6 +10,14 @@ class TestAlertEnqueuesEvent(TransactionCase):
         self.env["ir.config_parameter"].sudo().set_param(
             "picking_assistant.instance_name", "local"
         )
+        # Die Zeilen, die VOR diesem Test schon da waren. Ohne diese Abgrenzung
+        # behaupten die Tests unten eine leere Outbox -- das gilt in einer
+        # frischen Testdatenbank und sonst nie. Gegen `masterfischer_o19` mit
+        # echten Zeilen liefen sie deshalb immer rot, und rote Tests, die man
+        # gewohnheitsmaessig uebergeht, sind schlimmer als gar keine.
+        self._preexisting = set(
+            self.env["picking.assistant.outbox"].sudo().search([]).ids
+        )
 
     def _create(self, description="Karton zerdrueckt"):
         return self.env["quality.alert.custom"].api_create_alert(
@@ -17,7 +25,9 @@ class TestAlertEnqueuesEvent(TransactionCase):
         )
 
     def _outbox(self):
-        return self.env["picking.assistant.outbox"].sudo().search([])
+        """Nur die Zeilen, die DIESER Test erzeugt hat."""
+        rows = self.env["picking.assistant.outbox"].sudo().search([])
+        return rows.filtered(lambda row: row.id not in self._preexisting)
 
     def test_one_alert_creates_exactly_one_outbox_row(self):
         self._create()
