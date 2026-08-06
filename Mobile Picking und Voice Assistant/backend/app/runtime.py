@@ -36,6 +36,7 @@ from app.models.webhook_security import HmacKeyring
 from app.services.auth_sessions import SessionService
 from app.services.hmac_keyrings import build_n8n_to_backend_keyring
 from app.services.llm_client import LlmClient
+from app.services.vision_client import VisionClient
 from app.services.n8n_webhook import N8NWebhookClient
 from app.services.odoo_client import OdooClient
 
@@ -55,6 +56,7 @@ class RuntimeServices:
         self._session_service: SessionService | None = None
         self._n8n_client: N8NWebhookClient | None = None
         self._llm_client: LlmClient | None = None
+        self._vision_client: VisionClient | None = None
 
     @property
     def instances(self):
@@ -128,6 +130,31 @@ class RuntimeServices:
                         timeout_ms=self.settings.llm_timeout_ms,
                     )
                     self._llm_client = client
+        return client
+
+    def vision_client(self) -> VisionClient | None:
+        """`None`, wenn die Bildpruefung abgeschaltet ist.
+
+        Der Schalter sitzt hier und nicht in der Route: die Route kennt damit
+        nur "Client da oder nicht", und `None` laeuft ueber denselben Pfad wie
+        ein Ausfall des Bildmodells. Ein Sonderfall weniger.
+
+        Gecacht wie der Textclient, aus demselben Grund: sonst legt jeder
+        Request einen eigenen httpx-Pool an.
+        """
+        if not self.settings.vision_enabled:
+            return None
+        client = self._vision_client
+        if client is None:
+            with self._lock:
+                client = self._vision_client
+                if client is None:
+                    client = VisionClient(
+                        endpoint=self.settings.llm_endpoint,
+                        model=self.settings.vision_model,
+                        timeout_ms=self.settings.vision_timeout_ms,
+                    )
+                    self._vision_client = client
         return client
 
     def n8n_to_backend_keyring(self) -> HmacKeyring:

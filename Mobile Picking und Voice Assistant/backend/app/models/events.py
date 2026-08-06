@@ -140,6 +140,12 @@ class QualityAssessmentV2Response(StrictModel):
     recommended_action: str | None = None
     provider: str
     model: str
+    # Der Bildbefund reist als eigene Felder mit, nicht im Urteil. `contradiction`
+    # ist das EINZIGE, worauf n8n verzweigt; `photo_analysis` geht unveraendert
+    # bis in das Odoo-Feld `ai_photo_analysis` durch.
+    photo_checked: bool = False
+    contradiction: bool = False
+    photo_analysis: str | None = None
 
 
 class EventAcceptanceRequest(StrictModel):

@@ -82,7 +82,18 @@ class LlmClient:
             lines.append(f"Produkt-ID: {product_id}")
         if location_id:
             lines.append(f"Lagerort-ID: {location_id}")
-        lines.append("Wichtig: Es stehen keine Bildinhalte zur Verfuegung, nur der Text.")
+        # Hier stand: "Wichtig: Es stehen keine Bildinhalte zur Verfuegung,
+        # nur der Text." Der Satz war ab Task 10 wahr und ist es nicht mehr --
+        # die Bilder werden jetzt geprueft, nur eben nicht von DIESEM Modell.
+        # Er richtete zusaetzlich Schaden an: bei QA/0011 begruendete das
+        # Modell sein Urteil mit "keine Bilder verfuegbar, daher als
+        # Totalschaden eingestuft" und rechnete das fehlende Bild als
+        # erschwerenden Umstand.
+        #
+        # Der Bildbefund kommt hier bewusst NICHT hinein. Diese Bewertung
+        # bleibt eine reine Textbewertung -- genau deshalb laesst sie sich
+        # anschliessend gegen den Bildbefund pruefen. Ein Modell, das beide
+        # Quellen saehe, koennte einen Widerspruch wegerklaeren.
         return "\n".join(lines)
 
     async def classify_disposition(

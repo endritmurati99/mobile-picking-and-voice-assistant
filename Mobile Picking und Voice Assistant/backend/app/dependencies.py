@@ -16,6 +16,7 @@ from app.services.mobile_workflow import (
 from app.services.auth_sessions import AuthenticationFailed, CsrfFailed, SessionService
 from app.services.cluster_service import ClusterService
 from app.services.llm_client import LlmClient
+from app.services.vision_client import VisionClient
 from app.services.n8n_webhook import N8NWebhookClient
 from app.services.odoo_client import OdooClient
 from app.services.picking_service import PickingService
@@ -63,6 +64,11 @@ def get_n8n_client(request: Request) -> N8NWebhookClient:
 
 def get_llm_client(request: Request) -> LlmClient:
     return get_runtime(request).llm_client()
+
+
+def get_vision_client(request: Request) -> VisionClient | None:
+    """`None` heisst: Bildpruefung abgeschaltet, siehe `RuntimeServices`."""
+    return get_runtime(request).vision_client()
 
 
 def resolve_instance(

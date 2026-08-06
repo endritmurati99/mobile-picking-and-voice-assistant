@@ -62,6 +62,7 @@ from app.dependencies import (
     get_callback_odoo_client,
     get_llm_client,
     get_runtime,
+    get_vision_client,
     verify_n8n_to_backend_request,
 )
 from app.models.events import (
@@ -73,6 +74,9 @@ from app.models.events import (
     QualityAssessmentV2Response,
 )
 from app.services.llm_client import LlmClient
+from app.services.vision_client import VisionClient
+from app.services.assessment_media import MediaError, prepare_image
+from app.services.assessment_reconciliation import PhotoFinding, reconcile
 from app.services.binary_validation import (
     ARTIFACT_KINDS,
     BinaryValidationError,
@@ -229,22 +233,127 @@ async def apply_callback(
     )
 
 
+async def _collect_photo_finding(odoo, vision: VisionClient, body) -> tuple[PhotoFinding, bool]:
+    """Holt die Bilder und laesst das Bildmodell zweimal darauf schauen.
+
+    Gibt `(Befund, geprueft)` zurueck. `geprueft` ist False, sobald gar nichts
+    zu sehen war -- dann steht der Grund im Klartext und das Texturteil bleibt
+    allein stehen. Ein halber Bildbefund entsteht hier nie: jeder Fehlerpfad
+    endet in "unavailable", nicht in einer Vermutung.
+    """
+    try:
+        media = await odoo.execute_kw(
+            "quality.alert.custom",
+            "api_get_assessment_media",
+            [str(body.job_id), body.delivery_generation, body.processing_lease_token],
+        )
+    except Exception as exc:  # noqa: BLE001 - jeder Fehler heisst: kein Bildbefund
+        return _no_finding(f"Bildpruefung nicht moeglich: {exc}"), False
+
+    photos = (media or {}).get("photos") or []
+    if not photos:
+        return _no_finding("Ohne Bildpruefung: der Meldung liegt kein Foto bei."), False
+
+    try:
+        candidates = [
+            prepare_image(base64.b64decode(photo["data_b64"])) for photo in photos
+        ]
+    except (MediaError, KeyError, ValueError, binascii.Error) as exc:
+        return _no_finding(f"Bildpruefung nicht moeglich: {exc}"), False
+
+    lines: list[str] = []
+    article = await _check_article(vision, media, candidates[0], lines)
+    damage = await _check_damage(vision, candidates, lines)
+
+    skipped = int(media.get("photo_total") or len(photos)) - len(photos)
+    if skipped > 0:
+        lines.append(f"{skipped} weitere Foto(s) ungeprueft.")
+
+    checked = article != "unavailable" or damage != "unavailable"
+    return PhotoFinding(article=article, damage=damage, note="\n".join(lines)), checked
+
+
+def _no_finding(note: str) -> PhotoFinding:
+    return PhotoFinding(article="unavailable", damage="unavailable", note=note)
+
+
+async def _check_article(vision, media, candidate: bytes, lines: list[str]) -> str:
+    """Artikelabgleich gegen das Katalogbild. Nur auf dem ersten Foto."""
+    reference_b64 = media.get("reference_image_b64")
+    if not reference_b64:
+        lines.append("Artikelabgleich entfaellt: kein Katalogbild hinterlegt.")
+        return "unavailable"
+    try:
+        reference = prepare_image(base64.b64decode(reference_b64))
+    except (MediaError, ValueError, binascii.Error) as exc:
+        lines.append(f"Artikelabgleich nicht moeglich: {exc}")
+        return "unavailable"
+
+    match = await vision.compare_article(reference, candidate)
+    if not match.ok:
+        lines.append("Artikelabgleich nicht moeglich: Bildmodell antwortet nicht.")
+        return "unavailable"
+    if match.same_article:
+        lines.append("Artikelabgleich: stimmt mit Katalogbild ueberein.")
+        return "match"
+    label = media.get("product_label") or "dem gemeldeten Artikel"
+    seen = match.candidate_description or match.reason or "etwas anderes"
+    lines.append(f"Foto zeigt nicht den gemeldeten Artikel: {seen} statt {label}.")
+    return "mismatch"
+
+
+async def _check_damage(vision, candidates: list[bytes], lines: list[str]) -> str:
+    """Schadenspruefung auf JEDEM Foto. Ein einziger Fund genuegt.
+
+    Getrennt vom Artikelabgleich, weil beides zusammen gemessen schlechter
+    ist: im Zwei-Bild-Aufruf wurde ein sichtbarer Bruch als "decorative
+    element" abgetan.
+    """
+    damage = "unavailable"
+    seen: list[str] = []
+    for candidate in candidates:
+        check = await vision.inspect_damage(candidate)
+        if not check.ok:
+            continue
+        if check.damaged:
+            damage = "damaged"
+            seen.extend(check.anomalies)
+        elif damage != "damaged":
+            damage = "intact"
+
+    if damage == "unavailable":
+        lines.append("Schadenspruefung nicht moeglich: Bildmodell antwortet nicht.")
+    elif damage == "damaged":
+        lines.append("Schadenspruefung: " + ", ".join(seen or ["Schaden sichtbar"]) + ".")
+    else:
+        lines.append("Schadenspruefung: keine Auffaelligkeit sichtbar.")
+    return damage
+
+
 @router.post(V2 + "/assessments/quality", response_model=QualityAssessmentV2Response)
 async def assess_quality(
     verified: VerifiedInternalRequest = Depends(verify_n8n_to_backend_request),
     llm: LlmClient = Depends(get_llm_client),
+    vision: VisionClient | None = Depends(get_vision_client),
+    runtime: RuntimeServices = Depends(get_runtime),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    """Bewertung durch das lokale Modell -- ohne jeden Schreibzugriff auf Odoo.
+    """Bewertung durch die lokalen Modelle -- lesend auf Odoo, nie schreibend.
 
     Die v2-Entsprechung von `/api/internal/llm/quality-disposition`. Sie
     existiert, weil `PwrSignedHttpRequest` nur `pwrOutboundHmac` kennt und
     seine Header selbst baut: das `X-N8N-Callback-Secret`, auf dem die alte
     Route besteht, kann ein v2-Workflow gar nicht mitschicken.
 
-    Kein Odoo-Aufruf, keine Lease-Pruefung: diese Route entscheidet nichts und
-    aendert nichts, sie fragt nur das Modell. Ueber Wirkung entscheidet
-    ausschliesslich der Callback.
+    **Geaendert gegenueber Task 10:** die Route LIEST aus Odoo, um an Meldefoto
+    und Katalogbild zu kommen. Sie entscheidet und aendert weiterhin nichts --
+    ueber Wirkung entscheidet ausschliesslich der Callback. Der Lesezugriff
+    haengt an `job_id`, nie an einer mitgeschickten Alert-Kennung, und laeuft
+    in Odoo durch dieselbe Lease- und Generationspruefung wie die Medienroute.
+
+    Der Ablauf dahinter: Bilder holen, Artikel abgleichen, Schaden pruefen,
+    Text bewerten, abgleichen. Das Textmodell bekommt den Bildbefund NICHT --
+    nur deshalb laesst sich sein Urteil anschliessend daran pruefen.
     """
     body = _verified_body(
         QualityAssessmentV2Request, verified, idempotency_key, "event_id"
@@ -256,6 +365,19 @@ async def assess_quality(
         product_id=body.product_id,
         location_id=body.location_id,
     )
+
+    if vision is None:
+        finding = _no_finding("Bildpruefung abgeschaltet.")
+        checked = False
+    else:
+        odoo = get_callback_odoo_client(runtime, body.odoo_instance)
+        finding, checked = await _collect_photo_finding(odoo, vision, body)
+
+    reconciled = reconcile(
+        disposition=result.disposition if result.ok else None,
+        finding=finding,
+    )
+
     # Bei `ok=False` bleibt JEDES Urteilsfeld leer. Ein halb gefuelltes
     # Ergebnis waere die Einladung, im Workflow doch daraus zu schliessen.
     return QualityAssessmentV2Response(
@@ -266,6 +388,9 @@ async def assess_quality(
         recommended_action=result.recommended_action if result.ok else None,
         provider=LlmClient.PROVIDER,
         model=result.model,
+        photo_checked=checked,
+        contradiction=reconciled.contradiction,
+        photo_analysis=reconciled.photo_analysis,
     )
 
 
