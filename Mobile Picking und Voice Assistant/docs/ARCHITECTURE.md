@@ -1,104 +1,63 @@
 # Architektur
 
-## Systemrollen
+Diese Seite ist der Einstieg in die Architekturdokumentation des **Mobile
+Picking und Voice Assistant**.
 
-- `PWA`
-  - mobile Bedienoberflaeche fuer Picking, Voice, Scan und Quality Alerts
-- `FastAPI`
-  - App-API, Odoo-Adapter, Idempotency- und Claim-Schicht
-- `Odoo`
-  - fachliche Datenquelle fuer Pickings, Quality Alerts, Nutzer und Lagerplaetze
-- `n8n`
-  - Orchestrator fuer async Events und synchrone Ausnahmeassistenz
-- `Whisper`
-  - lokaler ASR-Service fuer `POST /api/voice/recognize`
+## Für Einsteiger
 
-## Architekturregeln
+Beginne mit [Ebene 1: Die große Systemlandkarte](./architecture/ebene-1-systemlandkarte.md).
+Sie erklärt PWA, Caddy, FastAPI, Odoo, n8n, Voice, lokale KI, PostgreSQL und
+Docker ohne technisches Vorwissen.
 
-1. Odoo bleibt System of Record.
-2. FastAPI ist die einzige API-Schicht fuer die PWA.
-3. n8n liegt nicht im normalen Voice-Hot-Path.
-4. Fachliche Writes aus n8n laufen nur ueber interne FastAPI-Callbacks.
-5. Touch bleibt Fallback, Voice ist Enhancement.
-6. Bei mehreren Odoo-Instanzen bleibt jede Instanz ihr eigenes System of Record; es gibt keine Datenvermischung zwischen Profilen.
+Die editierbaren und exportierten Grafiken liegen daneben:
 
-## Hauptfluesse
+- [Excalidraw-Quelle](./architecture/ebene-1-systemlandkarte.excalidraw)
+- [SVG-Grafik](./architecture/ebene-1-systemlandkarte.svg)
 
-### Pick-Bestaetigung
-1. PWA -> `POST /api/pickings/{id}/confirm-line` mit optionalem `X-Odoo-Instance`
-2. FastAPI validiert Instanz, Identitaet, Claim und Idempotency
-3. FastAPI schreibt nach der gewaehlten Odoo-Instanz
-4. FastAPI feuert `pick-confirmed` asynchron an n8n
-5. Wenn die n8n-Uebergabe fehlschlaegt, bleibt das Picking fachlich abgeschlossen, aber die Antwort wird als degradierter Folgeprozess markiert
+## Stabile Architekturregeln
 
-### Odoo-Instanz-Switch
-1. PWA -> `GET /api/instances`
-2. FastAPI gibt nur `name` und `display_name` zurueck, keine URLs, DB-Namen oder Secrets
-3. Picker waehlt in der PWA ein Lager/Profil, z. B. `Lager 2`
-4. `pwa/js/api.js` haengt fuer alle Folge-Requests `X-Odoo-Instance: lager-2` an
-5. FastAPI loest das Profil in `resolve_instance` auf und nutzt einen gecachten `OdooClient` pro Profil
-6. Unbekanntes Profil fuehrt zu HTTP 400, kein stiller Fallback
+1. Die PWA spricht fachlich nur mit FastAPI, nie direkt mit Odoo, n8n oder
+   PostgreSQL.
+2. FastAPI ist die einzige App-API und vermittelt zwischen Browser und internen
+   Diensten.
+3. Odoo ist das System of Record für Aufträge, Bestand, Benutzer und Quality
+   Alerts.
+4. Normales Picking und Cluster-Picking werden durch FastAPI und Odoo
+   abgewickelt; n8n ist dafür nicht erforderlich.
+5. n8n orchestriert vor allem die asynchrone Quality-Verarbeitung. Fachliche
+   Änderungen laufen kontrolliert über FastAPI zurück nach Odoo.
+6. Whisper wandelt Sprache in Text, Piper Text in Sprache und Ollama führt
+   lokale Text- und Bildmodelle aus.
+7. Odoo und n8n nutzen getrennte Datenbanken im gemeinsamen
+   PostgreSQL-Dienst. FastAPI greift nicht direkt auf diese Datenbanken zu.
+8. Touch und Scanner bleiben die verlässlichen Bedienwege; Voice ist eine
+   zusätzliche Eingabemöglichkeit.
+9. Bei mehreren Odoo-Instanzen bleibt jede Instanz ihr eigenes System of
+   Record. Daten werden nicht still zwischen Profilen vermischt.
 
-PoC-Grenze:
+## Lernpfad
 
-- Direkte Sync-Pfade wie Pickings, Produktbilder, Bestand, Quality-Alert-Anlage und Voice-Assist-Odoo-Kontext folgen der gewaehlten Instanz.
-- n8n-Callbacks bleiben bewusst auf `local`, bis der Event-Envelope instanz-bewusst erweitert wird.
+| Ebene | Inhalt | Status |
+| --- | --- | --- |
+| 1 | Gesamtlandkarte und Docker-Grenze | vorhanden |
+| 2 | PWA und normaler Auftrag | geplant |
+| 3 | Cluster-Picking | geplant |
+| 4 | Voice mit Whisper und Piper | geplant |
+| 5 | Quality, n8n sowie Text- und Bild-KI | geplant |
+| 6 | Docker, Netzwerke, Daten, Sicherheit und Fehlerfälle | geplant |
 
-### Voice-Hot-Path
-1. PWA -> `POST /api/voice/recognize`
-2. FastAPI -> Whisper
-3. lokale Intent-Logik entscheidet ueber den naechsten Schritt
-4. PWA reagiert sofort
+## Technische Quellen
 
-### Sync Ausnahmeassistenz
-1. PWA -> `POST /api/voice/assist`
-2. FastAPI reichert Odoo- und Obsidian-Kontext an
-3. FastAPI -> n8n `voice-exception-query`
-4. n8n antwortet synchron oder FastAPI faellt lokal zurueck
+Die Dokumentation erklärt das System. Für die verbindliche technische
+Verdrahtung gelten weiterhin Code und Konfiguration:
 
-### Quality Alert mit Welle A
-1. PWA -> `POST /api/quality-alerts`
-2. FastAPI erstellt `quality.alert.custom` in Odoo
-3. FastAPI -> n8n `quality-alert-created`
-4. Nur bei erfolgreicher Uebergabe setzt FastAPI `ai_evaluation_status = pending`
-5. Wenn die Uebergabe scheitert, markiert FastAPI den Alert als `failed` und schreibt den Grund in den Chatter
-6. n8n bewertet heuristisch und ruft `POST /api/internal/n8n/quality-assessment` auf
-7. FastAPI schreibt strukturierte KI-Felder kontrolliert nach Odoo zurueck
+- `docker-compose.yml` für Dienste, Profile, Netze und Volumes,
+- `infrastructure/caddy/Caddyfile` für die öffentliche Eingangsschicht,
+- `pwa/js/api.js` für Browser-API-Aufrufe,
+- `backend/app/main.py` für die FastAPI-Router,
+- `backend/app/services/` für die Abläufe,
+- `odoo/addons/` für die Odoo-Fachmodelle,
+- `n8n/workflow-registry.json` und `n8n/workflows/` für n8n.
 
-## Quality-Alert-Felder nach Welle A
-
-- `description`
-  - Originalbeschreibung des Pickers
-- `ai_enhanced_description`
-  - sprachlich bereinigte KI-Fassung ohne neue Fakten
-- `ai_photo_analysis`
-  - separater visueller Bildbefund
-- `ai_summary`
-  - Management-Zusammenfassung
-- `ai_recommended_action`
-  - operative Empfehlung
-- `ai_evaluation_status`
-  - technischer Verarbeitungsstatus
-
-## Odoo-Sichtbarkeit
-
-Der sichtbare Hauptblock fuer Quality Alerts heisst `Systembewertung` und zeigt nur:
-
-- Analyse-Status
-- Einstufung
-- Empfohlene Aktion
-- Analysiert am
-
-Zusatzregel:
-
-- KI-Chatter fuer Quality Alerts wird als Klartext geschrieben, nicht mehr als HTML-Fragment.
-- Ausfuehrliche Begruendung und technische Fehler gehoeren in den Chatter, nicht in den Hauptblock.
-
-## Runtime-Hinweis
-
-Der Repo-Stand bildet Welle A bereits ab.
-Fuer den sichtbaren Live-Effekt fehlen aber weiterhin:
-
-- Odoo-Addon-Upgrade in der aktiven Datenbank
-- kontrollierter Import bzw. Aktivierungsabgleich des aktualisierten `quality-alert-created`-Workflows
-- fuer Multi-Instanz-Demos: Installation des Quality-Addons, Barcodes, Seriennummern-Tracking und Bestand in jeder Zielinstanz
+Historische Spezifikationen und alte Vertragsdokumente beschreiben teilweise
+frühere Ausbaustufen. Bei Widersprüchen hat der aktuelle Code Vorrang.
