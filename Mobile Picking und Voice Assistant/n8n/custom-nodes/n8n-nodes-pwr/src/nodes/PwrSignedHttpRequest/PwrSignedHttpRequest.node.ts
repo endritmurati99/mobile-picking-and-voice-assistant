@@ -13,10 +13,10 @@ import {buildSignedRequest} from "../../security/signedRequest";
 
 // Der Deckel haelt jeden Aufruf innerhalb der fuenfminuetigen Bearbeitungs-
 // Lease (`PROCESSING_LEASE_SECONDS`): laeuft ein Knoten laenger, kommt der
-// Abschluss-Callback zu spaet und Odoo weist ihn ab. 240 s, weil ein
-// Bildaufruf auf der CPU rund 60 s braucht und die Bewertung zwei davon
-// plus den Textaufruf macht; die restlichen 60 s bleiben dem Callback.
-const MAX_TIMEOUT_MS = 240000;
+// Abschluss-Callback zu spaet und Odoo weist ihn ab. 270 s, gemessen am
+// echten Meldefoto (QA/0204): Artikelabgleich 169 s, Schadenspruefung 9 s,
+// Texturteil rund 25 s. Die restlichen 30 s bleiben dem Callback.
+const MAX_TIMEOUT_MS = 270000;
 
 export class PwrSignedHttpRequest implements INodeType {
   description: INodeTypeDescription = {
@@ -141,7 +141,7 @@ export class PwrSignedHttpRequest implements INodeType {
         name: "timeoutMs",
         type: "number",
         default: 10000,
-        description: "Capped at 240000ms.",
+        description: "Capped at 270000ms.",
       },
     ],
   };

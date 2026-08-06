@@ -130,6 +130,10 @@ class VisionClient:
             logger.warning(json.dumps({
                 "event_type": "vision_probe_failed",
                 "model": self._model,
+                # Der Typ steht dabei, weil genau hier eine Zeitgrenze mit
+                # leerem `str(exc)` ankommt (httpx.ReadTimeout) und ohne ihn
+                # nicht von einem Verbindungsfehler zu unterscheiden ist.
+                "error_type": type(exc).__name__,
                 "error": str(exc),
             }))
             return None

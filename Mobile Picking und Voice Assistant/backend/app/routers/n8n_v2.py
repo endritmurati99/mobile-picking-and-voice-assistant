@@ -266,7 +266,12 @@ async def _collect_photo_finding(odoo, vision: VisionClient, body) -> tuple[Phot
     lines: list[str] = []
     deadline = time.monotonic() + max(0.0, settings.vision_budget_ms / 1000.0)
     article = await _check_article(vision, media, candidates[0], lines)
-    damage, ungeprueft = await _check_damage(vision, candidates, lines, deadline)
+    # Lief der Artikelabgleich, ist der eine garantierte Bildaufruf verbraucht
+    # und die Schadenspruefung haengt vollstaendig am Budget. Fiel er aus
+    # (kein Katalogbild), muss sie ihn tragen.
+    damage, ungeprueft = await _check_damage(
+        vision, candidates, lines, deadline, garantiert=article == "unavailable"
+    )
 
     skipped = int(media.get("photo_total") or len(photos)) - len(photos) + ungeprueft
     if skipped > 0:
@@ -306,7 +311,11 @@ async def _check_article(vision, media, candidate: bytes, lines: list[str]) -> s
 
 
 async def _check_damage(
-    vision, candidates: list[bytes], lines: list[str], deadline: float
+    vision,
+    candidates: list[bytes],
+    lines: list[str],
+    deadline: float,
+    garantiert: bool,
 ) -> tuple[str, int]:
     """Schadenspruefung auf JEDEM Foto. Ein einziger Fund genuegt.
 
@@ -314,16 +323,18 @@ async def _check_damage(
     ist: im Zwei-Bild-Aufruf wurde ein sichtbarer Bruch als "decorative
     element" abgetan.
 
-    `deadline` begrenzt die Reihe als Ganzes. Das erste Foto wird immer
-    geprueft -- ein Budget, das gar keinen Befund zulaesst, waere dasselbe wie
-    eine abgeschaltete Bildpruefung, nur unausgesprochen. Liefert neben dem
+    `deadline` begrenzt die Reihe als Ganzes. `garantiert` erzwingt das erste
+    Foto auch bei abgelaufenem Budget -- ein Budget, das gar keinen Bildaufruf
+    zulaesst, waere dasselbe wie eine abgeschaltete Bildpruefung, nur
+    unausgesprochen. Gesetzt wird es nur, wenn der Artikelabgleich ausfiel;
+    sonst hat der den garantierten Aufruf schon getragen. Liefert neben dem
     Befund die Zahl der Fotos, die dafuer liegen blieben.
     """
     damage = "unavailable"
     seen: list[str] = []
     ungeprueft = 0
     for index, candidate in enumerate(candidates):
-        if index > 0 and time.monotonic() >= deadline:
+        if not (garantiert and index == 0) and time.monotonic() >= deadline:
             ungeprueft = len(candidates) - index
             break
         check = await vision.inspect_damage(candidate)

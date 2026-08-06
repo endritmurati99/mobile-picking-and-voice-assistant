@@ -362,11 +362,11 @@ def test_every_photo_is_inspected_and_the_rest_is_declared(llm_ok, signed_env):
     assert "2 weitere Foto(s) ungeprueft" in response.json()["photo_analysis"]
 
 
-def test_spent_budget_stops_further_photos_and_says_so(llm_ok, signed_env):
-    """Drei Fotos ergeben vier Bildaufrufe. Auf der CPU dauert einer rund 60 s,
-    der n8n-Knoten wartet 240 s -- ohne Gesamtbudget reisst die Zeitgrenze im
-    Knoten, und dann geht der Befund ersatzlos verloren. Das erste Foto wird
-    immer geprueft, der Rest nur solange Zeit bleibt."""
+def test_spent_budget_stops_the_damage_checks_and_says_so(llm_ok, signed_env):
+    """Am echten Meldefoto gemessen: Artikelabgleich 169 s, Schadenspruefung
+    9 s. Der Artikelabgleich laeuft deshalb immer -- er ist der Aufruf, der den
+    Widerspruch findet. Die Schadenspruefung laeuft nur, solange Zeit bleibt;
+    was liegen bleibt, wird gezaehlt statt stillschweigend uebergangen."""
     signed_env["o19-a"].response = {
         "photos": [
             {"filename": f"foto_{i}.jpg", "data_b64": _tiny_jpeg_b64()} for i in range(3)
@@ -387,8 +387,40 @@ def test_spent_budget_stops_further_photos_and_says_so(llm_ok, signed_env):
         config.settings.vision_budget_ms = vorher
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
+    body = response.json()
+    assert fake.damage_calls == 0
+    assert "3 weitere Foto(s) ungeprueft" in body["photo_analysis"]
+    # Der Artikelabgleich lief trotzdem -- sonst waere ein aufgebrauchtes
+    # Budget dasselbe wie abgeschaltete Bildpruefung, nur unausgesprochen.
+    assert "Artikelabgleich" in body["photo_analysis"]
+
+
+def test_without_a_catalogue_image_one_damage_check_still_runs(llm_ok, signed_env):
+    """Ohne Katalogbild entfaellt der Artikelabgleich. Dann muss die
+    Schadenspruefung den einen garantierten Bildaufruf tragen, sonst kaeme bei
+    aufgebrauchtem Budget gar kein Befund zustande."""
+    signed_env["o19-a"].response = {
+        "photos": [
+            {"filename": f"foto_{i}.jpg", "data_b64": _tiny_jpeg_b64()} for i in range(2)
+        ],
+        "photo_total": 2,
+        "reference_image_b64": False,
+        "product_label": "Brick",
+    }
+    fake = install_vision(
+        ArticleMatch(ok=False),
+        DamageCheck(ok=True, damaged=False, anomalies=()),
+    )
+    vorher = config.settings.vision_budget_ms
+    config.settings.vision_budget_ms = 0
+    try:
+        response = post(assess_body())
+    finally:
+        config.settings.vision_budget_ms = vorher
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
     assert fake.damage_calls == 1
-    assert "2 weitere Foto(s) ungeprueft" in response.json()["photo_analysis"]
+    assert "1 weitere Foto(s) ungeprueft" in response.json()["photo_analysis"]
 
 
 def test_vision_disabled_behaves_like_before_the_rebuild(llm_ok, signed_env):

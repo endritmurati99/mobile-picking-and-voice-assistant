@@ -132,17 +132,17 @@ class Settings(BaseSettings):
     # Notausgang: auf false verhaelt sich die Kette wie vor dem Bild-Umbau,
     # ohne dass jemand Code zurueckdrehen muss.
     vision_enabled: bool = True
-    # Gilt je Bildaufruf. Gemessen auf der CPU: rund 60 s fuer ein 512-px-Bild.
-    # Der n8n-Knoten wartet 240 s; zwei Bildaufrufe zu je 100 s plus der
-    # Textaufruf (30 s) bleiben darunter. Die Grenze liegt bewusst hier und
-    # nicht erst im Knoten: laeuft sie hier ab, traegt die Antwort den Grund
-    # im Klartext, bricht der Knoten ab, geht der Befund ersatzlos verloren.
-    vision_timeout_ms: int = 100000
-    # Gesamtbudget fuer alle Bildaufrufe EINER Bewertung. Drei Fotos ergeben
-    # vier Aufrufe; ohne diese Grenze reisst nicht sie, sondern die des
-    # n8n-Knotens -- und dann kommt gar kein Befund zurueck. Das erste Foto
-    # wird immer geprueft, danach zaehlt die Uhr.
-    vision_budget_ms: int = 200000
+    # Gilt je Bildaufruf. Gemessen am echten Meldefoto (QA/0204, 512 px):
+    # Artikelabgleich 169 s, Schadenspruefung 9 s. Der Zwei-Bild-Aufruf ist der
+    # teure. 200 s lassen ihm Luft; die Grenze liegt bewusst hier und nicht
+    # erst im n8n-Knoten -- laeuft sie hier ab, traegt die Antwort den Grund im
+    # Klartext, bricht der Knoten ab, geht der Befund ersatzlos verloren.
+    vision_timeout_ms: int = 200000
+    # Gesamtbudget fuer alle Bildaufrufe EINER Bewertung. Drei Fotos ergaeben
+    # vier Aufrufe und damit ein Vielfaches der Lease. Der Artikelabgleich
+    # laeuft immer, die Schadenspruefung nur solange davon Zeit uebrig ist;
+    # was liegen bleibt, wird gezaehlt und genannt.
+    vision_budget_ms: int = 240000
     # Beim Start das Voice-Modell in Ollama vorwaermen, damit die erste unsichere
     # Sprachaeusserung nicht den Kaltstart (bis ~13s) bezahlt. Default False, damit
     # Tests kein erreichbares Ollama brauchen; im Compose auf true gesetzt.

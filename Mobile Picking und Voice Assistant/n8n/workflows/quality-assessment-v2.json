@@ -248,7 +248,7 @@
         "deliveryGenerationProperty": "delivery_generation",
         "idempotencyKeyProperty": "idempotency_key",
         "responseMode": "json",
-        "timeoutMs": 240000
+        "timeoutMs": 270000
       }
     },
     {
