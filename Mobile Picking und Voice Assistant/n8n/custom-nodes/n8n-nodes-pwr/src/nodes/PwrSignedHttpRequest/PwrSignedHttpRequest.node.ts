@@ -11,7 +11,12 @@ import {NodeConnectionTypes, NodeOperationError} from "n8n-workflow";
 import {decodeBase64Secret} from "../../security/pwrSignature";
 import {buildSignedRequest} from "../../security/signedRequest";
 
-const MAX_TIMEOUT_MS = 30000;
+// Der Deckel haelt jeden Aufruf innerhalb der fuenfminuetigen Bearbeitungs-
+// Lease (`PROCESSING_LEASE_SECONDS`): laeuft ein Knoten laenger, kommt der
+// Abschluss-Callback zu spaet und Odoo weist ihn ab. 240 s, weil ein
+// Bildaufruf auf der CPU rund 60 s braucht und die Bewertung zwei davon
+// plus den Textaufruf macht; die restlichen 60 s bleiben dem Callback.
+const MAX_TIMEOUT_MS = 240000;
 
 export class PwrSignedHttpRequest implements INodeType {
   description: INodeTypeDescription = {
@@ -136,7 +141,7 @@ export class PwrSignedHttpRequest implements INodeType {
         name: "timeoutMs",
         type: "number",
         default: 10000,
-        description: "Capped at 30000ms.",
+        description: "Capped at 240000ms.",
       },
     ],
   };

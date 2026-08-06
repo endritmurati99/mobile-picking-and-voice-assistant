@@ -14,7 +14,7 @@ import pytest
 from PIL import Image
 from fastapi.testclient import TestClient
 
-from app import dependencies
+from app import config, dependencies
 from app.main import app
 from app.services.llm_client import LlmDispositionResult
 from app.services.vision_client import ArticleMatch, DamageCheck
@@ -359,6 +359,35 @@ def test_every_photo_is_inspected_and_the_rest_is_declared(llm_ok, signed_env):
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
     assert fake.damage_calls == 3
+    assert "2 weitere Foto(s) ungeprueft" in response.json()["photo_analysis"]
+
+
+def test_spent_budget_stops_further_photos_and_says_so(llm_ok, signed_env):
+    """Drei Fotos ergeben vier Bildaufrufe. Auf der CPU dauert einer rund 60 s,
+    der n8n-Knoten wartet 240 s -- ohne Gesamtbudget reisst die Zeitgrenze im
+    Knoten, und dann geht der Befund ersatzlos verloren. Das erste Foto wird
+    immer geprueft, der Rest nur solange Zeit bleibt."""
+    signed_env["o19-a"].response = {
+        "photos": [
+            {"filename": f"foto_{i}.jpg", "data_b64": _tiny_jpeg_b64()} for i in range(3)
+        ],
+        "photo_total": 3,
+        "reference_image_b64": _tiny_jpeg_b64(),
+        "product_label": "Brick",
+    }
+    fake = install_vision(
+        ArticleMatch(ok=True, same_article=True, reason="passt"),
+        DamageCheck(ok=True, damaged=False, anomalies=()),
+    )
+    vorher = config.settings.vision_budget_ms
+    config.settings.vision_budget_ms = 0
+    try:
+        response = post(assess_body())
+    finally:
+        config.settings.vision_budget_ms = vorher
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    assert fake.damage_calls == 1
     assert "2 weitere Foto(s) ungeprueft" in response.json()["photo_analysis"]
 
 

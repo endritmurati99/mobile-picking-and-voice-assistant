@@ -132,9 +132,17 @@ class Settings(BaseSettings):
     # Notausgang: auf false verhaelt sich die Kette wie vor dem Bild-Umbau,
     # ohne dass jemand Code zurueckdrehen muss.
     vision_enabled: bool = True
-    # Vier Bildaufrufe (Artikelabgleich plus bis zu drei Schadenspruefungen) zu
-    # je rund 21 s resident. Der n8n-Knoten wartet 180 s.
-    vision_timeout_ms: int = 170000
+    # Gilt je Bildaufruf. Gemessen auf der CPU: rund 60 s fuer ein 512-px-Bild.
+    # Der n8n-Knoten wartet 240 s; zwei Bildaufrufe zu je 100 s plus der
+    # Textaufruf (30 s) bleiben darunter. Die Grenze liegt bewusst hier und
+    # nicht erst im Knoten: laeuft sie hier ab, traegt die Antwort den Grund
+    # im Klartext, bricht der Knoten ab, geht der Befund ersatzlos verloren.
+    vision_timeout_ms: int = 100000
+    # Gesamtbudget fuer alle Bildaufrufe EINER Bewertung. Drei Fotos ergeben
+    # vier Aufrufe; ohne diese Grenze reisst nicht sie, sondern die des
+    # n8n-Knotens -- und dann kommt gar kein Befund zurueck. Das erste Foto
+    # wird immer geprueft, danach zaehlt die Uhr.
+    vision_budget_ms: int = 200000
     # Beim Start das Voice-Modell in Ollama vorwaermen, damit die erste unsichere
     # Sprachaeusserung nicht den Kaltstart (bis ~13s) bezahlt. Default False, damit
     # Tests kein erreichbares Ollama brauchen; im Compose auf true gesetzt.

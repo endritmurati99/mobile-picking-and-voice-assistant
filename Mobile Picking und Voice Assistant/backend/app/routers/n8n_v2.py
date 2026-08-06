@@ -49,6 +49,7 @@ verraet, ob ein Job, ein Event oder ein Receipt existiert.
 import base64
 import binascii
 import re
+import time
 from hmac import compare_digest
 from typing import Any
 from uuid import UUID
@@ -73,6 +74,7 @@ from app.models.events import (
     QualityAssessmentV2Request,
     QualityAssessmentV2Response,
 )
+from app.config import settings
 from app.services.llm_client import LlmClient
 from app.services.vision_client import VisionClient
 from app.services.assessment_media import MediaError, prepare_image
@@ -262,10 +264,11 @@ async def _collect_photo_finding(odoo, vision: VisionClient, body) -> tuple[Phot
         return _no_finding(f"Bildpruefung nicht moeglich: {exc}"), False
 
     lines: list[str] = []
+    deadline = time.monotonic() + max(0.0, settings.vision_budget_ms / 1000.0)
     article = await _check_article(vision, media, candidates[0], lines)
-    damage = await _check_damage(vision, candidates, lines)
+    damage, ungeprueft = await _check_damage(vision, candidates, lines, deadline)
 
-    skipped = int(media.get("photo_total") or len(photos)) - len(photos)
+    skipped = int(media.get("photo_total") or len(photos)) - len(photos) + ungeprueft
     if skipped > 0:
         lines.append(f"{skipped} weitere Foto(s) ungeprueft.")
 
@@ -302,16 +305,27 @@ async def _check_article(vision, media, candidate: bytes, lines: list[str]) -> s
     return "mismatch"
 
 
-async def _check_damage(vision, candidates: list[bytes], lines: list[str]) -> str:
+async def _check_damage(
+    vision, candidates: list[bytes], lines: list[str], deadline: float
+) -> tuple[str, int]:
     """Schadenspruefung auf JEDEM Foto. Ein einziger Fund genuegt.
 
     Getrennt vom Artikelabgleich, weil beides zusammen gemessen schlechter
     ist: im Zwei-Bild-Aufruf wurde ein sichtbarer Bruch als "decorative
     element" abgetan.
+
+    `deadline` begrenzt die Reihe als Ganzes. Das erste Foto wird immer
+    geprueft -- ein Budget, das gar keinen Befund zulaesst, waere dasselbe wie
+    eine abgeschaltete Bildpruefung, nur unausgesprochen. Liefert neben dem
+    Befund die Zahl der Fotos, die dafuer liegen blieben.
     """
     damage = "unavailable"
     seen: list[str] = []
-    for candidate in candidates:
+    ungeprueft = 0
+    for index, candidate in enumerate(candidates):
+        if index > 0 and time.monotonic() >= deadline:
+            ungeprueft = len(candidates) - index
+            break
         check = await vision.inspect_damage(candidate)
         if not check.ok:
             continue
@@ -327,7 +341,7 @@ async def _check_damage(vision, candidates: list[bytes], lines: list[str]) -> st
         lines.append("Schadenspruefung: " + ", ".join(seen or ["Schaden sichtbar"]) + ".")
     else:
         lines.append("Schadenspruefung: keine Auffaelligkeit sichtbar.")
-    return damage
+    return damage, ungeprueft
 
 
 @router.post(V2 + "/assessments/quality", response_model=QualityAssessmentV2Response)
