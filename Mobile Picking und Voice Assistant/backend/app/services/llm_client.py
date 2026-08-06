@@ -1,8 +1,13 @@
-"""Lokaler LLM-Client (Ollama) fuer die KI-Qualitaetsbewertung.
+"""Lokaler LLM-Client (Ollama) fuer die Qualitaetsbewertung aus dem TEXT.
 
-Laeuft offline auf dem Lab-PC gegen einen Ollama-Container. Erzwingt JSON-Output
-(`format: "json"`) und liefert bei jedem Fehler `ok=False`, damit der n8n-Workflow
-sauber auf die Heuristik zurueckfallen kann.
+Laeuft offline auf dem Lab-PC gegen einen Ollama-Container. Erzwingt
+JSON-Output (`format: "json"`) und liefert bei jedem Fehler `ok=False` -- der
+Workflow meldet dann `review_required` statt eines Ersatzurteils. Eine
+Heuristik als Rueckfallebene gibt es seit dem v2-Umbau nicht mehr; sie stand
+in den geloeschten v1-Workflows.
+
+Den Bildbefund liefert `vision_client` getrennt. Dieses Modell bekommt ihn
+bewusst NICHT: nur so laesst sich sein Urteil anschliessend dagegen pruefen.
 """
 from __future__ import annotations
 
@@ -14,10 +19,13 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Gleiche Taxonomie wie die n8n-Heuristik, damit LLM und Fallback vergleichbar bleiben.
+# Die vier Dispositionen der Kette. Sie stehen auch in `quality_alert.py`
+# als Auswahlwerte -- wer hier etwas hinzufuegt, muss dort nachziehen.
 VALID_DISPOSITIONS = ("scrap", "quarantine", "rework", "sellable")
 
-# Deterministische Handlungsempfehlung je Disposition (identisch zur Heuristik).
+# Deterministische Handlungsempfehlung je Disposition. Bewusst NICHT vom
+# Modell formuliert: was ein Lager tun soll, ist eine Festlegung des
+# Betriebs und keine Frage an ein Sprachmodell.
 RECOMMENDED_ACTIONS = {
     "scrap": "Ware sperren, aussondern und Schichtleitung informieren.",
     "quarantine": "Ware sperren und manuelle Pruefung anfordern.",
@@ -130,7 +138,7 @@ class LlmClient:
             resp.raise_for_status()
             content = resp.json().get("message", {}).get("content")
             return self._parse(content)
-        except Exception as exc:  # noqa: BLE001 - jeder Fehler => Fallback auf Heuristik
+        except Exception as exc:  # noqa: BLE001 - jeder Fehler => kein Urteil
             logger.warning(json.dumps({
                 "event_type": "llm_quality_disposition_failed",
                 "model": self._model,

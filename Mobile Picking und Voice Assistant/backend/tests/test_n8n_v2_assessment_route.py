@@ -1,10 +1,10 @@
 """Die v2-signierte Bewertungsroute.
 
 Sie existiert, weil der signierte n8n-Knoten keinen frei gesetzten Header
-tragen kann (`PwrSignedHttpRequest` kennt nur `pwrOutboundHmac`), die alte
+tragen kann (`PwrSignedHttpRequest` kennt nur `pwrOutboundHmac`), die abgeloeste
 Route `/api/internal/llm/quality-disposition` aber genau auf
-`X-N8N-Callback-Secret` besteht. Eine Auth-Art fuer die ganze v2-Kette statt
-zwei nebeneinander.
+`X-N8N-Callback-Secret` bestand. Eine Auth-Art fuer die ganze v2-Kette statt
+zwei nebeneinander -- die alte Route ist inzwischen geloescht.
 """
 import base64
 import io

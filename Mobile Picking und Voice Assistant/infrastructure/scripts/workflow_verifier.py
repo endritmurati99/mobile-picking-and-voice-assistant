@@ -71,7 +71,6 @@ N8N_CALLBACK_ENDPOINTS = {
     # Internal LLM disposition helper: n8n cannot reach Ollama directly (SSRF
     # policy only allows the backend host), so it calls this backend endpoint,
     # which proxies to the local LLM and falls back to llm_ok=False on error.
-    "POST /api/internal/llm/quality-disposition",
 }
 ENVELOPE_ROOT_KEYS = {
     "event_name",
@@ -93,7 +92,6 @@ CALLBACK_REQUIREMENTS = {
     "/api/internal/n8n/manual-review-activity": {"idempotent": True},
     "/api/integration/log": {"idempotent": False},
     "/api/obsidian/log": {"idempotent": False},
-    "/api/internal/llm/quality-disposition": {"idempotent": True},
 }
 REQUIRED_CALLBACK_BODY_FIELDS = {
     "/api/internal/n8n/quality-assessment": {
@@ -143,13 +141,6 @@ REQUIRED_CALLBACK_BODY_FIELDS = {
         "schema_version",
         "execution_id",
         "latency_tracking",
-    },
-    "/api/internal/llm/quality-disposition": {
-        "correlation_id",
-        "alert_id",
-        "description",
-        "priority",
-        "photo_count",
     },
 }
 CORRELATION_ID_AS_ALERT_ID_RE = re.compile(r"alert_id\s*:\s*\$json\.correlation_id\b")

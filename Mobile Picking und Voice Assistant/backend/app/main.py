@@ -5,7 +5,7 @@ from app.config import settings, parse_origins, reject_wildcard_origins_with_cre
 from app.middleware import RequestBodySizeLimitMiddleware
 from app.route_policy import assert_exemptions_are_real_routes, collect_routes
 from app.runtime import RuntimeServices
-from app.routers import auth, cluster, demo, health, instances, integration, llm, n8n_internal, obsidian, pickings, quality, scan, voice
+from app.routers import auth, cluster, demo, health, instances, integration, n8n_internal, obsidian, pickings, quality, scan, voice
 # Task 10: eigene Importzeile, damit parallele Branches die Zeile oben nicht anfassen muessen.
 from app.routers import n8n_v2
 
@@ -279,7 +279,6 @@ def create_app(candidate_settings: Settings = settings) -> FastAPI:
     # Callback-Secret), nie Browser-Cookies. Am Edge zusaetzlich geblockt.
     application.include_router(integration.router, prefix="/api", tags=["integration"])
     application.include_router(n8n_internal.router, prefix="/api")
-    application.include_router(llm.router, prefix="/api")
     # Task 10: signierte v2-Routen, wie n8n_internal unter /api gemountet. Der
     # Legacy-Router n8n_internal bleibt bewusst daneben bestehen (v1).
     application.include_router(n8n_v2.router, prefix="/api", tags=["n8n-v2"])

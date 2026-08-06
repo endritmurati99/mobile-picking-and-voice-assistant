@@ -340,10 +340,10 @@ async def assess_quality(
 ):
     """Bewertung durch die lokalen Modelle -- lesend auf Odoo, nie schreibend.
 
-    Die v2-Entsprechung von `/api/internal/llm/quality-disposition`. Sie
-    existiert, weil `PwrSignedHttpRequest` nur `pwrOutboundHmac` kennt und
-    seine Header selbst baut: das `X-N8N-Callback-Secret`, auf dem die alte
-    Route besteht, kann ein v2-Workflow gar nicht mitschicken.
+    Sie ersetzt das geloeschte `/api/internal/llm/quality-disposition`, das
+    auf `X-N8N-Callback-Secret` bestand -- einen Header, den ein v2-Workflow
+    gar nicht mitschicken kann, weil `PwrSignedHttpRequest` nur
+    `pwrOutboundHmac` kennt und seine Header selbst baut.
 
     **Geaendert gegenueber Task 10:** die Route LIEST aus Odoo, um an Meldefoto
     und Katalogbild zu kommen. Sie entscheidet und aendert weiterhin nichts --
