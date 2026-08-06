@@ -30,7 +30,7 @@ def skip_instance_name_check(monkeypatch):
     """
     from app import main as main_module
 
-    async def _accept_all(client_factory, instance_names):
+    async def _accept_all(client_factory, instance_names, **kwargs):
         return None
 
     monkeypatch.setattr(main_module, "verify_instance_names", _accept_all)

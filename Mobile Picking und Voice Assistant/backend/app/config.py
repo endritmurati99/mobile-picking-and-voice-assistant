@@ -186,6 +186,14 @@ class Settings(BaseSettings):
     max_request_body_bytes: int = Field(default=16 * 1024 * 1024, ge=1)
 
     workflow_registry_path: str = "../n8n/workflow-registry.json"
+
+    # Wie lange der Startlauf auf eine noch nicht antwortende Odoo-Instanz
+    # wartet. Deckt AUSSCHLIESSLICH den Kaltstart: Odoo braucht nach einem
+    # Neustart rund eine Minute, bis es zuhoert. Ein Instanzname, der
+    # tatsaechlich falsch ist, bricht weiterhin sofort ab -- gewartet wird nur
+    # auf eine Antwort, nie auf eine bessere.
+    startup_odoo_wait_seconds: float = Field(default=120.0, ge=0.0)
+
     dispatcher_enabled: bool = False
     dispatcher_poll_seconds: float = 2.0
     dispatcher_lease_seconds: int = 60
@@ -250,7 +258,7 @@ def get_instance_registry(candidate: Settings = settings) -> dict[str, OdooProfi
     if not production_authoritative:
         registry["local"] = OdooProfile(
             name="local",
-            display_name="Lokal",
+            display_name="Lager 1",
             url=candidate.odoo_url,
             db=candidate.odoo_db,
             user=candidate.odoo_user,

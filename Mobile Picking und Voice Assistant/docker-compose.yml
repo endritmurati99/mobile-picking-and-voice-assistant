@@ -54,6 +54,19 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # `/web/health` antwortet erst, wenn Odoo Registry und Addons geladen hat --
+    # das dauert nach einem Kaltstart rund eine Minute. Ohne diesen Test kennt
+    # Compose nur "Container gestartet", und das Backend rennt gegen ein Odoo,
+    # das noch nicht zuhoert: `verify_instance_names` bekommt keine Antwort und
+    # bricht den Start ab (main.py:66). Am 2026-08-06 lag der Stack deshalb
+    # nach einem Neustart von Docker Desktop still, bis jemand von Hand
+    # nachhalf. start_period zaehlt Fehlschlaege noch nicht als ungesund.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8069/web/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
     environment:
       HOST: db
       PORT: 5432
@@ -79,6 +92,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8069/web/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
     environment:
       HOST: db
       PORT: 5432
@@ -97,11 +116,26 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    # `service_healthy` statt der blossen Liste: Compose wartete sonst nur auf
+    # "Container gestartet", und der Startlauf des Backends verlangt eine
+    # Antwort von Odoo. Die drei uebrigen Dienste werden erst im Betrieb
+    # gebraucht, fuer sie genuegt `service_started`.
+    #
+    # Das deckt `docker compose up`. Startet die Engine dagegen von sich aus
+    # alle Container gleichzeitig neu -- Docker Desktop tut genau das --, dann
+    # gilt `depends_on` NICHT, denn es ist ein Compose-Begriff und kein
+    # Engine-Begriff. Fuer diesen Fall wartet das Backend zusaetzlich selbst
+    # (STARTUP_ODOO_WAIT_SECONDS, siehe app/main.py). Beide Schichten braucht
+    # es, keine ersetzt die andere.
     depends_on:
-      - odoo
-      - whisper
-      - piper
-      - ollama
+      odoo:
+        condition: service_healthy
+      whisper:
+        condition: service_started
+      piper:
+        condition: service_started
+      ollama:
+        condition: service_started
     environment:
       ODOO_URL: http://odoo:8069
       ODOO_DB: ${ODOO_DB:?ODOO_DB muss gesetzt sein und eine v19-Datenbank benennen}

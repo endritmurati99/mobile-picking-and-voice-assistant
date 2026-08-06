@@ -47,7 +47,12 @@ logging.basicConfig(
 _dispatcher_process_guard = threading.Lock()
 
 
-async def verify_instance_names(client_factory, instance_names) -> None:
+_INSTANCE_PROBE_RETRY_SECONDS = 2.0
+
+
+async def verify_instance_names(
+    client_factory, instance_names, *, wait_seconds: float = 0.0
+) -> None:
     """Jede Odoo-Instanz muss sich selbst so nennen, wie das Backend sie kennt.
 
     Der Name steht in JEDEM Envelope (`source.odoo_instance`) und entscheidet
@@ -56,16 +61,47 @@ async def verify_instance_names(client_factory, instance_names) -> None:
     Fehlermeldung, weil beide Instanzen dieselben Modelle haben. Ein
     Startfehler ist die einzige ehrliche Antwort darauf; eine Warnung im Log
     wuerde genau so lange uebersehen, bis die Daten vermischt sind.
+
+    `wait_seconds` unterscheidet zwei Faelle, die vorher denselben Abbruch
+    ausloesten:
+
+    * **Keine Antwort** heisst beim Kaltstart nur, dass Odoo noch laedt -- das
+      dauert rund eine Minute. Darauf wird bis zum Ablauf gewartet.
+    * **Falsche Antwort** heisst, dass die Instanz falsch konfiguriert ist.
+      Warten macht das nicht besser, also bricht es sofort ab, unabhaengig von
+      `wait_seconds`.
+
+    Die Zusage bleibt damit unangetastet: eine falsch benannte Instanz kommt
+    nie an den Dispatcher. Gewartet wird auf eine Antwort, nie auf eine
+    bessere.
+
+    Voreinstellung 0.0, damit Aufrufer die Wartezeit bewusst waehlen -- Tests
+    laufen dadurch ohne Verzoegerung.
     """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + max(0.0, wait_seconds)
     for name in instance_names:
-        try:
-            reported = await client_factory(name).execute_kw(
-                "picking.assistant.api.mixin", "api_instance_name", []
-            )
-        except Exception as exc:
-            raise RuntimeError(
-                f"Odoo-Instanz {name!r} meldet keinen Instanznamen: {exc}"
-            ) from exc
+        while True:
+            try:
+                reported = await client_factory(name).execute_kw(
+                    "picking.assistant.api.mixin", "api_instance_name", []
+                )
+            except Exception as exc:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise RuntimeError(
+                        f"Odoo-Instanz {name!r} meldet keinen Instanznamen: {exc}"
+                    ) from exc
+                logger.warning(
+                    "Odoo-Instanz %r antwortet noch nicht (%s); warte weiter, "
+                    "noch %.0f s.",
+                    name,
+                    exc,
+                    remaining,
+                )
+                await asyncio.sleep(min(_INSTANCE_PROBE_RETRY_SECONDS, remaining))
+                continue
+            break
         if reported != name:
             raise RuntimeError(
                 f"Odoo-Instanz {name!r} nennt sich selbst {reported!r}; "
@@ -103,6 +139,7 @@ def build_lifespan(candidate_settings: Settings):
                 await verify_instance_names(
                     app.state.runtime.odoo_client,
                     tuple(get_instance_registry(candidate_settings)),
+                    wait_seconds=candidate_settings.startup_odoo_wait_seconds,
                 )
                 dispatcher = get_outbox_dispatcher(app.state.runtime)
                 tasks.append(asyncio.create_task(dispatcher.run(stop_event)))
