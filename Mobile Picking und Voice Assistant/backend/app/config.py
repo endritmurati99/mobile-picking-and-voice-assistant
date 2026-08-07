@@ -143,6 +143,17 @@ class Settings(BaseSettings):
     # laeuft immer, die Schadenspruefung nur solange davon Zeit uebrig ist;
     # was liegen bleibt, wird gezaehlt und genannt.
     vision_budget_ms: int = 240000
+    # Wie lange eine Bewertung darauf wartet, dass die vorige fertig ist.
+    # Gemessen am 2026-08-07: zwei Meldungen 20 s auseinander (QA/0214 aus dem
+    # Skript, QA/0215 aus der PWA) liefen gleichzeitig in Ollama. Aufrufe, die
+    # sonst 8 s brauchen, dauerten 1m30 bis 3m20, zwei endeten in HTTP 500 --
+    # BEIDE Bewertungen fielen aus. Der Rechner haelt ein 7B-Textmodell und ein
+    # 7B-Bildmodell gleichzeitig nicht auf der CPU aus.
+    #
+    # Der Wert liegt unter dem Knotendeckel (270 s) minus einer typischen
+    # Bewertung (~100 s): wer laenger warten muesste, kaeme ohnehin nicht mehr
+    # rechtzeitig durch und bekommt lieber sofort eine ehrliche Absage.
+    assessment_wait_ms: int = 150000
     # Beim Start das Voice-Modell in Ollama vorwaermen, damit die erste unsichere
     # Sprachaeusserung nicht den Kaltstart (bis ~13s) bezahlt. Default False, damit
     # Tests kein erreichbares Ollama brauchen; im Compose auf true gesetzt.

@@ -6,6 +6,7 @@ Route `/api/internal/llm/quality-disposition` aber genau auf
 `X-N8N-Callback-Secret` bestand. Eine Auth-Art fuer die ganze v2-Kette statt
 zwei nebeneinander -- die alte Route ist inzwischen geloescht.
 """
+import asyncio
 import base64
 import io
 import json
@@ -19,6 +20,7 @@ from app.main import app
 from app.services.llm_client import LlmDispositionResult
 from app.services.vision_client import ArticleMatch, DamageCheck
 from app.services import assessment_media
+from app.routers import n8n_v2
 
 # `signed_env` bringt fixierte Uhr, fixierten Keyring und Fake-Odoo je Instanz.
 from tests.test_n8n_v2_routes import signed_env, signed_headers  # noqa: F401
@@ -519,3 +521,52 @@ def test_damage_without_named_anomalies_still_reads_as_damage(llm_ok, signed_env
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
     assert "Schadenspruefung: Schaden sichtbar." in response.json()["photo_analysis"]
+
+
+def test_a_second_assessment_waits_instead_of_starting(llm_ok, signed_env):
+    """Am 2026-08-07 liefen zwei Bewertungen gleichzeitig in Ollama: Aufrufe,
+    die sonst 8 s brauchen, dauerten bis 3m20, zwei endeten in HTTP 500, und
+    BEIDE Meldungen fielen aus. Ein Rechner ohne GPU traegt ein 7B-Text- und
+    ein 7B-Bildmodell nicht gleichzeitig."""
+    signed_env["o19-a"].response = MEDIA_RESPONSE
+    install_vision(
+        ArticleMatch(ok=True, same_article=True),
+        DamageCheck(ok=True, damaged=False, anomalies=()),
+    )
+    n8n_v2._ASSESSMENT_GATE._value = 0        # die Sperre haelt gerade jemand
+    vorher = config.settings.assessment_wait_ms
+    config.settings.assessment_wait_ms = 50   # nicht ewig warten im Test
+    try:
+        response = post(assess_body())
+    finally:
+        config.settings.assessment_wait_ms = vorher
+        n8n_v2._ASSESSMENT_GATE = asyncio.Semaphore(1)
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    body = response.json()
+    assert response.status_code == 200
+    # Kein Urteil, aber ein Grund -- und kein einziger Modellaufruf.
+    assert body["llm_ok"] is False
+    assert body["disposition"] is None
+    assert body["photo_checked"] is False
+    assert "nur nacheinander" in body["photo_analysis"]
+    assert llm_ok.calls == []
+
+
+def test_the_gate_is_released_even_when_the_assessment_raises(signed_env):
+    """Eine Sperre, die ein Fehlschlag nicht mehr freigibt, legt die ganze
+    Kette still -- jede weitere Meldung liefe in die Absage."""
+    signed_env["o19-a"].response = MEDIA_RESPONSE
+
+    class Boom:
+        async def classify_disposition(self, **kwargs):
+            raise RuntimeError("Modell weg")
+
+    app.dependency_overrides[dependencies.get_llm_client] = lambda: Boom()
+    try:
+        with pytest.raises(RuntimeError):
+            post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_llm_client, None)
+
+    assert n8n_v2._ASSESSMENT_GATE._value == 1

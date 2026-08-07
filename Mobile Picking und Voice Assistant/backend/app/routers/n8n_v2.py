@@ -46,8 +46,10 @@ Job, Generation) wird hier auf ein generisches 409 abgebildet -- die
 Odoo-Meldung wird nie an den Aufrufer durchgereicht, damit die Antwort nicht
 verraet, ob ein Job, ein Event oder ein Receipt existiert.
 """
+import asyncio
 import base64
 import binascii
+import logging
 import re
 import time
 from hmac import compare_digest
@@ -94,6 +96,20 @@ from app.services.odoo_client import OdooAPIError
 router = APIRouter(prefix="/internal")
 
 V2 = "/n8n/v2"
+
+logger = logging.getLogger(__name__)
+
+# EINE Bewertung zur Zeit. n8n laesst drei Ausfuehrungen parallel zu und der
+# Dispatcher reiht nur die ZUSTELLUNG auf -- der Webhook antwortet sofort, die
+# Modellarbeit laeuft danach. Zwei Bewertungen trafen sich so in Ollama, und
+# ein Rechner ohne GPU haelt ein 7B-Text- und ein 7B-Bildmodell nicht
+# gleichzeitig aus: gemessen wurden 1m30 bis 3m20 statt 8 s und zwei HTTP 500.
+#
+# Die Sperre gilt in DIESEM Prozess. Das reicht, solange das Backend mit einem
+# uvicorn-Worker laeuft (siehe docker-compose). Mehrere Worker oder Repliken
+# brauchen eine Sperre in Ollama oder davor -- eine Semaphore im Speicher
+# waere dann eine Sperre, die nicht sperrt.
+_ASSESSMENT_GATE = asyncio.Semaphore(1)
 
 
 def _parse(model, raw_body: bytes):
@@ -400,6 +416,51 @@ async def assess_quality(
     body = _verified_body(
         QualityAssessmentV2Request, verified, idempotency_key, "event_id"
     )
+
+    # Ab hier laufen die Modelle, und ab hier nur EINE Bewertung gleichzeitig.
+    try:
+        await asyncio.wait_for(
+            _ASSESSMENT_GATE.acquire(),
+            timeout=max(0.0, settings.assessment_wait_ms / 1000.0),
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            '{"event_type": "assessment_busy", "event_id": "%s"}', body.event_id
+        )
+        return _busy_response()
+    try:
+        return await _assess(llm, vision, runtime, body)
+    finally:
+        _ASSESSMENT_GATE.release()
+
+
+def _busy_response() -> QualityAssessmentV2Response:
+    """Kein Urteil, aber ein Grund. Die Meldung geht an einen Menschen.
+
+    Die Alternative waere, trotzdem loszulaufen -- und genau das hat am
+    2026-08-07 zwei Bewertungen auf einmal zerlegt.
+    """
+    return QualityAssessmentV2Response(
+        llm_ok=False,
+        disposition=None,
+        confidence=None,
+        summary=None,
+        recommended_action=None,
+        provider=LlmClient.PROVIDER,
+        # Das Modell, das gelaufen WAERE. `model` ist im Vertrag Pflicht, und
+        # ein erfundener Platzhalter waere schlimmer als der wahre Name: bei
+        # `llm_ok=False` bleibt ohnehin jedes Urteilsfeld leer.
+        model=settings.llm_model,
+        photo_checked=False,
+        contradiction=False,
+        photo_analysis=(
+            "Keine Bewertung: eine andere Meldung wurde zur selben Zeit "
+            "bewertet, und die Modelle laufen nur nacheinander."
+        ),
+    )
+
+
+async def _assess(llm, vision, runtime, body) -> QualityAssessmentV2Response:
     result = await llm.classify_disposition(
         description=body.description,
         priority=body.priority,
