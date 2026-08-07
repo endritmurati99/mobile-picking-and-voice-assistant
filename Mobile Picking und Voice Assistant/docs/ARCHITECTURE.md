@@ -13,12 +13,27 @@ Danach folgt [Ebene 2: Die PWA und ein normaler Auftrag](./architecture/ebene-2-
 Sie verfolgt Anmeldung, Auftragsliste, Claim, Scan, Positionsbestätigung und
 Odoo-Abschluss Schritt für Schritt.
 
+Die weiteren Ebenen vervollständigen den Lernpfad:
+
+- [Ebene 3: Cluster-Picking](./architecture/ebene-3-cluster-picking.md)
+- [Ebene 4: Voice mit Whisper und Piper](./architecture/ebene-4-voice.md)
+- [Ebene 5: Quality, n8n sowie Text- und Bild-KI](./architecture/ebene-5-quality-n8n-ki.md)
+- [Ebene 6: Docker, Netzwerke, Daten und Sicherheit](./architecture/ebene-6-docker-daten-sicherheit.md)
+
 Die editierbaren und exportierten Grafiken liegen daneben:
 
 - [Excalidraw-Quelle](./architecture/ebene-1-systemlandkarte.excalidraw)
 - [SVG-Grafik](./architecture/ebene-1-systemlandkarte.svg)
 - [Ebene-2-Excalidraw-Quelle](./architecture/ebene-2-pwa-normaler-auftrag.excalidraw)
 - [Ebene-2-SVG-Grafik](./architecture/ebene-2-pwa-normaler-auftrag.svg)
+- [Ebene-3-Excalidraw-Quelle](./architecture/ebene-3-cluster-picking.excalidraw)
+- [Ebene-3-SVG-Grafik](./architecture/ebene-3-cluster-picking.svg)
+- [Ebene-4-Excalidraw-Quelle](./architecture/ebene-4-voice.excalidraw)
+- [Ebene-4-SVG-Grafik](./architecture/ebene-4-voice.svg)
+- [Ebene-5-Excalidraw-Quelle](./architecture/ebene-5-quality-n8n-ki.excalidraw)
+- [Ebene-5-SVG-Grafik](./architecture/ebene-5-quality-n8n-ki.svg)
+- [Ebene-6-Excalidraw-Quelle](./architecture/ebene-6-docker-daten-sicherheit.excalidraw)
+- [Ebene-6-SVG-Grafik](./architecture/ebene-6-docker-daten-sicherheit.svg)
 
 ## Stabile Architekturregeln
 
@@ -47,10 +62,10 @@ Die editierbaren und exportierten Grafiken liegen daneben:
 | --- | --- | --- |
 | 1 | Gesamtlandkarte und Docker-Grenze | vorhanden |
 | 2 | [PWA und normaler Auftrag](./architecture/ebene-2-pwa-normaler-auftrag.md) | vorhanden |
-| 3 | Cluster-Picking | geplant |
-| 4 | Voice mit Whisper und Piper | geplant |
-| 5 | Quality, n8n sowie Text- und Bild-KI | geplant |
-| 6 | Docker, Netzwerke, Daten, Sicherheit und Fehlerfälle | geplant |
+| 3 | [Cluster-Picking](./architecture/ebene-3-cluster-picking.md) | vorhanden |
+| 4 | [Voice mit Whisper und Piper](./architecture/ebene-4-voice.md) | vorhanden |
+| 5 | [Quality, n8n sowie Text- und Bild-KI](./architecture/ebene-5-quality-n8n-ki.md) | vorhanden |
+| 6 | [Docker, Netzwerke, Daten, Sicherheit und Fehlerfälle](./architecture/ebene-6-docker-daten-sicherheit.md) | vorhanden |
 
 ## Technische Quellen
 

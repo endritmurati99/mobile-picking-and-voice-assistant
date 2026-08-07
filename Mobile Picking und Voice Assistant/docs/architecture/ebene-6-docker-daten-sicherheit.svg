@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1100" viewBox="0 0 1800 1100" role="img" aria-labelledby="title desc">
+  <title id="title">Ebene 6: Docker, Netzwerke, Daten und Sicherheit</title><desc id="desc">Drei Docker-Netze, öffentliche Caddy-Grenze, interne Dienste und persistente Volumes.</desc>
+  <defs><marker id="a" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#334155"/></marker><style>text{font-family:Arial,sans-serif;fill:#172033}.h{font-size:34px;font-weight:700}.s{font-size:17px;fill:#526173}.t{font-size:20px;font-weight:700}.b{font-size:15px}.x{font-size:13px;fill:#526173}.f{stroke:#334155;stroke-width:3;fill:none;marker-end:url(#a)}</style></defs>
+  <rect width="1800" height="1100" fill="#fff"/><text x="70" y="65" class="h">Ebene 6 · Docker, Netzwerke, Daten und Sicherheit</text><text x="70" y="98" class="s">Nur Caddy ist öffentlich; FastAPI verbindet drei klar getrennte Netzbereiche</text>
+  <rect x="70" y="145" width="1660" height="180" rx="22" fill="#e8f1ff" stroke="#3b82f6" stroke-width="2"/><text x="100" y="185" class="t">Öffentliche Grenze · edge-net</text>
+  <rect x="110" y="215" width="240" height="75" rx="14" fill="#fff" stroke="#64748b" stroke-width="2"/><text x="155" y="260" class="t">Browser</text><path class="f" d="M365 252 H495"/><text x="395" y="235" class="x">HTTPS</text>
+  <rect x="510" y="205" width="260" height="95" rx="14" fill="#fff4df" stroke="#f59e0b" stroke-width="2"/><text x="595" y="245" class="t">Caddy</text><text x="545" y="275" class="b">einzig 80/443 öffentlich</text><path class="f" d="M785 235 H930"/><text x="810" y="218" class="x">sonst</text><path class="f" d="M785 275 H1190"/><text x="865" y="295" class="x">/api/*</text>
+  <rect x="945" y="195" width="250" height="80" rx="14" fill="#fff" stroke="#3b82f6" stroke-width="2"/><text x="1045" y="235" class="t">PWA</text><text x="995" y="260" class="x">statische Oberfläche</text>
+  <rect x="1210" y="215" width="270" height="80" rx="14" fill="#e8f7ee" stroke="#22c55e" stroke-width="2"/><text x="1300" y="255" class="t">FastAPI</text><text x="1260" y="280" class="x">einzige App-API</text>
+
+  <rect x="70" y="370" width="800" height="325" rx="22" fill="#feecec" stroke="#ef4444" stroke-width="2"/><text x="100" y="410" class="t">Intern · core-net</text>
+  <rect x="120" y="465" width="280" height="110" rx="16" fill="#e8f7ee" stroke="#22c55e" stroke-width="2"/><text x="210" y="510" class="t">FastAPI</text><text x="165" y="545" class="b">kontrollierte Brücke</text><path class="f" d="M415 520 H535"/>
+  <rect x="550" y="450" width="260" height="85" rx="16" fill="#feecec" stroke="#ef4444" stroke-width="2"/><text x="650" y="490" class="t">Odoo</text><text x="595" y="518" class="x">System of Record</text>
+  <path class="f" d="M680 545 V605"/>
+  <rect x="550" y="605" width="260" height="60" rx="14" fill="#fff" stroke="#64748b" stroke-width="2"/><text x="610" y="642" class="t">PostgreSQL</text>
+
+  <rect x="930" y="370" width="800" height="325" rx="22" fill="#f1eafe" stroke="#8b5cf6" stroke-width="2"/><text x="960" y="410" class="t">Intern · automation-net</text>
+  <rect x="980" y="465" width="250" height="100" rx="16" fill="#e8f7ee" stroke="#22c55e" stroke-width="2"/><text x="1060" y="505" class="t">FastAPI</text><text x="1018" y="538" class="b">einziger Übergang</text>
+  <path class="f" d="M1245 515 H1340"/>
+  <rect x="1355" y="440" width="150" height="65" rx="14" fill="#fff4df" stroke="#f59e0b" stroke-width="2"/><text x="1405" y="480" class="t">n8n</text>
+  <rect x="1530" y="440" width="150" height="65" rx="14" fill="#fff" stroke="#8b5cf6" stroke-width="2"/><text x="1570" y="480" class="t">Ollama</text>
+  <rect x="1355" y="535" width="150" height="65" rx="14" fill="#fff" stroke="#8b5cf6" stroke-width="2"/><text x="1390" y="575" class="t">Whisper</text>
+  <rect x="1530" y="535" width="150" height="65" rx="14" fill="#fff" stroke="#8b5cf6" stroke-width="2"/><text x="1580" y="575" class="t">Piper</text>
+  <rect x="1355" y="625" width="325" height="45" rx="12" fill="#fff" stroke="#64748b" stroke-width="2"/><text x="1435" y="655" class="b">PostgreSQL · n8n-Datenbank</text>
+
+  <rect x="70" y="745" width="1660" height="220" rx="22" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2"/><text x="100" y="785" class="t">Persistenz außerhalb ersetzbarer Container</text>
+  <rect x="110" y="830" width="300" height="85" rx="14" fill="#fff" stroke="#64748b" stroke-width="2"/><text x="190" y="865" class="t">pg_data</text><text x="150" y="895" class="x">Odoo- und n8n-Datenbanken</text>
+  <rect x="440" y="830" width="300" height="85" rx="14" fill="#fff" stroke="#64748b" stroke-width="2"/><text x="520" y="865" class="t">Odoo-Filestore</text><text x="485" y="895" class="x">Anhänge je Odoo-Instanz</text>
+  <rect x="770" y="830" width="300" height="85" rx="14" fill="#fff" stroke="#64748b" stroke-width="2"/><text x="870" y="865" class="t">n8n_data</text><text x="825" y="895" class="x">plus n8n/tmp + Encryption Key</text>
+  <rect x="1100" y="830" width="300" height="85" rx="14" fill="#fff" stroke="#64748b" stroke-width="2"/><text x="1180" y="865" class="t">Modell-Volumes</text><text x="1160" y="895" class="x">Ollama + Whisper-Cache</text>
+  <rect x="1430" y="830" width="260" height="85" rx="14" fill="#fff7ed" stroke="#f97316" stroke-width="2"/><text x="1485" y="865" class="t">Kein Auto-Backup</text><text x="1470" y="895" class="x">DB + Filestore gemeinsam sichern</text>
+  <rect x="70" y="1000" width="1660" height="65" rx="14" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/><text x="100" y="1040" class="b">Schutz: HTTPS · HttpOnly/Strict-Cookie · Origin/CSRF/Idempotenz · HMAC/Nonce/Receipt · interne Core- und Automation-Netze</text>
+</svg>

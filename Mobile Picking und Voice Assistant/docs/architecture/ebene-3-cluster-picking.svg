@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="980" viewBox="0 0 1600 980" role="img" aria-labelledby="title desc">
+  <title id="title">Ebene 3: Cluster-Picking</title>
+  <desc id="desc">Vom Vorschlag über den gemeinsamen Lagerweg bis zum bestätigten Batch-Abschluss in Odoo.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#334155"/></marker>
+    <style>
+      text{font-family:Arial,sans-serif;fill:#172033}.h1{font-size:34px;font-weight:700}.sub{font-size:17px;fill:#526173}.card{stroke-width:2}.t{font-size:21px;font-weight:700}.b{font-size:16px}.small{font-size:14px;fill:#526173}.lane{fill:#f8fafc;stroke:#cbd5e1;stroke-width:2}.flow{stroke:#334155;stroke-width:3;fill:none;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect width="1600" height="980" fill="#fff"/>
+  <text x="70" y="65" class="h1">Ebene 3 · Cluster-Picking</text>
+  <text x="70" y="98" class="sub">Mehrere Aufträge auf einer Route – getrennt durch einen Zielkarton je Auftrag</text>
+
+  <g transform="translate(70 145)">
+    <rect class="card" width="250" height="150" rx="18" fill="#e8f1ff" stroke="#3b82f6"/><text x="22" y="38" class="t">1 Vorschlag</text><text x="22" y="70" class="b">2–8 passende Aufträge</text><text x="22" y="97" class="b">gleiche Firma + Tag</text><text x="22" y="124" class="b">gemeinsames Produkt</text>
+    <path class="flow" d="M260 75 H305"/>
+    <g transform="translate(320)"><rect class="card" width="250" height="150" rx="18" fill="#e8f1ff" stroke="#3b82f6"/><text x="22" y="38" class="t">2 Batch starten</text><text x="22" y="70" class="b">Server prüft erneut</text><text x="22" y="97" class="b">Odoo-Batch + Besitzer</text><text x="22" y="124" class="b">Karton A, B, C, D</text></g>
+    <path class="flow" d="M580 75 H625"/>
+    <g transform="translate(640)"><rect class="card" width="250" height="150" rx="18" fill="#f1eafe" stroke="#8b5cf6"/><text x="22" y="38" class="t">3 Gemeinsam laufen</text><text x="22" y="70" class="b">Positionen nach</text><text x="22" y="97" class="b">Lagerroute sortiert</text><text x="22" y="124" class="b">Fortschritt aus Odoo</text></g>
+    <path class="flow" d="M900 75 H945"/>
+    <g transform="translate(960)"><rect class="card" width="250" height="150" rx="18" fill="#fff4df" stroke="#f59e0b"/><text x="22" y="38" class="t">4 Karton prüfen</text><text x="22" y="70" class="b">Zielkarton bestätigen</text><text x="22" y="97" class="b">Los/Serie falls nötig</text><text x="22" y="124" class="b">Position nach Odoo</text></g>
+    <path class="flow" d="M1220 75 H1265"/>
+    <g transform="translate(1280)"><rect class="card" width="250" height="150" rx="18" fill="#e8f7ee" stroke="#22c55e"/><text x="22" y="38" class="t">5 Abschluss</text><text x="22" y="70" class="b">action_done in Odoo</text><text x="22" y="97" class="b">Erfolg nur bei</text><text x="22" y="124" class="b">batch_complete = true</text></g>
+  </g>
+
+  <rect x="70" y="350" width="1460" height="430" rx="22" class="lane"/>
+  <text x="100" y="395" class="t">Was technisch passiert</text>
+  <rect x="100" y="430" width="310" height="270" rx="16" fill="#e8f1ff" stroke="#3b82f6" stroke-width="2"/><text x="125" y="470" class="t">PWA</text><text x="125" y="510" class="b">Vorschläge und Auswahl</text><text x="125" y="540" class="b">Gemeinsame Laufansicht</text><text x="125" y="570" class="b">Zielkarton abfragen</text><text x="125" y="600" class="b">Batch nach jedem Schritt neu laden</text><text x="125" y="650" class="small">PoC: Knöpfe gegen Doppeltippen gesperrt</text>
+  <path class="flow" d="M425 565 H620"/><text x="450" y="545" class="small">Cluster-API</text>
+  <rect x="635" y="430" width="330" height="270" rx="16" fill="#e8f7ee" stroke="#22c55e" stroke-width="2"/><text x="660" y="470" class="t">FastAPI</text><text x="660" y="510" class="b">Regeln und Besitzer prüfen</text><text x="660" y="540" class="b">Route zusammenführen</text><text x="660" y="570" class="b">Karton + Los/Serie validieren</text><text x="660" y="600" class="b">Odoo-Aktionen vermitteln</text><text x="660" y="650" class="small">Kein n8n-Folgeprozess</text>
+  <path class="flow" d="M980 565 H1175"/><text x="1025" y="545" class="small">JSON-RPC</text>
+  <rect x="1190" y="430" width="310" height="270" rx="16" fill="#feecec" stroke="#ef4444" stroke-width="2"/><text x="1215" y="470" class="t">Odoo</text><text x="1215" y="510" class="b">stock.picking.batch</text><text x="1215" y="540" class="b">Besitzer und Aufträge</text><text x="1215" y="570" class="b">Package je Zielkarton</text><text x="1215" y="600" class="b">Move Lines + Abschluss</text><text x="1215" y="650" class="small">System of Record</text>
+
+  <rect x="70" y="820" width="1460" height="100" rx="16" fill="#fff7ed" stroke="#f97316" stroke-width="2"/>
+  <text x="100" y="855" class="t">Ehrliche PoC-Grenze</text><text x="100" y="888" class="b">Der Zielkarton wird geprüft. Der aktuelle Cluster-Dialog sendet beim Artikel jedoch nur den bekannten Soll-Barcode zurück; serverseitige Idempotenz-Reservierung fehlt.</text>
+</svg>
