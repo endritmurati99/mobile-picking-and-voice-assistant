@@ -76,11 +76,18 @@
                                    readonly="1"
                                    decoration-info="ai_evaluation_status == 'pending'"
                                    decoration-success="ai_evaluation_status == 'completed'"
+                                   decoration-warning="ai_evaluation_status == 'review_required'"
                                    decoration-danger="ai_evaluation_status == 'failed'"/>
+                            <!-- Ohne Urteil wird das Feld ausgeblendet statt
+                                 leer angezeigt: ein leeres "Einstufung" neben
+                                 einem Bildbefund liest sich wie ein Fehler in
+                                 der Anzeige, nicht wie die Aussage "hierueber
+                                 hat das System bewusst nicht entschieden". -->
                             <field name="ai_disposition"
                                    string="Einstufung"
                                    widget="badge"
                                    readonly="1"
+                                   invisible="not ai_disposition"
                                    decoration-danger="ai_disposition == 'scrap'"
                                    decoration-warning="ai_disposition == 'rework' or ai_disposition == 'quarantine'"
                                    decoration-success="ai_disposition == 'sellable'"/>
@@ -93,8 +100,13 @@
                                    invisible="not ai_photo_analysis"/>
                             <field name="ai_last_analyzed_at" string="Analysiert am" readonly="1"
                                    invisible="not ai_last_analyzed_at"/>
-                            <field name="ai_failure_reason" readonly="1"
-                                   invisible="ai_evaluation_status != 'failed'"/>
+                            <!-- Auch bei `review_required` sichtbar: dort steht
+                                 der Grund, warum die Meldung an einen Menschen
+                                 ging. Vorher zeigte das Formular ihn nur bei
+                                 `failed`, und der haeufigste Fall blieb damit
+                                 ohne Begruendung. -->
+                            <field name="ai_failure_reason" string="Grund" readonly="1"
+                                   invisible="not ai_failure_reason"/>
                         </group>
                         </div>
                     </div>

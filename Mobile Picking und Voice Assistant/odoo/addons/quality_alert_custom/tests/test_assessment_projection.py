@@ -79,6 +79,32 @@ class TestAssessmentProjection(TransactionCase):
         self.assertFalse(alert.ai_disposition)
         self.assertFalse(alert.ai_confidence)
 
+    def test_review_required_clears_the_verdict_of_the_previous_run(self):
+        """Der Fall aus QA/0204: ein Lauf ohne Bildpruefung schrieb
+        "quarantine", der naechste fand den Hund und ging an einen Menschen --
+        und die alte Einstufung stand weiter im Formular."""
+        alert = self._alert()
+        alert.api_apply_assessment("succeeded", dict(RESULT, disposition="quarantine"), None)
+        alert.api_apply_assessment(
+            "review_required",
+            {"photo_analysis": "Foto zeigt nicht den gemeldeten Artikel."},
+            {"message": "Foto widerspricht der Meldung, siehe Fotoanalyse."},
+        )
+        self.assertFalse(alert.ai_disposition)
+        self.assertFalse(alert.ai_confidence)
+        self.assertFalse(alert.ai_summary)
+        self.assertFalse(alert.ai_recommended_action)
+        self.assertFalse(alert.ai_provider)
+        self.assertFalse(alert.ai_model)
+        self.assertIn("nicht den gemeldeten Artikel", alert.ai_photo_analysis)
+
+    def test_failed_clears_the_verdict_of_the_previous_run(self):
+        alert = self._alert()
+        alert.api_apply_assessment("succeeded", RESULT, None)
+        alert.api_apply_assessment("failed", {}, {"message": "Odoo weg"})
+        self.assertFalse(alert.ai_disposition)
+        self.assertFalse(alert.ai_summary)
+
     def test_a_result_without_photo_analysis_clears_the_field(self):
         """Kein Rest vom vorigen Durchlauf: eine Wiederholung ohne Bildbefund
         darf nicht den alten stehen lassen."""

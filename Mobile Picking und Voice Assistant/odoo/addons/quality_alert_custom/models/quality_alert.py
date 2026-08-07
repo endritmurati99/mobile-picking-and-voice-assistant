@@ -210,6 +210,24 @@ class QualityAlert(models.Model):
                     "ai_model": result.get("model") or False,
                 }
             )
+        else:
+            # Das Urteil des VORIGEN Durchlaufs wird geloescht, nicht stehen
+            # gelassen. Sonst liest der Mensch neben "Manuelle Pruefung noetig"
+            # weiter die Einstufung von damals -- beim Hundefoto stand dort
+            # "Quarantaene" aus einem Lauf, in dem das Bild noch gar nicht
+            # geprueft worden war. Ein altes Urteil neben einem neuen Befund
+            # ist schlimmer als gar keins: es sieht aus wie eine Antwort auf
+            # den Befund, den daneben niemand getroffen hat.
+            values.update(
+                {
+                    "ai_disposition": False,
+                    "ai_confidence": 0.0,
+                    "ai_summary": False,
+                    "ai_recommended_action": False,
+                    "ai_provider": False,
+                    "ai_model": False,
+                }
+            )
         self.sudo().write(values)
         return True
 
