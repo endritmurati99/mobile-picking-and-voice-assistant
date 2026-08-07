@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1260" viewBox="0 0 1800 1260" role="img" aria-labelledby="title desc">
+  <title id="title">Ebene 2: Die PWA und ein normaler Auftrag</title>
+  <desc id="desc">Fünf Schritte zeigen Anmeldung, Auftragsliste, Reservierung, Scan und Odoo-Abschluss. Darunter erklärt ein Ablauf mit den drei Ebenen PWA, FastAPI und Odoo, welcher Teil jeden Schritt ausführt.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
+    </marker>
+    <style>
+      .title { font: 700 34px Arial, sans-serif; fill: #0f172a; }
+      .subtitle { font: 18px Arial, sans-serif; fill: #475569; }
+      .section { font: 700 20px Arial, sans-serif; fill: #334155; letter-spacing: .5px; }
+      .step { font: 700 17px Arial, sans-serif; fill: #1d4ed8; }
+      .box-title { font: 700 21px Arial, sans-serif; fill: #0f172a; }
+      .box-copy { font: 16px Arial, sans-serif; fill: #334155; }
+      .small { font: 14px Arial, sans-serif; fill: #475569; }
+      .lane { font: 700 23px Arial, sans-serif; fill: #0f172a; }
+      .flow { fill: none; stroke: #334155; stroke-width: 3; marker-end: url(#arrow); }
+      .both { fill: none; stroke: #64748b; stroke-width: 2.5; marker-start: url(#arrow); marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect width="1800" height="1260" fill="#ffffff"/>
+  <text x="900" y="50" text-anchor="middle" class="title">Ebene 2: Wie läuft ein normaler Auftrag?</text>
+  <text x="900" y="80" text-anchor="middle" class="subtitle">Beispiel WH/OUT/0042 – vom Login bis zu Odoos bestätigtem Abschluss</text>
+
+  <text x="55" y="125" class="section">WAS DER MITARBEITER SIEHT</text>
+
+  <g aria-label="Schritt 1 Anmeldung">
+    <rect x="55" y="150" width="290" height="205" rx="20" fill="#dbeafe" stroke="#2563eb" stroke-width="3"/>
+    <text x="80" y="182" class="step">1 · ANMELDEN</text>
+    <rect x="85" y="202" width="230" height="112" rx="10" fill="#ffffff" stroke="#93c5fd" stroke-width="2"/>
+    <text x="200" y="233" text-anchor="middle" class="box-title">Odoo-Benutzer</text>
+    <text x="200" y="262" text-anchor="middle" class="box-copy">Benutzer · Passwort</text>
+    <text x="200" y="287" text-anchor="middle" class="small">geschützte Sitzung entsteht</text>
+    <text x="200" y="337" text-anchor="middle" class="small">Passwort wird nicht gespeichert</text>
+  </g>
+
+  <g aria-label="Schritt 2 Auftragsliste">
+    <rect x="405" y="150" width="290" height="205" rx="20" fill="#dbeafe" stroke="#2563eb" stroke-width="3"/>
+    <text x="430" y="182" class="step">2 · LISTE</text>
+    <rect x="435" y="202" width="230" height="112" rx="10" fill="#ffffff" stroke="#93c5fd" stroke-width="2"/>
+    <text x="550" y="233" text-anchor="middle" class="box-title">WH/OUT/0042</text>
+    <text x="550" y="262" text-anchor="middle" class="box-copy">Beispiel GmbH</text>
+    <text x="550" y="287" text-anchor="middle" class="small">2 Positionen · nächster Platz A-01</text>
+    <text x="550" y="337" text-anchor="middle" class="small">suchen und filtern</text>
+  </g>
+
+  <g aria-label="Schritt 3 Auftrag reservieren">
+    <rect x="755" y="150" width="290" height="205" rx="20" fill="#dbeafe" stroke="#2563eb" stroke-width="3"/>
+    <text x="780" y="182" class="step">3 · ÖFFNEN</text>
+    <rect x="785" y="202" width="230" height="112" rx="10" fill="#ffffff" stroke="#93c5fd" stroke-width="2"/>
+    <text x="900" y="233" text-anchor="middle" class="box-title">Auftrag reserviert</text>
+    <text x="900" y="262" text-anchor="middle" class="box-copy">nur für mich und mein Gerät</text>
+    <text x="900" y="287" text-anchor="middle" class="small">Heartbeat hält Claim aktiv</text>
+    <text x="900" y="337" text-anchor="middle" class="small">danach werden Details geladen</text>
+  </g>
+
+  <g aria-label="Schritt 4 Position scannen">
+    <rect x="1105" y="150" width="290" height="205" rx="20" fill="#dbeafe" stroke="#2563eb" stroke-width="3"/>
+    <text x="1130" y="182" class="step">4 · SCANNEN</text>
+    <rect x="1135" y="202" width="230" height="112" rx="10" fill="#ffffff" stroke="#93c5fd" stroke-width="2"/>
+    <text x="1250" y="233" text-anchor="middle" class="box-title">USB-C-Kabel</text>
+    <text x="1250" y="262" text-anchor="middle" class="box-copy">A-01 · Menge 2</text>
+    <text x="1250" y="287" text-anchor="middle" class="small">Barcode prüfen und bestätigen</text>
+    <text x="1250" y="337" text-anchor="middle" class="small">danach nächste Position</text>
+  </g>
+
+  <g aria-label="Schritt 5 Auftrag abgeschlossen">
+    <rect x="1455" y="150" width="290" height="205" rx="20" fill="#dcfce7" stroke="#16a34a" stroke-width="3"/>
+    <text x="1480" y="182" class="step" fill="#15803d">5 · FERTIG</text>
+    <rect x="1485" y="202" width="230" height="112" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="2"/>
+    <text x="1600" y="233" text-anchor="middle" class="box-title">Auftrag abgeschlossen</text>
+    <text x="1600" y="262" text-anchor="middle" class="box-copy">WH/OUT/0042</text>
+    <text x="1600" y="287" text-anchor="middle" class="small">Odoo hat den Abschluss bestätigt</text>
+    <text x="1600" y="337" text-anchor="middle" class="small">erst jetzt zeigt die PWA „fertig“</text>
+  </g>
+
+  <path d="M 347 252 L 403 252" class="flow"/>
+  <path d="M 697 252 L 753 252" class="flow"/>
+  <path d="M 1047 252 L 1103 252" class="flow"/>
+  <path d="M 1397 252 L 1453 252" class="flow"/>
+
+  <text x="55" y="415" class="section">WAS TECHNISCH PASSIERT</text>
+  <rect x="40" y="440" width="1720" height="590" rx="24" fill="#f8fafc" stroke="#94a3b8" stroke-width="3"/>
+
+  <g aria-label="PWA Ebene">
+    <rect x="60" y="495" width="180" height="125" rx="16" fill="#dbeafe" stroke="#2563eb" stroke-width="3"/>
+    <text x="150" y="544" text-anchor="middle" class="lane">PWA</text>
+    <text x="150" y="574" text-anchor="middle" class="small">zeigt · scannt</text>
+    <text x="150" y="595" text-anchor="middle" class="small">sendet Anfragen</text>
+  </g>
+  <g aria-label="FastAPI Ebene">
+    <rect x="60" y="665" width="180" height="145" rx="16" fill="#dcfce7" stroke="#16a34a" stroke-width="3"/>
+    <text x="150" y="720" text-anchor="middle" class="lane">FastAPI</text>
+    <text x="150" y="750" text-anchor="middle" class="small">prüft · schützt</text>
+    <text x="150" y="771" text-anchor="middle" class="small">übersetzt</text>
+  </g>
+  <g aria-label="Odoo Ebene">
+    <rect x="60" y="855" width="180" height="130" rx="16" fill="#fee2e2" stroke="#dc2626" stroke-width="3"/>
+    <text x="150" y="907" text-anchor="middle" class="lane">Odoo</text>
+    <text x="150" y="937" text-anchor="middle" class="small">entscheidet</text>
+    <text x="150" y="958" text-anchor="middle" class="small">und speichert</text>
+  </g>
+
+  <g aria-label="Anmeldephase">
+    <rect x="275" y="475" width="270" height="165" rx="15" fill="#eff6ff" stroke="#93c5fd" stroke-width="2"/>
+    <text x="410" y="510" text-anchor="middle" class="box-title">Anmeldung senden</text>
+    <text x="410" y="538" text-anchor="middle" class="small">POST /auth/picker-session</text>
+    <text x="410" y="568" text-anchor="middle" class="box-copy">Cookie + CSRF übernehmen</text>
+    <text x="410" y="598" text-anchor="middle" class="small">bei Reload: GET /auth/me</text>
+    <rect x="275" y="665" width="270" height="145" rx="15" fill="#f0fdf4" stroke="#86efac" stroke-width="2"/>
+    <text x="410" y="707" text-anchor="middle" class="box-title">Zugang prüfen</text>
+    <text x="410" y="737" text-anchor="middle" class="box-copy">sichere Sitzung anlegen</text>
+    <text x="410" y="767" text-anchor="middle" class="small">Passwort nicht zurückgeben</text>
+    <rect x="275" y="855" width="270" height="130" rx="15" fill="#fff1f2" stroke="#fca5a5" stroke-width="2"/>
+    <text x="410" y="902" text-anchor="middle" class="box-title">Benutzer prüfen</text>
+    <text x="410" y="933" text-anchor="middle" class="box-copy">Odoo-Zugangsdaten</text>
+    <text x="410" y="960" text-anchor="middle" class="small">und Berechtigung</text>
+  </g>
+
+  <g aria-label="Listenphase">
+    <rect x="575" y="475" width="270" height="165" rx="15" fill="#eff6ff" stroke="#93c5fd" stroke-width="2"/>
+    <text x="710" y="510" text-anchor="middle" class="box-title">Liste anfordern</text>
+    <text x="710" y="538" text-anchor="middle" class="small">GET /pickings</text>
+    <text x="710" y="568" text-anchor="middle" class="box-copy">Karten anzeigen</text>
+    <text x="710" y="598" text-anchor="middle" class="small">Suche/Filter nur im Browser</text>
+    <rect x="575" y="665" width="270" height="145" rx="15" fill="#f0fdf4" stroke="#86efac" stroke-width="2"/>
+    <text x="710" y="707" text-anchor="middle" class="box-title">Liste aufbereiten</text>
+    <text x="710" y="737" text-anchor="middle" class="box-copy">Positionen und Plätze ergänzen</text>
+    <text x="710" y="767" text-anchor="middle" class="small">Laufreihenfolge berechnen</text>
+    <rect x="575" y="855" width="270" height="130" rx="15" fill="#fff1f2" stroke="#fca5a5" stroke-width="2"/>
+    <text x="710" y="902" text-anchor="middle" class="box-title">Offene Pickings</text>
+    <text x="710" y="933" text-anchor="middle" class="box-copy">state = assigned</text>
+    <text x="710" y="960" text-anchor="middle" class="small">Produkte · Mengen · Plätze</text>
+  </g>
+
+  <g aria-label="Öffnungsphase">
+    <rect x="875" y="475" width="270" height="165" rx="15" fill="#eff6ff" stroke="#93c5fd" stroke-width="2"/>
+    <text x="1010" y="510" text-anchor="middle" class="box-title">Claim, dann Detail</text>
+    <text x="1010" y="538" text-anchor="middle" class="small">POST /pickings/42/claim · GET /pickings/42</text>
+    <text x="1010" y="568" text-anchor="middle" class="box-copy">aktuelle Position zeigen</text>
+    <text x="1010" y="598" text-anchor="middle" class="small">Heartbeat läuft im Hintergrund</text>
+    <rect x="875" y="665" width="270" height="145" rx="15" fill="#f0fdf4" stroke="#86efac" stroke-width="2"/>
+    <text x="1010" y="707" text-anchor="middle" class="box-title">Claim schützen</text>
+    <text x="1010" y="737" text-anchor="middle" class="box-copy">Identität + Idempotenz prüfen</text>
+    <text x="1010" y="767" text-anchor="middle" class="small">Details verständlich aufbereiten</text>
+    <rect x="875" y="855" width="270" height="130" rx="15" fill="#fff1f2" stroke="#fca5a5" stroke-width="2"/>
+    <text x="1010" y="902" text-anchor="middle" class="box-title">Claim speichern</text>
+    <text x="1010" y="933" text-anchor="middle" class="box-copy">Mitarbeiter · Gerät · Ablaufzeit</text>
+    <text x="1010" y="960" text-anchor="middle" class="small">echte Move-Lines liefern</text>
+  </g>
+
+  <g aria-label="Bestätigungsphase">
+    <rect x="1175" y="475" width="270" height="165" rx="15" fill="#eff6ff" stroke="#93c5fd" stroke-width="2"/>
+    <text x="1310" y="510" text-anchor="middle" class="box-title">Barcode senden</text>
+    <text x="1310" y="538" text-anchor="middle" class="small">POST /confirm-line</text>
+    <text x="1310" y="568" text-anchor="middle" class="box-copy">Menge + optionale Serial</text>
+    <text x="1310" y="598" text-anchor="middle" class="small">danach nächste Position</text>
+    <rect x="1175" y="665" width="270" height="145" rx="15" fill="#f0fdf4" stroke="#86efac" stroke-width="2"/>
+    <text x="1310" y="707" text-anchor="middle" class="box-title">Alles erneut prüfen</text>
+    <text x="1310" y="737" text-anchor="middle" class="box-copy">Claim · Barcode · Bestand</text>
+    <text x="1310" y="767" text-anchor="middle" class="small">Los/Serial · Idempotenz</text>
+    <rect x="1175" y="855" width="270" height="130" rx="15" fill="#fff1f2" stroke="#fca5a5" stroke-width="2"/>
+    <text x="1310" y="902" text-anchor="middle" class="box-title">Position buchen</text>
+    <text x="1310" y="933" text-anchor="middle" class="box-copy">Menge schreiben</text>
+    <text x="1310" y="960" text-anchor="middle" class="small">picked = true</text>
+  </g>
+
+  <g aria-label="Abschlussphase">
+    <rect x="1475" y="475" width="270" height="165" rx="15" fill="#eff6ff" stroke="#93c5fd" stroke-width="2"/>
+    <text x="1610" y="510" text-anchor="middle" class="box-title">Serverantwort glauben</text>
+    <text x="1610" y="538" text-anchor="middle" class="small">picking_complete = true?</text>
+    <text x="1610" y="568" text-anchor="middle" class="box-copy">nur dann „Fertig“ zeigen</text>
+    <text x="1610" y="598" text-anchor="middle" class="small">sonst Auftrag neu laden</text>
+    <rect x="1475" y="665" width="270" height="145" rx="15" fill="#f0fdf4" stroke="#86efac" stroke-width="2"/>
+    <text x="1610" y="707" text-anchor="middle" class="box-title">Gesamtabschluss</text>
+    <text x="1610" y="737" text-anchor="middle" class="box-copy">wenn alle Zeilen gepickt</text>
+    <text x="1610" y="767" text-anchor="middle" class="small">button_validate aufrufen</text>
+    <rect x="1475" y="855" width="270" height="130" rx="15" fill="#fff1f2" stroke="#fca5a5" stroke-width="2"/>
+    <text x="1610" y="902" text-anchor="middle" class="box-title">Auftrag abschließen</text>
+    <text x="1610" y="933" text-anchor="middle" class="box-copy">stock.picking = done</text>
+    <text x="1610" y="960" text-anchor="middle" class="small">oder begründet offen lassen</text>
+  </g>
+
+  <path d="M 410 642 L 410 662" class="both"/>
+  <path d="M 410 812 L 410 852" class="both"/>
+  <path d="M 710 642 L 710 662" class="both"/>
+  <path d="M 710 812 L 710 852" class="both"/>
+  <path d="M 1010 642 L 1010 662" class="both"/>
+  <path d="M 1010 812 L 1010 852" class="both"/>
+  <path d="M 1310 642 L 1310 662" class="both"/>
+  <path d="M 1310 812 L 1310 852" class="both"/>
+  <path d="M 1610 642 L 1610 662" class="both"/>
+  <path d="M 1610 812 L 1610 852" class="both"/>
+
+  <text x="55" y="1080" class="section">DREI SICHERHEITSNETZE</text>
+  <g aria-label="Sitzung und CSRF">
+    <rect x="55" y="1100" width="520" height="105" rx="17" fill="#ede9fe" stroke="#7c3aed" stroke-width="3"/>
+    <text x="315" y="1140" text-anchor="middle" class="box-title">1 · Sitzung + CSRF</text>
+    <text x="315" y="1170" text-anchor="middle" class="box-copy">Wer bist du – und kam der Schreibaufruf wirklich aus der PWA?</text>
+  </g>
+  <g aria-label="Claim und Heartbeat">
+    <rect x="640" y="1100" width="520" height="105" rx="17" fill="#fef3c7" stroke="#d97706" stroke-width="3"/>
+    <text x="900" y="1140" text-anchor="middle" class="box-title">2 · Claim + Heartbeat</text>
+    <text x="900" y="1170" text-anchor="middle" class="box-copy">Nur ein Mitarbeiter bearbeitet den Auftrag zur gleichen Zeit.</text>
+  </g>
+  <g aria-label="Idempotenz">
+    <rect x="1225" y="1100" width="520" height="105" rx="17" fill="#e0f2fe" stroke="#0284c7" stroke-width="3"/>
+    <text x="1485" y="1140" text-anchor="middle" class="box-title">3 · Idempotenz</text>
+    <text x="1485" y="1170" text-anchor="middle" class="box-copy">Eine wiederholte Anfrage bucht dieselbe Position nicht doppelt.</text>
+  </g>
+
+  <rect x="55" y="1220" width="1690" height="30" rx="12" fill="#f1f5f9"/>
+  <text x="900" y="1242" text-anchor="middle" class="small">Kernweg: PWA → FastAPI → Odoo. n8n und KI sind für die normale Buchung nicht erforderlich.</text>
+</svg>

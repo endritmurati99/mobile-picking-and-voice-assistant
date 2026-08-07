@@ -9,10 +9,16 @@ Beginne mit [Ebene 1: Die große Systemlandkarte](./architecture/ebene-1-systeml
 Sie erklärt PWA, Caddy, FastAPI, Odoo, n8n, Voice, lokale KI, PostgreSQL und
 Docker ohne technisches Vorwissen.
 
+Danach folgt [Ebene 2: Die PWA und ein normaler Auftrag](./architecture/ebene-2-pwa-normaler-auftrag.md).
+Sie verfolgt Anmeldung, Auftragsliste, Claim, Scan, Positionsbestätigung und
+Odoo-Abschluss Schritt für Schritt.
+
 Die editierbaren und exportierten Grafiken liegen daneben:
 
 - [Excalidraw-Quelle](./architecture/ebene-1-systemlandkarte.excalidraw)
 - [SVG-Grafik](./architecture/ebene-1-systemlandkarte.svg)
+- [Ebene-2-Excalidraw-Quelle](./architecture/ebene-2-pwa-normaler-auftrag.excalidraw)
+- [Ebene-2-SVG-Grafik](./architecture/ebene-2-pwa-normaler-auftrag.svg)
 
 ## Stabile Architekturregeln
 
@@ -40,7 +46,7 @@ Die editierbaren und exportierten Grafiken liegen daneben:
 | Ebene | Inhalt | Status |
 | --- | --- | --- |
 | 1 | Gesamtlandkarte und Docker-Grenze | vorhanden |
-| 2 | PWA und normaler Auftrag | geplant |
+| 2 | [PWA und normaler Auftrag](./architecture/ebene-2-pwa-normaler-auftrag.md) | vorhanden |
 | 3 | Cluster-Picking | geplant |
 | 4 | Voice mit Whisper und Piper | geplant |
 | 5 | Quality, n8n sowie Text- und Bild-KI | geplant |

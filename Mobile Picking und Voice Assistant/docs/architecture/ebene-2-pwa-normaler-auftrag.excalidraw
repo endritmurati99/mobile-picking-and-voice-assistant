@@ -1,0 +1,206 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "https://excalidraw.com",
+  "elements": [
+    {
+      "id": "title", "type": "text", "x": 500, "y": 28, "width": 800, "height": 43, "angle": 0,
+      "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": null, "seed": 2101, "version": 1, "versionNonce": 3101, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
+      "fontSize": 34, "fontFamily": 1, "text": "Ebene 2: Wie läuft ein normaler Auftrag?", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "Ebene 2: Wie läuft ein normaler Auftrag?", "autoResize": true, "lineHeight": 1.25
+    },
+    {
+      "id": "subtitle", "type": "text", "x": 520, "y": 76, "width": 760, "height": 25, "angle": 0,
+      "strokeColor": "#475569", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": null, "seed": 2102, "version": 1, "versionNonce": 3102, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
+      "fontSize": 18, "fontFamily": 1, "text": "WH/OUT/0042 – vom Login bis zu Odoos bestätigtem Abschluss", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "WH/OUT/0042 – vom Login bis zu Odoos bestätigtem Abschluss", "autoResize": true, "lineHeight": 1.25
+    },
+    {
+      "id": "visible-label", "type": "text", "x": 55, "y": 112, "width": 330, "height": 25, "angle": 0,
+      "strokeColor": "#334155", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": null, "seed": 2103, "version": 1, "versionNonce": 3103, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
+      "fontSize": 20, "fontFamily": 1, "text": "WAS DER MITARBEITER SIEHT", "textAlign": "left", "verticalAlign": "top", "containerId": null, "originalText": "WAS DER MITARBEITER SIEHT", "autoResize": true, "lineHeight": 1.25
+    },
+    {
+      "id": "card-login", "type": "rectangle", "x": 55, "y": 150, "width": 290, "height": 205, "angle": 0,
+      "strokeColor": "#2563eb", "backgroundColor": "#dbeafe", "fillStyle": "solid", "strokeWidth": 3, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": {"type": 3}, "seed": 2104, "version": 1, "versionNonce": 3104, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false
+    },
+    {
+      "id": "card-login-text", "type": "text", "x": 80, "y": 178, "width": 240, "height": 125, "angle": 0,
+      "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": null, "seed": 2105, "version": 1, "versionNonce": 3105, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
+      "fontSize": 19, "fontFamily": 1, "text": "1 · ANMELDEN\n\nOdoo-Benutzer\nBenutzer + Passwort\nSitzung entsteht", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "1 · ANMELDEN\n\nOdoo-Benutzer\nBenutzer + Passwort\nSitzung entsteht", "autoResize": true, "lineHeight": 1.25
+    },
+    {
+      "id": "card-list", "type": "rectangle", "x": 405, "y": 150, "width": 290, "height": 205, "angle": 0,
+      "strokeColor": "#2563eb", "backgroundColor": "#dbeafe", "fillStyle": "solid", "strokeWidth": 3, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": {"type": 3}, "seed": 2106, "version": 1, "versionNonce": 3106, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false
+    },
+    {
+      "id": "card-list-text", "type": "text", "x": 430, "y": 178, "width": 240, "height": 125, "angle": 0,
+      "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": null, "seed": 2107, "version": 1, "versionNonce": 3107, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
+      "fontSize": 19, "fontFamily": 1, "text": "2 · LISTE\n\nWH/OUT/0042\nBeispiel GmbH\n2 Positionen", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "2 · LISTE\n\nWH/OUT/0042\nBeispiel GmbH\n2 Positionen", "autoResize": true, "lineHeight": 1.25
+    },
+    {
+      "id": "card-open", "type": "rectangle", "x": 755, "y": 150, "width": 290, "height": 205, "angle": 0,
+      "strokeColor": "#2563eb", "backgroundColor": "#dbeafe", "fillStyle": "solid", "strokeWidth": 3, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": {"type": 3}, "seed": 2108, "version": 1, "versionNonce": 3108, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false
+    },
+    {
+      "id": "card-open-text", "type": "text", "x": 780, "y": 178, "width": 240, "height": 125, "angle": 0,
+      "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": null, "seed": 2109, "version": 1, "versionNonce": 3109, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
+      "fontSize": 19, "fontFamily": 1, "text": "3 · ÖFFNEN\n\nAuftrag reserviert\nfür Mitarbeiter + Gerät\nHeartbeat läuft", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "3 · ÖFFNEN\n\nAuftrag reserviert\nfür Mitarbeiter + Gerät\nHeartbeat läuft", "autoResize": true, "lineHeight": 1.25
+    },
+    {
+      "id": "card-scan", "type": "rectangle", "x": 1105, "y": 150, "width": 290, "height": 205, "angle": 0,
+      "strokeColor": "#2563eb", "backgroundColor": "#dbeafe", "fillStyle": "solid", "strokeWidth": 3, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": {"type": 3}, "seed": 2110, "version": 1, "versionNonce": 3110, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false
+    },
+    {
+      "id": "card-scan-text", "type": "text", "x": 1130, "y": 178, "width": 240, "height": 125, "angle": 0,
+      "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": null, "seed": 2111, "version": 1, "versionNonce": 3111, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
+      "fontSize": 19, "fontFamily": 1, "text": "4 · SCANNEN\n\nUSB-C-Kabel\nA-01 · Menge 2\nBarcode bestätigen", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "4 · SCANNEN\n\nUSB-C-Kabel\nA-01 · Menge 2\nBarcode bestätigen", "autoResize": true, "lineHeight": 1.25
+    },
+    {
+      "id": "card-done", "type": "rectangle", "x": 1455, "y": 150, "width": 290, "height": 205, "angle": 0,
+      "strokeColor": "#16a34a", "backgroundColor": "#dcfce7", "fillStyle": "solid", "strokeWidth": 3, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": {"type": 3}, "seed": 2112, "version": 1, "versionNonce": 3112, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false
+    },
+    {
+      "id": "card-done-text", "type": "text", "x": 1480, "y": 178, "width": 240, "height": 125, "angle": 0,
+      "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": null, "seed": 2113, "version": 1, "versionNonce": 3113, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
+      "fontSize": 19, "fontFamily": 1, "text": "5 · FERTIG\n\nAuftrag abgeschlossen\nWH/OUT/0042\nOdoo hat bestätigt", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "5 · FERTIG\n\nAuftrag abgeschlossen\nWH/OUT/0042\nOdoo hat bestätigt", "autoResize": true, "lineHeight": 1.25
+    },
+    {
+      "id": "arrow-1", "type": "arrow", "x": 347, "y": 252, "width": 56, "height": 0, "angle": 0,
+      "strokeColor": "#334155", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 3, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": {"type": 2}, "seed": 2114, "version": 1, "versionNonce": 3114, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
+      "points": [[0,0],[56,0]], "lastCommittedPoint": null, "startBinding": null, "endBinding": null, "startArrowhead": null, "endArrowhead": "arrow"
+    },
+    {
+      "id": "arrow-2", "type": "arrow", "x": 697, "y": 252, "width": 56, "height": 0, "angle": 0,
+      "strokeColor": "#334155", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 3, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": {"type": 2}, "seed": 2115, "version": 1, "versionNonce": 3115, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
+      "points": [[0,0],[56,0]], "lastCommittedPoint": null, "startBinding": null, "endBinding": null, "startArrowhead": null, "endArrowhead": "arrow"
+    },
+    {
+      "id": "arrow-3", "type": "arrow", "x": 1047, "y": 252, "width": 56, "height": 0, "angle": 0,
+      "strokeColor": "#334155", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 3, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": {"type": 2}, "seed": 2116, "version": 1, "versionNonce": 3116, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
+      "points": [[0,0],[56,0]], "lastCommittedPoint": null, "startBinding": null, "endBinding": null, "startArrowhead": null, "endArrowhead": "arrow"
+    },
+    {
+      "id": "arrow-4", "type": "arrow", "x": 1397, "y": 252, "width": 56, "height": 0, "angle": 0,
+      "strokeColor": "#334155", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 3, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": {"type": 2}, "seed": 2117, "version": 1, "versionNonce": 3117, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
+      "points": [[0,0],[56,0]], "lastCommittedPoint": null, "startBinding": null, "endBinding": null, "startArrowhead": null, "endArrowhead": "arrow"
+    },
+    {
+      "id": "technical-label", "type": "text", "x": 55, "y": 405, "width": 315, "height": 25, "angle": 0,
+      "strokeColor": "#334155", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": null, "seed": 2118, "version": 1, "versionNonce": 3118, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
+      "fontSize": 20, "fontFamily": 1, "text": "WAS TECHNISCH PASSIERT", "textAlign": "left", "verticalAlign": "top", "containerId": null, "originalText": "WAS TECHNISCH PASSIERT", "autoResize": true, "lineHeight": 1.25
+    },
+    {
+      "id": "phase-login", "type": "rectangle", "x": 55, "y": 450, "width": 320, "height": 500, "angle": 0,
+      "strokeColor": "#7c3aed", "backgroundColor": "#faf5ff", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": {"type": 3}, "seed": 2119, "version": 1, "versionNonce": 3119, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false
+    },
+    {
+      "id": "phase-login-text", "type": "text", "x": 80, "y": 480, "width": 270, "height": 420, "angle": 0,
+      "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": null, "seed": 2120, "version": 1, "versionNonce": 3120, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
+      "fontSize": 18, "fontFamily": 1, "text": "ANMELDUNG\n\nPWA\nPOST /auth/picker-session\nCookie + CSRF übernehmen\n\n↓\n\nFastAPI\nZugang prüfen\nsichere Sitzung anlegen\n\n↓\n\nOdoo\nBenutzer und Berechtigung prüfen", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "ANMELDUNG\n\nPWA\nPOST /auth/picker-session\nCookie + CSRF übernehmen\n\n↓\n\nFastAPI\nZugang prüfen\nsichere Sitzung anlegen\n\n↓\n\nOdoo\nBenutzer und Berechtigung prüfen", "autoResize": true, "lineHeight": 1.25
+    },
+    {
+      "id": "phase-list", "type": "rectangle", "x": 397, "y": 450, "width": 320, "height": 500, "angle": 0,
+      "strokeColor": "#2563eb", "backgroundColor": "#eff6ff", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": {"type": 3}, "seed": 2121, "version": 1, "versionNonce": 3121, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false
+    },
+    {
+      "id": "phase-list-text", "type": "text", "x": 422, "y": 480, "width": 270, "height": 420, "angle": 0,
+      "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": null, "seed": 2122, "version": 1, "versionNonce": 3122, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
+      "fontSize": 18, "fontFamily": 1, "text": "AUFTRAGSLISTE\n\nPWA\nGET /pickings\nKarten anzeigen\n\n↓\n\nFastAPI\nListe und Laufweg aufbereiten\n\n↓\n\nOdoo\nassigned Pickings\nProdukte + Plätze liefern", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "AUFTRAGSLISTE\n\nPWA\nGET /pickings\nKarten anzeigen\n\n↓\n\nFastAPI\nListe und Laufweg aufbereiten\n\n↓\n\nOdoo\nassigned Pickings\nProdukte + Plätze liefern", "autoResize": true, "lineHeight": 1.25
+    },
+    {
+      "id": "phase-open", "type": "rectangle", "x": 739, "y": 450, "width": 320, "height": 500, "angle": 0,
+      "strokeColor": "#d97706", "backgroundColor": "#fffbeb", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": {"type": 3}, "seed": 2123, "version": 1, "versionNonce": 3123, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false
+    },
+    {
+      "id": "phase-open-text", "type": "text", "x": 764, "y": 480, "width": 270, "height": 420, "angle": 0,
+      "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": null, "seed": 2124, "version": 1, "versionNonce": 3124, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
+      "fontSize": 18, "fontFamily": 1, "text": "AUFTRAG ÖFFNEN\n\nPWA\nPOST /pickings/42/claim\ndann GET /pickings/42\n\n↓\n\nFastAPI\nIdentität + Idempotenz prüfen\n\n↓\n\nOdoo\nClaim mit Gerät + Ablaufzeit\nspeichern und Details liefern", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "AUFTRAG ÖFFNEN\n\nPWA\nPOST /pickings/42/claim\ndann GET /pickings/42\n\n↓\n\nFastAPI\nIdentität + Idempotenz prüfen\n\n↓\n\nOdoo\nClaim mit Gerät + Ablaufzeit\nspeichern und Details liefern", "autoResize": true, "lineHeight": 1.25
+    },
+    {
+      "id": "phase-confirm", "type": "rectangle", "x": 1081, "y": 450, "width": 320, "height": 500, "angle": 0,
+      "strokeColor": "#0284c7", "backgroundColor": "#f0f9ff", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": {"type": 3}, "seed": 2125, "version": 1, "versionNonce": 3125, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false
+    },
+    {
+      "id": "phase-confirm-text", "type": "text", "x": 1106, "y": 480, "width": 270, "height": 420, "angle": 0,
+      "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": null, "seed": 2126, "version": 1, "versionNonce": 3126, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
+      "fontSize": 18, "fontFamily": 1, "text": "POSITION BUCHEN\n\nPWA\nPOST /confirm-line\nBarcode + Menge + Serial\n\n↓\n\nFastAPI\nClaim, Barcode, Bestand,\nSerial und Idempotenz prüfen\n\n↓\n\nOdoo\nMenge schreiben\npicked = true", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "POSITION BUCHEN\n\nPWA\nPOST /confirm-line\nBarcode + Menge + Serial\n\n↓\n\nFastAPI\nClaim, Barcode, Bestand,\nSerial und Idempotenz prüfen\n\n↓\n\nOdoo\nMenge schreiben\npicked = true", "autoResize": true, "lineHeight": 1.25
+    },
+    {
+      "id": "phase-done", "type": "rectangle", "x": 1423, "y": 450, "width": 320, "height": 500, "angle": 0,
+      "strokeColor": "#16a34a", "backgroundColor": "#f0fdf4", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": {"type": 3}, "seed": 2127, "version": 1, "versionNonce": 3127, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false
+    },
+    {
+      "id": "phase-done-text", "type": "text", "x": 1448, "y": 480, "width": 270, "height": 420, "angle": 0,
+      "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": null, "seed": 2128, "version": 1, "versionNonce": 3128, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
+      "fontSize": 18, "fontFamily": 1, "text": "ABSCHLUSS\n\nPWA\nNur bei true „Fertig“ zeigen\n\n↑\n\nFastAPI\nWenn alle Zeilen gepickt:\nbutton_validate aufrufen\n\n↑\n\nOdoo\nstock.picking = done\noder begründet offen lassen", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "ABSCHLUSS\n\nPWA\nNur bei true „Fertig“ zeigen\n\n↑\n\nFastAPI\nWenn alle Zeilen gepickt:\nbutton_validate aufrufen\n\n↑\n\nOdoo\nstock.picking = done\noder begründet offen lassen", "autoResize": true, "lineHeight": 1.25
+    },
+    {
+      "id": "safety-label", "type": "text", "x": 55, "y": 985, "width": 290, "height": 25, "angle": 0,
+      "strokeColor": "#334155", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": null, "seed": 2129, "version": 1, "versionNonce": 3129, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
+      "fontSize": 20, "fontFamily": 1, "text": "DREI SICHERHEITSNETZE", "textAlign": "left", "verticalAlign": "top", "containerId": null, "originalText": "DREI SICHERHEITSNETZE", "autoResize": true, "lineHeight": 1.25
+    },
+    {
+      "id": "safety-session", "type": "rectangle", "x": 55, "y": 1030, "width": 520, "height": 120, "angle": 0,
+      "strokeColor": "#7c3aed", "backgroundColor": "#ede9fe", "fillStyle": "solid", "strokeWidth": 3, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": {"type": 3}, "seed": 2130, "version": 1, "versionNonce": 3130, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false
+    },
+    {
+      "id": "safety-session-text", "type": "text", "x": 80, "y": 1055, "width": 470, "height": 70, "angle": 0,
+      "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": null, "seed": 2131, "version": 1, "versionNonce": 3131, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
+      "fontSize": 18, "fontFamily": 1, "text": "1 · SITZUNG + CSRF\nWer bist du – und kommt der Schreibaufruf wirklich aus der PWA?", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "1 · SITZUNG + CSRF\nWer bist du – und kommt der Schreibaufruf wirklich aus der PWA?", "autoResize": true, "lineHeight": 1.25
+    },
+    {
+      "id": "safety-claim", "type": "rectangle", "x": 640, "y": 1030, "width": 520, "height": 120, "angle": 0,
+      "strokeColor": "#d97706", "backgroundColor": "#fef3c7", "fillStyle": "solid", "strokeWidth": 3, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": {"type": 3}, "seed": 2132, "version": 1, "versionNonce": 3132, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false
+    },
+    {
+      "id": "safety-claim-text", "type": "text", "x": 665, "y": 1055, "width": 470, "height": 70, "angle": 0,
+      "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": null, "seed": 2133, "version": 1, "versionNonce": 3133, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
+      "fontSize": 18, "fontFamily": 1, "text": "2 · CLAIM + HEARTBEAT\nNur ein Mitarbeiter bearbeitet den Auftrag zur gleichen Zeit.", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "2 · CLAIM + HEARTBEAT\nNur ein Mitarbeiter bearbeitet den Auftrag zur gleichen Zeit.", "autoResize": true, "lineHeight": 1.25
+    },
+    {
+      "id": "safety-idempotency", "type": "rectangle", "x": 1225, "y": 1030, "width": 520, "height": 120, "angle": 0,
+      "strokeColor": "#0284c7", "backgroundColor": "#e0f2fe", "fillStyle": "solid", "strokeWidth": 3, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": {"type": 3}, "seed": 2134, "version": 1, "versionNonce": 3134, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false
+    },
+    {
+      "id": "safety-idempotency-text", "type": "text", "x": 1250, "y": 1055, "width": 470, "height": 70, "angle": 0,
+      "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": null, "seed": 2135, "version": 1, "versionNonce": 3135, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
+      "fontSize": 18, "fontFamily": 1, "text": "3 · IDEMPOTENZ\nEine wiederholte Anfrage bucht dieselbe Position nicht doppelt.", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "3 · IDEMPOTENZ\nEine wiederholte Anfrage bucht dieselbe Position nicht doppelt.", "autoResize": true, "lineHeight": 1.25
+    }
+  ],
+  "appState": {"gridSize": null, "viewBackgroundColor": "#ffffff"},
+  "files": {}
+}
