@@ -77,7 +77,7 @@ from app.models.events import (
 from app.config import settings
 from app.services.llm_client import LlmClient
 from app.services.vision_client import VisionClient
-from app.services.assessment_media import MediaError, prepare_image
+from app.services.assessment_media import DAMAGE_MAX_EDGE, MediaError, prepare_image
 from app.services.assessment_reconciliation import PhotoFinding, reconcile
 from app.services.binary_validation import (
     ARTIFACT_KINDS,
@@ -257,8 +257,15 @@ async def _collect_photo_finding(odoo, vision: VisionClient, body) -> tuple[Phot
         return _no_finding("Ohne Bildpruefung: der Meldung liegt kein Foto bei."), False
 
     try:
-        candidates = [
-            prepare_image(base64.b64decode(photo["data_b64"])) for photo in photos
+        raw_photos = [base64.b64decode(photo["data_b64"]) for photo in photos]
+        # Zwei Aufbereitungen desselben Fotos, weil die beiden Fragen
+        # unterschiedlich viel Aufloesung vertragen: der Artikelabgleich haelt
+        # zwei Bilder in einem Fenster und bleibt klein, die Schadenspruefung
+        # sieht nur eines und darf groesser sein. Bei 512 px verschwanden zwei
+        # von drei gemessenen Rissen (siehe `assessment_media`).
+        candidates = [prepare_image(raw) for raw in raw_photos]
+        damage_candidates = [
+            prepare_image(raw, max_edge=DAMAGE_MAX_EDGE) for raw in raw_photos
         ]
     except (MediaError, KeyError, ValueError, binascii.Error) as exc:
         return _no_finding(f"Bildpruefung nicht moeglich: {exc}"), False
@@ -270,7 +277,7 @@ async def _collect_photo_finding(odoo, vision: VisionClient, body) -> tuple[Phot
     # und die Schadenspruefung haengt vollstaendig am Budget. Fiel er aus
     # (kein Katalogbild), muss sie ihn tragen.
     damage, ungeprueft = await _check_damage(
-        vision, candidates, lines, deadline, garantiert=article == "unavailable"
+        vision, damage_candidates, lines, deadline, garantiert=article == "unavailable"
     )
 
     skipped = int(media.get("photo_total") or len(photos)) - len(photos) + ungeprueft
@@ -349,7 +356,17 @@ async def _check_damage(
     if damage == "unavailable":
         lines.append("Schadenspruefung nicht moeglich: Bildmodell antwortet nicht.")
     elif damage == "damaged":
-        lines.append("Schadenspruefung: " + ", ".join(seen or ["Schaden sichtbar"]) + ".")
+        # Der Befund steht vorn, die Worte des Modells dahinter in Klammern.
+        # Sie sind englisch und manchmal schief -- am Rissfoto aus QA/0011 kam
+        # "feather" zurueck. Als ganze Zeile ("Schadenspruefung: feather.")
+        # liest das im Lager niemand als Schaden; hinter der Aussage ist es ein
+        # Hinweis, wo man hinschauen soll.
+        detail = ", ".join(seen)
+        lines.append(
+            "Schadenspruefung: Schaden sichtbar"
+            + (f" ({detail})" if detail else "")
+            + "."
+        )
     else:
         lines.append("Schadenspruefung: keine Auffaelligkeit sichtbar.")
     return damage, ungeprueft

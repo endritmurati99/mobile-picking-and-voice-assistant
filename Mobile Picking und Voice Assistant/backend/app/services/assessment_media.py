@@ -16,10 +16,18 @@ Zwischen Odoo und dem Bildmodell liegen zwei Fallen, beide gemessen:
    genau dieses Bild lief in HTTP 400, dasselbe auf 512 px verkleinert ging
    durch. Das Verkleinern ist Voraussetzung, keine Optimierung.
 
-`MAX_EDGE` ist trotzdem eine Wahl und keine Naturkonstante. Zeigt sich 512 px
-als zu grob fuer feine Schaeden, ist der Ausweg nicht ein groesseres Bild --
-das trifft wieder auf dieselbe Grenze --, sondern das Foto in Kacheln zu
-zerlegen und jede einzeln zu pruefen.
+`MAX_EDGE` ist trotzdem eine Wahl und keine Naturkonstante -- und 512 px hat
+sich fuer die Schadenspruefung als zu grob erwiesen. Gemessen am 2026-08-07 mit
+`qwen2.5vl:7b`, drei Schadensfotos und einem heilen Teil:
+
+    Foto              512 px          768 px
+    QA/0011 Riss      damaged False   damaged True
+    gemini_damaged    damaged False   damaged True
+    damaged.png       damaged True    damaged True
+    intact.png        damaged False   damaged False
+
+Zwei von drei Schaeden verschwanden in der Verkleinerung; das heile Teil blieb
+bei beiden Groessen heil. Deshalb `DAMAGE_MAX_EDGE`.
 """
 from __future__ import annotations
 
@@ -30,6 +38,12 @@ from PIL import Image
 from app.services.binary_validation import BinaryValidationError, validate_image
 
 MAX_EDGE = 512
+
+# Nur fuer die Schadenspruefung, und nur weil sie EIN Bild sieht. Der
+# Artikelabgleich schickt zwei Bilder in dasselbe Fenster; er bleibt bei 512 px,
+# sonst kommt er an die Kachelgrenze, gegen die diese ganze Datei geschrieben
+# ist. Ein Riss faellt beim Vergleich zweier Artikel ohnehin nicht ins Gewicht.
+DAMAGE_MAX_EDGE = 768
 _JPEG_QUALITY = 88
 
 # Dieselbe Allowlist wie `binary_validation._IMAGE_FORMATS`. Sie steht hier

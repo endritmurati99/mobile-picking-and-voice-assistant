@@ -31,6 +31,11 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# Die letzte Regel ist an QA/0218 gemessen: dasselbe gelbe Teil mit einem Riss
+# kam als "not the same article -- the same yellow object but with a decorative
+# feather attached" zurueck. Die Meldung ging dadurch mit der falschen
+# Begruendung an einen Menschen. Zustand ist nicht Identitaet; ueber den Zustand
+# entscheidet die Schadenspruefung.
 ARTICLE_PROMPT = (
     "You receive two images.\n"
     "IMAGE 1 is the official catalogue photo of the article that SHOULD be in "
@@ -45,7 +50,10 @@ ARTICLE_PROMPT = (
     '  "same_article_reason": one short sentence\n\n'
     "Rules: describe before you judge. Do not guess. If image 2 shows something "
     "that is not a product at all (a person, an animal, a room), set "
-    "same_article false and say so."
+    "same_article false and say so.\n"
+    "Damage does not change identity: a torn, cracked, scratched, dirty or "
+    "deformed item of the same type is STILL the same article. Judge the type "
+    "of article, not its condition - the condition is judged separately."
 )
 
 DAMAGE_PROMPT = (

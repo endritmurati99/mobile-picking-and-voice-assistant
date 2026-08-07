@@ -18,6 +18,7 @@ from app import config, dependencies
 from app.main import app
 from app.services.llm_client import LlmDispositionResult
 from app.services.vision_client import ArticleMatch, DamageCheck
+from app.services import assessment_media
 
 # `signed_env` bringt fixierte Uhr, fixierten Keyring und Fake-Odoo je Instanz.
 from tests.test_n8n_v2_routes import signed_env, signed_headers  # noqa: F401
@@ -437,3 +438,84 @@ def test_vision_disabled_behaves_like_before_the_rebuild(llm_ok, signed_env):
     assert body["photo_checked"] is False
     assert body["photo_analysis"] == "Bildpruefung abgeschaltet."
     assert signed_env["o19-a"].calls == []
+
+
+def _large_jpeg_b64(edge=1200):
+    buffer = io.BytesIO()
+    Image.new("RGB", (edge, edge), (255, 200, 0)).save(buffer, format="JPEG")
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+class SizeRecordingVision(FakeVision):
+    """Merkt sich, wie gross die Bilder ankamen."""
+
+    def __init__(self, match, damage):
+        super().__init__(match, damage)
+        self.article_edge = None
+        self.damage_edge = None
+
+    @staticmethod
+    def _edge(body: bytes) -> int:
+        with Image.open(io.BytesIO(body)) as image:
+            return max(image.size)
+
+    async def compare_article(self, reference, candidate):
+        self.article_edge = self._edge(candidate)
+        return await super().compare_article(reference, candidate)
+
+    async def inspect_damage(self, candidate):
+        self.damage_edge = self._edge(candidate)
+        return await super().inspect_damage(candidate)
+
+
+def test_the_damage_check_sees_a_larger_image_than_the_article_check(llm_ok, signed_env):
+    """Gemessen am 2026-08-07: bei 512 px meldete `qwen2.5vl:7b` das Rissfoto
+    aus QA/0011 als heil, bei 768 px fand es den Riss. Der Artikelabgleich
+    bleibt klein, weil er ZWEI Bilder in dasselbe Fenster legt."""
+    signed_env["o19-a"].response = dict(
+        MEDIA_RESPONSE, photos=[{"filename": "riss.jpg", "data_b64": _large_jpeg_b64()}]
+    )
+    fake = SizeRecordingVision(
+        ArticleMatch(ok=True, same_article=True),
+        DamageCheck(ok=True, damaged=True, anomalies=("aufgerissene Zone",)),
+    )
+    app.dependency_overrides[dependencies.get_vision_client] = lambda: fake
+    try:
+        response = post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    assert response.status_code == 200
+    assert fake.article_edge == assessment_media.MAX_EDGE
+    assert fake.damage_edge == assessment_media.DAMAGE_MAX_EDGE
+    assert fake.damage_edge > fake.article_edge
+
+
+def test_the_damage_line_states_the_finding_before_the_models_words(llm_ok, signed_env):
+    """Am Rissfoto aus QA/0011 lieferte das Modell die Anomalie "feather".
+    Als ganze Zeile waere das keine Aussage ueber einen Schaden."""
+    signed_env["o19-a"].response = MEDIA_RESPONSE
+    install_vision(
+        ArticleMatch(ok=True, same_article=True),
+        DamageCheck(ok=True, damaged=True, anomalies=("feather",)),
+    )
+    try:
+        response = post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    assert "Schadenspruefung: Schaden sichtbar (feather)." in response.json()["photo_analysis"]
+
+
+def test_damage_without_named_anomalies_still_reads_as_damage(llm_ok, signed_env):
+    signed_env["o19-a"].response = MEDIA_RESPONSE
+    install_vision(
+        ArticleMatch(ok=True, same_article=True),
+        DamageCheck(ok=True, damaged=True, anomalies=()),
+    )
+    try:
+        response = post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    assert "Schadenspruefung: Schaden sichtbar." in response.json()["photo_analysis"]
