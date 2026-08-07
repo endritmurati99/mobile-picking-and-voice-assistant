@@ -13,7 +13,7 @@
       "id": "subtitle", "type": "text", "x": 520, "y": 76, "width": 760, "height": 25, "angle": 0,
       "strokeColor": "#475569", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
       "groupIds": [], "frameId": null, "roundness": null, "seed": 2102, "version": 1, "versionNonce": 3102, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
-      "fontSize": 18, "fontFamily": 1, "text": "WH/OUT/0042 – vom Login bis zu Odoos bestätigtem Abschluss", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "WH/OUT/0042 – vom Login bis zu Odoos bestätigtem Abschluss", "autoResize": true, "lineHeight": 1.25
+      "fontSize": 18, "fontFamily": 1, "text": "Echter Auftrag WH/INT/00360 „Ente Henri“ – vom Login bis zu Odoos bestätigtem Abschluss", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "Echter Auftrag WH/INT/00360 „Ente Henri“ – vom Login bis zu Odoos bestätigtem Abschluss", "autoResize": true, "lineHeight": 1.25
     },
     {
       "id": "visible-label", "type": "text", "x": 55, "y": 112, "width": 330, "height": 25, "angle": 0,
@@ -41,7 +41,7 @@
       "id": "card-list-text", "type": "text", "x": 430, "y": 178, "width": 240, "height": 125, "angle": 0,
       "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
       "groupIds": [], "frameId": null, "roundness": null, "seed": 2107, "version": 1, "versionNonce": 3107, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
-      "fontSize": 19, "fontFamily": 1, "text": "2 · LISTE\n\nWH/OUT/0042\nBeispiel GmbH\n2 Positionen", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "2 · LISTE\n\nWH/OUT/0042\nBeispiel GmbH\n2 Positionen", "autoResize": true, "lineHeight": 1.25
+      "fontSize": 19, "fontFamily": 1, "text": "2 · LISTE\n\nEnte Henri\nWH/INT/00360\n6 Positionen · L-E1-P2", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "2 · LISTE\n\nEnte Henri\nWH/INT/00360\n6 Positionen · L-E1-P2", "autoResize": true, "lineHeight": 1.25
     },
     {
       "id": "card-open", "type": "rectangle", "x": 755, "y": 150, "width": 290, "height": 205, "angle": 0,
@@ -63,7 +63,7 @@
       "id": "card-scan-text", "type": "text", "x": 1130, "y": 178, "width": 240, "height": 125, "angle": 0,
       "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
       "groupIds": [], "frameId": null, "roundness": null, "seed": 2111, "version": 1, "versionNonce": 3111, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
-      "fontSize": 19, "fontFamily": 1, "text": "4 · SCANNEN\n\nUSB-C-Kabel\nA-01 · Menge 2\nBarcode bestätigen", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "4 · SCANNEN\n\nUSB-C-Kabel\nA-01 · Menge 2\nBarcode bestätigen", "autoResize": true, "lineHeight": 1.25
+      "fontSize": 19, "fontFamily": 1, "text": "4 · SCANNEN\n\nBrick 2x2 pink\nL-E1-P2 · Menge 1\nBarcode bestätigen", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "4 · SCANNEN\n\nBrick 2x2 pink\nL-E1-P2 · Menge 1\nBarcode bestätigen", "autoResize": true, "lineHeight": 1.25
     },
     {
       "id": "card-done", "type": "rectangle", "x": 1455, "y": 150, "width": 290, "height": 205, "angle": 0,
@@ -74,7 +74,7 @@
       "id": "card-done-text", "type": "text", "x": 1480, "y": 178, "width": 240, "height": 125, "angle": 0,
       "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
       "groupIds": [], "frameId": null, "roundness": null, "seed": 2113, "version": 1, "versionNonce": 3113, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
-      "fontSize": 19, "fontFamily": 1, "text": "5 · FERTIG\n\nAuftrag abgeschlossen\nWH/OUT/0042\nOdoo hat bestätigt", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "5 · FERTIG\n\nAuftrag abgeschlossen\nWH/OUT/0042\nOdoo hat bestätigt", "autoResize": true, "lineHeight": 1.25
+      "fontSize": 19, "fontFamily": 1, "text": "5 · FERTIG\n\nAuftrag abgeschlossen\nWH/INT/00360\nOdoo hat bestätigt", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "5 · FERTIG\n\nAuftrag abgeschlossen\nWH/INT/00360\nOdoo hat bestätigt", "autoResize": true, "lineHeight": 1.25
     },
     {
       "id": "arrow-1", "type": "arrow", "x": 347, "y": 252, "width": 56, "height": 0, "angle": 0,
@@ -137,7 +137,7 @@
       "id": "phase-open-text", "type": "text", "x": 764, "y": 480, "width": 270, "height": 420, "angle": 0,
       "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
       "groupIds": [], "frameId": null, "roundness": null, "seed": 2124, "version": 1, "versionNonce": 3124, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
-      "fontSize": 18, "fontFamily": 1, "text": "AUFTRAG ÖFFNEN\n\nPWA\nPOST /pickings/42/claim\ndann GET /pickings/42\n\n↓\n\nFastAPI\nIdentität + Idempotenz prüfen\n\n↓\n\nOdoo\nClaim mit Gerät + Ablaufzeit\nspeichern und Details liefern", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "AUFTRAG ÖFFNEN\n\nPWA\nPOST /pickings/42/claim\ndann GET /pickings/42\n\n↓\n\nFastAPI\nIdentität + Idempotenz prüfen\n\n↓\n\nOdoo\nClaim mit Gerät + Ablaufzeit\nspeichern und Details liefern", "autoResize": true, "lineHeight": 1.25
+      "fontSize": 18, "fontFamily": 1, "text": "AUFTRAG ÖFFNEN\n\nPWA\nPOST /pickings/360/claim\ndann GET /pickings/360\n\n↓\n\nFastAPI\nIdentität + Idempotenz prüfen\n\n↓\n\nOdoo\nClaim mit Gerät + Ablaufzeit\nspeichern und Details liefern", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "AUFTRAG ÖFFNEN\n\nPWA\nPOST /pickings/360/claim\ndann GET /pickings/360\n\n↓\n\nFastAPI\nIdentität + Idempotenz prüfen\n\n↓\n\nOdoo\nClaim mit Gerät + Ablaufzeit\nspeichern und Details liefern", "autoResize": true, "lineHeight": 1.25
     },
     {
       "id": "phase-confirm", "type": "rectangle", "x": 1081, "y": 450, "width": 320, "height": 500, "angle": 0,

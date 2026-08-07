@@ -22,7 +22,7 @@
 
   <rect width="1800" height="1260" fill="#ffffff"/>
   <text x="900" y="50" text-anchor="middle" class="title">Ebene 2: Wie läuft ein normaler Auftrag?</text>
-  <text x="900" y="80" text-anchor="middle" class="subtitle">Beispiel WH/OUT/0042 – vom Login bis zu Odoos bestätigtem Abschluss</text>
+  <text x="900" y="80" text-anchor="middle" class="subtitle">Echter Auftrag WH/INT/00360 „Ente Henri“ – vom Login bis zu Odoos bestätigtem Abschluss</text>
 
   <text x="55" y="125" class="section">WAS DER MITARBEITER SIEHT</text>
 
@@ -40,9 +40,9 @@
     <rect x="405" y="150" width="290" height="205" rx="20" fill="#dbeafe" stroke="#2563eb" stroke-width="3"/>
     <text x="430" y="182" class="step">2 · LISTE</text>
     <rect x="435" y="202" width="230" height="112" rx="10" fill="#ffffff" stroke="#93c5fd" stroke-width="2"/>
-    <text x="550" y="233" text-anchor="middle" class="box-title">WH/OUT/0042</text>
-    <text x="550" y="262" text-anchor="middle" class="box-copy">Beispiel GmbH</text>
-    <text x="550" y="287" text-anchor="middle" class="small">2 Positionen · nächster Platz A-01</text>
+    <text x="550" y="233" text-anchor="middle" class="box-title">Ente Henri</text>
+    <text x="550" y="262" text-anchor="middle" class="box-copy">WH/INT/00360</text>
+    <text x="550" y="287" text-anchor="middle" class="small">6 Positionen · nächster Platz L-E1-P2</text>
     <text x="550" y="337" text-anchor="middle" class="small">suchen und filtern</text>
   </g>
 
@@ -60,8 +60,8 @@
     <rect x="1105" y="150" width="290" height="205" rx="20" fill="#dbeafe" stroke="#2563eb" stroke-width="3"/>
     <text x="1130" y="182" class="step">4 · SCANNEN</text>
     <rect x="1135" y="202" width="230" height="112" rx="10" fill="#ffffff" stroke="#93c5fd" stroke-width="2"/>
-    <text x="1250" y="233" text-anchor="middle" class="box-title">USB-C-Kabel</text>
-    <text x="1250" y="262" text-anchor="middle" class="box-copy">A-01 · Menge 2</text>
+    <text x="1250" y="233" text-anchor="middle" class="box-title">Brick 2x2 pink</text>
+    <text x="1250" y="262" text-anchor="middle" class="box-copy">L-E1-P2 · Menge 1</text>
     <text x="1250" y="287" text-anchor="middle" class="small">Barcode prüfen und bestätigen</text>
     <text x="1250" y="337" text-anchor="middle" class="small">danach nächste Position</text>
   </g>
@@ -71,7 +71,7 @@
     <text x="1480" y="182" class="step" fill="#15803d">5 · FERTIG</text>
     <rect x="1485" y="202" width="230" height="112" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="2"/>
     <text x="1600" y="233" text-anchor="middle" class="box-title">Auftrag abgeschlossen</text>
-    <text x="1600" y="262" text-anchor="middle" class="box-copy">WH/OUT/0042</text>
+    <text x="1600" y="262" text-anchor="middle" class="box-copy">WH/INT/00360</text>
     <text x="1600" y="287" text-anchor="middle" class="small">Odoo hat den Abschluss bestätigt</text>
     <text x="1600" y="337" text-anchor="middle" class="small">erst jetzt zeigt die PWA „fertig“</text>
   </g>
@@ -138,7 +138,7 @@
   <g aria-label="Öffnungsphase">
     <rect x="875" y="475" width="270" height="165" rx="15" fill="#eff6ff" stroke="#93c5fd" stroke-width="2"/>
     <text x="1010" y="510" text-anchor="middle" class="box-title">Claim, dann Detail</text>
-    <text x="1010" y="538" text-anchor="middle" class="small">POST /pickings/42/claim · GET /pickings/42</text>
+    <text x="1010" y="538" text-anchor="middle" class="small">POST /pickings/360/claim · GET /pickings/360</text>
     <text x="1010" y="568" text-anchor="middle" class="box-copy">aktuelle Position zeigen</text>
     <text x="1010" y="598" text-anchor="middle" class="small">Heartbeat läuft im Hintergrund</text>
     <rect x="875" y="665" width="270" height="145" rx="15" fill="#f0fdf4" stroke="#86efac" stroke-width="2"/>

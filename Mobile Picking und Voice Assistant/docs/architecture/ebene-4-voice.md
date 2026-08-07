@@ -25,10 +25,10 @@ der Browser selbst sprechen.
 Die [Excalidraw-Quelldatei](./ebene-4-voice.excalidraw) ist editierbar. Die
 [SVG-Datei](./ebene-4-voice.svg) ist die Exportfassung.
 
-## Ein erfundenes Beispiel
+## Das geprüfte LEGO-Beispiel
 
-Die PWA zeigt gerade die Detailposition „2 × USB-C-Kabel“. Der Mitarbeiter
-sagt:
+Die PWA zeigt im realen Auftrag `WH/INT/00360` für das Modell „Ente Henri“ die
+Position „1 × Brick 2x2 pink“ am Platz `L-E1-P2`. Der Mitarbeiter sagt:
 
 ```text
 „Position bestätigen“

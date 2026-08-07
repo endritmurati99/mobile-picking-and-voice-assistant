@@ -36,24 +36,31 @@ Das Bild besitzt zwei Teile:
    Mitarbeiters.
 2. Darunter siehst du, was PWA, FastAPI und Odoo dabei jeweils tun.
 
-## Unser Beispielauftrag
+## Unser geprüfter Beispielauftrag
 
-Alle Namen und Mengen sind erfunden. Der technische Ablauf entspricht dem
-aktuellen Code.
+Dieses Beispiel stammt aus einem rein lesenden Abzug der lokalen Odoo-
+Datenbank `masterfischer` vom 7. August 2026. Der Auftrag war dabei im Zustand
+`assigned`; es wurden keine Lagerdaten verändert.
 
 ```text
-Auftrag: WH/OUT/0042
-Kunde:   Beispiel GmbH
+Auftrag: WH/INT/00360
+Modell:  Ente Henri (BOM 619287)
 
 Position 1
-2 × USB-C-Kabel
-Lagerplatz WH/Stock/A-01
-Barcode 4260000000421
+1 × Brick 2x2 pink
+Lagerplatz WH/Stock/Lager Links/L-E1-P2
+Barcode 4648234
 
 Position 2
-1 × Funkmaus
-Lagerplatz WH/Stock/A-02
-Barcode 4260000000422
+1 × Plate 2x4 pink
+Lagerplatz WH/Stock/Lager Links/L-E1-P3
+Barcode 4250173
+
+Weitere Positionen
+1 × Brick 2x3 W. Inv. Bow gelb       · Regal A-01 · 6167549
+1 × Brick 2x2 gelb                   · Regal B-02 · 343724
+1 × Brick 2x2x2 R=15 gelb            · Regal D-01 · 6023350
+1 × Brick 2x4 W. Inv. Bows gelb      · Regal D-01 · 6171865
 ```
 
 ## Schritt 1: Anmelden
@@ -93,23 +100,29 @@ baut es eine für die PWA geeignete Liste.
 Die PWA kann diese Liste suchen und filtern. Das verändert keine Lagerdaten.
 Es verändert nur, welche bereits geladenen Aufträge auf dem Bildschirm stehen.
 
-Für `WH/OUT/0042` zeigt die Liste beispielsweise:
+Für `WH/INT/00360` ergibt die aktuelle Produktionslogik:
 
 ```text
-WH/OUT/0042
-Beispiel GmbH
-2 Positionen
-Nächster Platz: A-01
+Ente Henri
+1x Brick 2x2 pink
+6 Positionen offen
+Nächster Platz: L-E1-P2
+Referenz: WH/INT/00360
 ```
+
+Die Reihenfolge ist nicht die Reihenfolge der Datenbankzeilen. Der vorhandene
+Routenplaner setzt den Bereich `Lager Links` vor die generischen Regale A, B
+und D. Genau diese Projektion wurde mit den sechs echten Positionen als
+ausführbarer Self-Check geprüft.
 
 ## Schritt 3: Auftrag öffnen und reservieren
 
-Beim Antippen von `WH/OUT/0042` lädt die PWA nicht sofort blind die Details.
+Beim Antippen von `WH/INT/00360` lädt die PWA nicht sofort blind die Details.
 Sie reserviert den Auftrag zuerst:
 
 ```text
-1. POST /api/pickings/42/claim
-2. GET  /api/pickings/42
+1. POST /api/pickings/360/claim
+2. GET  /api/pickings/360
 ```
 
 FastAPI speichert den zeitlich begrenzten Claim in Odoo. Darin stehen
@@ -117,7 +130,7 @@ Mitarbeiter, Gerät und Ablaufzeit. Solange der Auftrag geöffnet ist, verlänge
 die PWA den Claim regelmäßig über:
 
 ```text
-POST /api/pickings/42/heartbeat
+POST /api/pickings/360/heartbeat
 ```
 
 Damit bearbeiten nicht zwei Mitarbeiter versehentlich denselben Auftrag. Ist
@@ -127,7 +140,7 @@ wer ihn gerade bearbeitet.
 Beim Zurückgehen zur Liste oder Abmelden gibt die PWA den Claim frei:
 
 ```text
-POST /api/pickings/42/release
+POST /api/pickings/360/release
 ```
 
 ## Schritt 4: Die aktuelle Position anzeigen
@@ -138,10 +151,10 @@ Bezeichnungen und sortiert die noch offenen Positionen zu einer Laufreihenfolge.
 Die PWA zeigt für die erste Position beispielsweise:
 
 ```text
-USB-C-Kabel
-Lagerplatz A-01
-Menge 2
-Barcode 4260000000421
+Brick 2x2 pink
+Lagerplatz L-E1-P2
+Menge 1
+Barcode 4648234
 ```
 
 Der sichtbare Zustand liegt vorübergehend im Browser. Er ist keine zweite
@@ -164,12 +177,12 @@ oder Seriennummer fragt die PWA zusätzlich danach.
 Eine Browserprüfung allein wäre nicht sicher. Deshalb sendet die PWA:
 
 ```text
-POST /api/pickings/42/confirm-line
+POST /api/pickings/360/confirm-line
 
 {
-  "move_line_id": 501,
-  "scanned_barcode": "4260000000421",
-  "quantity": 2,
+  "move_line_id": 1015,
+  "scanned_barcode": "4648234",
+  "quantity": 1,
   "serial_number": ""
 }
 ```
@@ -198,8 +211,8 @@ versehentlich doppelt.
 
 ## Schritt 6: Nächste Position oder Abschluss
 
-Nach der Kabelposition zeigt die PWA die Funkmaus an. Der Ablauf wiederholt
-sich.
+Nach dem `Brick 2x2 pink` zeigt die PWA die `Plate 2x4 pink` am Platz
+`L-E1-P3` an. Der Ablauf wiederholt sich für die übrigen vier Positionen.
 
 Sind alle Positionen als gepickt gespeichert, ruft FastAPI in Odoo
 `stock.picking.button_validate` auf.
@@ -211,7 +224,7 @@ Es gibt zwei verschiedene Ergebnisse:
 FastAPI antwortet mit `picking_complete: true`. Erst jetzt zeigt die PWA:
 
 ```text
-WH/OUT/0042
+WH/INT/00360
 Auftrag abgeschlossen
 Alle Artikel wurden erfasst und synchronisiert.
 ```

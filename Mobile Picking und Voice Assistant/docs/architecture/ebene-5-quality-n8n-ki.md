@@ -25,18 +25,26 @@ Die [Excalidraw-Quelldatei](./ebene-5-quality-n8n-ki.excalidraw) ist
 editierbar. Die [SVG-Datei](./ebene-5-quality-n8n-ki.svg) ist die
 Exportfassung.
 
-## Ein erfundenes Beispiel
+## Ein echter Odoo-Datensatz
+
+Der rein lesende Datenabzug vom 7. August 2026 enthält diesen bereits
+vorhandenen Quality Alert:
 
 ```text
-Produkt: USB-C-Kabel
-Problem: Verpackung eingerissen, Stecker wirkt verbogen
-Priorität: hoch
-Fotos: 2
+Meldung:  QA/0149
+Auftrag:  WH/INT/00336
+Produkt:  Plate 2x4 weiß
+Problem:  Artikel beschädigt
+Priorität: 3
+Fotos:    2
+Ergebnis: quarantine
+Aktion:   Ware sperren und manuelle Prüfung anfordern.
 ```
 
-Die Meldung ist auch dann bereits vorhanden, wenn n8n oder Ollama gerade nicht
-erreichbar ist. Die KI darf daraus beispielsweise „Quarantäne“ empfehlen, aber
-kein unsicheres Ersatzurteil erfinden.
+Der Datensatz belegt die echte Odoo-Struktur und die sichtbaren Ergebnisfelder.
+Er ist historisch und deshalb kein Beweis für einen heute vollständig laufenden
+v2-Durchlauf; dessen Live-Test ist durch die im Architektur-Review genannte
+Odoo-19-Datenbankmigration blockiert.
 
 ## Schritt 1: Problem in der PWA melden
 
@@ -98,6 +106,19 @@ FastAPI prüft HMAC und Schema; Odoo prüft Event, Fingerprint, Generation und
 Job. Nonce und Receipt werden dauerhaft reserviert. Ein bereits angenommenes
 Duplikat erhält `process: false` und wird nicht erneut bewertet.
 
+## Nur eine lokale Bewertung zur Zeit
+
+Vor den Modellaufrufen liegt im aktuellen FastAPI-Prozess eine Semaphore. Sie
+lässt nur eine Quality-Bewertung gleichzeitig zu, weil parallele 7B-Text- und
+Bildmodelle auf dem CPU-System nachweislich beide ausbremsen oder abbrechen
+können.
+
+Eine Bewertung wartet höchstens 150 Sekunden auf diesen Platz. Danach entsteht
+kein Teilurteil, sondern eine begründete Absage, die zur menschlichen Prüfung
+führt. Diese einfache Sperre passt zum aktuellen einzelnen Uvicorn-Worker;
+mehrere Worker oder Backend-Repliken bräuchten eine gemeinsame Sperre außerhalb
+des Prozesses.
+
 ## Schritt 5: Text lokal bewerten
 
 FastAPI lässt Ollama die Beschreibung mit `qwen2.5:7b` einordnen. Erlaubt sind:
@@ -114,8 +135,10 @@ kein heuristisches Ersatzurteil.
 ## Schritt 6: Bilder lokal prüfen
 
 Über Job, Generation und Lease liest FastAPI höchstens drei Originalfotos und
-das Katalogbild aus Odoo. Die Bildbytes werden geprüft, auf maximal 512 Pixel
-verkleinert und mit `qwen2.5vl:7b` analysiert.
+das Katalogbild aus Odoo. Die Bildbytes werden geprüft und für den
+Artikelvergleich auf maximal 512 Pixel verkleinert. Die separate
+Schadensprüfung erhält bis zu 768 Pixel, weil echte Risse bei 512 Pixeln in
+Messungen verschwanden. Anschließend analysiert `qwen2.5vl:7b` die Bilder.
 
 Das erste Foto wird mit dem Katalogbild verglichen; alle berücksichtigten Fotos
 werden auf Schäden geprüft. Meldet das Bild einen falschen Artikel oder
@@ -147,6 +170,7 @@ sichtbar.
 - n8n nicht erreichbar: Outbox versucht die Zustellung mit Backoff erneut.
 - Nur Bildmodell ausgefallen: gültiges Texturteil bleibt, Fotoausfall wird genannt.
 - Textmodell ausgefallen oder Widerspruch: `review_required`, keine Einstufung.
+- Modellplatz länger als 150 Sekunden belegt: keine Teilbewertung, menschliche Prüfung.
 - Callback ausgefallen: Lease läuft ab; eine neue Generation kann erneut starten.
 - Mehr als drei Fotos: weitere Originale bleiben gespeichert, werden aber nicht bewertet.
 - Dead-Letter: Der aktuelle v2-Pfad setzt einen `dead`-Eintrag nicht automatisch
@@ -172,5 +196,5 @@ sichtbar.
 1. PWA und FastAPI speichern die Meldung sofort in Odoo.
 2. Odoos Outbox macht die asynchrone Zustellung wiederholbar.
 3. HMAC, Nonces und Receipts schützen beide Richtungen.
-4. Ollama bewertet Text und höchstens drei Bilder lokal.
+4. Ollama bewertet Text und höchstens drei Bilder lokal, jeweils nur einen Fall zur Zeit.
 5. Widersprüche und Ausfälle führen zur Prüfung statt zu einem erfundenen Urteil.

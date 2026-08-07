@@ -82,3 +82,22 @@ Verdrahtung gelten weiterhin Code und Konfiguration:
 
 Historische Spezifikationen und alte Vertragsdokumente beschreiben teilweise
 frühere Ausbaustufen. Bei Widersprüchen hat der aktuelle Code Vorrang.
+
+## Reviewcheck vom 7. August 2026
+
+Der normale Listen-Schritt wurde gegen Graphify, aktuellen Code, vier gezielte
+Service-Tests und einen rein lesenden Abzug der lokalen Odoo-Daten geprüft:
+
+- Graphify zeigt den Pfad `.get_open_pickings() → PickingService → OdooClient`.
+- Die vier Tests für `TestGetOpenPickings` sind grün.
+- Auftrag `WH/INT/00360` ergibt mit der Produktionslogik „Ente Henri“, sechs
+  offene Positionen und als ersten Stopp `Brick 2x2 pink` an `L-E1-P2`.
+- Ein kompletter Live-Durchlauf ist derzeit **nicht** grün: Der Odoo-Server
+  läuft als Version 19, während die Datenbankmodule noch Version 18 melden.
+  Die Anmeldung bricht deshalb an der fehlenden Spalte
+  `res_users.totp_last_counter` ab. Beim Review wurden keine Odoo-Daten
+  verändert.
+
+Damit sind Codepfad, Projektion und Beispieldaten belegt; Login, Claim und
+Buchung dürfen erst nach der Odoo-19-Datenbankmigration als live
+end-to-end-verifiziert gelten.
