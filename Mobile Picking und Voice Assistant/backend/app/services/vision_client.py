@@ -208,5 +208,16 @@ class VisionClient:
 
 
 def _text(value) -> str | None:
-    """Leerer Text ist `None`, damit spaeter nichts Leeres im Klartext steht."""
-    return str(value).strip() or None if value is not None else None
+    """Leerer Text ist `None`, damit spaeter nichts Leeres im Klartext steht.
+
+    Listen werden zusammengezogen. Das Modell antwortet fuer `colour` mal mit
+    einem String und mal mit einer Liste; ohne diesen Zweig landete am
+    2026-08-08 woertlich `plate of food, ['white', 'brown'], round plate` im
+    Odoo-Formular. Ein Mensch liest dort keine Python-Repraesentation.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple)):
+        teile = [str(item).strip() for item in value]
+        return ", ".join(teil for teil in teile if teil) or None
+    return str(value).strip() or None

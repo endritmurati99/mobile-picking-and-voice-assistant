@@ -246,3 +246,26 @@ def test_the_model_choice_is_pinned_by_measurement():
     assert settings.vision_model == "qwen2.5vl:7b"
     assert settings.llm_model == "qwen2.5:7b"
     assert settings.vision_model != settings.llm_model
+
+
+@pytest.mark.anyio
+async def test_a_list_valued_field_is_joined_not_repred():
+    """Gemessen am 2026-08-08 (QA/0230): das Modell antwortete auf `colour`
+    mit einer Liste, und im Odoo-Formular stand woertlich
+    `plate of food, ['white', 'brown'], round plate`. Ein Mensch liest dort
+    keine Python-Repraesentation."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        antwort = {
+            "object_type": "plate of food",
+            "colour": ["white", "brown"],
+            "shape": "round plate",
+            "markings": "none",
+            "is_a_product": False,
+        }
+        return httpx.Response(200, json={"response": json.dumps(antwort)})
+
+    result = await _client(handler).describe(CANDIDATE)
+
+    assert result.ok is True
+    assert "white, brown" in result.text
+    assert "[" not in result.text

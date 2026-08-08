@@ -327,7 +327,15 @@ async def _collect_photo_finding(
         lines,
         deadline,
         garantiert=article == "unavailable",
-        reference=reference_damage,
+        # Bei `mismatch` KEIN Zustandsvergleich. Er stellt das Foto gegen das
+        # Katalogbild des BESTELLTEN Artikels -- zeigt das Foto ein anderes
+        # Teil, vergleicht er zwei verschiedene Dinge und die Aussage ist
+        # wertlos. Gemessen am 2026-08-08 (QA/0229): gegen ein Hundefoto kam
+        # "keine Abweichung vom Neuzustand" heraus und stand so im Odoo-Formular.
+        # `reconcile` behandelt `mismatch` ohnehin als vorrangig; die Zeile
+        # widerspricht ihm nur. Die Schadenspruefung selbst laeuft weiter --
+        # dass am falschen Teil etwas gebrochen ist, will man trotzdem wissen.
+        reference=None if article == "mismatch" else reference_damage,
         product_label=media.get("product_label") or "",
     )
 

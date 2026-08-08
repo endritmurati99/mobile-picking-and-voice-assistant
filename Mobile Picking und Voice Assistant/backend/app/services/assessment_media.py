@@ -43,7 +43,17 @@ MAX_EDGE = 512
 # Artikelabgleich schickt zwei Bilder in dasselbe Fenster; er bleibt bei 512 px,
 # sonst kommt er an die Kachelgrenze, gegen die diese ganze Datei geschrieben
 # ist. Ein Riss faellt beim Vergleich zweier Artikel ohnehin nicht ins Gewicht.
-DAMAGE_MAX_EDGE = 768
+#
+# 768 war der zweite Anlauf und hat wieder nicht gereicht. Gemessen am
+# 2026-08-08 an einem gerissenen Exemplar von [6023350], derselbe Aufruf, nur
+# die Kante geaendert:
+#   768 px  -> damaged=false, "A leaf-like DESIGN on one side"        (92 s)
+#   1024 px -> damaged=true,  "A leaf-shaped INDENTATION on one side" (103 s)
+# Dasselbe Wort fuer dieselbe Stelle, einmal als Zierde und einmal als Kerbe.
+# Gegengeprueft, dass 1024 nichts zurueckdreht: ein schwer gebrochener Stein
+# bleibt bei beiden Kanten `damaged` (cracks, splits), ein Foto ohne Artikel
+# bleibt bei beiden ohne Befund. Elf Sekunden fuer den Fall, um den es geht.
+DAMAGE_MAX_EDGE = 1024
 _JPEG_QUALITY = 88
 
 # Dieselbe Allowlist wie `binary_validation._IMAGE_FORMATS`. Sie steht hier

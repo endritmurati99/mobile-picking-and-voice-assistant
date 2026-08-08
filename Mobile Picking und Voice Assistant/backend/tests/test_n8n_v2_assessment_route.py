@@ -1025,3 +1025,39 @@ def test_a_failed_catalogue_call_is_not_remembered_as_intact(llm_ok, signed_env)
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
     assert n8n_v2._SOLL_BEFUNDE == {}
+
+
+def test_a_mismatched_article_gets_no_condition_comparison(llm_ok, signed_env):
+    """Gemessen am 2026-08-08 (QA/0229): gegen ein Hundefoto stand am Ende
+    "Zustandsvergleich gegen Katalogbild: keine Abweichung vom Neuzustand" im
+    Odoo-Formular. Der Vergleich stellt das Foto gegen das Katalogbild des
+    BESTELLTEN Artikels; zeigt das Foto ein anderes Teil, vergleicht er zwei
+    verschiedene Dinge. Die Schadenspruefung selbst laeuft weiter."""
+    signed_env["o19-a"].response = MEDIA_RESPONSE
+    install_llm(
+        LlmDispositionResult(
+            ok=True,
+            model="qwen2.5:7b",
+            disposition="sellable",
+            confidence=0.9,
+            summary="Verpackung defekt.",
+            recommended_action="Sichtpruefung.",
+        ),
+        ArticleComparison(ok=True, same_article=False, reason="B zeigt ein Tier."),
+    )
+    fake = _install_zustand(
+        ist=DamageCheck(
+            ok=True, damaged=False, anomalies=(), description="a dog on a beach"
+        ),
+        soll=DamageCheck(ok=True, damaged=False, anomalies=(), description="smooth"),
+    )
+    try:
+        response = post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    analyse = response.json()["photo_analysis"]
+    assert "Zustandsvergleich" not in analyse
+    assert "Foto zeigt nicht den gemeldeten Artikel" in analyse
+    assert "Schadenspruefung:" in analyse
+    assert fake.damage_calls == 1  # nur das Meldefoto, kein Katalogbild
