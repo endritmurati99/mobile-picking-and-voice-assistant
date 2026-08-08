@@ -116,3 +116,26 @@ class TestAssessmentMedia(TransactionCase):
             ("res_field", "=", False),
         ], limit=1)
         self.assertEqual(attachment.mimetype, "image/png")
+
+    def test_a_chatter_attachment_is_not_offered_as_a_photo(self):
+        """Der Datensatz erbt `mail.thread`. Ein Lieferschein als PDF im
+        Chatter traegt dieselben drei Bedingungen wie ein Meldefoto -- und
+        liess im Backend die Bildpruefung fuer die GANZE Meldung ausfallen,
+        weil ein unlesbarer Anhang alle anderen mitnahm."""
+        alert, job = self._create_alert(photos=1)
+        self.env["ir.attachment"].sudo().create({
+            "name": "lieferschein.pdf",
+            "type": "binary",
+            "datas": "JVBERi0xLjQK",  # "%PDF-1.4\n"
+            "res_model": "quality.alert.custom",
+            "res_id": alert.id,
+            "mimetype": "application/pdf",
+        })
+
+        media = self._media(job)
+
+        assert len(media["photos"]) == 1
+        assert media["photos"][0]["filename"] == "foto_0.png"
+        # Auch der Zaehler darf den Fremdanhang nicht mitzaehlen, sonst meldet
+        # die Bewertung "1 weiteres Foto ungeprueft" ueber ein PDF.
+        assert media["photo_total"] == 1

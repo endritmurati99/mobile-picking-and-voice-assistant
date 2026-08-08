@@ -270,10 +270,23 @@ class QualityAlert(models.Model):
             raise ValidationError(f"Zum Job {job_id!r} fehlt der Alert.")
 
         attachments = self.env["ir.attachment"].sudo()
+        # Der Bildfilter fehlte hier, waehrend `_compute_photo_count` und
+        # `_compute_photo_gallery` ihn laengst haben. Der Datensatz erbt
+        # `mail.thread`: jeder Anhang aus dem Chatter -- ein Lieferschein als
+        # PDF, ein Protokoll -- traegt dieselben drei Bedingungen und kaeme als
+        # "Foto" beim Bildmodell an. Im Backend verlaesst ein unlesbarer Anhang
+        # die Bildpruefung fuer die GANZE Meldung; ein PDF im Chatter loeschte
+        # so den gueltigen Befund des echten Meldefotos.
+        #
+        # Gefiltert wird auf dem gespeicherten `mimetype`, und der luegt
+        # bekanntlich (deshalb bestimmt die Leseseite den Typ aus den Bytes).
+        # Als GROBFILTER taugt er trotzdem: er haelt fern, was nicht einmal
+        # behauptet, ein Bild zu sein.
         domain = [
             ("res_model", "=", self._name),
             ("res_id", "=", alert.id),
             ("res_field", "=", False),
+            ("mimetype", "like", "image"),
         ]
         total = attachments.search_count(domain)
         photos = attachments.search(
