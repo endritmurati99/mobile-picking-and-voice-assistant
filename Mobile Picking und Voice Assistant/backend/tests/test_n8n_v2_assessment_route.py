@@ -17,7 +17,11 @@ from fastapi.testclient import TestClient
 
 from app import config, dependencies
 from app.main import app
-from app.services.llm_client import ArticleComparison, LlmDispositionResult
+from app.services.llm_client import (
+    ArticleComparison,
+    ConditionComparison,
+    LlmDispositionResult,
+)
 from app.services.vision_client import ArticleDescription, DamageCheck
 from app.services import assessment_media
 from app.routers import n8n_v2
@@ -55,13 +59,18 @@ class FakeLlm:
     Bilder in einem Aufruf gleich beschrieb (siehe `vision_client`).
     """
 
-    def __init__(self, result, article=None):
+    def __init__(self, result, article=None, condition=None):
         self.result = result
         self.article = article or ArticleComparison(
             ok=True, same_article=True, reason="passt"
         )
+        # Voreinstellung: der Zustandsvergleich bestaetigt, was die absolute
+        # Schadenspruefung gesehen hat. Damit aendert er in allen Tests, die
+        # nichts ueber ihn aussagen, nichts am Befund.
+        self.condition = condition
         self.calls = []
         self.article_calls = []
+        self.condition_calls = []
 
     async def classify_disposition(self, **kwargs):
         self.calls.append(kwargs)
@@ -71,9 +80,16 @@ class FakeLlm:
         self.article_calls.append(kwargs)
         return self.article
 
+    async def compare_condition(self, **kwargs):
+        self.condition_calls.append(kwargs)
+        if self.condition is not None:
+            return self.condition
+        gesehen = "torn" in kwargs.get("candidate_text", "")
+        return ConditionComparison(ok=True, new_damage=gesehen, reason="bestaetigt")
 
-def install_llm(result, article=None):
-    fake = FakeLlm(result, article)
+
+def install_llm(result, article=None, condition=None):
+    fake = FakeLlm(result, article, condition)
     app.dependency_overrides[dependencies.get_llm_client] = lambda: fake
     return fake
 
@@ -699,3 +715,313 @@ def test_the_internal_article_number_does_not_reach_the_model(llm_ok, signed_env
 
     label = llm_ok.article_calls[0]["product_label"]
     assert label == "Brick 2x2x2 R=15 gelb"
+
+
+# --- Zustandsvergleich Soll/Ist ---------------------------------------------
+# Die absolute Schadenspruefung beantwortet "bricht hier etwas die glatte
+# Oberflaeche?". Das reicht in zwei Richtungen nicht: eine Noppenreihe kann sie
+# als Auffaelligkeit lesen, und ein sauber abgebrochenes Eck laesst sie durch,
+# weil eine glatte Bruchflaeche keine ausgefranste Stelle ist. Erst der
+# Vergleich gegen das Katalogbild entscheidet beides.
+
+
+@pytest.fixture(autouse=True)
+def _leerer_sollspeicher():
+    """Der Soll-Befund wird je Katalogbild gespeichert und lebt im Modul.
+
+    Alle Tests hier schicken DASSELBE Katalogbild; ohne Leeren truege der
+    Speicher den Befund des vorigen Tests in den naechsten.
+    """
+    n8n_v2._SOLL_BEFUNDE.clear()
+    yield
+    n8n_v2._SOLL_BEFUNDE.clear()
+
+
+class ZustandsVision:
+    """Trennt Meldefoto und Katalogbild nach der REIHENFOLGE der Aufrufe.
+
+    `_check_damage` sieht erst jedes Meldefoto an und erst danach, im
+    Zustandsvergleich, das Katalogbild. Bei einem Foto ist der erste Aufruf
+    also das Meldefoto und der zweite das Katalogbild.
+    """
+
+    def __init__(self, ist, soll, fotos=1):
+        self._ist = ist
+        self._soll = soll
+        self._fotos = fotos
+        self.damage_calls = 0
+        self.describe_calls = 0
+
+    async def describe(self, image):
+        self.describe_calls += 1
+        return SIEHT_ARTIKEL
+
+    async def inspect_damage(self, candidate):
+        self.damage_calls += 1
+        return self._ist if self.damage_calls <= self._fotos else self._soll
+
+
+def _install_zustand(ist, soll, fotos=1):
+    fake = ZustandsVision(ist, soll, fotos)
+    app.dependency_overrides[dependencies.get_vision_client] = lambda: fake
+    return fake
+
+
+def test_the_comparison_never_clears_a_damage_the_check_already_found(
+    llm_ok, signed_env
+):
+    """Der Rueckschritt, der diese Asymmetrie ausgeloest hat.
+
+    Gemessen am 2026-08-08 (QA/0223, Rissfoto aus QA/0011, Artikel [6023350]):
+    die Schadenspruefung fand die Stelle ("feather"), der Vergleich erklaerte
+    sie weg -- "Die Beschreibungen stimmen in Bezug auf glatte Oberflaeche
+    ueberein." Beide Zustandsbeschreibungen enthalten "smooth", und daran
+    haengt sich das Textmodell auf. Derselbe Fehler wie im Zwei-Bild-Aufruf,
+    nur eine Ebene hoeher.
+    """
+    signed_env["o19-a"].response = MEDIA_RESPONSE
+    llm_ok.condition = ConditionComparison(
+        ok=True,
+        new_damage=False,
+        reason="Die Beschreibungen stimmen in Bezug auf glatte Oberflaeche ueberein.",
+    )
+    fake = _install_zustand(
+        ist=DamageCheck(
+            ok=True,
+            damaged=True,
+            anomalies=("feather",),
+            description="mostly smooth, with a feather-like area near the corner",
+        ),
+        soll=DamageCheck(
+            ok=True,
+            damaged=False,
+            anomalies=(),
+            description="smooth and continuous everywhere",
+        ),
+    )
+    try:
+        response = post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    analyse = response.json()["photo_analysis"]
+    assert "Schadenspruefung: Schaden sichtbar (feather)." in analyse
+    assert "findet die Auffaelligkeit nicht wieder" in analyse
+    assert "Der Befund der Schadenspruefung bleibt stehen." in analyse
+    assert fake.damage_calls == 2  # ein Meldefoto, ein Katalogbild
+
+
+def test_a_clean_photo_that_matches_the_catalogue_image_says_so(llm_ok, signed_env):
+    """Ohne Befund in beiden Stufen bleibt es dabei -- und der Satz sagt, dass
+    verglichen wurde. Ein Vergleich, der nur bei Widerspruch etwas schreibt,
+    laesst offen, ob er ueberhaupt gelaufen ist."""
+    signed_env["o19-a"].response = MEDIA_RESPONSE
+    llm_ok.condition = ConditionComparison(
+        ok=True, new_damage=False, reason="Beide zeigen eine durchgehende Oberflaeche."
+    )
+    _install_zustand(
+        ist=DamageCheck(
+            ok=True, damaged=False, anomalies=(), description="smooth everywhere"
+        ),
+        soll=DamageCheck(
+            ok=True, damaged=False, anomalies=(), description="smooth everywhere"
+        ),
+    )
+    try:
+        response = post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    analyse = response.json()["photo_analysis"]
+    assert "Schadenspruefung: keine Auffaelligkeit sichtbar." in analyse
+    assert "keine Abweichung vom Neuzustand" in analyse
+
+
+def test_a_cleanly_broken_off_corner_is_only_caught_against_the_catalogue_image(
+    llm_ok, signed_env
+):
+    """Die Luecke in der anderen Richtung: eine glatte Bruchflaeche ist keine
+    ausgefranste Stelle, `DAMAGE_PROMPT` laesst sie durch. Dass ein Eck FEHLT,
+    faellt erst gegen den Neuzustand auf."""
+    signed_env["o19-a"].response = MEDIA_RESPONSE
+    llm_ok.condition = ConditionComparison(
+        ok=True, new_damage=True, reason="Dem Stein fehlt ein Eck, das SOLL hat."
+    )
+    _install_zustand(
+        ist=DamageCheck(
+            ok=True,
+            damaged=False,
+            anomalies=(),
+            description="smooth and continuous everywhere, three corners visible",
+        ),
+        soll=DamageCheck(
+            ok=True,
+            damaged=False,
+            anomalies=(),
+            description="smooth and continuous everywhere, four corners visible",
+        ),
+    )
+    try:
+        response = post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    body = response.json()
+    assert "Abweichung vom Neuzustand, die der Schadenspruefung entgangen ist" in body["photo_analysis"]
+    assert "fehlt ein Eck" in body["photo_analysis"]
+
+
+def test_the_condition_comparison_confirms_a_real_crack(llm_ok, signed_env):
+    """Bestaetigt der Vergleich, bleibt der Befund stehen und der Satz sagt es.
+    Ein Vergleich, der nur bei Widerspruch etwas schreibt, laesst offen, ob er
+    ueberhaupt gelaufen ist."""
+    signed_env["o19-a"].response = MEDIA_RESPONSE
+    llm_ok.condition = ConditionComparison(
+        ok=True, new_damage=True, reason="Riss, den das Katalogbild nicht zeigt."
+    )
+    _install_zustand(
+        ist=DamageCheck(
+            ok=True,
+            damaged=True,
+            anomalies=("torn area",),
+            description="a torn area across the curved top",
+        ),
+        soll=DamageCheck(
+            ok=True,
+            damaged=False,
+            anomalies=(),
+            description="smooth and continuous everywhere",
+        ),
+    )
+    try:
+        response = post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    analyse = response.json()["photo_analysis"]
+    assert "Schadenspruefung: Schaden sichtbar (torn area)." in analyse
+    assert "bestaetigt den Befund" in analyse
+
+
+def test_a_silent_text_model_does_not_clear_the_damage_finding(llm_ok, signed_env):
+    """Ein ausgefallener Vergleich ist kein Freispruch. Der Befund der
+    absoluten Pruefung bleibt stehen, und im Klartext steht, warum nicht
+    verglichen wurde."""
+    signed_env["o19-a"].response = MEDIA_RESPONSE
+    llm_ok.condition = ConditionComparison(ok=False)
+    _install_zustand(
+        ist=DamageCheck(
+            ok=True,
+            damaged=True,
+            anomalies=("torn area",),
+            description="a torn area across the curved top",
+        ),
+        soll=DamageCheck(
+            ok=True, damaged=False, anomalies=(), description="smooth everywhere"
+        ),
+    )
+    try:
+        response = post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    analyse = response.json()["photo_analysis"]
+    assert "Schadenspruefung: Schaden sichtbar (torn area)." in analyse
+    assert "Zustandsvergleich nicht moeglich: Textmodell antwortet nicht." in analyse
+
+
+def test_an_unreadable_catalogue_image_is_said_not_swallowed(llm_ok, signed_env):
+    """Antwortet das Bildmodell auf das KATALOGBILD nicht, gibt es keinen
+    Soll-Zustand. Auch das steht im Klartext statt zu verschwinden."""
+    signed_env["o19-a"].response = MEDIA_RESPONSE
+    _install_zustand(
+        ist=DamageCheck(
+            ok=True,
+            damaged=True,
+            anomalies=("torn area",),
+            description="a torn area across the curved top",
+        ),
+        soll=DamageCheck(ok=False),
+    )
+    try:
+        response = post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    analyse = response.json()["photo_analysis"]
+    assert "Schadenspruefung: Schaden sichtbar (torn area)." in analyse
+    assert "Zustandsvergleich nicht moeglich: Katalogbild nicht auswertbar." in analyse
+    assert llm_ok.condition_calls == []
+
+
+def test_without_a_catalogue_image_nothing_is_compared_and_nothing_is_claimed(
+    llm_ok, signed_env
+):
+    """Ohne Katalogbild gibt es keinen Soll-Zustand -- dann laeuft die Kette
+    genau wie vorher, ohne zusaetzlichen Bildaufruf und ohne einen Satz ueber
+    einen Vergleich, den niemand gemacht hat."""
+    signed_env["o19-a"].response = dict(MEDIA_RESPONSE, reference_image_b64=False)
+    fake = _install_zustand(
+        ist=DamageCheck(
+            ok=True,
+            damaged=True,
+            anomalies=("torn area",),
+            description="a torn area across the curved top",
+        ),
+        soll=DamageCheck(ok=True, damaged=False, anomalies=(), description="smooth"),
+    )
+    try:
+        response = post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    analyse = response.json()["photo_analysis"]
+    assert "Zustandsvergleich" not in analyse
+    assert fake.damage_calls == 1
+    assert llm_ok.condition_calls == []
+
+
+def test_the_catalogue_finding_is_asked_once_per_article(llm_ok, signed_env):
+    """Das Katalogbild eines Artikels ist konstant, sein Zustandsbefund also
+    auch. Ohne diesen Speicher kostete der Vergleich JEDE Meldung einen
+    zusaetzlichen Bildaufruf -- auf CPU 20 bis 100 Sekunden gegen einen Knoten,
+    der bei 270 Sekunden abschneidet."""
+    signed_env["o19-a"].response = MEDIA_RESPONSE
+    fake = _install_zustand(
+        ist=DamageCheck(
+            ok=True, damaged=True, anomalies=("torn",), description="a torn area"
+        ),
+        soll=DamageCheck(ok=True, damaged=False, anomalies=(), description="smooth"),
+    )
+    try:
+        erste = post(assess_body())
+        # Zweite Meldung zum SELBEN Artikel, eigenes Ereignis.
+        zweites_ereignis = "b4ff5ca2-4546-4ea4-8e6c-b75bc003ca33"
+        zweite = post(
+            assess_body({"event_id": zweites_ereignis}),
+            idempotency_key=zweites_ereignis,
+        )
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    assert erste.status_code == 200
+    assert zweite.status_code == 200
+    # Zwei Meldefotos, aber nur EIN Katalogbild-Aufruf.
+    assert fake.damage_calls == 3
+    assert len(llm_ok.condition_calls) == 2
+
+
+def test_a_failed_catalogue_call_is_not_remembered_as_intact(llm_ok, signed_env):
+    """Ein gescheiterter Aufruf ist keine Aussage ueber das Bild, sondern ueber
+    das Modell. Wuerde er im Speicher landen, waere jede weitere Meldung zu
+    diesem Artikel dauerhaft ohne Zustandsvergleich."""
+    signed_env["o19-a"].response = MEDIA_RESPONSE
+    _install_zustand(ist=DamageCheck(ok=True, damaged=True, anomalies=("torn",),
+                                     description="a torn area"),
+                     soll=DamageCheck(ok=False))
+    try:
+        post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    assert n8n_v2._SOLL_BEFUNDE == {}

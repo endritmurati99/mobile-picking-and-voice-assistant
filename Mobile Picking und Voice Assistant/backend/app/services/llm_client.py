@@ -64,12 +64,44 @@ _COMPARE_SYSTEM_PROMPT = (
 )
 
 
+_CONDITION_SYSTEM_PROMPT = (
+    "Du vergleichst den SOLL-Zustand eines Artikels mit seinem IST-Zustand und "
+    "entscheidest, ob das Foto einen Schaden zeigt, den der Neuzustand nicht hat. "
+    "Beschreibung SOLL stammt vom Katalogbild des Artikels im Neuzustand, "
+    "Beschreibung IST vom Foto, das ein Kommissionierer gerade gemacht hat. "
+    "Beide stammen von einem Bildmodell und sind unterschiedlich formuliert, "
+    "auch wenn derselbe Zustand gemeint ist.\n"
+    "Regeln:\n"
+    "- Eine Auffaelligkeit, die SOLL genauso zeigt, ist ein Merkmal des Artikels "
+    "und KEIN Schaden. Noppen, Kanten, Naehte und Aufdrucke gehoeren dazu.\n"
+    "- Fehlt im IST ein Teil, das SOLL hat, ist das ein Schaden -- auch dann, "
+    "wenn keine gerissene Kante beschrieben ist.\n"
+    "- Riss, Bruch, Kerbe oder eine ausgefranste Stelle, die SOLL nicht nennt, "
+    "ist ein Schaden.\n"
+    "- Licht, Blickwinkel, Schatten, Hintergrund und Bildschaerfe sind KEIN "
+    "Schaden.\n"
+    "- Im Zweifel true. Ein gemeldeter Schaden, der keiner ist, kostet eine "
+    "Sichtpruefung; ein uebersehener Schaden verlaesst das Lager.\n"
+    "Antworte ausschliesslich mit JSON der Form "
+    '{"new_damage": <true|false>, "reason": <ein kurzer deutscher Satz>}.'
+)
+
+
 @dataclass(frozen=True)
 class ArticleComparison:
     """`ok=False` heisst: kein Befund. Nicht "kein Treffer"."""
 
     ok: bool
     same_article: bool | None = None
+    reason: str | None = None
+
+
+@dataclass(frozen=True)
+class ConditionComparison:
+    """`ok=False` heisst: kein Befund. Nicht "kein Schaden"."""
+
+    ok: bool
+    new_damage: bool | None = None
     reason: str | None = None
 
 
@@ -228,6 +260,66 @@ class LlmClient:
         reason = str(parsed.get("reason", "")).strip() or None
         return ArticleComparison(
             ok=True, same_article=parsed["same_article"], reason=reason
+        )
+
+    async def compare_condition(
+        self,
+        *,
+        reference_text: str,
+        candidate_text: str,
+        product_label: str = "",
+    ) -> ConditionComparison:
+        """Entscheidet aus ZWEI Zustandsbefunden, ob das Foto NEUEN Schaden zeigt.
+
+        Dieselbe Trennung wie beim Artikelabgleich, aus demselben gemessenen
+        Grund: das Bildmodell hat beide Bilder in EINEM Aufruf angeglichen und
+        einen sichtbaren Bruch als "decorative element" abgetan. Also sieht es
+        jedes Bild einzeln, und der Vergleich faellt hier im Text.
+
+        Der Unterschied zum Artikelabgleich ist die Frage, nicht das Verfahren.
+        Dort: ist es dasselbe Teil? Hier: ist es dasselbe Teil in schlechterem
+        Zustand? Ein sauber abgebrochenes Eck beantwortet beide Fragen
+        verschieden -- der Artikel bleibt derselbe, der Zustand nicht -- und
+        genau dieser Fall faellt ohne den Vergleich durch: eine glatte
+        Bruchflaeche ist keine ausgefranste Stelle, `DAMAGE_PROMPT` allein
+        sieht sie nicht.
+        """
+        lines = [f"Beschreibung SOLL (Katalogbild, Neuzustand): {reference_text.strip()}"]
+        if product_label.strip():
+            lines.append(f"Artikelname laut Auftrag: {product_label.strip()}")
+        lines.append(f"Beschreibung IST (Meldefoto): {candidate_text.strip()}")
+        payload = {
+            "model": self._model,
+            "stream": False,
+            "format": "json",
+            "options": {"temperature": 0},
+            "messages": [
+                {"role": "system", "content": _CONDITION_SYSTEM_PROMPT},
+                {"role": "user", "content": "\n".join(lines)},
+            ],
+        }
+        try:
+            async with httpx.AsyncClient(
+                timeout=self._timeout, transport=self._transport
+            ) as client:
+                resp = await client.post(f"{self._endpoint}/api/chat", json=payload)
+            resp.raise_for_status()
+            parsed = json.loads(resp.json().get("message", {}).get("content") or "")
+        except Exception as exc:  # noqa: BLE001 - jeder Fehler => kein Befund
+            logger.warning(json.dumps({
+                "event_type": "llm_condition_compare_failed",
+                "model": self._model,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }))
+            return ConditionComparison(ok=False)
+        if not isinstance(parsed, dict) or not isinstance(
+            parsed.get("new_damage"), bool
+        ):
+            return ConditionComparison(ok=False)
+        reason = str(parsed.get("reason", "")).strip() or None
+        return ConditionComparison(
+            ok=True, new_damage=parsed["new_damage"], reason=reason
         )
 
     def _parse(self, content: str | None) -> LlmDispositionResult:

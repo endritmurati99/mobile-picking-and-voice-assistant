@@ -178,3 +178,80 @@ async def test_compare_articles_http_error_is_no_finding():
     )
 
     assert result.ok is False
+
+
+# --- Zustandsvergleich -------------------------------------------------------
+# Dasselbe Verfahren wie der Artikelvergleich, aus demselben gemessenen Grund.
+# Andere Frage: nicht "welches Teil?", sondern "welcher Zustand?".
+
+
+@pytest.mark.anyio
+async def test_compare_condition_sends_soll_and_ist_and_the_label():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["path"] = request.url.path
+        captured["body"] = json.loads(request.content)
+        content = json.dumps(
+            {"new_damage": True, "reason": "Riss, den das Katalogbild nicht zeigt."}
+        )
+        return httpx.Response(200, json={"message": {"content": content}})
+
+    result = await _client_with(handler).compare_condition(
+        reference_text="smooth and continuous everywhere",
+        candidate_text="a torn area across the curved top",
+        product_label="Brick 2x2x2 R=15 gelb",
+    )
+
+    assert captured["path"] == "/api/chat"
+    assert captured["body"]["format"] == "json"
+    assert captured["body"]["options"]["temperature"] == 0
+    gesendet = captured["body"]["messages"][1]["content"]
+    assert "SOLL" in gesendet and "smooth and continuous everywhere" in gesendet
+    assert "IST" in gesendet and "a torn area across the curved top" in gesendet
+    assert "Brick 2x2x2 R=15 gelb" in gesendet
+    assert result.ok is True
+    assert result.new_damage is True
+    assert result.reason == "Riss, den das Katalogbild nicht zeigt."
+
+
+@pytest.mark.anyio
+async def test_the_condition_prompt_names_both_directions():
+    """Der Vergleich muss in beide Richtungen koennen, sonst ist er nur eine
+    zweite Meinung: Merkmale entlasten (Noppen), fehlende Teile belasten (ein
+    sauber abgebrochenes Eck hinterlaesst keine ausgefranste Stelle)."""
+    from app.services.llm_client import _CONDITION_SYSTEM_PROMPT
+
+    assert "Merkmal des Artikels" in _CONDITION_SYSTEM_PROMPT
+    assert "Fehlt im IST ein Teil" in _CONDITION_SYSTEM_PROMPT
+    # Und die Richtung im Zweifel, damit kein Schaden das Lager verlaesst:
+    assert "Im Zweifel true." in _CONDITION_SYSTEM_PROMPT
+
+
+@pytest.mark.anyio
+async def test_a_non_boolean_new_damage_is_no_finding():
+    """`ok=False` heisst "kein Befund", nicht "kein Schaden" -- der Aufrufer
+    laesst den Befund der absoluten Pruefung dann stehen."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"message": {"content": json.dumps({"new_damage": "vielleicht"})}}
+        )
+
+    result = await _client_with(handler).compare_condition(
+        reference_text="a", candidate_text="b"
+    )
+
+    assert result.ok is False
+    assert result.new_damage is None
+
+
+@pytest.mark.anyio
+async def test_compare_condition_http_error_is_no_finding():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="boom")
+
+    result = await _client_with(handler).compare_condition(
+        reference_text="a", candidate_text="b"
+    )
+
+    assert result.ok is False

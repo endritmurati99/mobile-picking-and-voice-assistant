@@ -49,6 +49,7 @@ verraet, ob ein Job, ein Event oder ein Receipt existiert.
 import asyncio
 import base64
 import binascii
+import hashlib
 import logging
 import re
 import time
@@ -78,7 +79,7 @@ from app.models.events import (
 )
 from app.config import settings
 from app.services.llm_client import LlmClient
-from app.services.vision_client import VisionClient
+from app.services.vision_client import DamageCheck, VisionClient
 from app.services.assessment_media import DAMAGE_MAX_EDGE, MediaError, prepare_image
 from app.services.assessment_reconciliation import PhotoFinding, reconcile
 from app.services.binary_validation import (
@@ -297,6 +298,22 @@ async def _collect_photo_finding(
     if not candidates:
         return _no_finding("Bildpruefung nicht moeglich: kein lesbares Foto."), False
 
+    # Dasselbe Katalogbild in der zweiten Aufloesung, aus demselben Grund wie
+    # oben beim Meldefoto: der Artikelabgleich fragt "welches Teil?" und kommt
+    # mit 512 px aus, der Zustandsvergleich fragt "welcher Zustand?" und braucht
+    # dieselben 768 px wie das Foto, gegen das er gestellt wird. Fehlt oder
+    # bricht es, bleibt es None und die Schadenspruefung arbeitet wie bisher
+    # allein auf dem Meldefoto.
+    reference_damage: bytes | None = None
+    reference_b64 = media.get("reference_image_b64")
+    if reference_b64:
+        try:
+            reference_damage = prepare_image(
+                base64.b64decode(reference_b64), max_edge=DAMAGE_MAX_EDGE
+            )
+        except (MediaError, ValueError, binascii.Error):
+            reference_damage = None
+
     lines: list[str] = []
     deadline = time.monotonic() + max(0.0, settings.vision_budget_ms / 1000.0)
     article = await _check_article(vision, llm, media, candidates[0], lines, deadline)
@@ -304,7 +321,14 @@ async def _collect_photo_finding(
     # Schadenspruefung haengt vollstaendig am Budget. Fiel er aus (kein
     # Katalogbild), muss sie den einen garantierten Aufruf tragen.
     damage, ungeprueft = await _check_damage(
-        vision, damage_candidates, lines, deadline, garantiert=article == "unavailable"
+        vision,
+        llm,
+        damage_candidates,
+        lines,
+        deadline,
+        garantiert=article == "unavailable",
+        reference=reference_damage,
+        product_label=media.get("product_label") or "",
     )
 
     if unlesbar:
@@ -396,16 +420,28 @@ def _ohne_artikelnummer(label: str) -> str:
 
 async def _check_damage(
     vision,
+    llm,
     candidates: list[bytes],
     lines: list[str],
     deadline: float,
     garantiert: bool,
+    reference: bytes | None = None,
+    product_label: str = "",
 ) -> tuple[str, int]:
     """Schadenspruefung auf JEDEM Foto. Ein einziger Fund genuegt.
 
     Getrennt vom Artikelabgleich, weil beides zusammen gemessen schlechter
     ist: im Zwei-Bild-Aufruf wurde ein sichtbarer Bruch als "decorative
     element" abgetan.
+
+    Zwei Stufen. Zuerst schaut das Bildmodell jedes Foto FUER SICH an und
+    beantwortet die absolute Frage: bricht hier etwas die glatte Oberflaeche?
+    Liegt ein Katalogbild vor, folgt der Soll/Ist-Vergleich des Zustands
+    (`_zustandsvergleich`) und darf den Befund NUR VERSCHAERFEN. Die absolute
+    Frage allein reicht nicht: ein sauber abgebrochenes Eck laesst sie durch,
+    weil eine glatte Bruchflaeche keine ausgefranste Stelle ist. Umgekehrt darf
+    der Vergleich nichts zuruecknehmen -- am 2026-08-08 (QA/0223) hat er einen
+    gefundenen Riss wegerklaert; die Begruendung steht in `_zustandsvergleich`.
 
     `deadline` begrenzt die Reihe als Ganzes. `garantiert` erzwingt das erste
     Foto auch bei abgelaufenem Budget -- ein Budget, das gar keinen Bildaufruf
@@ -416,6 +452,7 @@ async def _check_damage(
     """
     damage = "unavailable"
     seen: list[str] = []
+    befunde: list[DamageCheck] = []
     ungeprueft = 0
     budget_gerissen = False
     for index, candidate in enumerate(candidates):
@@ -432,11 +469,27 @@ async def _check_damage(
             # angesehen hat.
             ungeprueft += 1
             continue
+        befunde.append(check)
         if check.damaged:
             damage = "damaged"
             seen.extend(check.anomalies)
         elif damage != "damaged":
             damage = "intact"
+
+    # VOR dem Klartext, damit Satz und Befund nicht auseinanderlaufen: der
+    # Vergleich darf `damage` noch drehen, und die Zeile darunter beschreibt
+    # dann den gedrehten Stand. Seine eigene Zeile kommt danach.
+    zustandszeile: str | None = None
+    if damage != "unavailable" and reference is not None:
+        damage, zustandszeile = await _zustandsvergleich(
+            vision=vision,
+            llm=llm,
+            reference=reference,
+            befunde=befunde,
+            damage=damage,
+            deadline=deadline,
+            product_label=product_label,
+        )
 
     if damage == "unavailable":
         lines.append(
@@ -466,7 +519,119 @@ async def _check_damage(
         )
     else:
         lines.append("Schadenspruefung: keine Auffaelligkeit sichtbar.")
+    if zustandszeile:
+        lines.append(zustandszeile)
     return damage, ungeprueft
+
+
+# Der Zustandsbefund eines Katalogbilds haengt nur am Katalogbild. Das ist je
+# Artikel dasselbe Byte fuer Byte, also ist es auch sein Befund. Ohne diesen
+# Speicher kostete der Vergleich JEDE Meldung einen zusaetzlichen Bildaufruf --
+# auf CPU 20 bis 100 Sekunden, gegen einen n8n-Knoten, der bei 270 Sekunden
+# hart abschneidet. Er lebt im Prozess und ist nach einem Neustart des Backends
+# wieder leer; das kostet dann einmal je Artikel, nicht je Meldung.
+_SOLL_BEFUNDE: dict[str, DamageCheck] = {}
+
+
+async def _soll_befund(vision, reference: bytes) -> DamageCheck:
+    """Zustandsbefund des Katalogbilds. Einmal je Artikel, danach aus dem Speicher.
+
+    Gespeichert wird nur ein Befund, der zustande kam. Ein gescheiterter Aufruf
+    darf sich nicht als "kein Schaden im Neuzustand" festsetzen -- er ist keine
+    Aussage ueber das Bild, sondern ueber das Modell.
+    """
+    schluessel = hashlib.sha256(reference).hexdigest()
+    gespeichert = _SOLL_BEFUNDE.get(schluessel)
+    if gespeichert is not None:
+        return gespeichert
+    befund = await vision.inspect_damage(reference)
+    if befund.ok:
+        _SOLL_BEFUNDE[schluessel] = befund
+    return befund
+
+
+async def _zustandsvergleich(
+    *,
+    vision,
+    llm,
+    reference: bytes,
+    befunde: list[DamageCheck],
+    damage: str,
+    deadline: float,
+    product_label: str,
+) -> tuple[str, str | None]:
+    """Soll/Ist des ZUSTANDS: Katalogbild gegen Meldefoto.
+
+    Dasselbe Verfahren wie beim Artikelabgleich und aus demselben gemessenen
+    Grund: jedes Bild wird EINZELN beschrieben, verglichen wird im Text. Nur
+    die Frage ist eine andere -- dort "welches Teil?", hier "welcher Zustand?".
+
+    Der Vergleich darf NUR ESKALIEREN. Er hebt "intact" auf "damaged", aber er
+    macht aus "damaged" nie wieder "intact". Dieselbe Asymmetrie wie in
+    `assessment_reconciliation` und aus demselben Grund: die Stufe, die etwas
+    gesehen hat, darf nicht von der Stufe ueberstimmt werden, die nur
+    Beschreibungen vergleicht.
+
+    Gemessen am 2026-08-08, QA/0223: das Rissfoto aus QA/0011, Artikel
+    [6023350]. Die absolute Pruefung fand die Stelle ("feather"), der Vergleich
+    erklaerte sie weg -- "Die Beschreibungen stimmen in Bezug auf glatte
+    Oberflaeche ueberein." Beide Zustandsbeschreibungen enthalten das Wort
+    "smooth", und daran haengt sich das Textmodell auf. Es ist derselbe Fehler,
+    an dem der Zwei-Bild-Aufruf gescheitert ist, nur eine Ebene hoeher: was
+    beide Bilder gemeinsam haben, uebertoent den Unterschied.
+
+    Was bleibt, ist die Richtung, in der die absolute Pruefung nichts hat: ein
+    sauber abgebrochenes Eck hinterlaesst keine ausgefranste Stelle. Sie sieht
+    eine glatte Oberflaeche und laesst es durch; erst gegen den Neuzustand
+    faellt auf, dass etwas fehlt.
+
+    Ausgewertet wird der Befund des Fotos, das Schaden zeigte -- sonst der erste
+    lesbare. Jeder Fehlerpfad gibt `damage` unveraendert zurueck und sagt im
+    Klartext, warum: ein ausgefallener Vergleich ist kein Freispruch.
+    """
+    ist = next((befund for befund in befunde if befund.damaged), None)
+    if ist is None:
+        ist = befunde[0] if befunde else None
+    if ist is None or not ist.description:
+        return damage, None
+    if time.monotonic() >= deadline:
+        return damage, "Zustandsvergleich nicht durchgefuehrt: Zeitbudget erschoepft."
+
+    soll = await _soll_befund(vision, reference)
+    if not soll.ok or not soll.description:
+        return damage, "Zustandsvergleich nicht moeglich: Katalogbild nicht auswertbar."
+
+    urteil = await llm.compare_condition(
+        reference_text=soll.description,
+        candidate_text=ist.description,
+        product_label=_ohne_artikelnummer(product_label),
+    )
+    if not urteil.ok:
+        return damage, "Zustandsvergleich nicht moeglich: Textmodell antwortet nicht."
+
+    grund = f" ({urteil.reason})" if urteil.reason else ""
+    if not urteil.new_damage:
+        # KEIN Freispruch, auch wenn er sich so liest. Sieht die absolute
+        # Pruefung einen Schaden, bleibt er stehen; der Vergleich vermerkt nur,
+        # dass er ihn im Abgleich nicht wiederfindet. Das ist eine Aussage
+        # ueber den Vergleich, nicht ueber die Ware.
+        if damage == "damaged":
+            return damage, (
+                "Zustandsvergleich gegen Katalogbild findet die Auffaelligkeit "
+                f"nicht wieder{grund}. Der Befund der Schadenspruefung bleibt stehen."
+            )
+        return damage, (
+            "Zustandsvergleich gegen Katalogbild: keine Abweichung vom "
+            f"Neuzustand{grund}."
+        )
+    if damage == "damaged":
+        return damage, (
+            f"Zustandsvergleich gegen Katalogbild bestaetigt den Befund{grund}."
+        )
+    return "damaged", (
+        "Zustandsvergleich gegen Katalogbild: Abweichung vom Neuzustand, die "
+        f"der Schadenspruefung entgangen ist{grund}."
+    )
 
 
 @router.post(V2 + "/assessments/quality", response_model=QualityAssessmentV2Response)
