@@ -35,10 +35,20 @@ So liest du das Bild:
 
 - Ein **durchgezogener Pfeil** bedeutet: Ein Dienst ruft einen anderen direkt
   auf und wartet auf seine Antwort.
-- Ein **orange gestrichelter Pfeil** bedeutet: Die Quality-Verarbeitung darf
-  im Hintergrund weiterlaufen. Die PWA muss nicht die ganze Zeit warten.
+- Ein **orange gestrichelter Pfeil** bedeutet: Eine gerichtete Quality-
+  Nachricht läuft asynchron. Die PWA muss nicht auf die gesamte Verarbeitung
+  warten.
 - Der große gestrichelte **Docker-Rahmen** zeigt die Serverdienste.
 - Mensch, Handy und Browser liegen außerhalb des Docker-Rahmens.
+
+Der Browser erreicht beide Ziele technisch über Caddy: Webseitenaufrufe gehen
+zum PWA-Dateiserver, `/api/*` geht zu FastAPI. „Die PWA spricht mit FastAPI“
+beschreibt die fachliche Beziehung, nicht eine Umgehung von Caddy.
+
+Der orange Quality-Weg besteht aus zwei getrennten Aufrufen: FastAPI stellt ein
+Outbox-Ereignis an n8n zu; n8n sendet den signierten Status an eine interne
+FastAPI-Route zurück. n8n schreibt weder direkt nach Odoo noch direkt in dessen
+Datenbank.
 
 ## Eine Alltagsvorstellung
 
@@ -131,6 +141,7 @@ Odoo kennt unter anderem:
 - Produkt- und Seriennummern,
 - Benutzer und Berechtigungen,
 - Quality Alerts,
+- Integrationsjobs und Outbox-Ereignisse,
 - Cluster-Batches und Zielpakete.
 
 Wenn die PWA einen Auftrag als abgeschlossen zeigt, muss dieser Zustand aus
@@ -210,18 +221,17 @@ Docker enthält die serverseitige Laufzeit. Außerhalb bleiben unter anderem:
 - Quellcode, lokale Konfiguration, Zertifikate und Secret-Quelldateien auf dem
   Host.
 
-## Beispiel 1: Ein normaler Auftrag
+## Beispiel 1: Ein geprüfter normaler Auftrag
 
-> Alle Namen, Nummern und Mengen in diesem Beispiel sind erfunden. Sie erklären
-> nur den echten technischen Ablauf.
-
-Der Mitarbeiter öffnet den Beispielauftrag `WH/OUT/0042`. Er soll zwei Kabel
-aus `WH/Stock/A-01` und eine Maus aus `WH/Stock/A-02` holen.
+Der rein lesende Review vom 7. August 2026 fand in Odoo den offenen Auftrag
+`WH/INT/00360` für das Modell „Ente Henri“ mit sechs Positionen. Ebene 1 nutzt
+nur diesen belegten Hauptweg; Artikel, Lagerplätze und Barcodes erklärt
+[Ebene 2](./ebene-2-pwa-normaler-auftrag.md) im Detail.
 
 1. Die PWA fragt FastAPI nach offenen Aufträgen.
 2. FastAPI fragt Odoo nach den fachlich offenen Pickings.
 3. Odoo antwortet. FastAPI bereitet die Daten für die PWA auf.
-4. Der Mitarbeiter öffnet `WH/OUT/0042`. FastAPI lässt den Auftrag in Odoo für
+4. Der Mitarbeiter öffnet `WH/INT/00360`. FastAPI lässt den Auftrag in Odoo für
    diesen Mitarbeiter reservieren.
 5. Die PWA zeigt die nächste Position und wartet auf den Scan.
 6. Der Barcode wird zunächst im Browser gelesen.
@@ -349,6 +359,26 @@ Ebene 1 zeigt die große Landkarte. Diese Details kommen später:
 Begriffe wie Session, CSRF, Idempotenz, HMAC, Nonce, Lease und Datenbankrollen
 sind wichtig. Sie gehören aber nicht auf die erste Landkarte, weil sie den
 Einstieg verdecken würden.
+
+## Review-Scorecard
+
+Stand: 8. August 2026. Bewertet wurde die überarbeitete Darstellung gegen
+Compose, Caddy, FastAPI-Runtime, Browserzugriffe und die beteiligten Clients.
+
+| Kriterium | Punkte |
+| --- | ---: |
+| Komponentenabdeckung | 20/20 |
+| Verbindungsgenauigkeit | 20/20 |
+| Übereinstimmung mit Code und Compose | 19/20 |
+| Verständlichkeit | 19/20 |
+| Angemessene Detailtiefe | 19/20 |
+| **Gesamt** | **97/100** |
+
+Der deklarierte Aufbau verwendet Odoo 19. Der zuletzt geprüfte Live-Stand ist
+noch kein grüner End-to-End-Nachweis: Server und Datenbankschema befinden sich
+bis zum abgeschlossenen Modul- und Schema-Upgrade nicht auf demselben Stand.
+Die Systemlandkarte bewertet deshalb die belegte Verdrahtung, nicht eine bereits
+erfolgreich abgeschlossene Live-Migration.
 
 ## Drei Regeln zum Mitnehmen
 
