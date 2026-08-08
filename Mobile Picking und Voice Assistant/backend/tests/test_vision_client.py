@@ -7,9 +7,9 @@ muessen:
 * dass genau die zwei gemessenen Prompts abgehen. Ohne den Satz ueber
   "ragged, torn or gouged" erkannte das Modell null von vier Pruefbildern,
   mit ihm drei von vier ohne Fehlalarm. Der Wortlaut ist Spezifikation.
-* dass die Bilder in der richtigen Zahl und Reihenfolge ankommen. Der
-  Vergleich braucht Katalogbild ZUERST, sonst bezieht sich `same_article` auf
-  das falsche Bild.
+* dass je Aufruf genau EIN Bild abgeht. Zwei Bilder in einem Aufruf waren
+  der gemessene Fehler: das Modell beschrieb aehnliche Bilder gleich und
+  haette einen verwechselten Artikel durchgewinkt.
 * dass jeder Fehler in einem LEEREN Befund endet. Ein halber Bildbefund waere
   die Einladung, doch etwas daraus zu schliessen.
 """
@@ -19,7 +19,7 @@ import json
 import httpx
 import pytest
 
-from app.services.vision_client import ARTICLE_PROMPT, DAMAGE_PROMPT, VisionClient
+from app.services.vision_client import DAMAGE_PROMPT, DESCRIBE_PROMPT, VisionClient
 
 REFERENCE = b"\xff\xd8referenzbild"
 CANDIDATE = b"\xff\xd8meldefoto"
@@ -44,44 +44,74 @@ def _responder(payload, captured):
 
 
 @pytest.mark.anyio
-async def test_compare_article_sends_reference_first():
+async def test_describe_sends_exactly_one_image():
+    """Der Kern des Umbaus: EIN Bild je Aufruf. Mit beiden Bildern in einem
+    Aufruf beschrieb das Modell einen hellblauen Stein als "yellow plastic
+    corner guard", weil daneben ein gelber lag."""
     captured = {}
     handler = _responder(
         {
-            "image1_shows": "gelber Baustein",
-            "image2_shows": "ein Hund am Strand",
-            "same_article": False,
-            "same_article_reason": "Image 2 shows an animal, not a product.",
+            "object_type": "dog",
+            "colour": "light brown",
+            "shape": "medium sized animal",
+            "markings": "none",
+            "is_a_product": False,
         },
         captured,
     )
 
-    result = await _client(handler).compare_article(REFERENCE, CANDIDATE)
+    result = await _client(handler).describe(CANDIDATE)
 
     assert captured["path"] == "/api/generate"
-    assert captured["body"]["images"] == [
-        base64.b64encode(REFERENCE).decode("ascii"),
-        base64.b64encode(CANDIDATE).decode("ascii"),
-    ]
-    assert captured["body"]["prompt"] == ARTICLE_PROMPT
+    assert captured["body"]["images"] == [base64.b64encode(CANDIDATE).decode("ascii")]
+    assert captured["body"]["prompt"] == DESCRIBE_PROMPT
     assert captured["body"]["format"] == "json"
     assert captured["body"]["options"]["temperature"] == 0
     assert result.ok is True
-    assert result.same_article is False
-    assert "animal" in result.reason
-    assert result.candidate_description == "ein Hund am Strand"
+    assert result.is_a_product is False
+    # Farbe und Form stehen in der Zeile, "none" bei den Markierungen nicht.
+    assert result.text == "dog, light brown, medium sized animal"
 
 
 @pytest.mark.anyio
-async def test_the_article_prompt_names_which_image_is_which():
-    """Ohne diese Zuordnung bezieht das Modell `same_article` auf das
-    Katalogbild statt auf das Meldefoto."""
-    assert "IMAGE 1 is the official catalogue photo" in ARTICLE_PROMPT
-    assert "IMAGE 2 is the photo a warehouse worker just took" in ARTICLE_PROMPT
-    # Beschreiben vor Urteilen: gemessen entscheidet die Reihenfolge der
-    # Schluessel darueber, ob das Modell aus dem Bild oder aus dem Schema
-    # antwortet.
-    assert ARTICLE_PROMPT.index("image1_shows") < ARTICLE_PROMPT.index("same_article")
+async def test_describe_keeps_markings_when_there_are_any():
+    captured = {}
+    handler = _responder(
+        {
+            "object_type": "toy building brick",
+            "colour": "light blue",
+            "shape": "2x2 studs",
+            "markings": "printed face of a person",
+            "is_a_product": True,
+        },
+        captured,
+    )
+
+    result = await _client(handler).describe(CANDIDATE)
+
+    assert "printed face of a person" in result.text
+
+
+@pytest.mark.anyio
+async def test_an_answer_without_any_content_is_no_finding():
+    """Eine leere Beschreibung liesse sich im Textvergleich mit allem als
+    "derselbe Artikel" lesen."""
+    captured = {}
+    handler = _responder({"object_type": "", "colour": " ", "markings": "none"}, captured)
+
+    result = await _client(handler).describe(CANDIDATE)
+
+    assert result.ok is False
+    assert result.text is None
+
+
+@pytest.mark.anyio
+async def test_the_describe_prompt_forbids_comparing():
+    """Der Prompt darf nicht zum Vergleichen einladen -- genau daran ist der
+    alte Weg gescheitert."""
+    assert "describe only what you see" in DESCRIBE_PROMPT
+    assert "do not compare" in DESCRIBE_PROMPT.lower()
+    assert DESCRIBE_PROMPT.index("object_type") < DESCRIBE_PROMPT.index("is_a_product")
 
 
 @pytest.mark.anyio
@@ -155,10 +185,10 @@ async def test_unparsable_answer_yields_an_empty_finding():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"response": "kein JSON"})
 
-    result = await _client(handler).compare_article(REFERENCE, CANDIDATE)
+    result = await _client(handler).describe(CANDIDATE)
 
     assert result.ok is False
-    assert result.same_article is None
+    assert result.text is None
 
 
 @pytest.mark.anyio
@@ -175,14 +205,18 @@ async def test_a_missing_verdict_key_is_not_half_a_finding():
 
 
 @pytest.mark.anyio
-async def test_a_non_boolean_same_article_is_refused():
-    """`"same_article": "maybe"` ist keine Antwort auf eine Ja/Nein-Frage."""
+async def test_a_non_boolean_is_a_product_costs_only_that_flag():
+    """`is_a_product: "maybe"` macht die Beschreibung nicht wertlos -- der
+    Vergleich laeuft ueber den Text, nicht ueber diese Marke."""
     captured = {}
-    handler = _responder({"same_article": "maybe"}, captured)
+    handler = _responder(
+        {"object_type": "brick", "colour": "yellow", "is_a_product": "maybe"}, captured
+    )
 
-    result = await _client(handler).compare_article(REFERENCE, CANDIDATE)
+    result = await _client(handler).describe(CANDIDATE)
 
-    assert result.ok is False
+    assert result.ok is True
+    assert result.is_a_product is None
 
 
 @pytest.mark.anyio
@@ -190,10 +224,10 @@ async def test_timeout_yields_an_empty_finding():
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ReadTimeout("zu langsam", request=request)
 
-    result = await _client(handler).compare_article(REFERENCE, CANDIDATE)
+    result = await _client(handler).describe(CANDIDATE)
 
     assert result.ok is False
-    assert result.same_article is None
+    assert result.text is None
 
 
 def test_the_model_choice_is_pinned_by_measurement():

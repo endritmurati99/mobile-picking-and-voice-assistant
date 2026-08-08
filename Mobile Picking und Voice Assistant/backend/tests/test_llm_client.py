@@ -91,3 +91,90 @@ async def test_transport_exception_returns_not_ok():
 
     result = await _client_with(handler).classify_disposition(description="foo")
     assert result.ok is False
+
+
+# --- Artikelvergleich -------------------------------------------------------
+# Er liegt beim TEXTmodell, seit gemessen wurde, dass das Bildmodell zwei
+# aehnliche Bilder in einem Aufruf gleich beschreibt (siehe vision_client).
+
+
+@pytest.mark.anyio
+async def test_compare_articles_sends_both_descriptions_and_the_label():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["path"] = request.url.path
+        captured["body"] = json.loads(request.content)
+        content = json.dumps({"same_article": False, "reason": "Andere Farbe."})
+        return httpx.Response(200, json={"message": {"content": content}})
+
+    result = await _client_with(handler).compare_articles(
+        reference_text="toy building brick, yellow, 2x2 studs",
+        candidate_text="toy building brick, light blue, 2x2 studs",
+        product_label="[6023350] Brick 2x2x2 R=15 gelb",
+    )
+
+    assert captured["path"] == "/api/chat"
+    assert captured["body"]["format"] == "json"
+    gesendet = captured["body"]["messages"][1]["content"]
+    assert "yellow, 2x2 studs" in gesendet
+    assert "light blue, 2x2 studs" in gesendet
+    assert "[6023350] Brick 2x2x2 R=15 gelb" in gesendet
+    assert result.ok is True
+    assert result.same_article is False
+    assert result.reason == "Andere Farbe."
+
+
+@pytest.mark.anyio
+async def test_the_compare_prompt_makes_colour_decisive():
+    """Der gemessene Fehlerfall war ein hellblauer Stein, der als gelber
+    durchging. Ohne diesen Satz entscheidet das Modell nach der Bauform."""
+    from app.services.llm_client import _COMPARE_SYSTEM_PROMPT
+
+    assert "Andere FARBE heisst anderer Artikel." in _COMPARE_SYSTEM_PROMPT
+    # Und die Gegenrichtung, sonst faellt jede andere Formulierung durch:
+    assert "Andere Wortwahl fuer dasselbe Teil heisst NICHT anderer Artikel." in _COMPARE_SYSTEM_PROMPT
+
+
+@pytest.mark.anyio
+async def test_compare_articles_without_a_label_still_asks():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        content = json.dumps({"same_article": True, "reason": "Gleiche Form und Farbe."})
+        return httpx.Response(200, json={"message": {"content": content}})
+
+    result = await _client_with(handler).compare_articles(
+        reference_text="brick, yellow", candidate_text="brick, yellow"
+    )
+
+    assert "Artikelname laut Auftrag" not in captured["body"]["messages"][1]["content"]
+    assert result.ok is True
+    assert result.same_article is True
+
+
+@pytest.mark.anyio
+async def test_a_non_boolean_same_article_is_no_finding():
+    """`"same_article": "maybe"` ist keine Antwort auf eine Ja/Nein-Frage."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"message": {"content": json.dumps({"same_article": "maybe"})}})
+
+    result = await _client_with(handler).compare_articles(
+        reference_text="a", candidate_text="b"
+    )
+
+    assert result.ok is False
+    assert result.same_article is None
+
+
+@pytest.mark.anyio
+async def test_compare_articles_http_error_is_no_finding():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="boom")
+
+    result = await _client_with(handler).compare_articles(
+        reference_text="a", candidate_text="b"
+    )
+
+    assert result.ok is False

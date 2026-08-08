@@ -251,8 +251,10 @@ async def apply_callback(
     )
 
 
-async def _collect_photo_finding(odoo, vision: VisionClient, body) -> tuple[PhotoFinding, bool]:
-    """Holt die Bilder und laesst das Bildmodell zweimal darauf schauen.
+async def _collect_photo_finding(
+    odoo, vision: VisionClient, llm: LlmClient, body
+) -> tuple[PhotoFinding, bool]:
+    """Holt die Bilder und laesst das Bildmodell darauf schauen.
 
     Gibt `(Befund, geprueft)` zurueck. `geprueft` ist False, sobald gar nichts
     zu sehen war -- dann steht der Grund im Klartext und das Texturteil bleibt
@@ -272,30 +274,41 @@ async def _collect_photo_finding(odoo, vision: VisionClient, body) -> tuple[Phot
     if not photos:
         return _no_finding("Ohne Bildpruefung: der Meldung liegt kein Foto bei."), False
 
-    try:
-        raw_photos = [base64.b64decode(photo["data_b64"]) for photo in photos]
-        # Zwei Aufbereitungen desselben Fotos, weil die beiden Fragen
-        # unterschiedlich viel Aufloesung vertragen: der Artikelabgleich haelt
-        # zwei Bilder in einem Fenster und bleibt klein, die Schadenspruefung
-        # sieht nur eines und darf groesser sein. Bei 512 px verschwanden zwei
-        # von drei gemessenen Rissen (siehe `assessment_media`).
-        candidates = [prepare_image(raw) for raw in raw_photos]
-        damage_candidates = [
-            prepare_image(raw, max_edge=DAMAGE_MAX_EDGE) for raw in raw_photos
-        ]
-    except (MediaError, KeyError, ValueError, binascii.Error) as exc:
-        return _no_finding(f"Bildpruefung nicht moeglich: {exc}"), False
+    # JEDES Foto fuer sich aufbereiten. Vorher lag die ganze Liste in einem
+    # try: ein unlesbarer Anhang loeschte damit den Befund aller anderen --
+    # und der erste Anhang ist der einzige, den der Artikelabgleich ueberhaupt
+    # ansieht. Ein Foto, das nicht durchkommt, wird gezaehlt und genannt.
+    #
+    # Zwei Aufbereitungen desselben Fotos, weil die beiden Fragen
+    # unterschiedlich viel Aufloesung vertragen: der Artikelabgleich bleibt
+    # klein, die Schadenspruefung sieht nur ein Bild und darf groesser sein.
+    # Bei 512 px verschwanden zwei von drei gemessenen Rissen (siehe
+    # `assessment_media`).
+    candidates: list[bytes] = []
+    damage_candidates: list[bytes] = []
+    unlesbar = 0
+    for photo in photos:
+        try:
+            raw = base64.b64decode(photo["data_b64"])
+            candidates.append(prepare_image(raw))
+            damage_candidates.append(prepare_image(raw, max_edge=DAMAGE_MAX_EDGE))
+        except (MediaError, KeyError, ValueError, binascii.Error):
+            unlesbar += 1
+    if not candidates:
+        return _no_finding("Bildpruefung nicht moeglich: kein lesbares Foto."), False
 
     lines: list[str] = []
     deadline = time.monotonic() + max(0.0, settings.vision_budget_ms / 1000.0)
-    article = await _check_article(vision, media, candidates[0], lines)
-    # Lief der Artikelabgleich, ist der eine garantierte Bildaufruf verbraucht
-    # und die Schadenspruefung haengt vollstaendig am Budget. Fiel er aus
-    # (kein Katalogbild), muss sie ihn tragen.
+    article = await _check_article(vision, llm, media, candidates[0], lines, deadline)
+    # Lief der Artikelabgleich, sind seine Bildaufrufe verbraucht und die
+    # Schadenspruefung haengt vollstaendig am Budget. Fiel er aus (kein
+    # Katalogbild), muss sie den einen garantierten Aufruf tragen.
     damage, ungeprueft = await _check_damage(
         vision, damage_candidates, lines, deadline, garantiert=article == "unavailable"
     )
 
+    if unlesbar:
+        lines.append(f"{unlesbar} Foto(s) nicht lesbar.")
     skipped = int(media.get("photo_total") or len(photos)) - len(photos) + ungeprueft
     if skipped > 0:
         lines.append(f"{skipped} weitere Foto(s) ungeprueft.")
@@ -308,8 +321,21 @@ def _no_finding(note: str) -> PhotoFinding:
     return PhotoFinding(article="unavailable", damage="unavailable", note=note)
 
 
-async def _check_article(vision, media, candidate: bytes, lines: list[str]) -> str:
-    """Artikelabgleich gegen das Katalogbild. Nur auf dem ersten Foto."""
+async def _check_article(
+    vision, llm, media, candidate: bytes, lines: list[str], deadline: float
+) -> str:
+    """Artikelabgleich gegen das Katalogbild. Nur auf dem ersten Foto.
+
+    Drei Aufrufe statt einem: das Bildmodell beschreibt Katalogbild und
+    Meldefoto EINZELN, das Textmodell vergleicht die zwei Beschreibungen. Mit
+    beiden Bildern in einem Aufruf beschrieb das Bildmodell aehnliche Bilder
+    gleich und haette einen verwechselten Artikel durchgewinkt -- gemessen am
+    2026-08-07, Einzelheiten in `vision_client.DESCRIBE_PROMPT`.
+
+    Das MELDEFOTO wird zuerst beschrieben. Reisst danach das Budget, steht
+    wenigstens im Klartext, was auf dem Foto zu sehen war; umgekehrt haette man
+    eine Beschreibung des Katalogbilds, die niemand braucht.
+    """
     reference_b64 = media.get("reference_image_b64")
     if not reference_b64:
         lines.append("Artikelabgleich entfaellt: kein Katalogbild hinterlegt.")
@@ -320,17 +346,52 @@ async def _check_article(vision, media, candidate: bytes, lines: list[str]) -> s
         lines.append(f"Artikelabgleich nicht moeglich: {exc}")
         return "unavailable"
 
-    match = await vision.compare_article(reference, candidate)
-    if not match.ok:
+    candidate_seen = await vision.describe(candidate)
+    if not candidate_seen.ok:
         lines.append("Artikelabgleich nicht moeglich: Bildmodell antwortet nicht.")
         return "unavailable"
-    if match.same_article:
+    if time.monotonic() >= deadline:
+        lines.append(
+            f"Foto zeigt: {candidate_seen.text}. Artikelabgleich nicht "
+            "abgeschlossen: Zeitbudget erschoepft."
+        )
+        return "unavailable"
+
+    reference_seen = await vision.describe(reference)
+    if not reference_seen.ok:
+        lines.append(
+            f"Foto zeigt: {candidate_seen.text}. Artikelabgleich nicht "
+            "moeglich: Katalogbild nicht auswertbar."
+        )
+        return "unavailable"
+
+    label = media.get("product_label") or ""
+    verdict = await llm.compare_articles(
+        reference_text=reference_seen.text,
+        candidate_text=candidate_seen.text,
+        # Ohne die interne Nummer: Odoo liefert "[6023350] Brick 2x2x2 R=15
+        # gelb", und an einer Zahl, die auf keinem Foto steht, hat ein Modell
+        # nichts zu pruefen. Im Klartext fuer den Menschen bleibt sie stehen --
+        # dort identifiziert sie den Artikel.
+        product_label=_ohne_artikelnummer(label),
+    )
+    if not verdict.ok:
+        lines.append("Artikelabgleich nicht moeglich: Textmodell antwortet nicht.")
+        return "unavailable"
+    if verdict.same_article:
         lines.append("Artikelabgleich: stimmt mit Katalogbild ueberein.")
         return "match"
-    label = media.get("product_label") or "dem gemeldeten Artikel"
-    seen = match.candidate_description or match.reason or "etwas anderes"
-    lines.append(f"Foto zeigt nicht den gemeldeten Artikel: {seen} statt {label}.")
+    lines.append(
+        "Foto zeigt nicht den gemeldeten Artikel: "
+        f"{candidate_seen.text} statt {label or 'dem gemeldeten Artikel'}."
+    )
     return "mismatch"
+
+
+def _ohne_artikelnummer(label: str) -> str:
+    """"[6023350] Brick 2x2x2 R=15 gelb" -> "Brick 2x2x2 R=15 gelb"."""
+    gekuerzt = re.sub(r"^\s*\[[^\]]*\]\s*", "", label)
+    return gekuerzt.strip()
 
 
 async def _check_damage(
@@ -356,12 +417,20 @@ async def _check_damage(
     damage = "unavailable"
     seen: list[str] = []
     ungeprueft = 0
+    budget_gerissen = False
     for index, candidate in enumerate(candidates):
         if not (garantiert and index == 0) and time.monotonic() >= deadline:
-            ungeprueft = len(candidates) - index
+            ungeprueft += len(candidates) - index
+            budget_gerissen = True
             break
         check = await vision.inspect_damage(candidate)
         if not check.ok:
+            # Ein Foto ohne Antwort ist ein UNGEPRUEFTES Foto. Vorher wurde es
+            # uebersprungen und nirgends gezaehlt: bei drei Fotos, von denen
+            # nur das erste antwortete, stand am Ende "keine Auffaelligkeit
+            # sichtbar" -- eine Aussage ueber zwei Bilder, die niemand
+            # angesehen hat.
+            ungeprueft += 1
             continue
         if check.damaged:
             damage = "damaged"
@@ -370,7 +439,11 @@ async def _check_damage(
             damage = "intact"
 
     if damage == "unavailable":
-        lines.append("Schadenspruefung nicht moeglich: Bildmodell antwortet nicht.")
+        lines.append(
+            "Schadenspruefung nicht moeglich: Zeitbudget erschoepft."
+            if budget_gerissen and not seen
+            else "Schadenspruefung nicht moeglich: Bildmodell antwortet nicht."
+        )
     elif damage == "damaged":
         # Der Befund steht vorn, die Worte des Modells dahinter in Klammern.
         # Sie sind englisch und manchmal schief -- am Rissfoto aus QA/0011 kam
@@ -382,6 +455,14 @@ async def _check_damage(
             "Schadenspruefung: Schaden sichtbar"
             + (f" ({detail})" if detail else "")
             + "."
+        )
+    elif ungeprueft:
+        # "Keine Auffaelligkeit sichtbar" waere hier eine Aussage ueber Fotos,
+        # die niemand angesehen hat. Der Satz nennt deshalb, wieviel er deckt.
+        geprueft = len(candidates) - ungeprueft
+        lines.append(
+            f"Schadenspruefung: {geprueft} von {len(candidates)} Foto(s) "
+            "geprueft, dabei keine Auffaelligkeit sichtbar."
         )
     else:
         lines.append("Schadenspruefung: keine Auffaelligkeit sichtbar.")
@@ -474,7 +555,7 @@ async def _assess(llm, vision, runtime, body) -> QualityAssessmentV2Response:
         checked = False
     else:
         odoo = get_callback_odoo_client(runtime, body.odoo_instance)
-        finding, checked = await _collect_photo_finding(odoo, vision, body)
+        finding, checked = await _collect_photo_finding(odoo, vision, llm, body)
 
     reconciled = reconcile(
         disposition=result.disposition if result.ok else None,

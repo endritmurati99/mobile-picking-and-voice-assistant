@@ -17,8 +17,8 @@ from fastapi.testclient import TestClient
 
 from app import config, dependencies
 from app.main import app
-from app.services.llm_client import LlmDispositionResult
-from app.services.vision_client import ArticleMatch, DamageCheck
+from app.services.llm_client import ArticleComparison, LlmDispositionResult
+from app.services.vision_client import ArticleDescription, DamageCheck
 from app.services import assessment_media
 from app.routers import n8n_v2
 
@@ -49,17 +49,31 @@ def assess_body(overrides=None):
 
 
 class FakeLlm:
-    def __init__(self, result):
+    """Textmodell: Einstufung UND -- seit dem Umbau -- der Artikelvergleich.
+
+    Der Vergleich liegt beim Textmodell, weil das Bildmodell zwei aehnliche
+    Bilder in einem Aufruf gleich beschrieb (siehe `vision_client`).
+    """
+
+    def __init__(self, result, article=None):
         self.result = result
+        self.article = article or ArticleComparison(
+            ok=True, same_article=True, reason="passt"
+        )
         self.calls = []
+        self.article_calls = []
 
     async def classify_disposition(self, **kwargs):
         self.calls.append(kwargs)
         return self.result
 
+    async def compare_articles(self, **kwargs):
+        self.article_calls.append(kwargs)
+        return self.article
 
-def install_llm(result):
-    fake = FakeLlm(result)
+
+def install_llm(result, article=None):
+    fake = FakeLlm(result, article)
     app.dependency_overrides[dependencies.get_llm_client] = lambda: fake
     return fake
 
@@ -173,7 +187,7 @@ def test_route_reads_media_but_never_writes(llm_ok, signed_env):
     ueber dieselbe Route waeren schlimmer als keiner."""
     signed_env["o19-a"].response = MEDIA_RESPONSE
     install_vision(
-        ArticleMatch(ok=True, same_article=True, reason="passt"),
+        SIEHT_ARTIKEL,
         DamageCheck(ok=True, damaged=False, anomalies=()),
     )
     try:
@@ -207,22 +221,38 @@ MEDIA_RESPONSE = {
 }
 
 
+# Zwei Beschreibungen je Bewertung: erst das Katalogbild, dann das Meldefoto.
+SIEHT_ARTIKEL = ArticleDescription(
+    ok=True, text="toy building brick, yellow, 2x2 studs", is_a_product=True
+)
+SIEHT_HUND = ArticleDescription(
+    ok=True, text="dog, light brown, standing on a beach", is_a_product=False
+)
+SIEHT_NICHTS = ArticleDescription(ok=False)
+
+
 class FakeVision:
-    def __init__(self, match, damage):
-        self._match = match
+    def __init__(self, description, damage):
+        self._description = description
         self._damage = damage
         self.damage_calls = 0
+        self.describe_calls = 0
 
-    async def compare_article(self, reference, candidate):
-        return self._match
+    async def describe(self, image):
+        # Zuerst das MELDEFOTO -- darueber sagt der Test etwas aus --, danach
+        # das Katalogbild, das immer erkannt wird.
+        self.describe_calls += 1
+        if self.describe_calls == 1:
+            return self._description
+        return SIEHT_ARTIKEL if self._description.ok else self._description
 
     async def inspect_damage(self, candidate):
         self.damage_calls += 1
         return self._damage
 
 
-def install_vision(match, damage):
-    fake = FakeVision(match, damage)
+def install_vision(description, damage):
+    fake = FakeVision(description, damage)
     app.dependency_overrides[dependencies.get_vision_client] = lambda: fake
     return fake
 
@@ -239,15 +269,13 @@ def test_a_dog_photo_contradicts_a_sellable_verdict(signed_env):
             confidence=0.9,
             summary="Defekte Verpackung, Produkt unbeeintraechtigt.",
             recommended_action="Sichtpruefung.",
-        )
+        ),
+        ArticleComparison(
+            ok=True, same_article=False, reason="B zeigt ein Tier, keinen Artikel."
+        ),
     )
     install_vision(
-        ArticleMatch(
-            ok=True,
-            same_article=False,
-            reason="Image 2 shows an animal, not a product.",
-            candidate_description="a dog on a beach",
-        ),
+        SIEHT_HUND,
         DamageCheck(ok=True, damaged=False, anomalies=()),
     )
     try:
@@ -261,7 +289,7 @@ def test_a_dog_photo_contradicts_a_sellable_verdict(signed_env):
     assert body["photo_checked"] is True
     assert body["contradiction"] is True
     assert "nicht den gemeldeten Artikel" in body["photo_analysis"]
-    assert "a dog on a beach" in body["photo_analysis"]
+    assert "dog, light brown, standing on a beach" in body["photo_analysis"]
     # Das Texturteil bleibt unangetastet -- der Callback entscheidet, was damit
     # geschieht, nicht diese Route.
     assert body["disposition"] == "sellable"
@@ -272,7 +300,7 @@ def test_damage_reported_but_unseen_is_noted_not_blocked(llm_ok, signed_env):
     Kommissionierer hatte den Artikel in der Hand, also bleibt sein Urteil."""
     signed_env["o19-a"].response = MEDIA_RESPONSE
     install_vision(
-        ArticleMatch(ok=True, same_article=True, reason="passt"),
+        SIEHT_ARTIKEL,
         DamageCheck(ok=True, damaged=False, anomalies=()),
     )
     try:
@@ -288,7 +316,7 @@ def test_damage_reported_but_unseen_is_noted_not_blocked(llm_ok, signed_env):
 
 def test_vision_failure_leaves_the_text_verdict_standing(llm_ok, signed_env):
     signed_env["o19-a"].response = MEDIA_RESPONSE
-    install_vision(ArticleMatch(ok=False), DamageCheck(ok=False))
+    install_vision(SIEHT_NICHTS, DamageCheck(ok=False))
     try:
         response = post(assess_body())
     finally:
@@ -307,7 +335,7 @@ def test_odoo_failure_leaves_the_text_verdict_standing(llm_ok, signed_env):
     Erstmeinung nicht loeschen."""
     signed_env["o19-a"].error = RuntimeError("Odoo weg")
     install_vision(
-        ArticleMatch(ok=True, same_article=True, reason="passt"),
+        SIEHT_ARTIKEL,
         DamageCheck(ok=True, damaged=True, anomalies=("torn",)),
     )
     try:
@@ -329,7 +357,7 @@ def test_alert_without_a_photo_is_not_an_error(llm_ok, signed_env):
         "reference_image_b64": False,
         "product_label": "",
     }
-    install_vision(ArticleMatch(ok=False), DamageCheck(ok=False))
+    install_vision(SIEHT_NICHTS, DamageCheck(ok=False))
     try:
         response = post(assess_body())
     finally:
@@ -353,7 +381,7 @@ def test_every_photo_is_inspected_and_the_rest_is_declared(llm_ok, signed_env):
         "product_label": "Brick",
     }
     fake = install_vision(
-        ArticleMatch(ok=True, same_article=True, reason="passt"),
+        SIEHT_ARTIKEL,
         DamageCheck(ok=True, damaged=False, anomalies=()),
     )
     try:
@@ -366,10 +394,11 @@ def test_every_photo_is_inspected_and_the_rest_is_declared(llm_ok, signed_env):
 
 
 def test_spent_budget_stops_the_damage_checks_and_says_so(llm_ok, signed_env):
-    """Am echten Meldefoto gemessen: Artikelabgleich 169 s, Schadenspruefung
-    9 s. Der Artikelabgleich laeuft deshalb immer -- er ist der Aufruf, der den
-    Widerspruch findet. Die Schadenspruefung laeuft nur, solange Zeit bleibt;
-    was liegen bleibt, wird gezaehlt statt stillschweigend uebergangen."""
+    """Bei aufgebrauchtem Budget wird das Meldefoto trotzdem EINMAL beschrieben
+    -- sonst stuende in der Meldung nicht, was auf dem Foto zu sehen war. Der
+    Vergleich mit dem Katalogbild entfaellt dann, und weil der Artikelabgleich
+    damit ausfaellt, traegt die Schadenspruefung den garantierten Aufruf. Was
+    liegen bleibt, wird gezaehlt statt stillschweigend uebergangen."""
     signed_env["o19-a"].response = {
         "photos": [
             {"filename": f"foto_{i}.jpg", "data_b64": _tiny_jpeg_b64()} for i in range(3)
@@ -379,7 +408,7 @@ def test_spent_budget_stops_the_damage_checks_and_says_so(llm_ok, signed_env):
         "product_label": "Brick",
     }
     fake = install_vision(
-        ArticleMatch(ok=True, same_article=True, reason="passt"),
+        SIEHT_ARTIKEL,
         DamageCheck(ok=True, damaged=False, anomalies=()),
     )
     vorher = config.settings.vision_budget_ms
@@ -391,11 +420,13 @@ def test_spent_budget_stops_the_damage_checks_and_says_so(llm_ok, signed_env):
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
     body = response.json()
-    assert fake.damage_calls == 0
-    assert "3 weitere Foto(s) ungeprueft" in body["photo_analysis"]
-    # Der Artikelabgleich lief trotzdem -- sonst waere ein aufgebrauchtes
-    # Budget dasselbe wie abgeschaltete Bildpruefung, nur unausgesprochen.
-    assert "Artikelabgleich" in body["photo_analysis"]
+    # Ein garantierter Schadensaufruf, weil der Artikelabgleich ausfiel.
+    assert fake.damage_calls == 1
+    assert fake.describe_calls == 1
+    assert "Zeitbudget erschoepft" in body["photo_analysis"]
+    # Was auf dem Foto war, steht trotzdem da.
+    assert "Foto zeigt: toy building brick, yellow" in body["photo_analysis"]
+    assert "2 weitere Foto(s) ungeprueft" in body["photo_analysis"]
 
 
 def test_without_a_catalogue_image_one_damage_check_still_runs(llm_ok, signed_env):
@@ -411,7 +442,7 @@ def test_without_a_catalogue_image_one_damage_check_still_runs(llm_ok, signed_en
         "product_label": "Brick",
     }
     fake = install_vision(
-        ArticleMatch(ok=False),
+        SIEHT_NICHTS,
         DamageCheck(ok=True, damaged=False, anomalies=()),
     )
     vorher = config.settings.vision_budget_ms
@@ -461,9 +492,12 @@ class SizeRecordingVision(FakeVision):
         with Image.open(io.BytesIO(body)) as image:
             return max(image.size)
 
-    async def compare_article(self, reference, candidate):
-        self.article_edge = self._edge(candidate)
-        return await super().compare_article(reference, candidate)
+    async def describe(self, image):
+        # Der ERSTE Aufruf ist das Meldefoto; der zweite ist das Katalogbild
+        # und sagt ueber die Aufbereitung des Fotos nichts aus.
+        if self.describe_calls == 0:
+            self.article_edge = self._edge(image)
+        return await super().describe(image)
 
     async def inspect_damage(self, candidate):
         self.damage_edge = self._edge(candidate)
@@ -478,7 +512,7 @@ def test_the_damage_check_sees_a_larger_image_than_the_article_check(llm_ok, sig
         MEDIA_RESPONSE, photos=[{"filename": "riss.jpg", "data_b64": _large_jpeg_b64()}]
     )
     fake = SizeRecordingVision(
-        ArticleMatch(ok=True, same_article=True),
+        SIEHT_ARTIKEL,
         DamageCheck(ok=True, damaged=True, anomalies=("aufgerissene Zone",)),
     )
     app.dependency_overrides[dependencies.get_vision_client] = lambda: fake
@@ -498,7 +532,7 @@ def test_the_damage_line_states_the_finding_before_the_models_words(llm_ok, sign
     Als ganze Zeile waere das keine Aussage ueber einen Schaden."""
     signed_env["o19-a"].response = MEDIA_RESPONSE
     install_vision(
-        ArticleMatch(ok=True, same_article=True),
+        SIEHT_ARTIKEL,
         DamageCheck(ok=True, damaged=True, anomalies=("feather",)),
     )
     try:
@@ -512,7 +546,7 @@ def test_the_damage_line_states_the_finding_before_the_models_words(llm_ok, sign
 def test_damage_without_named_anomalies_still_reads_as_damage(llm_ok, signed_env):
     signed_env["o19-a"].response = MEDIA_RESPONSE
     install_vision(
-        ArticleMatch(ok=True, same_article=True),
+        SIEHT_ARTIKEL,
         DamageCheck(ok=True, damaged=True, anomalies=()),
     )
     try:
@@ -530,7 +564,7 @@ def test_a_second_assessment_waits_instead_of_starting(llm_ok, signed_env):
     ein 7B-Bildmodell nicht gleichzeitig."""
     signed_env["o19-a"].response = MEDIA_RESPONSE
     install_vision(
-        ArticleMatch(ok=True, same_article=True),
+        SIEHT_ARTIKEL,
         DamageCheck(ok=True, damaged=False, anomalies=()),
     )
     n8n_v2._ASSESSMENT_GATE._value = 0        # die Sperre haelt gerade jemand
@@ -570,3 +604,98 @@ def test_the_gate_is_released_even_when_the_assessment_raises(signed_env):
         app.dependency_overrides.pop(dependencies.get_llm_client, None)
 
     assert n8n_v2._ASSESSMENT_GATE._value == 1
+
+
+def test_one_unreadable_photo_does_not_erase_the_others(llm_ok, signed_env):
+    """Vorher lagen alle Fotos in EINEM try: ein Chatter-PDF liess die
+    Bildpruefung fuer die ganze Meldung ausfallen, obwohl ein gueltiges
+    Meldefoto danebenlag."""
+    signed_env["o19-a"].response = dict(
+        MEDIA_RESPONSE,
+        photos=[
+            {"filename": "foto.jpg", "data_b64": _tiny_jpeg_b64()},
+            {"filename": "lieferschein.pdf", "data_b64": base64.b64encode(
+                b"%PDF-1.4 kein Bild"
+            ).decode("ascii")},
+        ],
+        photo_total=2,
+    )
+    fake = install_vision(
+        SIEHT_ARTIKEL, DamageCheck(ok=True, damaged=False, anomalies=())
+    )
+    try:
+        response = post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    body = response.json()
+    assert body["photo_checked"] is True
+    assert "Artikelabgleich: stimmt mit Katalogbild ueberein." in body["photo_analysis"]
+    assert "1 Foto(s) nicht lesbar" in body["photo_analysis"]
+    # Das lesbare Foto wurde geprueft, das unlesbare gar nicht erst geschickt.
+    assert fake.damage_calls == 1
+
+
+def test_photos_without_an_answer_are_counted_not_swallowed(llm_ok, signed_env):
+    """Drei Fotos, das Bildmodell antwortet auf keines. Vorher stand am Ende
+    "keine Auffaelligkeit sichtbar" -- eine Aussage ueber Bilder, die niemand
+    angesehen hat."""
+    signed_env["o19-a"].response = dict(
+        MEDIA_RESPONSE,
+        photos=[
+            {"filename": f"foto_{i}.jpg", "data_b64": _tiny_jpeg_b64()} for i in range(3)
+        ],
+        photo_total=3,
+    )
+    install_vision(SIEHT_ARTIKEL, DamageCheck(ok=False))
+    try:
+        response = post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    analyse = response.json()["photo_analysis"]
+    assert "keine Auffaelligkeit sichtbar" not in analyse
+    assert "Schadenspruefung nicht moeglich" in analyse
+    assert "3 weitere Foto(s) ungeprueft" in analyse
+
+
+def test_a_partial_damage_check_says_how_much_it_covered(llm_ok, signed_env):
+    """Foto 1 antwortet, Foto 2 nicht. Der Satz nennt, worueber er redet."""
+    signed_env["o19-a"].response = dict(
+        MEDIA_RESPONSE,
+        photos=[
+            {"filename": f"foto_{i}.jpg", "data_b64": _tiny_jpeg_b64()} for i in range(2)
+        ],
+        photo_total=2,
+    )
+
+    class HalbstummeVision(FakeVision):
+        async def inspect_damage(self, candidate):
+            self.damage_calls += 1
+            if self.damage_calls == 1:
+                return DamageCheck(ok=True, damaged=False, anomalies=())
+            return DamageCheck(ok=False)
+
+    fake = HalbstummeVision(SIEHT_ARTIKEL, DamageCheck(ok=False))
+    app.dependency_overrides[dependencies.get_vision_client] = lambda: fake
+    try:
+        response = post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    analyse = response.json()["photo_analysis"]
+    assert "1 von 2 Foto(s) geprueft, dabei keine Auffaelligkeit sichtbar" in analyse
+
+
+def test_the_internal_article_number_does_not_reach_the_model(llm_ok, signed_env):
+    """Odoo liefert "[6023350] Brick 2x2x2 R=15 gelb". An der Nummer hat ein
+    Modell nichts zu pruefen -- sie steht auf keinem Foto."""
+    signed_env["o19-a"].response = MEDIA_RESPONSE
+    install_vision(SIEHT_ARTIKEL, DamageCheck(ok=True, damaged=False, anomalies=()))
+    try:
+        post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    label = llm_ok.article_calls[0]["product_label"]
+    assert label == "Brick 2x2x2 R=15 gelb"

@@ -31,29 +31,33 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Die letzte Regel ist an QA/0218 gemessen: dasselbe gelbe Teil mit einem Riss
-# kam als "not the same article -- the same yellow object but with a decorative
-# feather attached" zurueck. Die Meldung ging dadurch mit der falschen
-# Begruendung an einen Menschen. Zustand ist nicht Identitaet; ueber den Zustand
-# entscheidet die Schadenspruefung.
-ARTICLE_PROMPT = (
-    "You receive two images.\n"
-    "IMAGE 1 is the official catalogue photo of the article that SHOULD be in "
-    "the box.\n"
-    "IMAGE 2 is the photo a warehouse worker just took of the item in front of "
-    "them.\n\n"
+# EIN Bild je Aufruf, und der Vergleich passiert spaeter im Text.
+#
+# Vorher lag beides in einem Aufruf: Katalogbild und Meldefoto zusammen, und das
+# Modell entschied selbst. Am 2026-08-07 gemessen, warum das nicht traegt: bei
+# zwei aehnlichen Bildern beschreibt `qwen2.5vl:7b` BEIDE gleich. Ein hellblauer
+# Duplo-Stein gegen das gelbe Katalogbild ergab "A yellow plastic corner guard"
+# fuer beide Bilder und `same_article: true` -- bei 192, 384 und 512 px, mit dem
+# alten wie mit einem geschaerften Prompt. Einzeln beschreibt dasselbe Modell
+# jedes Bild richtig ("A light blue LEGO brick with a printed character").
+# Ein Hundefoto fiel weiter durch; die Verwechslung zweier aehnlicher Artikel --
+# der Fall, der im Lager wirklich vorkommt -- nicht.
+#
+# Farbe und Form stehen als eigene Felder da, damit sie nicht in einem Satz
+# untergehen: "gelber Stein" und "gruener Stein" unterscheiden sich in genau
+# einem Wort, und dieses Wort entscheidet.
+DESCRIBE_PROMPT = (
+    "Describe the single object in this image factually. Ignore the background, "
+    "the lighting and any hand holding it.\n"
     "Answer strictly as JSON with these keys, in this order:\n"
-    '  "image1_shows": short factual description of image 1,\n'
-    '  "image2_shows": short factual description of image 2,\n'
-    '  "same_article": true or false - is image 2 the same kind of article as '
-    "image 1?,\n"
-    '  "same_article_reason": one short sentence\n\n'
-    "Rules: describe before you judge. Do not guess. If image 2 shows something "
-    "that is not a product at all (a person, an animal, a room), set "
-    "same_article false and say so.\n"
-    "Damage does not change identity: a torn, cracked, scratched, dirty or "
-    "deformed item of the same type is STILL the same article. Judge the type "
-    "of article, not its condition - the condition is judged separately."
+    '  "object_type": what kind of thing it is in two or three words '
+    "(for example \"toy building brick\", \"cardboard box\", \"dog\", \"person\"),\n"
+    '  "colour": the dominant colour or colours,\n'
+    '  "shape": size and shape in one short phrase,\n'
+    '  "markings": printed images, logos, letters or studs, or "none",\n'
+    '  "is_a_product": true if this is a manufactured article, false if it is a '
+    "living being, a person, a room or a landscape\n\n"
+    "Do not guess and do not compare with anything - describe only what you see."
 )
 
 DAMAGE_PROMPT = (
@@ -72,19 +76,26 @@ DAMAGE_PROMPT = (
     "An item whose surface is continuous everywhere must get damaged false."
 )
 
-# Bildkacheln zaehlen als Token. Zwei Bilder zu 512 px passen nicht in die
-# Standardgroesse von 4096; 8192 hat in der Messung gereicht.
+# Bildkacheln zaehlen als Token. Seit dem Umbau geht je Aufruf nur EIN Bild
+# hinaus, dafuer bei der Schadenspruefung mit 768 px -- das sind rund 750
+# Kacheln und passt nicht in die Standardgroesse von 4096. 8192 hat in beiden
+# Messungen gereicht.
 _NUM_CTX = 8192
 
 
 @dataclass(frozen=True)
-class ArticleMatch:
-    """`ok=False` heisst: kein Befund. Nicht "kein Treffer"."""
+class ArticleDescription:
+    """Was auf EINEM Bild zu sehen ist. `ok=False` heisst: kein Befund.
+
+    `text` ist die Zeile, die spaeter der Textvergleich liest und die im
+    Widerspruchsfall bis ins Odoo-Formular durchgeht. Sie wird hier gebaut und
+    nicht vom Modell formuliert, damit Farbe und Form in jeder Beschreibung an
+    derselben Stelle stehen.
+    """
 
     ok: bool
-    same_article: bool | None = None
-    reason: str | None = None
-    candidate_description: str | None = None
+    text: str | None = None
+    is_a_product: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -147,16 +158,35 @@ class VisionClient:
             return None
         return parsed if isinstance(parsed, dict) else None
 
-    async def compare_article(self, reference: bytes, candidate: bytes) -> ArticleMatch:
-        """Katalogbild ZUERST -- die Prompt-Zuordnung haengt an der Position."""
-        parsed = await self._ask(ARTICLE_PROMPT, [reference, candidate])
-        if parsed is None or not isinstance(parsed.get("same_article"), bool):
-            return ArticleMatch(ok=False)
-        return ArticleMatch(
+    async def describe(self, image: bytes) -> ArticleDescription:
+        """Ein Bild, ein Aufruf, kein Vergleich.
+
+        Der Vergleich zweier solcher Beschreibungen ist Sache des Textmodells
+        (`LlmClient.compare_articles`). Diese Trennung IST der Fix: siehe die
+        Messung ueber `DESCRIBE_PROMPT`.
+        """
+        parsed = await self._ask(DESCRIBE_PROMPT, [image])
+        if parsed is None:
+            return ArticleDescription(ok=False)
+        teile = [
+            _text(parsed.get("object_type")),
+            _text(parsed.get("colour")),
+            _text(parsed.get("shape")),
+        ]
+        markings = _text(parsed.get("markings"))
+        if markings and markings.lower() not in ("none", "keine", "no markings"):
+            teile.append(markings)
+        text = ", ".join(part for part in teile if part)
+        if not text:
+            # Ein Aufruf, der antwortet aber nichts benennt, ist kein Befund.
+            # Eine leere Beschreibung im Textvergleich waere schlimmer als
+            # keine: sie liesse sich mit allem als "gleich" lesen.
+            return ArticleDescription(ok=False)
+        product = parsed.get("is_a_product")
+        return ArticleDescription(
             ok=True,
-            same_article=parsed["same_article"],
-            reason=_text(parsed.get("same_article_reason")),
-            candidate_description=_text(parsed.get("image2_shows")),
+            text=text,
+            is_a_product=product if isinstance(product, bool) else None,
         )
 
     async def inspect_damage(self, candidate: bytes) -> DamageCheck:

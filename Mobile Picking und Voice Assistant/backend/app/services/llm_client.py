@@ -45,6 +45,34 @@ _SYSTEM_PROMPT = (
 )
 
 
+_COMPARE_SYSTEM_PROMPT = (
+    "Du vergleichst zwei Beschreibungen von Gegenstaenden und entscheidest, ob "
+    "es sich um denselben Artikel handelt. "
+    "Beschreibung A stammt vom Katalogbild des bestellten Artikels, "
+    "Beschreibung B vom Foto, das ein Kommissionierer gerade gemacht hat. "
+    "Beide Beschreibungen stammen von einem Bildmodell und sind unterschiedlich "
+    "formuliert, auch wenn dasselbe Teil gemeint ist.\n"
+    "Regeln:\n"
+    "- Andere FARBE heisst anderer Artikel.\n"
+    "- Andere Bauform, Groesse oder Aufdruck heisst anderer Artikel.\n"
+    "- Andere Wortwahl fuer dasselbe Teil heisst NICHT anderer Artikel.\n"
+    "- Schaeden, Schmutz, Lichtverhaeltnisse und Blickwinkel aendern den Artikel "
+    "nicht.\n"
+    "- Ist B ueberhaupt kein Artikel (Tier, Person, Raum), dann false.\n"
+    "Antworte ausschliesslich mit JSON der Form "
+    '{"same_article": <true|false>, "reason": <ein kurzer deutscher Satz>}.'
+)
+
+
+@dataclass(frozen=True)
+class ArticleComparison:
+    """`ok=False` heisst: kein Befund. Nicht "kein Treffer"."""
+
+    ok: bool
+    same_article: bool | None = None
+    reason: str | None = None
+
+
 @dataclass(frozen=True)
 class LlmDispositionResult:
     ok: bool
@@ -145,6 +173,62 @@ class LlmClient:
                 "error": str(exc),
             }))
             return LlmDispositionResult(ok=False, model=self._model)
+
+    async def compare_articles(
+        self,
+        *,
+        reference_text: str,
+        candidate_text: str,
+        product_label: str = "",
+    ) -> ArticleComparison:
+        """Entscheidet aus ZWEI Beschreibungen, ob es derselbe Artikel ist.
+
+        Das Bildmodell sieht hier nichts mehr; es hat vorher jedes Bild einzeln
+        beschrieben. Der Grund steht in `vision_client.DESCRIBE_PROMPT`: mit
+        beiden Bildern in einem Aufruf beschrieb es aehnliche Bilder gleich und
+        haette einen verwechselten Artikel durchgewinkt.
+
+        `product_label` ist der Artikelname aus Odoo. Er reist als Kontext mit,
+        aber die Entscheidung faellt auf den Beschreibungen: der Name beschreibt,
+        was bestellt wurde, und nicht, was auf dem Foto liegt.
+        """
+        lines = [f"Beschreibung A (Katalogbild): {reference_text.strip()}"]
+        if product_label.strip():
+            lines.append(f"Artikelname laut Auftrag: {product_label.strip()}")
+        lines.append(f"Beschreibung B (Meldefoto): {candidate_text.strip()}")
+        payload = {
+            "model": self._model,
+            "stream": False,
+            "format": "json",
+            "options": {"temperature": 0},
+            "messages": [
+                {"role": "system", "content": _COMPARE_SYSTEM_PROMPT},
+                {"role": "user", "content": "\n".join(lines)},
+            ],
+        }
+        try:
+            async with httpx.AsyncClient(
+                timeout=self._timeout, transport=self._transport
+            ) as client:
+                resp = await client.post(f"{self._endpoint}/api/chat", json=payload)
+            resp.raise_for_status()
+            parsed = json.loads(resp.json().get("message", {}).get("content") or "")
+        except Exception as exc:  # noqa: BLE001 - jeder Fehler => kein Befund
+            logger.warning(json.dumps({
+                "event_type": "llm_article_compare_failed",
+                "model": self._model,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }))
+            return ArticleComparison(ok=False)
+        if not isinstance(parsed, dict) or not isinstance(
+            parsed.get("same_article"), bool
+        ):
+            return ArticleComparison(ok=False)
+        reason = str(parsed.get("reason", "")).strip() or None
+        return ArticleComparison(
+            ok=True, same_article=parsed["same_article"], reason=reason
+        )
 
     def _parse(self, content: str | None) -> LlmDispositionResult:
         if not content or not isinstance(content, str):
