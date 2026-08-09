@@ -13,6 +13,7 @@
         "security/ir.model.access.csv",
         "data/quality_alert_data.xml",
         "views/quality_alert_views.xml",
+        "views/product_template_views.xml",
     ],
     "installable": True,
     "application": True,

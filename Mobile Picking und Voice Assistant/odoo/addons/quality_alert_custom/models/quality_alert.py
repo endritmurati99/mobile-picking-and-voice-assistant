@@ -295,7 +295,15 @@ class QualityAlert(models.Model):
 
         template = alert.product_id.product_tmpl_id
         reference = template.image_1920 if template else False
+        # Die geprueft hinterlegte Sollbeschreibung geht dem Bild vor -- aber
+        # nur, solange sie zu dessen Bytes gehoert (`product_template`). Das
+        # Bild reist trotzdem mit: faellt die Pruefsumme durch, beschreibt die
+        # Kette es wieder selbst, statt ohne SOLL-Seite dazustehen.
+        beschreibung = (
+            template.ai_reference_description_if_current() if template else ""
+        )
         return {
+            "reference_description": beschreibung,
             "photos": [
                 {
                     "filename": photo.name or "",

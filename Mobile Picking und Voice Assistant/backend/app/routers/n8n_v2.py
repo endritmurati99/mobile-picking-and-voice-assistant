@@ -369,39 +369,63 @@ async def _check_article(
     wenigstens im Klartext, was auf dem Foto zu sehen war; umgekehrt haette man
     eine Beschreibung des Katalogbilds, die niemand braucht.
     """
-    reference_b64 = media.get("reference_image_b64")
-    if not reference_b64:
-        lines.append("Artikelabgleich entfaellt: kein Katalogbild hinterlegt.")
-        return "unavailable"
-    try:
-        reference = prepare_image(base64.b64decode(reference_b64))
-    except (MediaError, ValueError, binascii.Error) as exc:
-        lines.append(f"Artikelabgleich nicht moeglich: {exc}")
-        return "unavailable"
+    # Die in Odoo hinterlegte SOLL-Beschreibung geht dem Katalogbild VOR.
+    #
+    # Sie existiert, weil das Bildmodell das Katalogbild von [6023350] an drei
+    # Tagen wortgleich als "plastic corner protector, cube with rounded top"
+    # beschrieb -- QA/0227, QA/0233, QA/0234. Ein Duplo-Stein ist kein
+    # Eckenschutz. Das ist keine Streuung, ueber die man mitteln koennte,
+    # sondern eine falsche Beschreibung, die bei jedem Lauf neu entsteht: das
+    # Modell sieht ein 192-px-WebP und muss daraus drei Begriffe pressen.
+    #
+    # Ein einmal geprueft hinterlegter Satz nimmt diese Fehlerquelle aus der
+    # Kette und spart nebenbei den zweiten Bildaufruf. Odoo liefert ihn nur
+    # aus, solange er zum aktuellen Bild gehoert (Pruefsumme), damit kein Text
+    # ueber ein Bild stehenbleibt, das inzwischen ein anderes ist.
+    hinterlegt = (media.get("reference_description") or "").strip()
+    reference: bytes | None = None
+    if not hinterlegt:
+        reference_b64 = media.get("reference_image_b64")
+        if not reference_b64:
+            lines.append("Artikelabgleich entfaellt: kein Katalogbild hinterlegt.")
+            return "unavailable"
+        try:
+            reference = prepare_image(base64.b64decode(reference_b64))
+        except (MediaError, ValueError, binascii.Error) as exc:
+            lines.append(f"Artikelabgleich nicht moeglich: {exc}")
+            return "unavailable"
 
     candidate_seen = await vision.describe(candidate)
     if not candidate_seen.ok:
         lines.append("Artikelabgleich nicht moeglich: Bildmodell antwortet nicht.")
         return "unavailable"
-    if time.monotonic() >= deadline:
-        lines.append(
-            f"Foto zeigt: {candidate_seen.text}. Artikelabgleich nicht "
-            "abgeschlossen: Zeitbudget erschoepft."
-        )
-        return "unavailable"
+    if hinterlegt:
+        # Kein zweiter Bildaufruf, also auch keine zweite Zeitgrenze: was hier
+        # noch fehlt, ist ein Textvergleich von wenigen Sekunden.
+        reference_text = hinterlegt
+        reference_source = "odoo"
+    else:
+        if time.monotonic() >= deadline:
+            lines.append(
+                f"Foto zeigt: {candidate_seen.text}. Artikelabgleich nicht "
+                "abgeschlossen: Zeitbudget erschoepft."
+            )
+            return "unavailable"
 
-    reference_seen = await vision.describe(reference)
-    if not reference_seen.ok:
-        lines.append(
-            f"Foto zeigt: {candidate_seen.text}. Artikelabgleich nicht "
-            "moeglich: Katalogbild nicht auswertbar."
-        )
-        return "unavailable"
+        reference_seen = await vision.describe(reference)
+        if not reference_seen.ok:
+            lines.append(
+                f"Foto zeigt: {candidate_seen.text}. Artikelabgleich nicht "
+                "moeglich: Katalogbild nicht auswertbar."
+            )
+            return "unavailable"
+        reference_text = reference_seen.text
+        reference_source = "modell"
 
     label = media.get("product_label") or ""
     kurzlabel = _ohne_artikelnummer(label)
     verdict = await llm.compare_articles(
-        reference_text=reference_seen.text,
+        reference_text=reference_text,
         candidate_text=candidate_seen.text,
         # Ohne die interne Nummer: Odoo liefert "[6023350] Brick 2x2x2 R=15
         # gelb", und an einer Zahl, die auf keinem Foto steht, hat ein Modell
@@ -424,8 +448,10 @@ async def _check_article(
         "event_type": "article_compare",
         "same_article": verdict.same_article,
         "candidate_text": candidate_seen.text,
-        "reference_text": reference_seen.text,
+        "reference_text": reference_text,
+        "reference_source": reference_source,
         "reason": verdict.reason,
+        "differs": verdict.differs,
         "product_label": kurzlabel,
         "candidate_is_a_product": candidate_seen.is_a_product,
     }, ensure_ascii=False))
@@ -441,7 +467,7 @@ async def _check_article(
     # das, was ein Mensch braucht, um dem Urteil zu widersprechen -- und genau
     # das ist bei QA/0227 der Fall gewesen: derselbe Stein, zwei Vokabulare.
     lines.append(
-        f"Katalogbild zeigt: {reference_seen.text}."
+        f"Katalogbild zeigt: {reference_text}."
         + (f" Begruendung des Textmodells: {verdict.reason}" if verdict.reason else "")
     )
     return "mismatch"

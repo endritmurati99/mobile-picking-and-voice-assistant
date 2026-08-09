@@ -45,22 +45,60 @@ _SYSTEM_PROMPT = (
 )
 
 
+# **Erst die Formen benennen, dann urteilen.** Derselbe Grundsatz wie in
+# `vision_client.DESCRIBE_PROMPT`, dort am 2026-08-05 gemessen: wird zuerst
+# nach dem Urteil gefragt, antwortet das Modell aus dem Schema statt aus der
+# Sache. Fuer den Textvergleich galt der Satz bis 2026-08-09 noch nicht -- und
+# genau dort fiel er auf. QA/0315: SOLL "square base with a rounded arched
+# top", IST "half-cylinder on top of square base", Antwort "Andere Bauform".
+# Derselbe Stein, zweimal anders erzaehlt.
+#
+# **Die beiden Regeln widersprachen sich.** "Andere Bauform heisst anderer
+# Artikel" und "andere Wortwahl heisst NICHT anderer Artikel" standen
+# nebeneinander, ohne zu sagen, welche im Zweifel gilt; das Modell entschied
+# auf mismatch. Der Zweifel wird jetzt ausdruecklich aufgeloest -- und zwar
+# zugunsten von "dasselbe Teil", weil die Farbe die Verwechslungen abfaengt,
+# die im Lager wirklich vorkommen, und ein falsches mismatch eine korrekte
+# Bewertung verwirft (QA/0227, Ausfuehrung 46: `sellable`, Konfidenz 1.0).
+#
+# **`unterschied` ist Messgeraet, nicht Steuerung.** Es entscheidet nichts; es
+# schreibt auf, WORAN das Modell den Unterschied festmacht. Ohne dieses Feld
+# laesst sich nicht auszaehlen, ob Fehlurteile an Farbe, Bauform oder
+# Artikelart haengen -- und ohne diese Zahl waere jede weitere Prompt-Aenderung
+# wieder geraten.
 _COMPARE_SYSTEM_PROMPT = (
     "Du vergleichst zwei Beschreibungen von Gegenstaenden und entscheidest, ob "
     "es sich um denselben Artikel handelt. "
     "Beschreibung A stammt vom Katalogbild des bestellten Artikels, "
     "Beschreibung B vom Foto, das ein Kommissionierer gerade gemacht hat. "
     "Beide Beschreibungen stammen von einem Bildmodell und sind unterschiedlich "
-    "formuliert, auch wenn dasselbe Teil gemeint ist.\n"
+    "formuliert, auch wenn dasselbe Teil gemeint ist. Sie sehen den Gegenstand "
+    "ausserdem aus verschiedenen Blickwinkeln: dieselbe Woelbung heisst einmal "
+    "'rounded top' und einmal 'half-cylinder'.\n"
     "Regeln:\n"
     "- Andere FARBE heisst anderer Artikel.\n"
-    "- Andere Bauform, Groesse oder Aufdruck heisst anderer Artikel.\n"
-    "- Andere Wortwahl fuer dasselbe Teil heisst NICHT anderer Artikel.\n"
+    "- Eine andere Bauform heisst nur dann anderer Artikel, wenn die beiden "
+    "Formen sich WIDERSPRECHEN und nicht bloss anders benannt sind.\n"
+    "- Andere Wortwahl fuer dasselbe Teil heisst NICHT anderer Artikel. "
+    "Im Zweifel gilt: dasselbe Teil.\n"
     "- Schaeden, Schmutz, Lichtverhaeltnisse und Blickwinkel aendern den Artikel "
     "nicht.\n"
     "- Ist B ueberhaupt kein Artikel (Tier, Person, Raum), dann false.\n"
-    "Antworte ausschliesslich mit JSON der Form "
-    '{"same_article": <true|false>, "reason": <ein kurzer deutscher Satz>}.'
+    "Antworte ausschliesslich mit JSON mit diesen Schluesseln, in dieser "
+    "Reihenfolge:\n"
+    '  "formvergleich": beschreibe in einem Satz, welche Form A und welche '
+    "Form B nennt und ob dieselbe Gestalt gemeint sein kann,\n"
+    '  "unterschied": woran der Unterschied haengt -- genau eines von '
+    '"farbe", "bauform", "artikelart", "aufdruck", "kein_artikel", "keins",\n'
+    '  "same_article": true oder false,\n'
+    '  "reason": ein kurzer deutscher Satz.'
+)
+
+# Die Liste ist geschlossen. Ein Wert ausserhalb ist keine Auskunft und wird
+# auch nicht als eine gezaehlt -- sonst stehen in der Auswertung Kategorien,
+# die niemand definiert hat.
+_UNTERSCHIEDE = frozenset(
+    {"farbe", "bauform", "artikelart", "aufdruck", "kein_artikel", "keins"}
 )
 
 
@@ -94,6 +132,9 @@ class ArticleComparison:
     ok: bool
     same_article: bool | None = None
     reason: str | None = None
+    # Woran das Modell den Unterschied festmacht -- Messgroesse, keine
+    # Steuerung. `None` heisst: nicht benannt oder ausserhalb der Liste.
+    differs: str | None = None
 
 
 @dataclass(frozen=True)
@@ -258,8 +299,12 @@ class LlmClient:
         ):
             return ArticleComparison(ok=False)
         reason = str(parsed.get("reason", "")).strip() or None
+        unterschied = str(parsed.get("unterschied", "")).strip().lower()
         return ArticleComparison(
-            ok=True, same_article=parsed["same_article"], reason=reason
+            ok=True,
+            same_article=parsed["same_article"],
+            reason=reason,
+            differs=unterschied if unterschied in _UNTERSCHIEDE else None,
         )
 
     async def compare_condition(

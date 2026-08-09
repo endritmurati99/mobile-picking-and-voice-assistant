@@ -255,3 +255,75 @@ async def test_compare_condition_http_error_is_no_finding():
     )
 
     assert result.ok is False
+
+
+@pytest.mark.anyio
+async def test_the_compare_prompt_asks_for_the_shape_before_the_verdict():
+    """Gemessen an QA/0315 (2026-08-09): SOLL "square base with a rounded
+    arched top", IST "half-cylinder on top of square base" -- derselbe Stein,
+    andere Worte, und das Modell antwortete "Andere Bauform".
+
+    Der Prompt fragte direkt nach dem Urteil. `vision_client` haelt fuer die
+    Bildaufrufe fest, warum das schiefgeht: wird zuerst nach dem Urteil
+    gefragt, antwortet das Modell aus dem Schema statt aus der Sache. Fuer den
+    Textvergleich galt derselbe Satz noch nicht. Jetzt muss es die beiden
+    Formen erst in eigenen Worten benennen.
+    """
+    from app.services.llm_client import _COMPARE_SYSTEM_PROMPT
+
+    schluessel = _COMPARE_SYSTEM_PROMPT.index('"formvergleich"')
+    urteil = _COMPARE_SYSTEM_PROMPT.index('"same_article"')
+    assert schluessel < urteil
+
+
+@pytest.mark.anyio
+async def test_the_compare_prompt_resolves_the_wording_conflict():
+    """Vorher standen zwei Regeln nebeneinander -- "andere Bauform heisst
+    anderer Artikel" und "andere Wortwahl heisst NICHT anderer Artikel" -- ohne
+    zu sagen, welche im Zweifel gilt. Das Modell entschied auf mismatch."""
+    from app.services.llm_client import _COMPARE_SYSTEM_PROMPT
+
+    assert "Im Zweifel gilt: dasselbe Teil." in _COMPARE_SYSTEM_PROMPT
+    assert "Andere FARBE heisst anderer Artikel." in _COMPARE_SYSTEM_PROMPT
+
+
+@pytest.mark.anyio
+async def test_compare_articles_reports_which_attribute_differed():
+    """Ohne dieses Feld laesst sich spaeter nicht auszaehlen, ob Fehlurteile an
+    der Farbe, der Bauform oder der Artikelart haengen -- und genau danach
+    richtet sich, welche Regel man anfassen muss."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        content = json.dumps({
+            "formvergleich": "beide beschreiben ein gewoelbtes Dach",
+            "unterschied": "bauform",
+            "same_article": False,
+            "reason": "Andere Bauform.",
+        })
+        return httpx.Response(200, json={"message": {"content": content}})
+
+    result = await _client_with(handler).compare_articles(
+        reference_text="a", candidate_text="b"
+    )
+
+    assert result.ok is True
+    assert result.differs == "bauform"
+
+
+@pytest.mark.anyio
+async def test_an_unknown_attribute_is_not_invented():
+    """Ein Wert ausserhalb der Liste ist keine Auskunft. Er darf nicht als
+    Auskunft gezaehlt werden -- sonst stehen in der Auswertung Kategorien, die
+    niemand definiert hat."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        content = json.dumps({
+            "unterschied": "vibes", "same_article": True, "reason": "passt"
+        })
+        return httpx.Response(200, json={"message": {"content": content}})
+
+    result = await _client_with(handler).compare_articles(
+        reference_text="a", candidate_text="b"
+    )
+
+    assert result.ok is True
+    assert result.same_article is True
+    assert result.differs is None

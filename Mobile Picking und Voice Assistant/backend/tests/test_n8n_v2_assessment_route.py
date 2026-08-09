@@ -1175,3 +1175,127 @@ def test_the_article_comparison_leaves_a_structured_log_entry(signed_env, caplog
     assert zeile["reference_text"] == "toy building brick, yellow, 2x2 studs"
     assert zeile["reason"] == "gleiche Bauform"
     assert zeile["product_label"] == "Brick 2x2x2 R=15 gelb"
+
+
+# ===========================================================================
+# Festgeschriebene Katalogbeschreibung
+# ===========================================================================
+#
+# Warum es sie gibt, in einer Zeile: das Bildmodell beschreibt DASSELBE
+# Katalogbild von Produkt [6023350] an drei Tagen wortgleich als "plastic
+# corner protector, cube with rounded top" -- QA/0227 am 2026-08-08, QA/0233
+# und QA/0234 am 2026-08-09. Ein Duplo-Stein ist kein Eckenschutz. Der Fehler
+# ist keine Streuung, gegen die man mitteln koennte, sondern eine falsche
+# Beschreibung, die bei jedem Lauf neu erzeugt wird. Steht sie einmal geprueft
+# in Odoo, faellt sie als Fehlerquelle weg -- und der zweite Bildaufruf gleich
+# mit.
+
+
+MEDIA_MIT_SOLLTEXT = dict(
+    MEDIA_RESPONSE,
+    reference_description="toy building brick, yellow, 2x2 studs with rounded top",
+)
+
+
+def test_a_stored_catalogue_description_replaces_the_second_vision_call(
+    llm_ok, signed_env
+):
+    """Der gespeicherte Text ersetzt den Bildaufruf auf das Katalogbild --
+    nicht den auf das Meldefoto. Es bleibt genau EIN Bildaufruf fuer den
+    Abgleich."""
+    signed_env["o19-a"].response = MEDIA_MIT_SOLLTEXT
+    fake = install_vision(
+        SIEHT_ARTIKEL, DamageCheck(ok=True, damaged=False, anomalies=())
+    )
+    try:
+        post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    assert fake.describe_calls == 1
+    assert llm_ok.article_calls[0]["reference_text"] == (
+        "toy building brick, yellow, 2x2 studs with rounded top"
+    )
+
+
+def test_the_stored_description_wins_over_the_catalogue_image(llm_ok, signed_env):
+    """Beides da -- Bild UND Text. Der geprueft hinterlegte Text gilt, sonst
+    waere er wirkungslos."""
+    signed_env["o19-a"].response = MEDIA_MIT_SOLLTEXT
+    fake = install_vision(
+        SIEHT_ARTIKEL, DamageCheck(ok=True, damaged=False, anomalies=())
+    )
+    try:
+        post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    assert "corner protector" not in llm_ok.article_calls[0]["reference_text"]
+    assert fake.describe_calls == 1
+
+
+def test_a_stored_description_works_without_any_catalogue_image(llm_ok, signed_env):
+    """23 von 70 Produkten haben gar kein Katalogbild. Fuer sie fiel der
+    Abgleich bisher still aus; mit hinterlegtem Text laeuft er."""
+    signed_env["o19-a"].response = dict(
+        MEDIA_MIT_SOLLTEXT, reference_image_b64=False
+    )
+    fake = install_vision(
+        SIEHT_ARTIKEL, DamageCheck(ok=True, damaged=False, anomalies=())
+    )
+    try:
+        analyse = post(assess_body()).json()["photo_analysis"]
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    assert "Artikelabgleich entfaellt" not in analyse
+    assert "Artikelabgleich: stimmt mit Katalogbild ueberein." in analyse
+    assert fake.describe_calls == 1
+
+
+def test_an_empty_stored_description_falls_back_to_the_image(llm_ok, signed_env):
+    """Ein leeres Feld ist keine Beschreibung. Ohne diesen Zweig wuerde eine
+    leere Zeichenkette gegen das Meldefoto verglichen -- und die liest sich mit
+    allem als gleich."""
+    signed_env["o19-a"].response = dict(MEDIA_RESPONSE, reference_description="   ")
+    fake = install_vision(
+        SIEHT_ARTIKEL, DamageCheck(ok=True, damaged=False, anomalies=())
+    )
+    try:
+        post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    assert fake.describe_calls == 2  # Meldefoto UND Katalogbild
+
+
+def test_the_log_says_where_the_catalogue_description_came_from(signed_env, caplog):
+    """Ohne diese Angabe laesst sich spaeter nicht trennen, welche Urteile auf
+    hinterlegtem und welche auf frisch erzeugtem SOLL-Text beruhen -- genau die
+    Trennung, an der die Wirkung dieser Aenderung haengt."""
+    signed_env["o19-a"].response = MEDIA_MIT_SOLLTEXT
+    install_llm(
+        LlmDispositionResult(
+            ok=True,
+            model="qwen2.5:7b",
+            disposition="sellable",
+            confidence=0.9,
+            summary="Nichts Auffaelliges.",
+            recommended_action="Sichtpruefung.",
+        ),
+        ArticleComparison(ok=True, same_article=True, reason="gleiche Bauform"),
+    )
+    install_vision(SIEHT_ARTIKEL, DamageCheck(ok=True, damaged=False, anomalies=()))
+    try:
+        with caplog.at_level(logging.INFO):
+            post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_llm_client, None)
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    zeile = [
+        json.loads(r.getMessage())
+        for r in caplog.records
+        if r.getMessage().startswith("{") and '"article_compare"' in r.getMessage()
+    ][0]
+    assert zeile["reference_source"] == "odoo"
