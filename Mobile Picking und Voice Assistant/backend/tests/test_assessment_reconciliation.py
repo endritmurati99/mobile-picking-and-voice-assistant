@@ -116,7 +116,98 @@ def test_wrong_article_beats_everything_else():
         finding=_finding(article="mismatch", damage="damaged", note="Falscher Artikel."),
     )
     assert result.contradiction is True
-    assert result.photo_analysis == "Falscher Artikel."
+    assert result.photo_analysis.startswith("Falscher Artikel.")
+
+
+# ---------------------------------------------------------------------------
+# Das Texturteil ueberlebt den Widerspruch -- als Text, nicht als Einstufung
+# ---------------------------------------------------------------------------
+
+
+def test_a_contradicted_text_verdict_stays_readable():
+    """Gemessen am 2026-08-09 (Ausfuehrung 46 zu QA/0227): das Textmodell hatte
+    `sellable` mit Konfidenz 1.0 geurteilt, der Artikelabgleich meldete
+    faelschlich `mismatch` -- und weil `quality_alert.api_apply_assessment` bei
+    `review_required` Einstufung, Konfidenz, Begruendung, Provider und Modell
+    leert, war das Urteil danach nirgends mehr nachlesbar.
+
+    Es darf nicht in `ai_disposition` landen: dort saehe es aus wie eine
+    geltende Einstufung neben "Manuelle Pruefung noetig". Es gehoert in den
+    Klartext, den ein Mensch liest."""
+    result = reconcile(
+        disposition="sellable",
+        confidence=1.0,
+        summary="Verpackung leicht gedrueckt.",
+        finding=_finding(article="mismatch", note="Foto zeigt nicht den Artikel."),
+    )
+    assert result.contradiction is True
+    assert "Foto zeigt nicht den Artikel." in result.photo_analysis
+    assert "sellable" in result.photo_analysis
+    assert "1.0" in result.photo_analysis or "1,0" in result.photo_analysis
+    assert "Verpackung leicht gedrueckt." in result.photo_analysis
+
+
+def test_the_preserved_verdict_says_it_is_not_in_force():
+    """Ohne diesen Zusatz liest sich die Zeile wie ein geltendes Urteil. Sie
+    steht aber genau dort, wo die Kette dem Urteil NICHT gefolgt ist."""
+    result = reconcile(
+        disposition="sellable",
+        confidence=0.9,
+        summary="Nur Kratzer.",
+        finding=_finding(damage="damaged", note="Schaden sichtbar."),
+    )
+    assert result.contradiction is True
+    assert "nicht wirksam" in result.photo_analysis
+
+
+def test_the_verdict_is_preserved_on_the_damage_contradiction_too():
+    """Derselbe Datenverlust trifft den zweiten Widerspruchspfad: Meldung sagt
+    verkaufsfaehig, Foto zeigt Schaden."""
+    result = reconcile(
+        disposition="sellable",
+        confidence=0.8,
+        summary="Karton gedrueckt.",
+        finding=_finding(damage="damaged", note="Schaden sichtbar."),
+    )
+    assert result.contradiction is True
+    assert "Karton gedrueckt." in result.photo_analysis
+
+
+def test_no_verdict_line_without_a_contradiction():
+    """Wo die Kette dem Urteil folgt, steht es in `ai_disposition` -- dann
+    waere dieselbe Angabe im Klartext nur Rauschen."""
+    result = reconcile(
+        disposition="scrap",
+        confidence=0.95,
+        summary="Ware unbrauchbar.",
+        finding=_finding(damage="damaged", note="Schaden sichtbar."),
+    )
+    assert result.contradiction is False
+    assert result.photo_analysis == "Schaden sichtbar."
+
+
+def test_no_verdict_line_without_a_verdict():
+    """Kein Texturteil, nichts zu erhalten -- und kein leerer Satzrumpf."""
+    result = reconcile(
+        disposition=None,
+        finding=_finding(article="mismatch", note="Foto zeigt nicht den Artikel."),
+    )
+    assert result.photo_analysis == "Foto zeigt nicht den Artikel."
+
+
+def test_the_vermerk_path_keeps_its_hint_and_adds_nothing():
+    """Der vermerkte Widerspruch (Mensch meldet Schaden, Modell sieht keinen)
+    setzt `contradiction` nicht -- das Urteil bleibt wirksam und gehoert
+    deshalb nicht als "nicht wirksam" in den Klartext."""
+    result = reconcile(
+        disposition="scrap",
+        confidence=0.9,
+        summary="Ware unbrauchbar.",
+        finding=_finding(damage="intact", note="Kein Schaden sichtbar."),
+    )
+    assert result.contradiction is False
+    assert "nicht wirksam" not in result.photo_analysis
+    assert "Bitte stichprobenartig pruefen." in result.photo_analysis
 
 
 def test_the_note_always_survives():

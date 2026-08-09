@@ -50,6 +50,7 @@ import asyncio
 import base64
 import binascii
 import hashlib
+import json
 import logging
 import re
 import time
@@ -398,6 +399,7 @@ async def _check_article(
         return "unavailable"
 
     label = media.get("product_label") or ""
+    kurzlabel = _ohne_artikelnummer(label)
     verdict = await llm.compare_articles(
         reference_text=reference_seen.text,
         candidate_text=candidate_seen.text,
@@ -405,17 +407,42 @@ async def _check_article(
         # gelb", und an einer Zahl, die auf keinem Foto steht, hat ein Modell
         # nichts zu pruefen. Im Klartext fuer den Menschen bleibt sie stehen --
         # dort identifiziert sie den Artikel.
-        product_label=_ohne_artikelnummer(label),
+        product_label=kurzlabel,
     )
     if not verdict.ok:
         lines.append("Artikelabgleich nicht moeglich: Textmodell antwortet nicht.")
         return "unavailable"
+
+    # Beide Beschreibungen und die Begruendung gehen als EINE maschinenlesbare
+    # Zeile hinaus, auch bei `match`. Am 2026-08-09 an QA/0227 vorgefuehrt,
+    # woran das fehlte: dort stand nur die Beschreibung des Meldefotos in
+    # Odoo, `reference_seen.text` und `verdict.reason` waren lokale Variablen,
+    # und nach einem Container-Neustart liess sich das Fehlurteil nur noch
+    # rekonstruieren. Auch der umgekehrte Fehler braucht die Zeile: ein
+    # faelschlich durchgewinkter Artikel hinterlaesst sonst gar keine Spur.
+    logger.info(json.dumps({
+        "event_type": "article_compare",
+        "same_article": verdict.same_article,
+        "candidate_text": candidate_seen.text,
+        "reference_text": reference_seen.text,
+        "reason": verdict.reason,
+        "product_label": kurzlabel,
+        "candidate_is_a_product": candidate_seen.is_a_product,
+    }, ensure_ascii=False))
+
     if verdict.same_article:
         lines.append("Artikelabgleich: stimmt mit Katalogbild ueberein.")
         return "match"
     lines.append(
         "Foto zeigt nicht den gemeldeten Artikel: "
         f"{candidate_seen.text} statt {label or 'dem gemeldeten Artikel'}."
+    )
+    # Die Vergleichsgrundlage steht NUR beim Widerspruch im Klartext. Sie ist
+    # das, was ein Mensch braucht, um dem Urteil zu widersprechen -- und genau
+    # das ist bei QA/0227 der Fall gewesen: derselbe Stein, zwei Vokabulare.
+    lines.append(
+        f"Katalogbild zeigt: {reference_seen.text}."
+        + (f" Begruendung des Textmodells: {verdict.reason}" if verdict.reason else "")
     )
     return "mismatch"
 
@@ -730,8 +757,13 @@ async def _assess(llm, vision, runtime, body) -> QualityAssessmentV2Response:
         odoo = get_callback_odoo_client(runtime, body.odoo_instance)
         finding, checked = await _collect_photo_finding(odoo, vision, llm, body)
 
+    # Konfidenz und Begruendung reisen mit, damit ein widersprochenes
+    # Texturteil im Klartext nachlesbar bleibt: der Widerspruchszweig in n8n
+    # schickt nur `photo_analysis`, alles andere wird in Odoo geleert.
     reconciled = reconcile(
         disposition=result.disposition if result.ok else None,
+        confidence=result.confidence if result.ok else None,
+        summary=result.summary if result.ok else None,
         finding=finding,
     )
 

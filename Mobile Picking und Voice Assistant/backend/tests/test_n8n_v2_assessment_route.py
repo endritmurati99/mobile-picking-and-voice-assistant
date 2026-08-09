@@ -10,6 +10,7 @@ import asyncio
 import base64
 import io
 import json
+import logging
 
 import pytest
 from PIL import Image
@@ -1061,3 +1062,116 @@ def test_a_mismatched_article_gets_no_condition_comparison(llm_ok, signed_env):
     assert "Foto zeigt nicht den gemeldeten Artikel" in analyse
     assert "Schadenspruefung:" in analyse
     assert fake.damage_calls == 1  # nur das Meldefoto, kein Katalogbild
+
+
+# ===========================================================================
+# Beweisbarkeit des Artikelabgleichs
+# ===========================================================================
+#
+# Am 2026-08-09 an QA/0227 vorgefuehrt, warum das noetig ist: das Bildmodell
+# beschrieb DENSELBEN Stein zweimal verschieden ("toy building brick" gegen
+# "plastic corner protector"), das Textmodell folgerte "andere Bauform, also
+# anderer Artikel" -- und nachlesbar war davon nichts. `reference_seen.text`
+# und `verdict.reason` waren lokale Variablen, die Backend-Logs reichten nach
+# einem Neustart nicht mehr zurueck, und in Odoo stand nur die Beschreibung
+# des Meldefotos. Der Fehler musste rekonstruiert werden, statt dass man ihn
+# ablesen konnte.
+
+
+def test_a_mismatch_names_the_catalogue_description_too(signed_env):
+    """Ein Fehlurteil ist nur untersuchbar, wenn BEIDE Beschreibungen
+    dastehen. Nur die des Meldefotos zu nennen, zeigt die eine Haelfte des
+    Vergleichs und verschweigt die, an der er kippte."""
+    signed_env["o19-a"].response = MEDIA_RESPONSE
+    install_llm(
+        LlmDispositionResult(
+            ok=True,
+            model="qwen2.5:7b",
+            disposition="sellable",
+            confidence=1.0,
+            summary="Verpackung leicht gedrueckt.",
+            recommended_action="Sichtpruefung.",
+        ),
+        ArticleComparison(
+            ok=True, same_article=False, reason="Bauform und Aufdruck unterscheiden sich."
+        ),
+    )
+    install_vision(SIEHT_HUND, DamageCheck(ok=True, damaged=False, anomalies=()))
+    try:
+        analyse = post(assess_body()).json()["photo_analysis"]
+    finally:
+        app.dependency_overrides.pop(dependencies.get_llm_client, None)
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    assert "dog, light brown, standing on a beach" in analyse  # Meldefoto
+    assert "toy building brick, yellow, 2x2 studs" in analyse  # Katalogbild
+    assert "Bauform und Aufdruck unterscheiden sich." in analyse  # Begruendung
+
+
+def test_a_contradicted_text_verdict_reaches_odoo_as_plain_text(signed_env):
+    """Ausfuehrung 46 zu QA/0227: `sellable` mit Konfidenz 1.0 wurde vom
+    falschen Artikelbefund verworfen und war danach nirgends mehr nachlesbar --
+    der Widerspruchszweig schickt nur `photo_analysis`."""
+    signed_env["o19-a"].response = MEDIA_RESPONSE
+    install_llm(
+        LlmDispositionResult(
+            ok=True,
+            model="qwen2.5:7b",
+            disposition="sellable",
+            confidence=1.0,
+            summary="Verpackung leicht gedrueckt.",
+            recommended_action="Sichtpruefung.",
+        ),
+        ArticleComparison(ok=True, same_article=False, reason="andere Bauform"),
+    )
+    install_vision(SIEHT_HUND, DamageCheck(ok=True, damaged=False, anomalies=()))
+    try:
+        body = post(assess_body()).json()
+    finally:
+        app.dependency_overrides.pop(dependencies.get_llm_client, None)
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    assert body["contradiction"] is True
+    analyse = body["photo_analysis"]
+    assert "Texturteil der Meldung (nicht wirksam): sellable" in analyse
+    assert "Verpackung leicht gedrueckt." in analyse
+
+
+def test_the_article_comparison_leaves_a_structured_log_entry(signed_env, caplog):
+    """Der Klartext in Odoo ist fuer den Menschen. Fuer eine Auswertung ueber
+    viele Meldungen braucht es eine maschinenlesbare Zeile -- und zwar auch
+    dann, wenn der Abgleich `match` sagt: ein faelschlich durchgewinkter
+    Artikel hinterlaesst sonst gar keine Spur."""
+    signed_env["o19-a"].response = MEDIA_RESPONSE
+    install_llm(
+        LlmDispositionResult(
+            ok=True,
+            model="qwen2.5:7b",
+            disposition="sellable",
+            confidence=0.9,
+            summary="Nichts Auffaelliges.",
+            recommended_action="Sichtpruefung.",
+        ),
+        ArticleComparison(ok=True, same_article=True, reason="gleiche Bauform"),
+    )
+    install_vision(SIEHT_ARTIKEL, DamageCheck(ok=True, damaged=False, anomalies=()))
+    try:
+        with caplog.at_level(logging.INFO):
+            post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_llm_client, None)
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    zeilen = [
+        json.loads(record.getMessage())
+        for record in caplog.records
+        if record.getMessage().startswith("{")
+        and '"article_compare"' in record.getMessage()
+    ]
+    assert len(zeilen) == 1
+    zeile = zeilen[0]
+    assert zeile["same_article"] is True
+    assert zeile["candidate_text"] == "toy building brick, yellow, 2x2 studs"
+    assert zeile["reference_text"] == "toy building brick, yellow, 2x2 studs"
+    assert zeile["reason"] == "gleiche Bauform"
+    assert zeile["product_label"] == "Brick 2x2x2 R=15 gelb"

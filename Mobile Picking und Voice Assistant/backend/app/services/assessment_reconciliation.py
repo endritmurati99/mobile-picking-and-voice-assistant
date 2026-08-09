@@ -41,6 +41,42 @@ _REPORTED_BUT_UNSEEN = (
 )
 
 
+def _mit_texturteil(
+    note: str,
+    disposition: str | None,
+    confidence: float | None,
+    summary: str | None,
+) -> str:
+    """Haengt das widersprochene Texturteil als KLARTEXT an den Bildbefund.
+
+    Am 2026-08-09 aus Ausfuehrung 46 (QA/0227) herausgemessen: das Textmodell
+    hatte `sellable` mit Konfidenz 1.0 geurteilt, der Artikelabgleich meldete
+    faelschlich einen anderen Artikel -- und danach war das Urteil nirgends
+    mehr nachlesbar. Der Widerspruchszweig in n8n schickt nur `photo_analysis`
+    mit, und `quality_alert.api_apply_assessment` leert bei `review_required`
+    Einstufung, Konfidenz, Begruendung, Provider und Modell.
+
+    Warum als Text und nicht in `ai_disposition`: dort stuende eine Einstufung
+    neben "Manuelle Pruefung noetig", die niemand angewendet hat -- genau der
+    Zustand, den `api_apply_assessment` mit dem Leeren verhindern will. Ein
+    Mensch, der die Meldung ohnehin in die Hand nimmt, soll lesen koennen, was
+    das Textmodell gesehen hat, ohne dass es wie eine geltende Entscheidung
+    aussieht. Daher der Zusatz "nicht wirksam".
+
+    Ohne Urteil bleibt der Befund unveraendert -- ein leerer Satzrumpf waere
+    schlimmer als die Luecke.
+    """
+    if not disposition:
+        return note
+    teile = [disposition]
+    if confidence is not None:
+        teile.append(f"Konfidenz {confidence:.2f}")
+    zeile = f"Texturteil der Meldung (nicht wirksam): {', '.join(teile)}."
+    if summary and summary.strip():
+        zeile = f"{zeile} {summary.strip()}"
+    return f"{note}\n{zeile}"
+
+
 @dataclass(frozen=True)
 class PhotoFinding:
     """Was die Bilder ergeben haben.
@@ -70,17 +106,33 @@ class Reconciled:
     photo_analysis: str
 
 
-def reconcile(*, disposition: str | None, finding: PhotoFinding) -> Reconciled:
+def reconcile(
+    *,
+    disposition: str | None,
+    finding: PhotoFinding,
+    confidence: float | None = None,
+    summary: str | None = None,
+) -> Reconciled:
     # Falscher Artikel schlaegt alles andere: ein Schaden am falschen Teil
     # sagt nichts ueber die gemeldete Ware, und ein Urteil ueber ein Foto, das
     # den Artikel nicht zeigt, ist wertlos.
     if finding.article == "mismatch":
-        return Reconciled(contradiction=True, photo_analysis=finding.note)
+        return Reconciled(
+            contradiction=True,
+            photo_analysis=_mit_texturteil(
+                finding.note, disposition, confidence, summary
+            ),
+        )
 
     if disposition in _CLAIMS_SOUND and finding.damage == "damaged":
         return Reconciled(
             contradiction=True,
-            photo_analysis=f"{finding.note}\n{_SELLABLE_BUT_DAMAGED}",
+            photo_analysis=_mit_texturteil(
+                f"{finding.note}\n{_SELLABLE_BUT_DAMAGED}",
+                disposition,
+                confidence,
+                summary,
+            ),
         )
 
     if disposition in _CLAIMS_DAMAGE and finding.damage == "intact":
