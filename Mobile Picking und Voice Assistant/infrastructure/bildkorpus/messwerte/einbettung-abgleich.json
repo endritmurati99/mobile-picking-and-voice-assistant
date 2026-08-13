@@ -1,0 +1,198 @@
+{
+ "foto_4": {
+  "urteil": "match",
+  "grund": "Stimmt mit dem Katalogbild ueberein (0.940, Abstand zum naechsten Artikel 0.112).",
+  "rang": [
+   {
+    "kennung": "4166960",
+    "wert": 0.9396
+   },
+   {
+    "kennung": "4216758",
+    "wert": 0.8278
+   },
+   {
+    "kennung": "4652854",
+    "wert": 0.8194
+   },
+   {
+    "kennung": "6346241",
+    "wert": 0.7829
+   },
+   {
+    "kennung": "6294237",
+    "wert": 0.7522
+   }
+  ],
+  "abstand": 0.1118,
+  "sekunden": 0.45
+ },
+ "foto_3": {
+  "urteil": "match",
+  "grund": "Stimmt mit dem Katalogbild ueberein (0.998, Abstand zum naechsten Artikel 0.145).",
+  "rang": [
+   {
+    "kennung": "4166960",
+    "wert": 0.9976
+   },
+   {
+    "kennung": "4216758",
+    "wert": 0.8525
+   },
+   {
+    "kennung": "4652854",
+    "wert": 0.8484
+   },
+   {
+    "kennung": "6346241",
+    "wert": 0.8159
+   },
+   {
+    "kennung": "6294237",
+    "wert": 0.8093
+   }
+  ],
+  "abstand": 0.1451,
+  "sekunden": 1.78
+ },
+ "foto_11": {
+  "urteil": "match",
+  "grund": "Stimmt mit dem Katalogbild ueberein (0.848, Abstand zum naechsten Artikel 0.170).",
+  "rang": [
+   {
+    "kennung": "6023350",
+    "wert": 0.8476
+   },
+   {
+    "kennung": "6380873",
+    "wert": 0.6774
+   },
+   {
+    "kennung": "343724",
+    "wert": 0.6745
+   },
+   {
+    "kennung": "6286339",
+    "wert": 0.6444
+   },
+   {
+    "kennung": "4648231",
+    "wert": 0.5892
+   }
+  ],
+  "abstand": 0.1701,
+  "sekunden": 0.43
+ },
+ "foto_213": {
+  "urteil": "match",
+  "grund": "Stimmt mit dem Katalogbild ueberein (0.870, Abstand zum naechsten Artikel 0.176).",
+  "rang": [
+   {
+    "kennung": "6023350",
+    "wert": 0.8698
+   },
+   {
+    "kennung": "6380873",
+    "wert": 0.694
+   },
+   {
+    "kennung": "343724",
+    "wert": 0.686
+   },
+   {
+    "kennung": "6286339",
+    "wert": 0.6417
+   },
+   {
+    "kennung": "4648231",
+    "wert": 0.5938
+   }
+  ],
+  "abstand": 0.1757,
+  "sekunden": 0.36
+ },
+ "foto_10": {
+  "urteil": "match",
+  "grund": "Stimmt mit dem Katalogbild ueberein (0.773, Abstand zum naechsten Artikel 0.132).",
+  "rang": [
+   {
+    "kennung": "6023350",
+    "wert": 0.7733
+   },
+   {
+    "kennung": "6286339",
+    "wert": 0.6411
+   },
+   {
+    "kennung": "6380873",
+    "wert": 0.6192
+   },
+   {
+    "kennung": "343724",
+    "wert": 0.5919
+   },
+   {
+    "kennung": "4648231",
+    "wert": 0.5804
+   }
+  ],
+  "abstand": 0.1323,
+  "sekunden": 0.45
+ },
+ "foto_13": {
+  "urteil": "match",
+  "grund": "Stimmt mit dem Katalogbild ueberein (0.924, Abstand zum naechsten Artikel 0.208).",
+  "rang": [
+   {
+    "kennung": "6023350",
+    "wert": 0.9239
+   },
+   {
+    "kennung": "6380873",
+    "wert": 0.7158
+   },
+   {
+    "kennung": "343724",
+    "wert": 0.6781
+   },
+   {
+    "kennung": "6286339",
+    "wert": 0.6486
+   },
+   {
+    "kennung": "4648231",
+    "wert": 0.6
+   }
+  ],
+  "abstand": 0.2081,
+  "sekunden": 0.41
+ },
+ "foto_14": {
+  "urteil": "unsicher",
+  "grund": "Kein bekannter Artikel: beste Uebereinstimmung 0.204 unter der Schwelle 0.45.",
+  "rang": [
+   {
+    "kennung": "301124",
+    "wert": 0.2041
+   },
+   {
+    "kennung": "6138111",
+    "wert": 0.1917
+   },
+   {
+    "kennung": "6286339",
+    "wert": 0.187
+   },
+   {
+    "kennung": "4185178",
+    "wert": 0.1785
+   },
+   {
+    "kennung": "6214736",
+    "wert": 0.1735
+   }
+  ],
+  "abstand": 0.0124,
+  "sekunden": 0.5
+ }
+}

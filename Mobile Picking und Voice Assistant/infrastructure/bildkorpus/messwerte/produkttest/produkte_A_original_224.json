@@ -1,0 +1,342 @@
+{
+ "selbst:173057": {
+  "links": "173057",
+  "rechts": "173057",
+  "soll_gleich": true,
+  "ist_gleich": true,
+  "roh": {
+   "left": "Warehouse part with blue top, white bottom.",
+   "right": "Warehouse part with blue top, white bottom.",
+   "same_part": true,
+   "why": "Both parts have identical shapes and colors."
+  },
+  "dauer": 69.6,
+  "kante": 224,
+  "fassung": "A_original",
+  "links_name": "LKW",
+  "rechts_name": "LKW"
+ },
+ "fremd:173057|184779": {
+  "links": "173057",
+  "rechts": "184779",
+  "soll_gleich": false,
+  "ist_gleich": false,
+  "roh": {
+   "left": "Blue LEGO brick with four studs.",
+   "right": "Yellow LEGO brick with four studs.",
+   "same_part": false,
+   "why": "Different colors but same shape and number of studs."
+  },
+  "dauer": 70.5,
+  "kante": 224,
+  "fassung": "A_original",
+  "links_name": "LKW",
+  "rechts_name": "Krebs Max"
+ },
+ "selbst:184779": {
+  "links": "184779",
+  "rechts": "184779",
+  "soll_gleich": true,
+  "ist_gleich": true,
+  "roh": {
+   "left": "Warehouse part with blue body, yellow legs.",
+   "right": "Warehouse part with blue body, yellow legs.",
+   "same_part": true,
+   "why": "Both parts have identical structure and color scheme."
+  },
+  "dauer": 54.7,
+  "kante": 224,
+  "fassung": "A_original",
+  "links_name": "Krebs Max",
+  "rechts_name": "Krebs Max"
+ },
+ "fremd:184779|173057": {
+  "links": "184779",
+  "rechts": "173057",
+  "soll_gleich": false,
+  "ist_gleich": false,
+  "roh": {
+   "left": "Warehouse part with yellow base, blue body.",
+   "right": "Warehouse part with blue body.",
+   "same_part": false,
+   "why": "The left has a yellow base which is missing on the right."
+  },
+  "dauer": 58.7,
+  "kante": 224,
+  "fassung": "A_original",
+  "links_name": "Krebs Max",
+  "rechts_name": "LKW"
+ },
+ "selbst:237828": {
+  "links": "237828",
+  "rechts": "237828",
+  "soll_gleich": true,
+  "ist_gleich": true,
+  "roh": {
+   "left": "Propeller on top of blue block, white cylinder beneath.",
+   "right": "Propeller on top of blue block, white cylinder beneath.",
+   "same_part": true,
+   "why": "Both parts have identical components and arrangement."
+  },
+  "dauer": 70.5,
+  "kante": 224,
+  "fassung": "A_original",
+  "links_name": "Windkraft",
+  "rechts_name": "Windkraft"
+ },
+ "fremd:237828|173057": {
+  "links": "237828",
+  "rechts": "173057",
+  "soll_gleich": false,
+  "ist_gleich": false,
+  "roh": {
+   "left": "Propeller on cylinder with base",
+   "right": "Controller-like shape with buttons",
+   "same_part": false,
+   "why": "Left is a mechanical part, right resembles a controller."
+  },
+  "dauer": 70.1,
+  "kante": 224,
+  "fassung": "A_original",
+  "links_name": "Windkraft",
+  "rechts_name": "LKW"
+ },
+ "selbst:274816": {
+  "links": "274816",
+  "rechts": "274816",
+  "soll_gleich": true,
+  "ist_gleich": true,
+  "roh": {
+   "left": "Warehouse part with hexagonal top, four circular legs.",
+   "right": "Warehouse part with hexagonal top, four circular legs.",
+   "same_part": true,
+   "why": "Both parts have identical structure and components."
+  },
+  "dauer": 72.1,
+  "kante": 224,
+  "fassung": "A_original",
+  "links_name": "Erwin",
+  "rechts_name": "Erwin"
+ },
+ "fremd:274816|173057": {
+  "links": "274816",
+  "rechts": "173057",
+  "soll_gleich": false,
+  "ist_gleich": false,
+  "roh": {
+   "left": "Warehouse part with hexagonal top, four circular sides.",
+   "right": "Warehouse part with curved top and two circular sides.",
+   "same_part": false,
+   "why": "Different shapes and number of sides."
+  },
+  "dauer": 69.7,
+  "kante": 224,
+  "fassung": "A_original",
+  "links_name": "Erwin",
+  "rechts_name": "LKW"
+ },
+ "selbst:301121": {
+  "links": "301121",
+  "rechts": "301121",
+  "soll_gleich": true,
+  "ist_gleich": true,
+  "roh": {
+   "left": "Red plastic building block with eight holes.",
+   "right": "Red plastic building block with eight holes.",
+   "same_part": true,
+   "why": "Both have identical shape and number of holes."
+  },
+  "dauer": 69.8,
+  "kante": 224,
+  "fassung": "A_original",
+  "links_name": "Brick 2x4 rot",
+  "rechts_name": "Brick 2x4 rot"
+ },
+ "fremd:301121|4652854": {
+  "links": "301121",
+  "rechts": "4652854",
+  "soll_gleich": false,
+  "ist_gleich": false,
+  "roh": {
+   "left": "Red plastic building block with six holes.",
+   "right": "Blue plastic building block with five holes.",
+   "same_part": false,
+   "why": "Different number of holes and colors."
+  },
+  "dauer": 69.4,
+  "kante": 224,
+  "fassung": "A_original",
+  "links_name": "Brick 2x4 rot",
+  "rechts_name": "Brick 2x4 W. Bows blau"
+ },
+ "selbst:301124": {
+  "links": "301124",
+  "rechts": "301124",
+  "soll_gleich": true,
+  "ist_gleich": true,
+  "roh": {
+   "left": "Green plastic building block with six holes.",
+   "right": "Green plastic building block with six holes.",
+   "same_part": true,
+   "why": "Both have identical shape and number of holes."
+  },
+  "dauer": 85.6,
+  "kante": 224,
+  "fassung": "A_original",
+  "links_name": "Brick 2x2 hellgrün",
+  "rechts_name": "Brick 2x2 hellgrün"
+ },
+ "fremd:301124|343701": {
+  "links": "301124",
+  "rechts": "343701",
+  "soll_gleich": false,
+  "ist_gleich": true,
+  "roh": {
+   "left": "Green LEGO brick with four holes.",
+   "right": "White LEGO brick with four holes.",
+   "same_part": true,
+   "why": "Both have identical shape and number of holes."
+  },
+  "dauer": 106.8,
+  "kante": 224,
+  "fassung": "A_original",
+  "links_name": "Brick 2x2 hellgrün",
+  "rechts_name": "Brick 2x2 weiß"
+ },
+ "selbst:324876": {
+  "links": "324876",
+  "rechts": "324876",
+  "soll_gleich": true,
+  "ist_gleich": true,
+  "roh": {
+   "left": "Warehouse part with yellow top, white sides, red base.",
+   "right": "Warehouse part with yellow top, white sides, red base.",
+   "same_part": true,
+   "why": "Both parts have identical structure and color scheme."
+  },
+  "dauer": 106.9,
+  "kante": 224,
+  "fassung": "A_original",
+  "links_name": "Papagei Moritz",
+  "rechts_name": "Papagei Moritz"
+ },
+ "fremd:324876|173057": {
+  "links": "324876",
+  "rechts": "173057",
+  "soll_gleich": false,
+  "ist_gleich": false,
+  "roh": {
+   "left": "Yellow, red, white, green LEGO structure.",
+   "right": "Blue LEGO structure with curved top.",
+   "same_part": false,
+   "why": "Different colors and shapes indicate different parts."
+  },
+  "dauer": 86.7,
+  "kante": 224,
+  "fassung": "A_original",
+  "links_name": "Papagei Moritz",
+  "rechts_name": "LKW"
+ },
+ "selbst:343701": {
+  "links": "343701",
+  "rechts": "343701",
+  "soll_gleich": true,
+  "ist_gleich": true,
+  "roh": {
+   "left": "White block with four holes.",
+   "right": "White block with four holes.",
+   "same_part": true,
+   "why": "Both parts have the same shape and number of holes."
+  },
+  "dauer": 74.4,
+  "kante": 224,
+  "fassung": "A_original",
+  "links_name": "Brick 2x2 weiß",
+  "rechts_name": "Brick 2x2 weiß"
+ },
+ "fremd:343701|301124": {
+  "links": "343701",
+  "rechts": "301124",
+  "soll_gleich": false,
+  "ist_gleich": false,
+  "roh": {
+   "left": "White plastic block with four holes.",
+   "right": "Green plastic block with six holes.",
+   "same_part": false,
+   "why": "Different number of holes and colors."
+  },
+  "dauer": 74.8,
+  "kante": 224,
+  "fassung": "A_original",
+  "links_name": "Brick 2x2 weiß",
+  "rechts_name": "Brick 2x2 hellgrün"
+ },
+ "selbst:343721": {
+  "links": "343721",
+  "rechts": "343721",
+  "soll_gleich": true,
+  "ist_gleich": true,
+  "roh": {
+   "left": "Red plastic building block with four holes.",
+   "right": "Red plastic building block with four holes.",
+   "same_part": true,
+   "why": "Both have identical shape and number of holes."
+  },
+  "dauer": 79.8,
+  "kante": 224,
+  "fassung": "A_original",
+  "links_name": "Brick 2x2 rot",
+  "rechts_name": "Brick 2x2 rot"
+ },
+ "fremd:343721|301124": {
+  "links": "343721",
+  "rechts": "301124",
+  "soll_gleich": false,
+  "ist_gleich": true,
+  "roh": {
+   "left": "Red plastic block with four holes.",
+   "right": "Green plastic block with four holes.",
+   "same_part": true,
+   "why": "Both have the same shape and number of holes."
+  },
+  "dauer": 86.2,
+  "kante": 224,
+  "fassung": "A_original",
+  "links_name": "Brick 2x2 rot",
+  "rechts_name": "Brick 2x2 hellgrün"
+ },
+ "selbst:343724": {
+  "links": "343724",
+  "rechts": "343724",
+  "soll_gleich": true,
+  "ist_gleich": true,
+  "roh": {
+   "left": "Yellow plastic block with four holes.",
+   "right": "Yellow plastic block with four holes.",
+   "same_part": true,
+   "why": "Both parts have the same shape and number of holes."
+  },
+  "dauer": 93.5,
+  "kante": 224,
+  "fassung": "A_original",
+  "links_name": "Brick 2x2 gelb",
+  "rechts_name": "Brick 2x2 gelb"
+ },
+ "fremd:343724|301124": {
+  "links": "343724",
+  "rechts": "301124",
+  "soll_gleich": false,
+  "ist_gleich": true,
+  "roh": {
+   "left": "Yellow LEGO brick with four holes.",
+   "right": "Green LEGO brick with four holes.",
+   "same_part": true,
+   "why": "Both have the same shape and number of holes."
+  },
+  "dauer": 183.4,
+  "kante": 224,
+  "fassung": "A_original",
+  "links_name": "Brick 2x2 gelb",
+  "rechts_name": "Brick 2x2 hellgrün"
+ }
+}

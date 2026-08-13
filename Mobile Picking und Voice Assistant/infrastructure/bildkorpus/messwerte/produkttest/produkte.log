@@ -1,0 +1,24 @@
+47 bebilderte Artikel.
+
+94 Tests (47 selbst + 47 fremd), 94 offen. Fassung A_original, Kante 224.
+
+[1/94]    selbst:173057                    soll=gleich  ist=gleich  (70s, Rest 108min)
+[2/94]    fremd:173057|184779              soll=anders  ist=anders  (71s, Rest 107min)
+[3/94]    selbst:184779                    soll=gleich  ist=gleich  (55s, Rest 99min)
+[4/94]    fremd:184779|173057              soll=anders  ist=anders  (59s, Rest 95min)
+[5/94]    selbst:237828                    soll=gleich  ist=gleich  (70s, Rest 96min)
+[6/94]    fremd:237828|173057              soll=anders  ist=anders  (70s, Rest 96min)
+[7/94]    selbst:274816                    soll=gleich  ist=gleich  (72s, Rest 97min)
+[8/94]    fremd:274816|173057              soll=anders  ist=anders  (70s, Rest 96min)
+[9/94]    selbst:301121                    soll=gleich  ist=gleich  (70s, Rest 95min)
+[10/94]    fremd:301121|4652854             soll=anders  ist=anders  (69s, Rest 95min)
+[11/94]    selbst:301124                    soll=gleich  ist=gleich  (86s, Rest 96min)
+[12/94] XX fremd:301124|343701              soll=anders  ist=gleich  (107s, Rest 99min)
+[13/94]    selbst:324876                    soll=gleich  ist=gleich  (107s, Rest 101min)
+[14/94]    fremd:324876|173057              soll=anders  ist=anders  (87s, Rest 101min)
+[15/94]    selbst:343701                    soll=gleich  ist=gleich  (74s, Rest 100min)
+[16/94]    fremd:343701|301124              soll=anders  ist=anders  (75s, Rest 98min)
+[17/94]    selbst:343721                    soll=gleich  ist=gleich  (80s, Rest 97min)
+[18/94] XX fremd:343721|301124              soll=anders  ist=gleich  (86s, Rest 97min)
+[19/94]    selbst:343724                    soll=gleich  ist=gleich  (93s, Rest 97min)
+[20/94] XX fremd:343724|301124              soll=anders  ist=gleich  (183s, Rest 102min)
