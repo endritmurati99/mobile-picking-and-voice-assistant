@@ -147,6 +147,43 @@ sondern um eine Größenordnung.
 Katalog einbetten: 29,8 s für 44 Artikel (0,68 s je Bild), einmalig. Danach
 kostet eine Meldung **eine** Einbettung plus 44 Skalarprodukte.
 
+## Prüfstand für frische Aufnahmen
+
+Die dünnste Stelle im Beleg sind nicht die Modelle, sondern die Fotos: sechs
+echte Aufnahmen an zwei Artikeln, alles andere aus Katalogbildern errechnet.
+`infrastructure/bildkorpus/neuetest/pruefen.py` nimmt frisch aufgenommene Fotos
+entgegen und hält sie gegen den Odoo-Katalog — ohne Ollama, ohne Umbau an der
+Kette.
+
+Das Skript läuft **im** Einbettungscontainer, weil dort die DINOv2-Gewichte
+liegen und `core-net` per `internal: true` keinen Weg von außen zu Odoo lässt:
+
+    docker run -d --name embed-test \
+      --network mobilepickingundvoiceassistant_core-net \
+      --env-file <ODOO_DB/ODOO_USER/ODOO_API_KEY> \
+      -v <...>/infrastructure/bildkorpus/neuetest:/neu \
+      embed-dienst:latest
+    docker exec embed-test python /neu/pruefen.py
+
+Der Dateiname trägt den erwarteten Artikel (`<kennung>_freitext.jpg`). Ohne
+Präfix läuft das Foto als offene Frage („welcher Artikel ist das"), mit Präfix
+als gerichtete — nur die gerichtete kann `mismatch` ergeben.
+
+Am 2026-08-13 gegen die bekannten Fotos abgenommen, Werte reproduziert:
+
+    probe-blau-mit-riss.jpg      match     0.28s  4166960 0.942, Abstand 0.115
+    probe-bogenstein-sauber.jpg  match     0.35s  6023350 0.924, Abstand 0.226
+    probe-hund.jpg               unsicher  0.38s  bestes 0.203 unter Schwelle 0.45
+
+Der Katalog ist inzwischen auf **47** bebilderte Artikel gewachsen (vorher 44);
+Einbettung 26,5 s, 0,56 s je Bild.
+
+Worauf die neuen Aufnahmen zielen müssen, sonst messen sie nur wieder saubere
+Steine auf weißem Grund: beschädigtes richtiges Teil (`match` erwartet),
+falsches Teil unter der bestellten Nummer (`mismatch`), eine der bekannten
+Beinahe-Dubletten (`unsicher` erwartet — ein selbstsicheres `mismatch` wäre ein
+Fund), und Betriebsbedingungen: Hand im Bild, Karton, Schrägwinkel, Zimmerlicht.
+
 ## Offen
 
 - Der Dienst ist **noch nicht** in `_check_article` verdrahtet und steht in
