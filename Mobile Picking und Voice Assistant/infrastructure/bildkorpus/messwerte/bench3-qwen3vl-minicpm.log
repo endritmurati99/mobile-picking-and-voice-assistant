@@ -1,0 +1,13 @@
+=========== qwen3-vl:8b ===========
+qwen3-vl:8b: aufwaermen ...
+
+qwen3-vl:8b [Montage] -- 12 Faelle
+
+   S1_blau_riss           soll=gleich  ist=gleich  (125s)  ignores cracks; both have 4 studs
+XX S2_bogen_kerbe_a       soll=gleich  ist=anders  (102s)  Right has visible cut-out, left does not
+XX S3_bogen_kerbe_b       soll=gleich  ist=anders  (187s)  Right has cutout left doesn't
+XX S4_bogen_kerbe_c       soll=gleich  ist=anders  (362s)  Right has extra feather cutout
+?? S5_bogen_sauber        kein verwertbares Urteil (977s) -- NICHT als 'anders' gebucht
+   S6_blau_gedreht        soll=gleich  ist=gleich  (397s)  Both have 4 studs on top
+   A1_gruen_blau          soll=anders  ist=anders  (130s)  different color
+?? A2_2x2_gegen_2x3       kein verwertbares Urteil (677s) -- NICHT als 'anders' gebucht

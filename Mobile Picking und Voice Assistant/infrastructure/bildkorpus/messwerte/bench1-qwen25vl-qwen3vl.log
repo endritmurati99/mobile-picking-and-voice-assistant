@@ -1,0 +1,75 @@
+================ qwen2.5vl:7b ================
+qwen2.5vl:7b: aufwaermen ...
+
+qwen2.5vl:7b -- 12 Faelle
+
+XX S1_blau_riss           soll=gleich  ist=anders  (245s)  The right part has a visible crack that the left doe
+XX S2_bogen_kerbe_a       soll=gleich  ist=anders  (76s)  Design difference: feather on right side.
+XX S3_bogen_kerbe_b       soll=gleich  ist=anders  (129s)  Protrusion on right is not present on left.
+XX S4_bogen_kerbe_c       soll=gleich  ist=anders  (143s)  Protrusion on right is not present in left.
+   S5_bogen_sauber        soll=gleich  ist=gleich  (166s)  Both parts have identical shape and color, differing
+   S6_blau_gedreht        soll=gleich  ist=gleich  (194s)  Both parts have identical shape and number of holes.
+XX A1_gruen_blau          soll=anders  ist=gleich  (142s)  Both have the same shape and number of holes.
+   A2_2x2_gegen_2x3       soll=anders  ist=anders  (148s)  The right part is visibly damaged and not the same a
+XX A3_bogen_gegen_2x3     soll=anders  ist=gleich  (154s)  Both are yellow plastic corner pieces with similar s
+   A4_bogen_gegen_blau    soll=anders  ist=anders  (119s)  Different shapes and functions, not interchangeable.
+   A5_blau_gegen_2x3      soll=anders  ist=anders  (139s)  Different colors and presence of cracks on the right
+   A6_hund                soll=anders  ist=anders  (135s)  The left image is a yellow plastic block; the right 
+
+Modell                   gesamt   Schaden   Artikel  s/Fall
+qwen2.5vl:7b             6/12      2/6       4/6       149s
+================ qwen3-vl:8b ================
+qwen3-vl:8b: aufwaermen ...
+
+qwen3-vl:8b -- 12 Faelle
+
+XX S1_blau_riss           soll=gleich  ist=anders  (147s)  
+XX S2_bogen_kerbe_a       soll=gleich  ist=anders  (134s)  
+XX S3_bogen_kerbe_b       soll=gleich  ist=anders  (96s)  
+XX S4_bogen_kerbe_c       soll=gleich  ist=anders  (126s)  
+XX S5_bogen_sauber        soll=gleich  ist=anders  (117s)  
+XX S6_blau_gedreht        soll=gleich  ist=anders  (102s)  
+   A1_gruen_blau          soll=anders  ist=anders  (112s)  
+   A2_2x2_gegen_2x3       soll=anders  ist=anders  (109s)  
+   A3_bogen_gegen_2x3     soll=anders  ist=anders  (125s)  
+   A4_bogen_gegen_blau    soll=anders  ist=anders  (128s)  
+   A5_blau_gegen_2x3      soll=anders  ist=anders  (118s)  
+   A6_hund                soll=anders  ist=anders  (91s)  
+
+Modell                   gesamt   Schaden   Artikel  s/Fall
+qwen3-vl:8b              6/12      0/6       6/6       117s
+================ ALLE FERTIG ================
+
+Modell                   gesamt   Schaden   Artikel  s/Fall
+qwen2.5vl:7b             6/12      2/6       4/6       149s
+qwen3-vl:8b              6/12      0/6       6/6       117s
+
+Fehler je Modell:
+
+  qwen2.5vl:7b
+    S1_blau_riss           blauer 2x2-Stein gegen denselben Stein mit durchgehendem Riss
+                           -> The right part has a visible crack that the left does not.
+    S2_bogen_kerbe_a       gelber Bogenstein gegen denselben Bogenstein mit ausgerissener Kerbe
+                           -> Design difference: feather on right side.
+    S3_bogen_kerbe_b       derselbe Schaden, andere Aufnahme, staerker angeschnitten
+                           -> Protrusion on right is not present on left.
+    S4_bogen_kerbe_c       derselbe Schaden, dritte Aufnahme, gekippte Lage
+                           -> Protrusion on right is not present in left.
+    A1_gruen_blau          gruener 2x2-Stein gegen blauen 2x2-Stein -- gleiche Form, andere Farbe
+                           -> Both have the same shape and number of holes.
+    A3_bogen_gegen_2x3     gelber Bogenstein gegen gelben 2x3-Stein -- gleiche Farbe, andere Bauform
+                           -> Both are yellow plastic corner pieces with similar shapes and features.
+
+  qwen3-vl:8b
+    S1_blau_riss           blauer 2x2-Stein gegen denselben Stein mit durchgehendem Riss
+                           -> 
+    S2_bogen_kerbe_a       gelber Bogenstein gegen denselben Bogenstein mit ausgerissener Kerbe
+                           -> 
+    S3_bogen_kerbe_b       derselbe Schaden, andere Aufnahme, staerker angeschnitten
+                           -> 
+    S4_bogen_kerbe_c       derselbe Schaden, dritte Aufnahme, gekippte Lage
+                           -> 
+    S5_bogen_sauber        gelber Bogenstein gegen sauberes Foto desselben Steins (Gegenprobe ohne Schaden)
+                           -> 
+    S6_blau_gedreht        blauer 2x2-Stein gegen sich selbst, 25 Grad gedreht und verkleinert
+                           -> 
