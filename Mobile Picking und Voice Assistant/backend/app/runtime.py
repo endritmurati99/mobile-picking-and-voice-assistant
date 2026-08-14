@@ -23,7 +23,9 @@ Zwei Regeln, die diese Datei durchhaelt:
 """
 from __future__ import annotations
 
+import asyncio
 import threading
+import time
 
 from app.config import (
     Settings,
@@ -35,6 +37,7 @@ from app.config import (
 from app.models.webhook_security import HmacKeyring
 from app.services.auth_sessions import SessionService
 from app.services.hmac_keyrings import build_n8n_to_backend_keyring
+from app.services.embed_client import EmbedClient
 from app.services.llm_client import LlmClient
 from app.services.vision_client import VisionClient
 from app.services.n8n_webhook import N8NWebhookClient
@@ -57,6 +60,19 @@ class RuntimeServices:
         self._n8n_client: N8NWebhookClient | None = None
         self._llm_client: LlmClient | None = None
         self._vision_client: VisionClient | None = None
+        self._embed_client: EmbedClient | None = None
+        # Buchhaltung des eingebetteten Katalogs. Sie gehoert hierher und nicht
+        # in ein Modul-Global: zwei Apps im selben Prozess (Tests, zweite
+        # Instanz) duerfen sich nicht denselben Katalogstand teilen.
+        #
+        # Die Sperre ist bewusst eine `asyncio.Lock` und nicht `self._lock`:
+        # der Katalogaufbau ist asynchrone Ein-/Ausgabe ueber Odoo und den
+        # Einbettungsdienst; eine Thread-Sperre waehrend eines `await` wuerde
+        # den Ereignisverteiler blockieren.
+        self._katalog_sperre = asyncio.Lock()
+        self._katalog_kennungen: frozenset[str] = frozenset()
+        self._katalog_stand: float = 0.0
+        self._katalog_instanz: str | None = None
 
     @property
     def instances(self):
@@ -152,10 +168,66 @@ class RuntimeServices:
                     client = VisionClient(
                         endpoint=self.settings.llm_endpoint,
                         model=self.settings.vision_model,
+                        article_model=self.settings.vision_article_model,
                         timeout_ms=self.settings.vision_timeout_ms,
                     )
                     self._vision_client = client
         return client
+
+    def embed_client(self) -> EmbedClient | None:
+        """`None`, wenn der Einbettungsweg abgeschaltet ist (`embed_mode=off`).
+
+        Derselbe Schnitt wie bei `vision_client()`: die Route kennt nur "Client
+        da oder nicht", und `None` laeuft ueber denselben Pfad wie ein Ausfall
+        des Dienstes. Ein Sonderfall weniger -- und der Rueckfall auf den
+        Textvergleich ist damit an genau EINER Stelle beschrieben.
+        """
+        if self.settings.embed_mode == "off":
+            return None
+        client = self._embed_client
+        if client is None:
+            with self._lock:
+                client = self._embed_client
+                if client is None:
+                    client = EmbedClient(
+                        endpoint=self.settings.embed_url,
+                        timeout_ms=self.settings.embed_timeout_ms,
+                        katalog_timeout_ms=self.settings.embed_katalog_timeout_ms,
+                    )
+                    self._embed_client = client
+        return client
+
+    def katalog_gueltig(self, instanz: str) -> bool:
+        """Steht ein brauchbarer Katalog im Einbettungsdienst?
+
+        Ungueltig, sobald eine andere Odoo-Instanz gefragt wird: der Dienst
+        haelt genau EINEN Katalog, und die Kennungen zweier Lager muessen sich
+        nicht decken. Ein Katalog aus Lager 1 wuerde in Lager 2 stumm falsche
+        Urteile erzeugen.
+        """
+        if not self._katalog_kennungen or self._katalog_instanz != instanz:
+            return False
+        alter = time.time() - self._katalog_stand
+        return alter < self.settings.embed_katalog_ttl_s
+
+    def katalog_merken(self, instanz: str, kennungen: frozenset[str]) -> None:
+        self._katalog_kennungen = kennungen
+        self._katalog_stand = time.time()
+        self._katalog_instanz = instanz
+
+    def katalog_verwerfen(self) -> None:
+        """Nach einem 409 des Dienstes: er hat neu gestartet und haelt nichts mehr."""
+        self._katalog_kennungen = frozenset()
+        self._katalog_stand = 0.0
+        self._katalog_instanz = None
+
+    @property
+    def katalog_kennungen(self) -> frozenset[str]:
+        return self._katalog_kennungen
+
+    @property
+    def katalog_sperre(self) -> asyncio.Lock:
+        return self._katalog_sperre
 
     def n8n_to_backend_keyring(self) -> HmacKeyring:
         """Absichtlich ohne Cache: eine Schluesselrotation soll ohne

@@ -26,6 +26,7 @@ PRIVATE_SERVICES = (
     "whisper",
     "piper",
     "ollama",
+    "embed",
     "pwa",
 )
 

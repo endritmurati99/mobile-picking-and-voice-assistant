@@ -17,6 +17,13 @@ Satz ueber "ragged, torn or gouged" traf das Modell null von vier
 Pruefbildern; mit ihm drei von vier, ohne einen einzigen Fehlalarm auf den
 heilen Teilen.
 
+**Zwei getrennte MODELLE, seit dem 2026-08-14.** `describe` fragt
+`vision_article_model` (`gemma4:12b`), `inspect_damage` fragt `vision_model`
+(`qwen2.5vl:7b`). Begruendung und Messwerte stehen bei den beiden Feldern in
+`config.py`; kurz: auf der Artikelachse haelt `qwen2.5vl:7b` einen Riss fuer
+ein Artikelmerkmal (Schadenstoleranz 2/6 gegen 5/6), auf der Schadensachse ist
+es bei 1024 px eingemessen und `gemma4:12b` ungemessen.
+
 Jeder Fehler endet in `ok=False` mit leeren Feldern. Ein halber Befund waere
 die Einladung, doch etwas daraus zu schliessen.
 """
@@ -25,6 +32,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 
 import httpx
@@ -114,11 +122,16 @@ class VisionClient:
         *,
         endpoint: str,
         model: str,
+        article_model: str | None = None,
         timeout_ms: int = 180000,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._endpoint = endpoint.rstrip("/")
         self._model = model
+        # Ohne eigenes Artikelmodell verhaelt sich der Client wie vorher: ein
+        # Modell fuer beide Fragen. Das ist der Rueckweg, wenn `gemma4:12b`
+        # nicht geladen ist -- eine Einstellung, kein Codeeingriff.
+        self._article_model = article_model or model
         seconds = max(1.0, timeout_ms / 1000.0)
         self._timeout = httpx.Timeout(connect=5.0, read=seconds, write=30.0, pool=5.0)
         self._transport = transport
@@ -127,9 +140,14 @@ class VisionClient:
     def model(self) -> str:
         return self._model
 
-    async def _ask(self, prompt: str, images: list[bytes]) -> dict | None:
+    @property
+    def article_model(self) -> str:
+        return self._article_model
+
+    async def _ask(self, prompt: str, images: list[bytes], model: str) -> dict | None:
+        begonnen = time.monotonic()
         payload = {
-            "model": self._model,
+            "model": model,
             "prompt": prompt,
             "images": [base64.b64encode(image).decode("ascii") for image in images],
             "stream": False,
@@ -148,14 +166,33 @@ class VisionClient:
         except Exception as exc:  # noqa: BLE001 - jeder Fehler heisst: kein Befund
             logger.warning(json.dumps({
                 "event_type": "vision_probe_failed",
-                "model": self._model,
+                # Das TATSAECHLICH gefragte Modell, nicht `self._model`: seit
+                # Artikel- und Schadensfrage auf verschiedenen Modellen liegen,
+                # waere der feste Name hier eine falsche Spur im Protokoll.
+                "model": model,
                 # Der Typ steht dabei, weil genau hier eine Zeitgrenze mit
                 # leerem `str(exc)` ankommt (httpx.ReadTimeout) und ohne ihn
                 # nicht von einem Verbindungsfehler zu unterscheiden ist.
                 "error_type": type(exc).__name__,
                 "error": str(exc),
+                "duration_ms": int((time.monotonic() - begonnen) * 1000),
             }))
             return None
+        # Erfolgsfall MIT Modellnamen protokollieren, nicht nur der Fehlerfall.
+        #
+        # Am 2026-08-14 stand die Frage im Raum, welches Bildmodell einen
+        # konkreten Lauf tatsaechlich bedient hat. Aus Odoo ist das nicht zu
+        # beantworten (`ai_model` traegt das TEXTmodell und bleibt bei
+        # `review_required` leer), und Ollama protokolliert je Aufruf nur Pfad
+        # und Dauer, nie den Modellnamen. Damit blieb nur Indizienbeweis.
+        # Diese Zeile beendet das: je Bildaufruf steht Modell und Dauer im Log.
+        logger.info(json.dumps({
+            "event_type": "vision_probe",
+            "model": model,
+            "images": len(images),
+            "duration_ms": int((time.monotonic() - begonnen) * 1000),
+            "ok": isinstance(parsed, dict),
+        }))
         return parsed if isinstance(parsed, dict) else None
 
     async def describe(self, image: bytes) -> ArticleDescription:
@@ -165,7 +202,7 @@ class VisionClient:
         (`LlmClient.compare_articles`). Diese Trennung IST der Fix: siehe die
         Messung ueber `DESCRIBE_PROMPT`.
         """
-        parsed = await self._ask(DESCRIBE_PROMPT, [image])
+        parsed = await self._ask(DESCRIBE_PROMPT, [image], self._article_model)
         if parsed is None:
             return ArticleDescription(ok=False)
         teile = [
@@ -190,7 +227,7 @@ class VisionClient:
         )
 
     async def inspect_damage(self, candidate: bytes) -> DamageCheck:
-        parsed = await self._ask(DAMAGE_PROMPT, [candidate])
+        parsed = await self._ask(DAMAGE_PROMPT, [candidate], self._model)
         if parsed is None or not isinstance(parsed.get("damaged"), bool):
             return DamageCheck(ok=False)
         raw = parsed.get("anomalies")

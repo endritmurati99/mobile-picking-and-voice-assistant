@@ -305,7 +305,7 @@ def test_a_dog_photo_contradicts_a_sellable_verdict(signed_env):
     body = response.json()
     assert body["photo_checked"] is True
     assert body["contradiction"] is True
-    assert "nicht den gemeldeten Artikel" in body["photo_analysis"]
+    assert "Artikel: FALSCHES TEIL" in body["photo_analysis"]
     assert "dog, light brown, standing on a beach" in body["photo_analysis"]
     # Das Texturteil bleibt unangetastet -- der Callback entscheidet, was damit
     # geschieht, nicht diese Route.
@@ -344,7 +344,7 @@ def test_vision_failure_leaves_the_text_verdict_standing(llm_ok, signed_env):
     assert body["disposition"] == "scrap"
     assert body["photo_checked"] is False
     assert body["contradiction"] is False
-    assert "nicht moeglich" in body["photo_analysis"]
+    assert "nicht geprueft" in body["photo_analysis"]
 
 
 def test_odoo_failure_leaves_the_text_verdict_standing(llm_ok, signed_env):
@@ -407,7 +407,7 @@ def test_every_photo_is_inspected_and_the_rest_is_declared(llm_ok, signed_env):
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
     assert fake.damage_calls == 3
-    assert "2 weitere Foto(s) ungeprueft" in response.json()["photo_analysis"]
+    assert "Fotos: 2 weitere ungeprueft" in response.json()["photo_analysis"]
 
 
 def test_spent_budget_stops_the_damage_checks_and_says_so(llm_ok, signed_env):
@@ -443,7 +443,7 @@ def test_spent_budget_stops_the_damage_checks_and_says_so(llm_ok, signed_env):
     assert "Zeitbudget erschoepft" in body["photo_analysis"]
     # Was auf dem Foto war, steht trotzdem da.
     assert "Foto zeigt: toy building brick, yellow" in body["photo_analysis"]
-    assert "2 weitere Foto(s) ungeprueft" in body["photo_analysis"]
+    assert "Fotos: 2 weitere ungeprueft" in body["photo_analysis"]
 
 
 def test_without_a_catalogue_image_one_damage_check_still_runs(llm_ok, signed_env):
@@ -471,7 +471,7 @@ def test_without_a_catalogue_image_one_damage_check_still_runs(llm_ok, signed_en
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
     assert fake.damage_calls == 1
-    assert "1 weitere Foto(s) ungeprueft" in response.json()["photo_analysis"]
+    assert "Fotos: 1 weitere ungeprueft" in response.json()["photo_analysis"]
 
 
 def test_vision_disabled_behaves_like_before_the_rebuild(llm_ok, signed_env):
@@ -557,7 +557,7 @@ def test_the_damage_line_states_the_finding_before_the_models_words(llm_ok, sign
     finally:
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
-    assert "Schadenspruefung: Schaden sichtbar (feather)." in response.json()["photo_analysis"]
+    assert "Schaden: SICHTBAR -- feather." in response.json()["photo_analysis"]
 
 
 def test_damage_without_named_anomalies_still_reads_as_damage(llm_ok, signed_env):
@@ -571,7 +571,7 @@ def test_damage_without_named_anomalies_still_reads_as_damage(llm_ok, signed_env
     finally:
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
-    assert "Schadenspruefung: Schaden sichtbar." in response.json()["photo_analysis"]
+    assert "Schaden: SICHTBAR." in response.json()["photo_analysis"]
 
 
 def test_a_second_assessment_waits_instead_of_starting(llm_ok, signed_env):
@@ -647,8 +647,11 @@ def test_one_unreadable_photo_does_not_erase_the_others(llm_ok, signed_env):
 
     body = response.json()
     assert body["photo_checked"] is True
-    assert "Artikelabgleich: stimmt mit Katalogbild ueberein." in body["photo_analysis"]
-    assert "1 Foto(s) nicht lesbar" in body["photo_analysis"]
+    # Uebereinstimmung erzeugt seit dem 2026-08-14 keine Zeile im Klartext:
+    # der Normalfall kostet den Menschen nur Lesezeit, die Beweislage steht
+    # in der `article_compare`-Protokollzeile.
+    assert "Artikel:" not in body["photo_analysis"]
+    assert "Fotos: 1 nicht lesbar" in body["photo_analysis"]
     # Das lesbare Foto wurde geprueft, das unlesbare gar nicht erst geschickt.
     assert fake.damage_calls == 1
 
@@ -672,8 +675,8 @@ def test_photos_without_an_answer_are_counted_not_swallowed(llm_ok, signed_env):
 
     analyse = response.json()["photo_analysis"]
     assert "keine Auffaelligkeit sichtbar" not in analyse
-    assert "Schadenspruefung nicht moeglich" in analyse
-    assert "3 weitere Foto(s) ungeprueft" in analyse
+    assert "Schaden: nicht geprueft" in analyse
+    assert "Fotos: 3 weitere ungeprueft" in analyse
 
 
 def test_a_partial_damage_check_says_how_much_it_covered(llm_ok, signed_env):
@@ -701,7 +704,7 @@ def test_a_partial_damage_check_says_how_much_it_covered(llm_ok, signed_env):
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
     analyse = response.json()["photo_analysis"]
-    assert "1 von 2 Foto(s) geprueft, dabei keine Auffaelligkeit sichtbar" in analyse
+    assert "nur 1 von 2 Foto(s) geprueft" in analyse
 
 
 def test_the_internal_article_number_does_not_reach_the_model(llm_ok, signed_env):
@@ -806,9 +809,9 @@ def test_the_comparison_never_clears_a_damage_the_check_already_found(
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
     analyse = response.json()["photo_analysis"]
-    assert "Schadenspruefung: Schaden sichtbar (feather)." in analyse
-    assert "findet die Auffaelligkeit nicht wieder" in analyse
-    assert "Der Befund der Schadenspruefung bleibt stehen." in analyse
+    assert "Schaden: SICHTBAR -- feather." in analyse
+    assert "findet die Stelle nicht wieder" in analyse
+    assert "Der Befund bleibt stehen." in analyse
     assert fake.damage_calls == 2  # ein Meldefoto, ein Katalogbild
 
 
@@ -834,8 +837,12 @@ def test_a_clean_photo_that_matches_the_catalogue_image_says_so(llm_ok, signed_e
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
     analyse = response.json()["photo_analysis"]
-    assert "Schadenspruefung: keine Auffaelligkeit sichtbar." in analyse
-    assert "keine Abweichung vom Neuzustand" in analyse
+    assert "Schaden: keine Auffaelligkeit sichtbar." in analyse
+    # Der bestaetigende Vergleich erzeugt seit dem 2026-08-14 KEINE Zeile:
+    # "keine Abweichung vom Neuzustand" wiederholt nur die Zeile darueber. Dass
+    # er gelaufen ist, steht als `condition_compare` im Protokoll.
+    assert "Zustand:" not in analyse
+    assert "Schaden: keine Auffaelligkeit sichtbar." in analyse
 
 
 def test_a_cleanly_broken_off_corner_is_only_caught_against_the_catalogue_image(
@@ -900,7 +907,7 @@ def test_the_condition_comparison_confirms_a_real_crack(llm_ok, signed_env):
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
     analyse = response.json()["photo_analysis"]
-    assert "Schadenspruefung: Schaden sichtbar (torn area)." in analyse
+    assert "Schaden: SICHTBAR -- torn area." in analyse
     assert "bestaetigt den Befund" in analyse
 
 
@@ -927,8 +934,8 @@ def test_a_silent_text_model_does_not_clear_the_damage_finding(llm_ok, signed_en
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
     analyse = response.json()["photo_analysis"]
-    assert "Schadenspruefung: Schaden sichtbar (torn area)." in analyse
-    assert "Zustandsvergleich nicht moeglich: Textmodell antwortet nicht." in analyse
+    assert "Schaden: SICHTBAR -- torn area." in analyse
+    assert "Zustand: nicht verglichen (Textmodell antwortet nicht)." in analyse
 
 
 def test_an_unreadable_catalogue_image_is_said_not_swallowed(llm_ok, signed_env):
@@ -950,8 +957,8 @@ def test_an_unreadable_catalogue_image_is_said_not_swallowed(llm_ok, signed_env)
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
     analyse = response.json()["photo_analysis"]
-    assert "Schadenspruefung: Schaden sichtbar (torn area)." in analyse
-    assert "Zustandsvergleich nicht moeglich: Katalogbild nicht auswertbar." in analyse
+    assert "Schaden: SICHTBAR -- torn area." in analyse
+    assert "Zustand: nicht verglichen (Katalogbild nicht auswertbar)." in analyse
     assert llm_ok.condition_calls == []
 
 
@@ -977,7 +984,7 @@ def test_without_a_catalogue_image_nothing_is_compared_and_nothing_is_claimed(
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
     analyse = response.json()["photo_analysis"]
-    assert "Zustandsvergleich" not in analyse
+    assert "Zustand:" not in analyse
     assert fake.damage_calls == 1
     assert llm_ok.condition_calls == []
 
@@ -1058,9 +1065,9 @@ def test_a_mismatched_article_gets_no_condition_comparison(llm_ok, signed_env):
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
     analyse = response.json()["photo_analysis"]
-    assert "Zustandsvergleich" not in analyse
-    assert "Foto zeigt nicht den gemeldeten Artikel" in analyse
-    assert "Schadenspruefung:" in analyse
+    assert "Zustand:" not in analyse
+    assert "Artikel: FALSCHES TEIL" in analyse
+    assert "Schaden:" in analyse
     assert fake.damage_calls == 1  # nur das Meldefoto, kein Katalogbild
 
 
@@ -1248,8 +1255,8 @@ def test_a_stored_description_works_without_any_catalogue_image(llm_ok, signed_e
     finally:
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
-    assert "Artikelabgleich entfaellt" not in analyse
-    assert "Artikelabgleich: stimmt mit Katalogbild ueberein." in analyse
+    assert "Artikel: nicht geprueft" not in analyse
+    assert "Artikel:" not in analyse
     assert fake.describe_calls == 1
 
 

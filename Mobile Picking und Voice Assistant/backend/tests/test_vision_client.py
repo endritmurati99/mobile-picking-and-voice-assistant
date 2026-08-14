@@ -25,10 +25,11 @@ REFERENCE = b"\xff\xd8referenzbild"
 CANDIDATE = b"\xff\xd8meldefoto"
 
 
-def _client(handler):
+def _client(handler, article_model: str | None = None):
     return VisionClient(
         endpoint="http://ollama:11434",
         model="qwen2.5vl:7b",
+        article_model=article_model,
         timeout_ms=5000,
         transport=httpx.MockTransport(handler),
     )
@@ -231,12 +232,15 @@ async def test_timeout_yields_an_empty_finding():
 
 
 def test_the_model_choice_is_pinned_by_measurement():
-    """Beide Modellzuordnungen sind gemessen, nicht geraten:
+    """Alle drei Modellzuordnungen sind gemessen, nicht geraten:
 
     * qwen2.5vl:7b stufte "Verpackung defekt" als scrap ein, wo qwen2.5:7b
       korrekt sellable sagt -- es taugt fuers Bild, nicht fuer den Text.
     * qwen2.5vl:3b antwortete auf alle vier Pruefbilder "smooth and continuous
       everywhere", auch auf den offensichtlichen Bruch.
+    * gemma4:12b traegt den Artikelabgleich (10/12, Schadenstoleranz 5/6)
+      gegen qwen2.5vl:7b (6/12, 2/6) und ist dabei dreimal schneller --
+      gemessen am 2026-08-13 an zwoelf handgeprueften Faellen.
 
     Wer den Standard aendert, soll an diesem Test vorbei muessen.
     """
@@ -244,8 +248,141 @@ def test_the_model_choice_is_pinned_by_measurement():
 
     settings = Settings(_env_file=None)
     assert settings.vision_model == "qwen2.5vl:7b"
+    assert settings.vision_article_model == "gemma4:12b"
     assert settings.llm_model == "qwen2.5:7b"
     assert settings.vision_model != settings.llm_model
+
+
+def test_the_damage_model_stays_separate_from_the_article_model():
+    """Die Schadensachse darf NICHT mitwandern.
+
+    `qwen2.5vl:7b` ist dort bei 1024 px eingemessen (Commit 2532e3a: bei 768 px
+    "a leaf-like DESIGN", bei 1024 px "a leaf-shaped INDENTATION"). Fuer
+    `gemma4:12b` gibt es auf dieser Achse keine Messung. Wer beide Felder auf
+    denselben Namen zieht, dreht eine gemessene Verbesserung ungeprueft zurueck.
+    """
+    from app.config import Settings
+
+    settings = Settings(_env_file=None)
+    assert settings.vision_article_model != settings.vision_model
+
+
+@pytest.mark.anyio
+async def test_describe_asks_the_article_model():
+    """Der Artikelabgleich geht an `gemma4:12b`."""
+    captured = {}
+    handler = _responder(
+        {
+            "object_type": "toy building brick",
+            "colour": "blue",
+            "shape": "small 2x2 block",
+            "markings": "none",
+            "is_a_product": True,
+        },
+        captured,
+    )
+
+    await _client(handler, article_model="gemma4:12b").describe(CANDIDATE)
+
+    assert captured["body"]["model"] == "gemma4:12b"
+
+
+@pytest.mark.anyio
+async def test_damage_asks_the_damage_model():
+    """Die Schadenspruefung bleibt bei `qwen2.5vl:7b`, auch wenn der
+    Artikelabgleich woanders hinfragt."""
+    captured = {}
+    handler = _responder(
+        {
+            "surface_description": "a torn region on the upper edge",
+            "anomalies": ["torn edge"],
+            "damaged": True,
+            "confidence": 0.9,
+        },
+        captured,
+    )
+
+    await _client(handler, article_model="gemma4:12b").inspect_damage(CANDIDATE)
+
+    assert captured["body"]["model"] == "qwen2.5vl:7b"
+
+
+@pytest.mark.anyio
+async def test_every_call_logs_which_model_served_it(caplog):
+    """Der Modellnachweis gehoert ins Log, nicht in die Rekonstruktion.
+
+    Aus Odoo ist die Frage nicht zu beantworten (`ai_model` traegt das
+    TEXTmodell und bleibt bei `review_required` leer), und Ollama protokolliert
+    je Aufruf nur Pfad und Dauer. Ohne diese Zeile bleibt nur Indizienbeweis --
+    am 2026-08-14 genau die offene Frage gewesen.
+    """
+    import logging
+
+    captured = {}
+    handler = _responder(
+        {
+            "object_type": "toy building brick",
+            "colour": "blue",
+            "shape": "small 2x2 block",
+            "markings": "none",
+            "is_a_product": True,
+        },
+        captured,
+    )
+
+    with caplog.at_level(logging.INFO, logger="app.services.vision_client"):
+        await _client(handler, article_model="gemma4:12b").describe(CANDIDATE)
+
+    zeilen = [
+        json.loads(r.message)
+        for r in caplog.records
+        if r.name == "app.services.vision_client"
+    ]
+    treffer = [z for z in zeilen if z.get("event_type") == "vision_probe"]
+    assert len(treffer) == 1
+    assert treffer[0]["model"] == "gemma4:12b"
+    assert treffer[0]["ok"] is True
+    assert treffer[0]["images"] == 1
+    assert isinstance(treffer[0]["duration_ms"], int)
+
+
+def test_the_runtime_hands_both_models_to_the_client():
+    """Ohne diese Verdrahtung stuende die Einstellung da und wirkte nicht --
+    der Client fiele stillschweigend auf ein Modell fuer beide Fragen zurueck.
+    """
+    from app.config import Settings
+    from app.runtime import RuntimeServices
+
+    runtime = RuntimeServices(Settings(_env_file=None))
+    client = runtime.vision_client()
+
+    assert client is not None
+    assert client.article_model == "gemma4:12b"
+    assert client.model == "qwen2.5vl:7b"
+
+
+@pytest.mark.anyio
+async def test_without_an_article_model_both_calls_use_the_one_model():
+    """Der Rueckweg: ist `gemma4:12b` nicht geladen, genuegt es, die
+    Einstellung zu leeren -- ohne Codeeingriff verhaelt sich der Client wie
+    vor der Trennung."""
+    captured = {}
+    handler = _responder(
+        {
+            "object_type": "toy building brick",
+            "colour": "blue",
+            "shape": "small 2x2 block",
+            "markings": "none",
+            "is_a_product": True,
+        },
+        captured,
+    )
+    client = _client(handler, article_model=None)
+
+    await client.describe(CANDIDATE)
+
+    assert captured["body"]["model"] == "qwen2.5vl:7b"
+    assert client.article_model == client.model
 
 
 @pytest.mark.anyio

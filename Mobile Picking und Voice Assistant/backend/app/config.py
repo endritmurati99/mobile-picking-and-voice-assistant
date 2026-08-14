@@ -129,6 +129,34 @@ class Settings(BaseSettings):
     # 12 GB WSL-Speicher passt das nicht neben den uebrigen Diensten; der
     # Rechner hat 33 GB, die .wslconfig muss auf 20 GB stehen.
     vision_model: str = "qwen2.5vl:7b"
+    # Der ARTIKELABGLEICH laeuft ueber ein eigenes Bildmodell, die
+    # Schadenspruefung bleibt auf `vision_model`. Beides getrennt, weil die
+    # zwei Achsen getrennt gemessen sind und in verschiedene Richtungen
+    # zeigen:
+    #
+    # * Artikelachse, 12 handgeprueften Faelle vom 2026-08-13
+    #   (`docs/superpowers/specs/2026-08-13-artikelabgleich-modellvergleich.md`):
+    #   `gemma4:12b` 10/12 bei 49 s je Fall, `qwen2.5vl:7b` 6/12 bei 149 s.
+    #   Entscheidend ist die Schadenstoleranz -- 5/6 gegen 2/6. `qwen2.5vl:7b`
+    #   haelt einen Riss fuer ein Artikelmerkmal ("The right part is visibly
+    #   damaged and not the same") und weist damit die echte Schadensmeldung
+    #   als Falschlieferung ab. Das ist der teuerste Fehler der Kette.
+    # * Schadensachse: dort ist `qwen2.5vl:7b` bei 1024 px eingemessen
+    #   (Commit `2532e3a`: bei 768 px "a leaf-like DESIGN", bei 1024 px "a
+    #   leaf-shaped INDENTATION"). Fuer `gemma4:12b` gibt es auf dieser Achse
+    #   KEINE Messung. Wer hier denselben Namen eintraegt, dreht eine
+    #   gemessene Verbesserung ungeprueft zurueck.
+    #
+    # Beide Modelle gleichzeitig resident sind rund 9 GB + 6 GB; die
+    # `.wslconfig` steht seit dem 2026-08-13 auf 26 GB.
+    #
+    # WICHTIG, damit niemand mehr erwartet, als hier steht: die 10/12 wurden
+    # ueber eine MONTAGE gemessen (beide Teile in EIN Bild, ein Aufruf urteilt
+    # `same_part`). Der Produktivpfad beschreibt beide Bilder einzeln und
+    # laesst das Textmodell vergleichen (`_check_article`). Der Modellwechsel
+    # traegt also die bessere Beschreibung in den Vergleich hinein, nicht das
+    # gemessene Urteil selbst.
+    vision_article_model: str = "gemma4:12b"
     # Notausgang: auf false verhaelt sich die Kette wie vor dem Bild-Umbau,
     # ohne dass jemand Code zurueckdrehen muss.
     vision_enabled: bool = True
@@ -143,6 +171,38 @@ class Settings(BaseSettings):
     # laeuft immer, die Schadenspruefung nur solange davon Zeit uebrig ist;
     # was liegen bleibt, wird gezaehlt und genannt.
     vision_budget_ms: int = 240000
+    # Artikelabgleich ueber Bildabstand (Dienst `embed`) statt ueber zwei
+    # Beschreibungen und ein Textmodell.
+    #
+    # `off`     wie bisher: das Textmodell vergleicht zwei Beschreibungen.
+    # `schatten` der Einbettungsdienst laeuft mit und protokolliert, entscheidet
+    #           aber nichts. Fuer eine Messreihe im Betrieb, ohne Risiko.
+    # `primaer` der Einbettungsdienst entscheidet; faellt er aus, ist die
+    #           Kennung unbekannt oder lautet das Urteil `unsicher`, uebernimmt
+    #           der bisherige Weg unveraendert.
+    #
+    # Warum `primaer` der Standard ist: am 2026-08-14 wurden zehn Meldungen
+    # durch die echte Kette geschickt. Der Textvergleich wies drei richtige
+    # Teile ab -- einmal auf "blue" gegen "light blue" (QA/0323), einmal auf
+    # "studs" gegen "four cylindrical studs" bei zweimal woertlich "light blue"
+    # (QA/0331), einmal auf "arch-shaped" gegen "rounded top" (QA/0329) -- und
+    # liess denselben Wortunterschied an anderer Stelle durch (QA/0333). Der
+    # Einbettungsdienst traf auf denselben echten Meldefotos 7/7 in 0,36-1,78 s
+    # gegen 45-165 s. Belege in
+    # `docs/superpowers/specs/2026-08-13-artikelabgleich-modellvergleich.md`.
+    embed_mode: str = "primaer"
+    embed_url: str = "http://embed:8000"
+    # Gemessen 0,36-1,78 s je Abgleich. 15 s sind rund zehnfache Luft und
+    # bleiben weit unter `vision_budget_ms` -- der Rueckfallweg muss noch
+    # hineinpassen, wenn der Dienst haengt.
+    embed_timeout_ms: int = 15000
+    # Der Katalogaufbau ist der teure Aufruf: 26,5 s fuer 47 Bilder, beim
+    # allerersten Mal zusaetzlich das Laden des Modells.
+    embed_katalog_timeout_ms: int = 180000
+    # Wie lange ein eingebetteter Katalog gilt. Neue Artikel und getauschte
+    # Katalogbilder kommen im Lagerbetrieb selten; ein Tag ist reichlich eng
+    # genug, und ein Neustart des Dienstes erzwingt den Aufbau ohnehin.
+    embed_katalog_ttl_s: int = 86400
     # Wie lange eine Bewertung darauf wartet, dass die vorige fertig ist.
     # Gemessen am 2026-08-07: zwei Meldungen 20 s auseinander (QA/0214 aus dem
     # Skript, QA/0215 aus der PWA) liefen gleichzeitig in Ollama. Aufrufe, die

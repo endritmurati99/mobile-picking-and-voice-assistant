@@ -149,6 +149,16 @@ services:
       LLM_ENDPOINT: ${LLM_ENDPOINT:-http://ollama:11434}
       LLM_MODEL: ${LLM_MODEL:-qwen2.5:7b}
       LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-90000}
+      # Bildpruefung: Artikelabgleich und Schadenspruefung auf getrennten
+      # Modellen, beide Achsen einzeln gemessen. Begruendung bei
+      # `vision_article_model` in backend/app/config.py. VISION_ARTICLE_MODEL
+      # leer faellt auf VISION_MODEL zurueck.
+      VISION_MODEL: ${VISION_MODEL:-qwen2.5vl:7b}
+      VISION_ARTICLE_MODEL: ${VISION_ARTICLE_MODEL:-gemma4:12b}
+      # Artikelabgleich ueber Bildabstand. `off` schaltet zurueck auf den
+      # Textvergleich, `schatten` misst mit ohne zu entscheiden.
+      EMBED_MODE: ${EMBED_MODE:-primaer}
+      EMBED_URL: ${EMBED_URL:-http://embed:8000}
       # Ohne dieses Flag laeuft der Outbox-Dispatcher nicht und KEIN Ereignis
       # wird je zugestellt (Default in config.py ist False).
       DISPATCHER_ENABLED: ${DISPATCHER_ENABLED:-true}
@@ -245,6 +255,33 @@ services:
     networks:
       - automation-net
 
+  # ── Bildeinbettung fuer den Artikelabgleich ────────────────────
+  # Entscheidet ueber Bildabstand statt ueber zwei Beschreibungen und ein
+  # Textmodell. Begruendung und Messwerte bei `embed_mode` in
+  # backend/app/config.py. Gewichte sind ins Bild gebacken (wie whisper/piper),
+  # der Bau braucht Netz, der Betrieb nicht. Kein Host-Port, kein Volume: den
+  # Katalog haelt der Dienst im Speicher, das Backend schiebt ihn nach jedem
+  # Neustart neu hin.
+  embed:
+    build:
+      context: ./embed
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      EINBETT_FARBGEWICHT: ${EINBETT_FARBGEWICHT:-0.25}
+      EINBETT_FREMD_SCHWELLE: ${EINBETT_FREMD_SCHWELLE:-0.45}
+      EINBETT_KNAPP_SCHWELLE: ${EINBETT_KNAPP_SCHWELLE:-0.02}
+    # python:3.12-slim bringt weder curl noch wget mit -- also der Interpreter.
+    # `start_period` ist grosszuegig, weil der erste Aufruf DINOv2 traege laedt.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+      - automation-net
+
   # ── Ollama (lokales LLM fuer KI-Qualitaetsbewertung, CPU-only) ─
   # Laeuft offline auf dem Lab-PC. Nur im Docker-Netz erreichbar (kein Host-Port).
   # Modell nach dem ersten Start laden: docker compose exec ollama ollama pull qwen2.5:7b
@@ -253,7 +290,20 @@ services:
     image: ollama/ollama:latest@sha256:f1a705f2bd113fb8d15f85f7c217f0dc5f6bebda6b0cc42b82c3ad165ffcb9dc
     restart: unless-stopped
     environment:
-      OLLAMA_KEEP_ALIVE: 24h
+      # 24h hielt jedes einmal benutzte Modell bis zum Neustart im Speicher.
+      # Seit der Einbettungsdienst dazukam, geht das nicht mehr auf: am
+      # 2026-08-14 starb der Ladeversuch von `gemma4:12b` (9,2 GB) neben
+      # qwen2.5:7b (5,1 GB) und qwen2.5vl:7b (6,2 GB) mit
+      # "llama-server process has terminated: signal: killed" -- ein OOM, und
+      # zwar genau auf dem Rueckfallweg des Artikelabgleichs.
+      #
+      # Zwei Stellschrauben statt einer: die Obergrenze verhindert den dritten
+      # Ladeversuch ueberhaupt (Ollama raeumt das aelteste Modell weg), die
+      # kuerzere Haltezeit gibt Speicher auch dann frei, wenn nur zwei Modelle
+      # im Spiel sind. Zwei Stunden decken eine Arbeitssitzung ab; danach
+      # kostet der erste Aufruf wieder das Laden (gemessen 80-145 s).
+      OLLAMA_KEEP_ALIVE: 2h
+      OLLAMA_MAX_LOADED_MODELS: "2"
     volumes:
       - ollama_data:/root/.ollama
     networks:

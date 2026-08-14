@@ -314,6 +314,17 @@ class QualityAlert(models.Model):
             "photo_total": total,
             "reference_image_b64": reference.decode("ascii") if reference else False,
             "product_label": alert.product_id.display_name if alert.product_id else "",
+            # Die Artikelnummer als eigenes Feld, nicht aus `product_label`
+            # herausgeschnitten. Der Einbettungsdienst schlaegt den Artikel
+            # ueber genau diesen Schluessel nach; ein Produkt ohne
+            # `default_code` traegt in `display_name` gar keine Klammer, und
+            # eine Regex darauf haette dort still danebengegriffen. Dieselbe
+            # Ersatzregel wie beim Katalogaufbau: ohne Nummer die interne id.
+            "product_code": (
+                ((template.default_code or "").strip() or f"id{template.id}")
+                if template
+                else ""
+            ),
         }
 
     def write(self, vals):

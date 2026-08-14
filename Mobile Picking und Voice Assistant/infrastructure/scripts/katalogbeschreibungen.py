@@ -89,9 +89,15 @@ async def hauptlauf(argumente) -> int:
         print("Nichts zu tun.")
         return 0
 
+    # Dasselbe Modell wie `describe()` in der Kette, seit Artikelabgleich und
+    # Schadenspruefung getrennt sind (`config.vision_article_model`). Die SOLL-
+    # Beschreibung wird spaeter gegen die Beschreibung des Meldefotos gehalten;
+    # stammen die zwei Saetze aus verschiedenen Modellen, misst der Vergleich
+    # den Modellunterschied mit. Genau dieses Vokabularproblem hat QA/0227
+    # ausgeloest ("plastic corner protector" fuer einen Duplo-Stein).
     vision = VisionClient(
         endpoint=os.environ.get("LLM_ENDPOINT", "http://ollama:11434"),
-        model=os.environ.get("VISION_MODEL", "qwen2.5vl:7b"),
+        model=os.environ.get("VISION_MODEL", "gemma4:12b"),
         timeout_ms=int(os.environ.get("VISION_TIMEOUT_MS", "200000")),
     )
 
