@@ -1,0 +1,401 @@
+[
+ {
+  "id": 327,
+  "name": "QA/0326",
+  "create_date": "2026-08-14 09:55:52",
+  "description": "Artikel beschädigt",
+  "product_id": [
+   85,
+   "[6023350] Brick 2x2x2 R=15 gelb"
+  ],
+  "ai_evaluation_status": "completed",
+  "ai_disposition": "scrap",
+  "ai_confidence": 0.9,
+  "ai_photo_analysis": "Artikelabgleich nicht moeglich: Bildmodell antwortet nicht.\nSchadenspruefung: keine Auffaelligkeit sichtbar.\nZustandsvergleich gegen Katalogbild: keine Abweichung vom Neuzustand (Die Beschreibungen SOLL und IST stimmen überein.).\nDas Foto zeigt keinen sichtbaren Schaden, die Meldung nennt einen. Bitte stichprobenartig pruefen.",
+  "ai_last_analyzed_at": "2026-08-14 09:57:50",
+  "ai_failure_reason": false,
+  "dateien": [
+   "A3-foto_11.jpg"
+  ]
+ },
+ {
+  "id": 328,
+  "name": "QA/0327",
+  "create_date": "2026-08-14 09:57:59",
+  "description": "Artikel beschädigt",
+  "product_id": [
+   85,
+   "[6023350] Brick 2x2x2 R=15 gelb"
+  ],
+  "ai_evaluation_status": "completed",
+  "ai_disposition": "scrap",
+  "ai_confidence": 0.9,
+  "ai_photo_analysis": "Artikelabgleich: stimmt mit Katalogbild ueberein.\nSchadenspruefung: keine Auffaelligkeit sichtbar.\nZustandsvergleich gegen Katalogbild: keine Abweichung vom Neuzustand (Die Beschreibungen SOLL und IST stimmen überein.).\nDas Foto zeigt keinen sichtbaren Schaden, die Meldung nennt einen. Bitte stichprobenartig pruefen.",
+  "ai_last_analyzed_at": "2026-08-14 10:01:50",
+  "ai_failure_reason": false,
+  "dateien": [
+   "A4-foto_10.jpg"
+  ]
+ },
+ {
+  "id": 329,
+  "name": "QA/0328",
+  "create_date": "2026-08-14 10:02:00",
+  "description": "Artikel beschädigt",
+  "product_id": [
+   75,
+   "[343724] Brick 2x2 gelb"
+  ],
+  "ai_evaluation_status": "completed",
+  "ai_disposition": "scrap",
+  "ai_confidence": 0.9,
+  "ai_photo_analysis": "Artikelabgleich: stimmt mit Katalogbild ueberein.\nSchadenspruefung: keine Auffaelligkeit sichtbar.\nZustandsvergleich gegen Katalogbild: keine Abweichung vom Neuzustand (Die Beschreibungen SOLL und IST stimmen überein.).\nDas Foto zeigt keinen sichtbaren Schaden, die Meldung nennt einen. Bitte stichprobenartig pruefen.",
+  "ai_last_analyzed_at": "2026-08-14 10:05:43",
+  "ai_failure_reason": false,
+  "dateien": [
+   "B1-kat_343724.jpg"
+  ]
+ },
+ {
+  "id": 330,
+  "name": "QA/0329",
+  "create_date": "2026-08-14 10:09:18",
+  "description": "Artikel beschädigt",
+  "product_id": [
+   85,
+   "[6023350] Brick 2x2x2 R=15 gelb"
+  ],
+  "ai_evaluation_status": "review_required",
+  "ai_disposition": false,
+  "ai_confidence": 0.0,
+  "ai_photo_analysis": "Foto zeigt nicht den gemeldeten Artikel: toy building brick, yellow, arch-shaped block statt [6023350] Brick 2x2x2 R=15 gelb.\nKatalogbild zeigt: building block, yellow, rectangular prism with rounded top. Begruendung des Textmodells: Die unterschiedlichen Bauformen weisen auf verschiedene Artikel hin.\nSchadenspruefung: keine Auffaelligkeit sichtbar.\nTexturteil der Meldung (nicht wirksam): scrap, Konfidenz 0.90. Artikel irreparabel beschädigt.",
+  "ai_last_analyzed_at": "2026-08-14 10:15:28",
+  "ai_failure_reason": "Foto widerspricht der Meldung, siehe Fotoanalyse.",
+  "dateien": [
+   "A3-foto_11.jpg"
+  ]
+ },
+ {
+  "id": 331,
+  "name": "QA/0330",
+  "create_date": "2026-08-14 10:15:35",
+  "description": "Artikel beschädigt",
+  "product_id": [
+   80,
+   "[4159527] Brick 2x2 orange"
+  ],
+  "ai_evaluation_status": "completed",
+  "ai_disposition": "scrap",
+  "ai_confidence": 0.95,
+  "ai_photo_analysis": "Artikelabgleich nicht moeglich: Bildmodell antwortet nicht.\nSchadenspruefung: keine Auffaelligkeit sichtbar.\nZustandsvergleich gegen Katalogbild: keine Abweichung vom Neuzustand (Die Beschreibungen stimmen überein und deuten auf den gleichen Zustand hin.).\nDas Foto zeigt keinen sichtbaren Schaden, die Meldung nennt einen. Bitte stichprobenartig pruefen.",
+  "ai_last_analyzed_at": "2026-08-14 10:18:16",
+  "ai_failure_reason": false,
+  "dateien": [
+   "B2-kat_4159527.jpg"
+  ]
+ },
+ {
+  "id": 332,
+  "name": "QA/0331",
+  "create_date": "2026-08-14 10:18:20",
+  "description": "Artikel beschädigt",
+  "product_id": [
+   77,
+   "[6294237] Brick 2x2 hellblau"
+  ],
+  "ai_evaluation_status": "review_required",
+  "ai_disposition": false,
+  "ai_confidence": 0.0,
+  "ai_photo_analysis": "Foto zeigt nicht den gemeldeten Artikel: toy building brick, light blue, rectangular block with studs on top statt [6294237] Brick 2x2 hellblau.\nKatalogbild zeigt: toy building brick, light blue, rectangular block with four cylindrical studs on top. Begruendung des Textmodells: Die Bauform ist unterschiedlich, da A vier Stuetze nennt und B nur allgemein Stuetze.\nSchadenspruefung: keine Auffaelligkeit sichtbar.\nTexturteil der Meldung (nicht wirksam): scrap, Konfidenz 0.95. Artikel irreparabel beschädigt.",
+  "ai_last_analyzed_at": "2026-08-14 10:20:54",
+  "ai_failure_reason": "Foto widerspricht der Meldung, siehe Fotoanalyse.",
+  "dateien": [
+   "B3-kat_6294237.jpg"
+  ]
+ },
+ {
+  "id": 333,
+  "name": "QA/0332",
+  "create_date": "2026-08-14 10:21:02",
+  "description": "Artikel beschädigt",
+  "product_id": [
+   95,
+   "[301121] Brick 2x4 rot"
+  ],
+  "ai_evaluation_status": "completed",
+  "ai_disposition": "scrap",
+  "ai_confidence": 0.8,
+  "ai_photo_analysis": "Artikelabgleich: stimmt mit Katalogbild ueberein.\nSchadenspruefung: keine Auffaelligkeit sichtbar.\nZustandsvergleich gegen Katalogbild: keine Abweichung vom Neuzustand (Die Beschreibungen SOLL und IST stimmen überein.).\nDas Foto zeigt keinen sichtbaren Schaden, die Meldung nennt einen. Bitte stichprobenartig pruefen.",
+  "ai_last_analyzed_at": "2026-08-14 10:24:24",
+  "ai_failure_reason": false,
+  "dateien": [
+   "B4-kat_301121.jpg"
+  ]
+ },
+ {
+  "id": 334,
+  "name": "QA/0333",
+  "create_date": "2026-08-14 10:24:31",
+  "description": "Artikel beschädigt",
+  "product_id": [
+   83,
+   "[343701] Brick 2x2 weiß"
+  ],
+  "ai_evaluation_status": "completed",
+  "ai_disposition": "scrap",
+  "ai_confidence": 0.95,
+  "ai_photo_analysis": "Artikelabgleich: stimmt mit Katalogbild ueberein.\nSchadenspruefung: keine Auffaelligkeit sichtbar.\nZustandsvergleich gegen Katalogbild: keine Abweichung vom Neuzustand (Die Beschreibungen stimmen überein und deuten auf den gleichen Zustand hin.).\nDas Foto zeigt keinen sichtbaren Schaden, die Meldung nennt einen. Bitte stichprobenartig pruefen.",
+  "ai_last_analyzed_at": "2026-08-14 10:28:21",
+  "ai_failure_reason": false,
+  "dateien": [
+   "B5-kat_343701.jpg"
+  ]
+ },
+ {
+  "id": 335,
+  "name": "QA/0334",
+  "create_date": "2026-08-14 10:28:33",
+  "description": "Artikel beschädigt",
+  "product_id": [
+   85,
+   "[6023350] Brick 2x2x2 R=15 gelb"
+  ],
+  "ai_evaluation_status": "review_required",
+  "ai_disposition": false,
+  "ai_confidence": 0.0,
+  "ai_photo_analysis": "Foto zeigt nicht den gemeldeten Artikel: toy building brick, blue, rectangular block with four cylindrical studs on top statt [6023350] Brick 2x2x2 R=15 gelb.\nKatalogbild zeigt: building block, yellow, rectangular prism with rounded top. Begruendung des Textmodells: Die Bauformen unterscheiden sich, da eine Rundung am oberen Teil und vier Zylindermarkierungen genannt werden.\nSchadenspruefung: keine Auffaelligkeit sichtbar.\nTexturteil der Meldung (nicht wirksam): scrap, Konfidenz 0.90. Artikel irreparabel beschädigt.",
+  "ai_last_analyzed_at": "2026-08-14 10:29:42",
+  "ai_failure_reason": "Foto widerspricht der Meldung, siehe Fotoanalyse.",
+  "dateien": [
+   "C1-foto_3.jpg"
+  ]
+ },
+ {
+  "id": 336,
+  "name": "QA/0335",
+  "create_date": "2026-08-14 10:29:55",
+  "description": "Artikel beschädigt",
+  "product_id": [
+   85,
+   "[6023350] Brick 2x2x2 R=15 gelb"
+  ],
+  "ai_evaluation_status": "review_required",
+  "ai_disposition": false,
+  "ai_confidence": 0.0,
+  "ai_photo_analysis": "Foto zeigt nicht den gemeldeten Artikel: dog, cream-colored, large four-legged animal statt [6023350] Brick 2x2x2 R=15 gelb.\nKatalogbild zeigt: building block, yellow, rectangular prism with rounded top. Begruendung des Textmodells: Beschreibung B bezieht sich nicht auf den gleichen Artikel.\nSchadenspruefung: keine Auffaelligkeit sichtbar.\nTexturteil der Meldung (nicht wirksam): scrap, Konfidenz 0.90. Artikel irreparabel beschädigt.",
+  "ai_last_analyzed_at": "2026-08-14 10:33:10",
+  "ai_failure_reason": "Foto widerspricht der Meldung, siehe Fotoanalyse.",
+  "dateien": [
+   "C2-foto_14.jpg"
+  ]
+ },
+ {
+  "id": 337,
+  "name": "QA/0336",
+  "create_date": "2026-08-14 12:57:43",
+  "description": "Artikel beschädigt",
+  "product_id": [
+   85,
+   "[6023350] Brick 2x2x2 R=15 gelb"
+  ],
+  "ai_evaluation_status": "completed",
+  "ai_disposition": "scrap",
+  "ai_confidence": 0.9,
+  "ai_photo_analysis": "Artikelabgleich (Bildabstand): Stimmt mit dem Katalogbild ueberein (0.847, Abstand zum naechsten Artikel 0.177).\nSchadenspruefung: keine Auffaelligkeit sichtbar.\nZustandsvergleich gegen Katalogbild: keine Abweichung vom Neuzustand (Beide Beschreibungen stimmen überein.).\nDas Foto zeigt keinen sichtbaren Schaden, die Meldung nennt einen. Bitte stichprobenartig pruefen.",
+  "ai_last_analyzed_at": "2026-08-14 12:59:02",
+  "ai_failure_reason": false,
+  "dateien": [
+   "A3-foto_11.jpg"
+  ]
+ },
+ {
+  "id": 338,
+  "name": "QA/0337",
+  "create_date": "2026-08-14 12:59:14",
+  "description": "Artikel beschädigt",
+  "product_id": [
+   77,
+   "[6294237] Brick 2x2 hellblau"
+  ],
+  "ai_evaluation_status": "completed",
+  "ai_disposition": "scrap",
+  "ai_confidence": 0.95,
+  "ai_photo_analysis": "Artikelabgleich (Bildabstand): Stimmt mit dem Katalogbild ueberein (0.885, Abstand zum naechsten Artikel 0.025).\nSchadenspruefung: keine Auffaelligkeit sichtbar.\nZustandsvergleich gegen Katalogbild: keine Abweichung vom Neuzustand (Die Beschreibungen SOLL und IST stimmen überein.).\nDas Foto zeigt keinen sichtbaren Schaden, die Meldung nennt einen. Bitte stichprobenartig pruefen.",
+  "ai_last_analyzed_at": "2026-08-14 13:01:08",
+  "ai_failure_reason": false,
+  "dateien": [
+   "B3-kat_6294237.jpg"
+  ]
+ },
+ {
+  "id": 339,
+  "name": "QA/0338",
+  "create_date": "2026-08-14 13:01:14",
+  "description": "Artikel beschädigt",
+  "product_id": [
+   73,
+   "[4166960] Brick 2x2 blau"
+  ],
+  "ai_evaluation_status": "completed",
+  "ai_disposition": "scrap",
+  "ai_confidence": 0.95,
+  "ai_photo_analysis": "Artikelabgleich (Bildabstand): Stimmt mit dem Katalogbild ueberein (0.942, Abstand zum naechsten Artikel 0.115).\nSchadenspruefung: Schaden sichtbar (torn).\nZustandsvergleich gegen Katalogbild bestaetigt den Befund (Es gibt eine getornete oder gesplitzte Region, die im SOLL nicht vorkommt.).",
+  "ai_last_analyzed_at": "2026-08-14 13:01:53",
+  "ai_failure_reason": false,
+  "dateien": [
+   "A1-foto_4.jpg"
+  ]
+ },
+ {
+  "id": 340,
+  "name": "QA/0339",
+  "create_date": "2026-08-14 13:01:59",
+  "description": "Artikel beschädigt",
+  "product_id": [
+   85,
+   "[6023350] Brick 2x2x2 R=15 gelb"
+  ],
+  "ai_evaluation_status": "review_required",
+  "ai_disposition": false,
+  "ai_confidence": 0.0,
+  "ai_photo_analysis": "Foto zeigt nicht den gemeldeten Artikel [6023350] Brick 2x2x2 R=15 gelb: Foto passt zu 4166960 (0.999), nicht zum bestellten Artikel 6023350 (dort Platz 34).\nNaechste Treffer im Katalog: 4166960 0.999, 4216758 0.852, 4652854 0.844.\nSchadenspruefung: keine Auffaelligkeit sichtbar.\nTexturteil der Meldung (nicht wirksam): scrap, Konfidenz 0.90. Artikel irreparabel beschädigt.",
+  "ai_last_analyzed_at": "2026-08-14 13:02:19",
+  "ai_failure_reason": "Foto widerspricht der Meldung, siehe Fotoanalyse.",
+  "dateien": [
+   "C1-foto_3.jpg"
+  ]
+ },
+ {
+  "id": 341,
+  "name": "QA/0340",
+  "create_date": "2026-08-14 13:02:30",
+  "description": "Artikel beschädigt",
+  "product_id": [
+   85,
+   "[6023350] Brick 2x2x2 R=15 gelb"
+  ],
+  "ai_evaluation_status": "completed",
+  "ai_disposition": "scrap",
+  "ai_confidence": 0.9,
+  "ai_photo_analysis": "Artikelabgleich nicht moeglich: Bildmodell antwortet nicht.\nSchadenspruefung: keine Auffaelligkeit sichtbar.\nZustandsvergleich gegen Katalogbild: keine Abweichung vom Neuzustand (Beide Beschreibungen zeigen einen unbeschädigten Zustand.).\nDas Foto zeigt keinen sichtbaren Schaden, die Meldung nennt einen. Bitte stichprobenartig pruefen.",
+  "ai_last_analyzed_at": "2026-08-14 13:04:23",
+  "ai_failure_reason": false,
+  "dateien": [
+   "C2-foto_14.jpg"
+  ]
+ },
+ {
+  "id": 342,
+  "name": "QA/0341",
+  "create_date": "2026-08-14 13:05:19",
+  "description": "Artikel beschädigt",
+  "product_id": [
+   85,
+   "[6023350] Brick 2x2x2 R=15 gelb"
+  ],
+  "ai_evaluation_status": "completed",
+  "ai_disposition": "scrap",
+  "ai_confidence": 0.9,
+  "ai_photo_analysis": "Artikelabgleich nicht moeglich: Bildmodell antwortet nicht.\nSchadenspruefung: keine Auffaelligkeit sichtbar.\nZustandsvergleich gegen Katalogbild: keine Abweichung vom Neuzustand (Beide Beschreibungen weisen auf ein glattes und unbeschädigtes Fell hin.).\nDas Foto zeigt keinen sichtbaren Schaden, die Meldung nennt einen. Bitte stichprobenartig pruefen.",
+  "ai_last_analyzed_at": "2026-08-14 13:06:16",
+  "ai_failure_reason": false,
+  "dateien": [
+   "C2-foto_14.jpg"
+  ]
+ },
+ {
+  "id": 343,
+  "name": "QA/0342",
+  "create_date": "2026-08-14 13:10:53",
+  "description": "Artikel beschädigt",
+  "product_id": [
+   85,
+   "[6023350] Brick 2x2x2 R=15 gelb"
+  ],
+  "ai_evaluation_status": "completed",
+  "ai_disposition": "scrap",
+  "ai_confidence": 0.9,
+  "ai_photo_analysis": "Artikelabgleich nicht moeglich: Bildmodell antwortet nicht.\nBildabstand: Kein bekannter Artikel: beste Uebereinstimmung 0.203 unter der Schwelle 0.45.\nSchadenspruefung: keine Auffaelligkeit sichtbar.\nZustandsvergleich gegen Katalogbild: keine Abweichung vom Neuzustand (Beide Beschreibungen weisen auf ein glattes und unbeschädigtes Fell hin.).\nDas Foto zeigt keinen sichtbaren Schaden, die Meldung nennt einen. Bitte stichprobenartig pruefen.",
+  "ai_last_analyzed_at": "2026-08-14 13:12:07",
+  "ai_failure_reason": false,
+  "dateien": [
+   "C2-foto_14.jpg"
+  ]
+ },
+ {
+  "id": 344,
+  "name": "QA/0343",
+  "create_date": "2026-08-14 14:01:28",
+  "description": "Artikel beschädigt",
+  "product_id": [
+   85,
+   "[6023350] Brick 2x2x2 R=15 gelb"
+  ],
+  "ai_evaluation_status": "completed",
+  "ai_disposition": "scrap",
+  "ai_confidence": 0.9,
+  "ai_photo_analysis": "Schaden: SICHTBAR -- jagged tear in the front face.\nZustand: Abgleich mit dem Katalogbild bestaetigt den Befund (Es gibt eine unglatte und unstetige Stelle auf der Vorderseite.).",
+  "ai_last_analyzed_at": "2026-08-14 14:05:28",
+  "ai_failure_reason": false,
+  "dateien": [
+   "A3-foto_11.jpg"
+  ]
+ },
+ {
+  "id": 345,
+  "name": "QA/0344",
+  "create_date": "2026-08-14 14:05:29",
+  "description": "Artikel beschädigt",
+  "product_id": [
+   73,
+   "[4166960] Brick 2x2 blau"
+  ],
+  "ai_evaluation_status": "completed",
+  "ai_disposition": "scrap",
+  "ai_confidence": 0.95,
+  "ai_photo_analysis": "Schaden: SICHTBAR -- crack, broken edge.\nZustand: Abgleich mit dem Katalogbild bestaetigt den Befund (Es gibt eine Kerbe, die im SOLL nicht vorkommt.).",
+  "ai_last_analyzed_at": "2026-08-14 14:08:03",
+  "ai_failure_reason": false,
+  "dateien": [
+   "A1-foto_4.jpg"
+  ]
+ },
+ {
+  "id": 346,
+  "name": "QA/0345",
+  "create_date": "2026-08-14 14:08:15",
+  "description": "Artikel beschädigt",
+  "product_id": [
+   75,
+   "[343724] Brick 2x2 gelb"
+  ],
+  "ai_evaluation_status": "completed",
+  "ai_disposition": "scrap",
+  "ai_confidence": 0.9,
+  "ai_photo_analysis": "Schaden: keine Auffaelligkeit sichtbar.\nHinweis: Foto zeigt keinen sichtbaren Schaden, die Meldung nennt einen. Bitte stichprobenartig pruefen.",
+  "ai_last_analyzed_at": "2026-08-14 14:12:39",
+  "ai_failure_reason": false,
+  "dateien": [
+   "R1-kat_343724.jpg"
+  ]
+ },
+ {
+  "id": 347,
+  "name": "QA/0346",
+  "create_date": "2026-08-14 15:36:34",
+  "description": "Artikel beschädigt",
+  "product_id": [
+   85,
+   "[6023350] Brick 2x2x2 R=15 gelb"
+  ],
+  "ai_evaluation_status": "review_required",
+  "ai_disposition": false,
+  "ai_confidence": 0.0,
+  "ai_photo_analysis": "Artikel: FALSCHES TEIL -- Foto zeigt dog, cream-colored, large four-legged animal statt [6023350] Brick 2x2x2 R=15 gelb.\nArtikel: Katalogbild zeigt building block, yellow, rectangular prism with rounded top. Begründung des Textmodells: Beschreibung B bezieht sich nicht auf den gleichen Artikel.\nSchaden: keine Auffälligkeit sichtbar.\nTexturteil der Meldung (nicht wirksam): scrap, Konfidenz 0.90. Artikel irreparabel beschädigt.",
+  "ai_last_analyzed_at": "2026-08-14 15:38:51",
+  "ai_failure_reason": "Foto widerspricht der Meldung, siehe Fotoanalyse.",
+  "dateien": [
+   "C2-foto_14.jpg"
+  ]
+ }
+]

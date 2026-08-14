@@ -1,0 +1,37 @@
+
+=== qwen2.5vl:7b
+  foto_4.jpg       soll=Schaden ist=True     92s  richtig     torn
+  foto_11.jpg      soll=Schaden ist=False    79s  UEBERSEHEN  
+  foto_10.jpg      soll=Schaden ist=False    77s  UEBERSEHEN  
+  foto_213.jpg     soll=Schaden ist=True     82s  richtig     feather
+  foto_13.jpg      soll=heil    ist=False    79s  richtig     
+  foto_3.jpg       soll=heil    ist=False    80s  richtig     
+  kat_343724.jpg   soll=heil    ist=False   112s  richtig     
+  kat_301121.jpg   soll=heil    ist=False   107s  richtig     
+  => qwen2.5vl:7b: Schaden 2/4, Fehlalarme 0/4, Ausfaelle 0, Median 82s
+
+=== gemma4:12b
+  foto_4.jpg       soll=Schaden ist=True    149s  richtig     crack, broken edge
+  foto_11.jpg      soll=Schaden ist=True     58s  richtig     jagged tear in the front face
+  foto_10.jpg      soll=Schaden ist=True     71s  richtig     torn/gouged area on the side
+  foto_213.jpg     soll=Schaden ist=True     71s  richtig     torn/gouged area on the front face
+  foto_13.jpg      soll=heil    ist=False    36s  richtig     
+  foto_3.jpg       soll=heil    ist=False    48s  richtig     
+  kat_343724.jpg   soll=heil    ist=False    38s  richtig     
+  kat_301121.jpg   soll=heil    ist=False    27s  richtig     
+  => gemma4:12b: Schaden 4/4, Fehlalarme 0/4, Ausfaelle 0, Median 58s
+
+=== minicpm-v4.5:8b
+  foto_4.jpg       soll=Schaden ist=True     77s  richtig     Cracked area starting from the top right corner, extending d
+  foto_11.jpg      soll=Schaden ist=True     59s  richtig     Torn/split/gouged area on the upper-right section of the fro
+  foto_10.jpg      soll=Schaden ist=True     49s  richtig     Ragged tear on the left vertical face
+  foto_213.jpg     soll=Schaden ist=True     68s  richtig     Torn/gouged area on the raised portion near the center-right
+  foto_13.jpg      soll=heil    ist=False    33s  richtig     
+  foto_3.jpg       soll=heil    ist=False    49s  richtig     
+  kat_343724.jpg   soll=heil    ist=False    31s  richtig     
+  kat_301121.jpg   soll=heil    ist=False    27s  richtig     
+  => minicpm-v4.5:8b: Schaden 4/4, Fehlalarme 0/4, Ausfaelle 0, Median 49s
+
+FERTIG
+
+[exited with code 0]
