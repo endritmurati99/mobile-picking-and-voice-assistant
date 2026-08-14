@@ -153,7 +153,7 @@ services:
       # Modellen, beide Achsen einzeln gemessen. Begruendung bei
       # `vision_article_model` in backend/app/config.py. VISION_ARTICLE_MODEL
       # leer faellt auf VISION_MODEL zurueck.
-      VISION_MODEL: ${VISION_MODEL:-qwen2.5vl:7b}
+      VISION_MODEL: ${VISION_MODEL:-gemma4:12b}
       VISION_ARTICLE_MODEL: ${VISION_ARTICLE_MODEL:-gemma4:12b}
       # Artikelabgleich ueber Bildabstand. `off` schaltet zurueck auf den
       # Textvergleich, `schatten` misst mit ohne zu entscheiden.

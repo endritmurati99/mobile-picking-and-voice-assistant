@@ -128,7 +128,26 @@ class Settings(BaseSettings):
     # Beide 7B-Modelle gleichzeitig resident zu halten braucht rund 11 GB. Auf
     # 12 GB WSL-Speicher passt das nicht neben den uebrigen Diensten; der
     # Rechner hat 33 GB, die .wslconfig muss auf 20 GB stehen.
-    vision_model: str = "qwen2.5vl:7b"
+    # Schadenspruefung. Am 2026-08-14 gewechselt, gemessen an acht von Hand
+    # beschrifteten Bildern (vier beschaedigt, vier heil) ueber den PRODUKTIVEN
+    # Aufruf `inspect_damage` bei `DAMAGE_MAX_EDGE`:
+    #
+    #   qwen2.5vl:7b      2/4 Schaeden, 0/4 Fehlalarme, Median 82 s
+    #   gemma4:12b        4/4 Schaeden, 0/4 Fehlalarme, Median 58 s
+    #   minicpm-v4.5:8b   4/4 Schaeden, 0/4 Fehlalarme, Median 49 s
+    #
+    # `qwen2.5vl:7b` uebersah die ausgerissene Kerbe am gelben Bogenstein
+    # (foto_10, foto_11) und nannte die Oberflaeche glatt -- auf einem Foto, auf
+    # dem der Schaden rund ein Fuenftel der Flaeche einnimmt. Live derselbe
+    # Fehler in QA/0322 und QA/0327. Es meldet nicht falsch, es sieht zu wenig.
+    #
+    # gemma4 und minicpm sind bei n=8 nicht auseinanderzuhalten. Den Ausschlag
+    # gibt der Betrieb: gemma4 traegt bereits den Rueckfall des
+    # Artikelabgleichs, also braucht die Kette mit ihm EIN Bildmodell statt
+    # zwei -- und `OLLAMA_MAX_LOADED_MODELS=2` geht mit Text- und Bildmodell
+    # genau auf, ohne dass waehrend einer Bewertung ein Modell verdraengt und
+    # neu geladen wird (gemessen 80-145 s je Ladevorgang).
+    vision_model: str = "gemma4:12b"
     # Der ARTIKELABGLEICH laeuft ueber ein eigenes Bildmodell, die
     # Schadenspruefung bleibt auf `vision_model`. Beides getrennt, weil die
     # zwei Achsen getrennt gemessen sind und in verschiedene Richtungen

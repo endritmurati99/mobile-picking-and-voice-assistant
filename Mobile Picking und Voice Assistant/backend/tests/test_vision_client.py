@@ -235,7 +235,7 @@ def test_the_model_choice_is_pinned_by_measurement():
     """Alle drei Modellzuordnungen sind gemessen, nicht geraten:
 
     * qwen2.5vl:7b stufte "Verpackung defekt" als scrap ein, wo qwen2.5:7b
-      korrekt sellable sagt -- es taugt fuers Bild, nicht fuer den Text.
+      korrekt sellable sagt -- ein Bildmodell taugt nicht fuer den Text.
     * qwen2.5vl:3b antwortete auf alle vier Pruefbilder "smooth and continuous
       everywhere", auch auf den offensichtlichen Bruch.
     * gemma4:12b traegt den Artikelabgleich (10/12, Schadenstoleranz 5/6)
@@ -247,24 +247,35 @@ def test_the_model_choice_is_pinned_by_measurement():
     from app.config import Settings
 
     settings = Settings(_env_file=None)
-    assert settings.vision_model == "qwen2.5vl:7b"
+    assert settings.vision_model == "gemma4:12b"
     assert settings.vision_article_model == "gemma4:12b"
     assert settings.llm_model == "qwen2.5:7b"
     assert settings.vision_model != settings.llm_model
 
 
-def test_the_damage_model_stays_separate_from_the_article_model():
-    """Die Schadensachse darf NICHT mitwandern.
+def test_the_damage_model_is_pinned_by_its_own_measurement():
+    """Die Schadensachse wurde am 2026-08-14 gemessen, nicht mitgezogen.
 
-    `qwen2.5vl:7b` ist dort bei 1024 px eingemessen (Commit 2532e3a: bei 768 px
-    "a leaf-like DESIGN", bei 1024 px "a leaf-shaped INDENTATION"). Fuer
-    `gemma4:12b` gibt es auf dieser Achse keine Messung. Wer beide Felder auf
-    denselben Namen zieht, dreht eine gemessene Verbesserung ungeprueft zurueck.
+    Acht von Hand beschriftete Bilder ueber den produktiven `inspect_damage`:
+    qwen2.5vl:7b 2/4 Schaeden bei 0/4 Fehlalarmen, gemma4:12b 4/4 bei 0/4,
+    minicpm-v4.5:8b 4/4 bei 0/4. qwen2.5vl:7b uebersah die ausgerissene Kerbe
+    am gelben Bogenstein und nannte die Oberflaeche glatt -- live derselbe
+    Fehler in QA/0322 und QA/0327.
+
+    Dass beide Achsen jetzt auf DEMSELBEN Modell liegen, ist Absicht und kein
+    vergessener Sonderfall: eine Kette mit einem Bildmodell verdraengt unter
+    `OLLAMA_MAX_LOADED_MODELS=2` waehrend einer Bewertung nichts. Wer sie
+    wieder trennt, braucht dafuer eine eigene Messung -- die Felder bleiben
+    getrennt, genau damit das ohne Codeaenderung geht.
     """
     from app.config import Settings
 
     settings = Settings(_env_file=None)
-    assert settings.vision_article_model != settings.vision_model
+    assert settings.vision_model == "gemma4:12b"
+    assert settings.vision_article_model == "gemma4:12b"
+    # Text und Bild bleiben getrennt: qwen2.5vl:7b stufte "Verpackung defekt"
+    # als scrap ein, wo qwen2.5:7b korrekt sellable sagt.
+    assert settings.vision_model != settings.llm_model
 
 
 @pytest.mark.anyio
@@ -304,7 +315,7 @@ async def test_damage_asks_the_damage_model():
 
     await _client(handler, article_model="gemma4:12b").inspect_damage(CANDIDATE)
 
-    assert captured["body"]["model"] == "qwen2.5vl:7b"
+    assert captured["body"]["model"] == "qwen2.5vl:7b"  # `model=` des Clients
 
 
 @pytest.mark.anyio
@@ -358,7 +369,7 @@ def test_the_runtime_hands_both_models_to_the_client():
 
     assert client is not None
     assert client.article_model == "gemma4:12b"
-    assert client.model == "qwen2.5vl:7b"
+    assert client.model == "gemma4:12b"
 
 
 @pytest.mark.anyio
