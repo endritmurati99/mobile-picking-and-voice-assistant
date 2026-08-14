@@ -344,7 +344,7 @@ def test_vision_failure_leaves_the_text_verdict_standing(llm_ok, signed_env):
     assert body["disposition"] == "scrap"
     assert body["photo_checked"] is False
     assert body["contradiction"] is False
-    assert "nicht geprueft" in body["photo_analysis"]
+    assert "nicht geprüft" in body["photo_analysis"]
 
 
 def test_odoo_failure_leaves_the_text_verdict_standing(llm_ok, signed_env):
@@ -364,7 +364,7 @@ def test_odoo_failure_leaves_the_text_verdict_standing(llm_ok, signed_env):
     body = response.json()
     assert body["disposition"] == "scrap"
     assert body["photo_checked"] is False
-    assert "Bildpruefung nicht moeglich" in body["photo_analysis"]
+    assert "Bildprüfung nicht möglich" in body["photo_analysis"]
 
 
 def test_alert_without_a_photo_is_not_an_error(llm_ok, signed_env):
@@ -407,7 +407,7 @@ def test_every_photo_is_inspected_and_the_rest_is_declared(llm_ok, signed_env):
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
     assert fake.damage_calls == 3
-    assert "Fotos: 2 weitere ungeprueft" in response.json()["photo_analysis"]
+    assert "Fotos: 2 weitere ungeprüft" in response.json()["photo_analysis"]
 
 
 def test_spent_budget_stops_the_damage_checks_and_says_so(llm_ok, signed_env):
@@ -440,10 +440,10 @@ def test_spent_budget_stops_the_damage_checks_and_says_so(llm_ok, signed_env):
     # Ein garantierter Schadensaufruf, weil der Artikelabgleich ausfiel.
     assert fake.damage_calls == 1
     assert fake.describe_calls == 1
-    assert "Zeitbudget erschoepft" in body["photo_analysis"]
+    assert "Zeitbudget erschöpft" in body["photo_analysis"]
     # Was auf dem Foto war, steht trotzdem da.
     assert "Foto zeigt: toy building brick, yellow" in body["photo_analysis"]
-    assert "Fotos: 2 weitere ungeprueft" in body["photo_analysis"]
+    assert "Fotos: 2 weitere ungeprüft" in body["photo_analysis"]
 
 
 def test_without_a_catalogue_image_one_damage_check_still_runs(llm_ok, signed_env):
@@ -471,7 +471,7 @@ def test_without_a_catalogue_image_one_damage_check_still_runs(llm_ok, signed_en
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
     assert fake.damage_calls == 1
-    assert "Fotos: 1 weitere ungeprueft" in response.json()["photo_analysis"]
+    assert "Fotos: 1 weitere ungeprüft" in response.json()["photo_analysis"]
 
 
 def test_vision_disabled_behaves_like_before_the_rebuild(llm_ok, signed_env):
@@ -486,7 +486,7 @@ def test_vision_disabled_behaves_like_before_the_rebuild(llm_ok, signed_env):
     body = response.json()
     assert body["disposition"] == "scrap"
     assert body["photo_checked"] is False
-    assert body["photo_analysis"] == "Bildpruefung abgeschaltet."
+    assert body["photo_analysis"] == "Bildprüfung abgeschaltet."
     assert signed_env["o19-a"].calls == []
 
 
@@ -658,7 +658,7 @@ def test_one_unreadable_photo_does_not_erase_the_others(llm_ok, signed_env):
 
 def test_photos_without_an_answer_are_counted_not_swallowed(llm_ok, signed_env):
     """Drei Fotos, das Bildmodell antwortet auf keines. Vorher stand am Ende
-    "keine Auffaelligkeit sichtbar" -- eine Aussage ueber Bilder, die niemand
+    "keine Auffälligkeit sichtbar" -- eine Aussage ueber Bilder, die niemand
     angesehen hat."""
     signed_env["o19-a"].response = dict(
         MEDIA_RESPONSE,
@@ -674,9 +674,9 @@ def test_photos_without_an_answer_are_counted_not_swallowed(llm_ok, signed_env):
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
     analyse = response.json()["photo_analysis"]
-    assert "keine Auffaelligkeit sichtbar" not in analyse
-    assert "Schaden: nicht geprueft" in analyse
-    assert "Fotos: 3 weitere ungeprueft" in analyse
+    assert "keine Auffälligkeit sichtbar" not in analyse
+    assert "Schaden: nicht geprüft" in analyse
+    assert "Fotos: 3 weitere ungeprüft" in analyse
 
 
 def test_a_partial_damage_check_says_how_much_it_covered(llm_ok, signed_env):
@@ -704,7 +704,7 @@ def test_a_partial_damage_check_says_how_much_it_covered(llm_ok, signed_env):
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
     analyse = response.json()["photo_analysis"]
-    assert "nur 1 von 2 Foto(s) geprueft" in analyse
+    assert "nur 1 von 2 Foto(s) geprüft" in analyse
 
 
 def test_the_internal_article_number_does_not_reach_the_model(llm_ok, signed_env):
@@ -724,7 +724,7 @@ def test_the_internal_article_number_does_not_reach_the_model(llm_ok, signed_env
 # --- Zustandsvergleich Soll/Ist ---------------------------------------------
 # Die absolute Schadenspruefung beantwortet "bricht hier etwas die glatte
 # Oberflaeche?". Das reicht in zwei Richtungen nicht: eine Noppenreihe kann sie
-# als Auffaelligkeit lesen, und ein sauber abgebrochenes Eck laesst sie durch,
+# als Auffälligkeit lesen, und ein sauber abgebrochenes Eck laesst sie durch,
 # weil eine glatte Bruchflaeche keine ausgefranste Stelle ist. Erst der
 # Vergleich gegen das Katalogbild entscheidet beides.
 
@@ -837,12 +837,12 @@ def test_a_clean_photo_that_matches_the_catalogue_image_says_so(llm_ok, signed_e
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
     analyse = response.json()["photo_analysis"]
-    assert "Schaden: keine Auffaelligkeit sichtbar." in analyse
+    assert "Schaden: keine Auffälligkeit sichtbar." in analyse
     # Der bestaetigende Vergleich erzeugt seit dem 2026-08-14 KEINE Zeile:
     # "keine Abweichung vom Neuzustand" wiederholt nur die Zeile darueber. Dass
     # er gelaufen ist, steht als `condition_compare` im Protokoll.
     assert "Zustand:" not in analyse
-    assert "Schaden: keine Auffaelligkeit sichtbar." in analyse
+    assert "Schaden: keine Auffälligkeit sichtbar." in analyse
 
 
 def test_a_cleanly_broken_off_corner_is_only_caught_against_the_catalogue_image(
@@ -875,7 +875,7 @@ def test_a_cleanly_broken_off_corner_is_only_caught_against_the_catalogue_image(
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
     body = response.json()
-    assert "Abweichung vom Neuzustand, die der Schadenspruefung entgangen ist" in body["photo_analysis"]
+    assert "Abweichung vom Neuzustand, die der Schadensprüfung entgangen ist" in body["photo_analysis"]
     assert "fehlt ein Eck" in body["photo_analysis"]
 
 
@@ -908,7 +908,7 @@ def test_the_condition_comparison_confirms_a_real_crack(llm_ok, signed_env):
 
     analyse = response.json()["photo_analysis"]
     assert "Schaden: SICHTBAR -- torn area." in analyse
-    assert "bestaetigt den Befund" in analyse
+    assert "bestätigt den Befund" in analyse
 
 
 def test_a_silent_text_model_does_not_clear_the_damage_finding(llm_ok, signed_env):
@@ -1255,7 +1255,7 @@ def test_a_stored_description_works_without_any_catalogue_image(llm_ok, signed_e
     finally:
         app.dependency_overrides.pop(dependencies.get_vision_client, None)
 
-    assert "Artikel: nicht geprueft" not in analyse
+    assert "Artikel: nicht geprüft" not in analyse
     assert "Artikel:" not in analyse
     assert fake.describe_calls == 1
 

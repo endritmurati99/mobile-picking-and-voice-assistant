@@ -198,25 +198,26 @@ def abgleich(anfrage: AbgleichAnfrage) -> dict:
     abstand = spitze[0] - zweiter[0]
 
     if spitze[0] < FREMD_SCHWELLE:
-        urteil, grund = "unsicher", (
-            f"Kein bekannter Artikel: beste Uebereinstimmung {spitze[0]:.3f} "
+        urteil, art, grund = "unsicher", "kein_treffer", (
+            f"Kein bekannter Artikel: beste Übereinstimmung {spitze[0]:.3f} "
             f"unter der Schwelle {FREMD_SCHWELLE:.2f}."
         )
     elif abstand < KNAPP_SCHWELLE:
-        urteil, grund = "unsicher", (
+        urteil, art, grund = "unsicher", "zu_dicht", (
             f"{spitze[1]} und {zweiter[1]} liegen zu dicht beieinander "
             f"({abstand:.4f}) -- am Bild nicht trennbar."
         )
     elif anfrage.erwartet is None:
-        urteil, grund = "match", f"Naechster Artikel: {spitze[1]} ({spitze[0]:.3f})."
+        urteil, art = "match", "treffer"
+        grund = f"Nächster Artikel: {spitze[1]} ({spitze[0]:.3f})."
     elif spitze[1] == anfrage.erwartet:
-        urteil, grund = "match", (
-            f"Stimmt mit dem Katalogbild ueberein ({spitze[0]:.3f}, "
-            f"Abstand zum naechsten Artikel {abstand:.3f})."
+        urteil, art, grund = "match", "treffer", (
+            f"Stimmt mit dem Katalogbild überein ({spitze[0]:.3f}, "
+            f"Abstand zum nächsten Artikel {abstand:.3f})."
         )
     else:
         platz = next((n for n, (_, k) in enumerate(rang, 1) if k == anfrage.erwartet), None)
-        urteil, grund = "mismatch", (
+        urteil, art, grund = "mismatch", "anderer_artikel", (
             f"Foto passt zu {spitze[1]} ({spitze[0]:.3f}), nicht zum bestellten "
             f"Artikel {anfrage.erwartet}"
             + (f" (dort Platz {platz})." if platz else " (nicht im Katalog).")
@@ -224,6 +225,22 @@ def abgleich(anfrage: AbgleichAnfrage) -> dict:
 
     return {
         "urteil": urteil, "grund": grund,
+        # Die ZWEI Arten von `unsicher` auseinanderhalten. Sie bedeuten
+        # Gegensaetzliches, und der Aufrufer muss verschieden darauf reagieren:
+        #
+        #   kein_treffer  Nichts im Katalog kommt dem Bild nahe. Gemessen liegen
+        #                 echte Teile bei 0.82-0.999, das Hundefoto bei 0.203 --
+        #                 dazwischen liegt eine Groessenordnung. Das ist kein
+        #                 Grenzfall, sondern "gehoert hier nicht her".
+        #   zu_dicht      Zwei Artikel im Sortiment sind sich am Bild zu
+        #                 aehnlich (`6167549` gegen `6171865`). Hier WEISS der
+        #                 Dienst nichts, und daraus darf nie ein Urteil werden.
+        #
+        # Ohne diese Unterscheidung liefen am 2026-08-14 drei Hundefotos
+        # (QA/0340-0342) als "Totalschaden, abgeschlossen" durch: der Dienst
+        # sagte korrekt `unsicher`, der Rueckfallweg starb an einem Ollama-OOM,
+        # und uebrig blieb gar keine Aussage ueber den Artikel.
+        "grund_art": art,
         "rang": [{"kennung": k, "wert": round(w, 4)} for w, k in rang[:5]],
         "abstand": round(abstand, 4),
         "sekunden": round(time.monotonic() - begonnen, 2),

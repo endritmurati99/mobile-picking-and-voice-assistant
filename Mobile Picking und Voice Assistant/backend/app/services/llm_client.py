@@ -28,9 +28,9 @@ VALID_DISPOSITIONS = ("scrap", "quarantine", "rework", "sellable")
 # Betriebs und keine Frage an ein Sprachmodell.
 RECOMMENDED_ACTIONS = {
     "scrap": "Ware sperren, aussondern und Schichtleitung informieren.",
-    "quarantine": "Ware sperren und manuelle Pruefung anfordern.",
-    "rework": "Nacharbeit pruefen und Verpackung korrigieren.",
-    "sellable": "Sichtpruefung durch Qualitaetsteam.",
+    "quarantine": "Ware sperren und manuelle Prüfung anfordern.",
+    "rework": "Nacharbeit prüfen und Verpackung korrigieren.",
+    "sellable": "Sichtprüfung durch Qualitätsteam.",
 }
 
 _SYSTEM_PROMPT = (

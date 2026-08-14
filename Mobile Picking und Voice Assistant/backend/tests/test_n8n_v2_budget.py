@@ -86,7 +86,7 @@ async def test_a_damage_call_that_overruns_the_budget_is_cut_off():
 
     assert damage == "unavailable"
     assert ungeprueft == 1
-    assert any("Zeitbudget erschoepft" in zeile for zeile in lines)
+    assert any("Zeitbudget erschöpft" in zeile for zeile in lines)
     # Zurueck, sobald die Grenze reisst -- nicht erst, wenn das Modell fertig ist.
     assert time.monotonic() - begonnen < 5
 
@@ -147,4 +147,4 @@ async def test_a_hanging_reference_condition_leaves_the_damage_verdict_alone():
     )
 
     assert damage == "damaged"
-    assert zeile is not None and "Zeitbudget erschoepft" in zeile
+    assert zeile is not None and "Zeitbudget erschöpft" in zeile

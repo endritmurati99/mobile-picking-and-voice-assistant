@@ -123,10 +123,10 @@ async def test_a_mismatch_carries_the_ranking_for_a_human_to_overrule(primaer):
     ))
     lines: list[str] = []
 
-    ergebnis, hinweis = await _abgleich(FakeRuntime(embed), lines)
+    ergebnis, hinweis, fremd = await _abgleich(FakeRuntime(embed), lines)
 
     assert ergebnis == "mismatch"
-    assert hinweis is None
+    assert hinweis is None and fremd is False
     # Die Rangfolge IST die Beweislage. Ohne sie kann niemand widersprechen.
     assert any("4166960 0.940" in zeile for zeile in lines)
 
@@ -143,7 +143,7 @@ async def test_unsicher_falls_back_and_never_becomes_a_verdict(primaer):
     ))
     lines: list[str] = []
 
-    ergebnis, hinweis = await _abgleich(FakeRuntime(embed), lines)
+    ergebnis, hinweis, _ = await _abgleich(FakeRuntime(embed), lines)
 
     assert ergebnis is None
     # Der Hinweis reist mit, damit der Befund nicht lautlos verschwindet, wenn
@@ -157,7 +157,7 @@ async def test_a_dead_service_falls_back_instead_of_blocking(primaer):
     embed = FakeEmbed(EmbedVerdict(ok=False))
     lines: list[str] = []
 
-    assert await _abgleich(FakeRuntime(embed), lines) == (None, None)
+    assert await _abgleich(FakeRuntime(embed), lines) == (None, None, False)
     assert lines == []
 
 
@@ -169,7 +169,7 @@ async def test_an_unknown_article_is_never_asked_about(primaer):
     embed = FakeEmbed(EmbedVerdict(ok=True, urteil="mismatch", grund="erfunden"))
     lines: list[str] = []
 
-    ergebnis, _ = await _abgleich(FakeRuntime(embed, kennungen=frozenset()), lines)
+    ergebnis, _, _ = await _abgleich(FakeRuntime(embed, kennungen=frozenset()), lines)
 
     assert ergebnis is None
     assert embed.calls == []
@@ -187,7 +187,7 @@ async def test_a_restarted_service_gets_its_catalogue_pushed_again(primaer):
     runtime = FakeRuntime(embed)
     lines: list[str] = []
 
-    ergebnis, _ = await _abgleich(runtime, lines)
+    ergebnis, _, _ = await _abgleich(runtime, lines)
 
     assert runtime.verworfen == 1
     assert embed.calls == ["6023350", "6023350"]
@@ -202,7 +202,7 @@ async def test_shadow_mode_measures_without_deciding(monkeypatch):
     embed = FakeEmbed(EmbedVerdict(ok=True, urteil="mismatch", grund="egal"))
     lines: list[str] = []
 
-    assert await _abgleich(FakeRuntime(embed), lines) == (None, None)
+    assert await _abgleich(FakeRuntime(embed), lines) == (None, None, False)
     assert embed.calls == ["6023350"]
     assert lines == []
 
@@ -213,7 +213,7 @@ async def test_without_a_runtime_nothing_changes(primaer):
     jeder Aufrufer, der die Runtime nicht kennt, in der Luft."""
     assert await n8n_v2._abgleich_ueber_einbettung(
         None, None, "", MEDIA, _jpeg(), [], 1e9
-    ) == (None, None)
+    ) == (None, None, False)
 
 
 def test_the_default_is_primaer_and_measured():
@@ -248,6 +248,7 @@ async def test_an_uncertain_embedding_survives_a_dead_fallback(primaer):
     embed = FakeEmbed(EmbedVerdict(
         ok=True, urteil="unsicher",
         grund="Kein bekannter Artikel: beste Uebereinstimmung 0.203 unter der Schwelle 0.45.",
+        grund_art="kein_treffer",
     ))
 
     class ToteVision:
@@ -261,8 +262,12 @@ async def test_an_uncertain_embedding_survives_a_dead_fallback(primaer):
         runtime=FakeRuntime(embed), odoo=object(), instanz="o19-a",
     )
 
-    assert ergebnis == "unavailable"
+    # `mismatch` heisst hier NICHT "falsches Teil", sondern "das kann niemand
+    # mehr beurteilen": es setzt den Widerspruch und damit `review_required`,
+    # es sondert nichts aus.
+    assert ergebnis == "mismatch"
     assert any("0.203" in zeile for zeile in lines)
+    assert any("nicht beurteilbar" in zeile for zeile in lines)
 
 
 @pytest.mark.anyio
@@ -292,3 +297,64 @@ async def test_a_working_fallback_keeps_the_last_word(primaer):
 
     assert ergebnis == "match"
     assert not any("0.203" in zeile for zeile in lines)
+
+
+@pytest.mark.anyio
+async def test_two_articles_too_close_never_becomes_a_verdict(primaer):
+    """`zu_dicht` ist das Gegenteil von `kein_treffer`: da WEISS der Dienst
+    nichts, weil zwei Artikel im Sortiment sich am Bild nicht trennen lassen
+    (`6167549` gegen `6171865`). Daraus darf auch dann kein Urteil werden, wenn
+    der Rueckfallweg ebenfalls schweigt -- sonst waere jede Beinahe-Dublette im
+    Sortiment ein Widerspruch."""
+    from app.services.vision_client import ArticleDescription
+
+    embed = FakeEmbed(EmbedVerdict(
+        ok=True, urteil="unsicher", grund_art="zu_dicht",
+        grund="6167549 und 6171865 liegen zu dicht beieinander (0.0041).",
+    ))
+
+    class ToteVision:
+        async def describe(self, image):
+            return ArticleDescription(ok=False)
+
+    lines: list[str] = []
+    ergebnis = await n8n_v2._check_article(
+        ToteVision(), StummesTextmodell(), MEDIA, _jpeg(), lines, 1e9,
+        runtime=FakeRuntime(embed), odoo=object(), instanz="o19-a",
+    )
+
+    assert ergebnis == "unavailable"
+    assert any("zu dicht" in zeile for zeile in lines)
+    assert not any("nicht beurteilbar" in zeile for zeile in lines)
+
+
+@pytest.mark.anyio
+async def test_a_working_fallback_beats_the_foreign_signal(primaer):
+    """Auch beim Fremdbild hat der alte Weg das letzte Wort, solange er eines
+    hat. Er trifft den Hundefall zuverlaessig ("dog" gegen "building block") --
+    die Eskalation greift NUR in der Luecke, in der niemand mehr etwas sagt."""
+    from app.services.llm_client import ArticleComparison
+    from app.services.vision_client import ArticleDescription
+
+    embed = FakeEmbed(EmbedVerdict(
+        ok=True, urteil="unsicher", grund_art="kein_treffer", grund="nichts nahe (0.203)",
+    ))
+
+    class SiehtHund:
+        async def describe(self, image):
+            return ArticleDescription(ok=True, text="dog, cream-colored", is_a_product=False)
+
+    class ErkenntUnterschied:
+        async def compare_articles(self, **_):
+            return ArticleComparison(ok=True, same_article=False,
+                                     reason="Tier gegen Bauteil", differs="kein_artikel")
+
+    lines: list[str] = []
+    ergebnis = await n8n_v2._check_article(
+        SiehtHund(), ErkenntUnterschied(), MEDIA, _jpeg(), lines, 1e9,
+        runtime=FakeRuntime(embed), odoo=object(), instanz="o19-a",
+    )
+
+    assert ergebnis == "mismatch"
+    assert any("FALSCHES TEIL" in zeile for zeile in lines)
+    assert not any("nicht beurteilbar" in zeile for zeile in lines)

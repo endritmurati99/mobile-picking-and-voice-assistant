@@ -33,11 +33,11 @@ _CLAIMS_SOUND = frozenset({"sellable"})
 
 _SELLABLE_BUT_DAMAGED = (
     "Hinweis: Foto zeigt einen Schaden, die Meldung stuft die Ware als "
-    "verkaufsfaehig ein."
+    "verkaufsfähig ein."
 )
 _REPORTED_BUT_UNSEEN = (
     "Hinweis: Foto zeigt keinen sichtbaren Schaden, die Meldung nennt einen. "
-    "Bitte stichprobenartig pruefen."
+    "Bitte stichprobenartig prüfen."
 )
 
 

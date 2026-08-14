@@ -49,6 +49,12 @@ class EmbedVerdict:
     # HTTP 409: der Dienst laeuft, hat aber keinen Katalog. Eigener Wert, weil
     # der Aufrufer daraufhin den Katalog neu schiebt statt aufzugeben.
     kein_katalog: bool = False
+    # Bei `unsicher`: WELCHE Art von Unsicherheit. `kein_treffer` heisst, dass
+    # nichts im Katalog dem Bild nahekommt (Hundefoto 0.203 gegen echte Teile
+    # 0.82-0.999); `zu_dicht` heisst, dass zwei Artikel sich am Bild nicht
+    # trennen lassen. Das Erste ist eine Aussage, das Zweite ist keine -- und
+    # der Aufrufer muss verschieden darauf reagieren.
+    grund_art: str | None = None
 
 
 class EmbedClient:
@@ -171,6 +177,7 @@ class EmbedClient:
         logger.info(json.dumps({
             "event_type": "embed_abgleich",
             "urteil": urteil,
+            "grund_art": daten.get("grund_art"),
             "erwartet": erwartet,
             "rang": rang[:3],
             "abstand": abstand,
@@ -179,6 +186,7 @@ class EmbedClient:
         return EmbedVerdict(
             ok=True,
             urteil=urteil,
+            grund_art=(str(daten.get("grund_art")) or None) if daten.get("grund_art") else None,
             grund=(str(daten.get("grund")).strip() or None) if daten.get("grund") else None,
             rang=tuple(rang),
             abstand=float(abstand) if isinstance(abstand, (int, float)) else None,

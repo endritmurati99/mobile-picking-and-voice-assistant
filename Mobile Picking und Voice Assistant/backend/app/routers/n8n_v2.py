@@ -271,11 +271,11 @@ async def _collect_photo_finding(
             [str(body.job_id), body.delivery_generation, body.processing_lease_token],
         )
     except Exception as exc:  # noqa: BLE001 - jeder Fehler heisst: kein Bildbefund
-        return _no_finding(f"Bildpruefung nicht moeglich: {exc}"), False
+        return _no_finding(f"Bildprüfung nicht möglich: {exc}"), False
 
     photos = (media or {}).get("photos") or []
     if not photos:
-        return _no_finding("Ohne Bildpruefung: der Meldung liegt kein Foto bei."), False
+        return _no_finding("Ohne Bildprüfung: der Meldung liegt kein Foto bei."), False
 
     # JEDES Foto fuer sich aufbereiten. Vorher lag die ganze Liste in einem
     # try: ein unlesbarer Anhang loeschte damit den Befund aller anderen --
@@ -298,7 +298,7 @@ async def _collect_photo_finding(
         except (MediaError, KeyError, ValueError, binascii.Error):
             unlesbar += 1
     if not candidates:
-        return _no_finding("Bildpruefung nicht moeglich: kein lesbares Foto."), False
+        return _no_finding("Bildprüfung nicht möglich: kein lesbares Foto."), False
 
     # Dasselbe Katalogbild in der zweiten Aufloesung, aus demselben Grund wie
     # oben beim Meldefoto: der Artikelabgleich fragt "welches Teil?" und kommt
@@ -348,7 +348,7 @@ async def _collect_photo_finding(
         lines.append(f"Fotos: {unlesbar} nicht lesbar.")
     skipped = int(media.get("photo_total") or len(photos)) - len(photos) + ungeprueft
     if skipped > 0:
-        lines.append(f"Fotos: {skipped} weitere ungeprueft.")
+        lines.append(f"Fotos: {skipped} weitere ungeprüft.")
 
     checked = article != "unavailable" or damage != "unavailable"
     return PhotoFinding(article=article, damage=damage, note="\n".join(lines)), checked
@@ -389,12 +389,13 @@ async def _in_restzeit(aufruf, deadline: float):
 async def _abgleich_ueber_einbettung(
     runtime, odoo, instanz: str, media, candidate: bytes, lines: list[str],
     deadline: float,
-) -> tuple[str | None, str | None]:
+) -> tuple[str | None, str | None, bool]:
     """Artikelabgleich ueber Bildabstand.
 
-    Gibt `(urteil, hinweis)` zurueck. `urteil is None` heisst: der alte Weg
-    uebernimmt. Der `hinweis` reist getrennt, weil er nur dann in den Klartext
-    gehoert, wenn auch der alte Weg nichts sagen kann.
+    Gibt `(urteil, hinweis, fremd)` zurueck. `urteil is None` heisst: der alte
+    Weg uebernimmt. Der `hinweis` reist getrennt, weil er nur dann in den
+    Klartext gehoert, wenn auch der alte Weg nichts sagen kann. `fremd` heisst:
+    kein einziger Katalogartikel kommt dem Bild nahe.
 
     Der Weg existiert, weil der Textvergleich die Artikelidentitaet an der
     WORTWAHL entscheidet und daran reproduzierbar scheitert -- am 2026-08-14
@@ -416,14 +417,14 @@ async def _abgleich_ueber_einbettung(
     ebenfalls hier in `None`: der Einbettungsweg darf die Kette nie blockieren.
     """
     if runtime is None or odoo is None:
-        return None, None
+        return None, None, False
     embed = runtime.embed_client()
     if embed is None:
-        return None, None
+        return None, None, False
 
     kennung = (media.get("product_code") or "").strip()
     if not kennung:
-        return None, None
+        return None, None, False
 
     bekannte = await katalog_sicherstellen(runtime, odoo, instanz)
     if kennung not in bekannte:
@@ -432,7 +433,7 @@ async def _abgleich_ueber_einbettung(
         # `mismatch`, und ohne `erwartet` mit `match` auf den naechstbesten
         # Artikel. Beides waere erfunden. Das ist der Fall "Artikel ohne
         # Katalogbild", den der bisherige Weg bereits sauber behandelt.
-        return None, None
+        return None, None, False
 
     urteil = await _in_restzeit(embed.abgleich(candidate, erwartet=kennung), deadline)
     if urteil is not None and urteil.kein_katalog:
@@ -445,7 +446,7 @@ async def _abgleich_ueber_einbettung(
                 embed.abgleich(candidate, erwartet=kennung), deadline
             )
     if urteil is None or not urteil.ok:
-        return None, None
+        return None, None, False
 
     rang = ", ".join(f"{k} {w:.3f}" for k, w in urteil.rang[:3])
     logger.info(json.dumps({
@@ -462,9 +463,14 @@ async def _abgleich_ueber_einbettung(
 
     if settings.embed_mode != "primaer":
         # Schattenbetrieb: gemessen wird, entschieden nicht.
-        return None, None
+        return None, None, False
 
     if urteil.urteil == "unsicher":
+        # `zu_dicht` und `kein_treffer` bedeuten Gegensaetzliches. Beim ersten
+        # WEISS der Dienst nichts (zwei Artikel im Sortiment sind sich am Bild
+        # zu aehnlich) -- daraus darf nie ein Urteil werden. Beim zweiten sagt
+        # er sehr wohl etwas: kein einziger Katalogartikel kommt dem Bild nahe.
+        fremd = urteil.grund_art == "kein_treffer"
         # Der Hinweis reist mit und wird NUR angehaengt, wenn auch der alte Weg
         # nichts sagen kann. Sonst verschwindet der Befund lautlos: am
         # 2026-08-14 fiel bei QA/0340 und QA/0341 (Hundefoto) die Einbettung
@@ -474,14 +480,14 @@ async def _abgleich_ueber_einbettung(
         # den Speicher). Uebrig blieb "Artikelabgleich nicht moeglich", und
         # eine Meldung mit Hundefoto lief als `completed` durch. Genau der
         # Fall, fuer den die Bildpruefung gebaut wurde.
-        return None, f"Bildabstand: {urteil.grund}"
+        return None, f"Bildabstand: {urteil.grund}", fremd
 
     if urteil.urteil == "match":
         # KEINE Zeile im Klartext. Dass der bestellte Artikel auch geliefert
         # wurde, ist der Normalfall und kostet den Menschen nur Lesezeit; die
         # Beweislage steht vollstaendig in der `article_compare`-Zeile oben.
         # Sichtbar wird der Abgleich erst, wenn er WIDERSPRICHT.
-        return "match", None
+        return "match", None, False
     if urteil.urteil == "mismatch":
         lines.append(
             f"Artikel: FALSCHES TEIL -- {urteil.grund}"
@@ -489,9 +495,9 @@ async def _abgleich_ueber_einbettung(
         # Die Rangfolge steht NUR beim Widerspruch im Klartext -- sie ist das,
         # was ein Mensch braucht, um dem Urteil zu widersprechen.
         if rang:
-            lines.append(f"Artikel: naechste Treffer im Katalog -- {rang}.")
-        return "mismatch", None
-    return None, None
+            lines.append(f"Artikel: nächste Treffer im Katalog -- {rang}.")
+        return "mismatch", None, False
+    return None, None, False
 
 
 async def _check_article(
@@ -512,19 +518,43 @@ async def _check_article(
     # noch das Katalogbild und ist gemessen zwei Groessenordnungen schneller
     # (0,2 s gegen 45-165 s). Faellt er aus, laeuft alles darunter unveraendert
     # weiter.
-    ueber_einbettung, hinweis = await _abgleich_ueber_einbettung(
+    ueber_einbettung, hinweis, fremd = await _abgleich_ueber_einbettung(
         runtime, odoo, instanz, media, candidate, lines, deadline
     )
     if ueber_einbettung is not None:
         return ueber_einbettung
 
     ergebnis = await _artikel_ueber_text(vision, llm, media, candidate, lines, deadline)
-    if ergebnis == "unavailable" and hinweis:
-        # Erst jetzt in den Klartext: sagt der alte Weg etwas, hat er das
-        # letzte Wort, und zwei sich widersprechende Zeilen im Odoo-Formular
-        # waeren schlimmer als eine fehlende.
-        lines.append(hinweis)
-    return ergebnis
+    if ergebnis != "unavailable" or not hinweis:
+        # Sagt der alte Weg etwas, hat er das letzte Wort. Zwei sich
+        # widersprechende Zeilen im Odoo-Formular waeren schlimmer als eine
+        # fehlende.
+        return ergebnis
+
+    lines.append(hinweis)
+    if not fremd:
+        # `zu_dicht`: der Dienst konnte zwei aehnliche Artikel nicht trennen.
+        # Das ist keine Aussage ueber das Foto und darf keine werden.
+        return ergebnis
+
+    # Kein bekannter Artikel UND der alte Weg schweigt -- ab hier gibt es
+    # niemanden mehr, der widersprechen koennte. Genau in dieser Luecke liefen
+    # am 2026-08-14 drei Hundefotos (QA/0340-0342) als "Totalschaden,
+    # abgeschlossen" durch: die Einbettung sagte korrekt `unsicher` bei 0,203
+    # gegen die Schwelle 0,45, der Rueckfallweg starb an einem Ollama-OOM, und
+    # uebrig blieb GAR KEINE Aussage ueber den Artikel -- also auch kein
+    # Widerspruch, der die Meldung an einen Menschen gegeben haette.
+    #
+    # `mismatch` heisst hier nicht "wir wissen, es ist das falsche Teil",
+    # sondern "das kann niemand mehr beurteilen, das gehoert angesehen": es
+    # setzt `contradiction` und damit `review_required`, es sondert nichts aus.
+    # Der Preis ist ein Mensch, der ein schwer erkennbares Foto anschaut. Der
+    # Preis der Alternative ist ein Hundefoto mit der Einstufung Totalschaden.
+    lines.append(
+        "Artikel: nicht beurteilbar -- weder der Bildabstand noch das "
+        "Bildmodell konnten das Foto einem Artikel zuordnen."
+    )
+    return "mismatch"
 
 
 async def _artikel_ueber_text(
@@ -557,17 +587,17 @@ async def _artikel_ueber_text(
     if not hinterlegt:
         reference_b64 = media.get("reference_image_b64")
         if not reference_b64:
-            lines.append("Artikel: nicht geprueft (kein Katalogbild hinterlegt).")
+            lines.append("Artikel: nicht geprüft (kein Katalogbild hinterlegt).")
             return "unavailable"
         try:
             reference = prepare_image(base64.b64decode(reference_b64))
         except (MediaError, ValueError, binascii.Error) as exc:
-            lines.append(f"Artikel: nicht geprueft ({exc}).")
+            lines.append(f"Artikel: nicht geprüft ({exc}).")
             return "unavailable"
 
     candidate_seen = await vision.describe(candidate)
     if not candidate_seen.ok:
-        lines.append("Artikel: nicht geprueft (Bildmodell antwortet nicht).")
+        lines.append("Artikel: nicht geprüft (Bildmodell antwortet nicht).")
         return "unavailable"
     if hinterlegt:
         # Kein zweiter Bildaufruf, also auch keine zweite Zeitgrenze: was hier
@@ -577,7 +607,7 @@ async def _artikel_ueber_text(
     else:
         if time.monotonic() >= deadline:
             lines.append(
-                "Artikel: nicht geprueft (Zeitbudget erschoepft). "
+                "Artikel: nicht geprüft (Zeitbudget erschöpft). "
                 f"Foto zeigt: {candidate_seen.text}."
             )
             return "unavailable"
@@ -585,13 +615,13 @@ async def _artikel_ueber_text(
         reference_seen = await _in_restzeit(vision.describe(reference), deadline)
         if reference_seen is None:
             lines.append(
-                "Artikel: nicht geprueft (Zeitbudget beim Katalogbild "
-                f"erschoepft). Foto zeigt: {candidate_seen.text}."
+                "Artikel: nicht geprüft (Zeitbudget beim Katalogbild "
+                f"erschöpft). Foto zeigt: {candidate_seen.text}."
             )
             return "unavailable"
         if not reference_seen.ok:
             lines.append(
-                "Artikel: nicht geprueft (Katalogbild nicht auswertbar). "
+                "Artikel: nicht geprüft (Katalogbild nicht auswertbar). "
                 f"Foto zeigt: {candidate_seen.text}."
             )
             return "unavailable"
@@ -610,7 +640,7 @@ async def _artikel_ueber_text(
         product_label=kurzlabel,
     )
     if not verdict.ok:
-        lines.append("Artikel: nicht geprueft (Textmodell antwortet nicht).")
+        lines.append("Artikel: nicht geprüft (Textmodell antwortet nicht).")
         return "unavailable"
 
     # Beide Beschreibungen und die Begruendung gehen als EINE maschinenlesbare
@@ -645,7 +675,7 @@ async def _artikel_ueber_text(
     # das ist bei QA/0227 der Fall gewesen: derselbe Stein, zwei Vokabulare.
     lines.append(
         f"Artikel: Katalogbild zeigt {reference_text}."
-        + (f" Begruendung des Textmodells: {verdict.reason}" if verdict.reason else "")
+        + (f" Begründung des Textmodells: {verdict.reason}" if verdict.reason else "")
     )
     return "mismatch"
 
@@ -742,9 +772,9 @@ async def _check_damage(
 
     if damage == "unavailable":
         lines.append(
-            "Schaden: nicht geprueft (Zeitbudget erschoepft)."
+            "Schaden: nicht geprüft (Zeitbudget erschöpft)."
             if budget_gerissen and not seen
-            else "Schaden: nicht geprueft (Bildmodell antwortet nicht)."
+            else "Schaden: nicht geprüft (Bildmodell antwortet nicht)."
         )
     elif damage == "damaged":
         # Der Befund steht vorn, die Worte des Modells dahinter in Klammern.
@@ -763,11 +793,11 @@ async def _check_damage(
         # die niemand angesehen hat. Der Satz nennt deshalb, wieviel er deckt.
         geprueft = len(candidates) - ungeprueft
         lines.append(
-            "Schaden: keine Auffaelligkeit sichtbar "
-            f"(nur {geprueft} von {len(candidates)} Foto(s) geprueft)."
+            "Schaden: keine Auffälligkeit sichtbar "
+            f"(nur {geprueft} von {len(candidates)} Foto(s) geprüft)."
         )
     else:
-        lines.append("Schaden: keine Auffaelligkeit sichtbar.")
+        lines.append("Schaden: keine Auffälligkeit sichtbar.")
     if zustandszeile:
         lines.append(zustandszeile)
     return damage, ungeprueft
@@ -849,11 +879,11 @@ async def _zustandsvergleich(
     if ist is None or not ist.description:
         return damage, None
     if time.monotonic() >= deadline:
-        return damage, "Zustand: nicht verglichen (Zeitbudget erschoepft)."
+        return damage, "Zustand: nicht verglichen (Zeitbudget erschöpft)."
 
     soll = await _soll_befund(vision, reference, deadline)
     if soll is None:
-        return damage, "Zustandsvergleich nicht durchgefuehrt: Zeitbudget erschoepft."
+        return damage, "Zustand: nicht verglichen (Zeitbudget erschöpft)."
     if not soll.ok or not soll.description:
         return damage, "Zustand: nicht verglichen (Katalogbild nicht auswertbar)."
 
@@ -887,9 +917,9 @@ async def _zustandsvergleich(
         }, ensure_ascii=False))
         return damage, None
     if damage == "damaged":
-        return damage, f"Zustand: Abgleich mit dem Katalogbild bestaetigt den Befund{grund}."
+        return damage, f"Zustand: Abgleich mit dem Katalogbild bestätigt den Befund{grund}."
     return "damaged", (
-        "Zustand: Abweichung vom Neuzustand, die der Schadenspruefung "
+        "Zustand: Abweichung vom Neuzustand, die der Schadensprüfung "
         f"entgangen ist{grund}."
     )
 
@@ -976,7 +1006,7 @@ async def _assess(llm, vision, runtime, body) -> QualityAssessmentV2Response:
     )
 
     if vision is None:
-        finding = _no_finding("Bildpruefung abgeschaltet.")
+        finding = _no_finding("Bildprüfung abgeschaltet.")
         checked = False
     else:
         odoo = get_callback_odoo_client(runtime, body.odoo_instance)

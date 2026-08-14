@@ -42,7 +42,7 @@ def test_damage_seen_but_reported_sellable_goes_to_a_human():
     Schaden, den die Meldung nicht nennt."""
     result = reconcile(disposition="sellable", finding=_finding(damage="damaged"))
     assert result.contradiction is True
-    assert "verkaufsfaehig" in result.photo_analysis
+    assert "verkaufsfähig" in result.photo_analysis
 
 
 def test_nothing_seen_and_nothing_reported_confirms():
@@ -92,11 +92,11 @@ def test_failed_photo_check_leaves_the_text_verdict_standing():
         finding=PhotoFinding(
             article="unavailable",
             damage="unavailable",
-            note="Bildpruefung nicht moeglich: Zeitueberschreitung.",
+            note="Bildprüfung nicht möglich: Zeitueberschreitung.",
         ),
     )
     assert result.contradiction is False
-    assert "nicht moeglich" in result.photo_analysis
+    assert "nicht möglich" in result.photo_analysis
 
 
 def test_no_text_verdict_never_contradicts():
@@ -162,7 +162,7 @@ def test_the_preserved_verdict_says_it_is_not_in_force():
 
 def test_the_verdict_is_preserved_on_the_damage_contradiction_too():
     """Derselbe Datenverlust trifft den zweiten Widerspruchspfad: Meldung sagt
-    verkaufsfaehig, Foto zeigt Schaden."""
+    verkaufsfähig, Foto zeigt Schaden."""
     result = reconcile(
         disposition="sellable",
         confidence=0.8,
@@ -207,7 +207,7 @@ def test_the_vermerk_path_keeps_its_hint_and_adds_nothing():
     )
     assert result.contradiction is False
     assert "nicht wirksam" not in result.photo_analysis
-    assert "Bitte stichprobenartig pruefen." in result.photo_analysis
+    assert "Bitte stichprobenartig prüfen." in result.photo_analysis
 
 
 def test_the_note_always_survives():
