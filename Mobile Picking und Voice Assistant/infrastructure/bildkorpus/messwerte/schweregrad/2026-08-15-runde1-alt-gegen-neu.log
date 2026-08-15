@@ -1,0 +1,52 @@
+
+=== ALT (qwen2.5:7b)
+  Gehaeuse zersplittert, Bruchstuecke liegen l   soll=scrap      ist=scrap      grund=-          25s richtig
+  Artikel gebrochen, Bruch nicht reparierbar     soll=scrap      ist=scrap      grund=-           9s richtig
+  Totalschaden am Gehaeuse, komplett zerstoert   soll=scrap      ist=scrap      grund=-           9s richtig
+  Artikel beschaedigt                            soll=quarantine ist=scrap      grund=-          10s ZU HOCH
+  Ware kaputt                                    soll=quarantine ist=scrap      grund=-           9s ZU HOCH
+  Teil defekt                                    soll=quarantine ist=scrap      grund=-          15s ZU HOCH
+  Mit dem Artikel stimmt etwas nicht             soll=quarantine ist=sellable   grund=-           9s ZU NIEDRIG
+  Artikel sieht komisch aus, bitte anschauen     soll=quarantine ist=quarantine grund=-           9s richtig
+  Verpackung feucht, Inhalt moeglicherweise be   soll=quarantine ist=quarantine grund=-          12s richtig
+  Fremdkoerper in der Verpackung gefunden        soll=quarantine ist=quarantine grund=-          10s richtig
+  Rost an der Unterseite sichtbar                soll=quarantine ist=sellable   grund=-          10s ZU NIEDRIG
+  Karton aufgerissen, Ware unbeschaedigt         soll=rework     ist=sellable   grund=-          11s ZU NIEDRIG
+  Umverpackung eingedrueckt, Teil laut Sichtpr   soll=rework     ist=sellable   grund=-          18s ZU NIEDRIG
+  Etikett schief aufgeklebt, Nacharbeit noetig   soll=rework     ist=rework     grund=-           9s richtig
+  Kleiner Kratzer auf der Verpackung             soll=rework     ist=sellable   grund=-           9s ZU NIEDRIG
+  Leichte Delle am Deckel, Artikel unbeschaedi   soll=rework     ist=sellable   grund=-          10s ZU NIEDRIG
+  Beschriftung auf dem Etikett unleserlich       soll=rework     ist=sellable   grund=-          13s ZU NIEDRIG
+  Schraube fehlt, kann nachgesetzt werden        soll=rework     ist=rework     grund=-           8s richtig
+  Ware sieht gut aus, alles in Ordnung           soll=sellable   ist=sellable   grund=-           9s richtig
+  Nur Staub auf der Verpackung, abgewischt       soll=sellable   ist=sellable   grund=-          17s richtig
+  Artikel einwandfrei, die Meldung war ein Ver   soll=sellable   ist=sellable   grund=-          10s richtig
+  => ALT: richtig 11/21, zu hoch 3, zu niedrig 7, falsches scrap 3, Ausfaelle 0, Grundlage richtig 0, Median 10s
+
+=== NEU (qwen2.5:7b)
+  Gehaeuse zersplittert, Bruchstuecke liegen l   soll=scrap      ist=scrap      grund=wortlaut   43s richtig
+  Artikel gebrochen, Bruch nicht reparierbar     soll=scrap      ist=scrap      grund=wortlaut   34s richtig
+  Totalschaden am Gehaeuse, komplett zerstoert   soll=scrap      ist=scrap      grund=wortlaut   23s richtig
+  Artikel beschaedigt                            soll=quarantine ist=quarantine grund=wortlaut   18s richtig
+  Ware kaputt                                    soll=quarantine ist=scrap      grund=wortlaut   22s ZU HOCH
+  Teil defekt                                    soll=quarantine ist=rework     grund=wortlaut   19s ZU NIEDRIG
+  Mit dem Artikel stimmt etwas nicht             soll=quarantine ist=quarantine grund=annahme    17s richtig
+  Artikel sieht komisch aus, bitte anschauen     soll=quarantine ist=quarantine grund=annahme    15s richtig
+  Verpackung feucht, Inhalt moeglicherweise be   soll=quarantine ist=quarantine grund=annahme    20s richtig
+  Fremdkoerper in der Verpackung gefunden        soll=quarantine ist=quarantine grund=wortlaut   23s richtig
+  Rost an der Unterseite sichtbar                soll=quarantine ist=quarantine grund=annahme    26s richtig
+  Karton aufgerissen, Ware unbeschaedigt         soll=rework     ist=rework     grund=wortlaut   44s richtig
+  Umverpackung eingedrueckt, Teil laut Sichtpr   soll=rework     ist=rework     grund=wortlaut   25s richtig
+  Etikett schief aufgeklebt, Nacharbeit noetig   soll=rework     ist=rework     grund=wortlaut   39s richtig
+  Kleiner Kratzer auf der Verpackung             soll=rework     ist=rework     grund=wortlaut   24s richtig
+  Leichte Delle am Deckel, Artikel unbeschaedi   soll=rework     ist=rework     grund=wortlaut   36s richtig
+  Beschriftung auf dem Etikett unleserlich       soll=rework     ist=rework     grund=wortlaut   21s richtig
+  Schraube fehlt, kann nachgesetzt werden        soll=rework     ist=rework     grund=wortlaut   35s richtig
+  Ware sieht gut aus, alles in Ordnung           soll=sellable   ist=sellable   grund=wortlaut   34s richtig
+  Nur Staub auf der Verpackung, abgewischt       soll=sellable   ist=sellable   grund=wortlaut   34s richtig
+  Artikel einwandfrei, die Meldung war ein Ver   soll=sellable   ist=sellable   grund=annahme    28s richtig
+  => NEU: richtig 19/21, zu hoch 1, zu niedrig 1, falsches scrap 1, Ausfaelle 0, Grundlage richtig 16, Median 25s
+
+FERTIG
+
+[exited with code 0]

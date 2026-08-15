@@ -327,3 +327,81 @@ async def test_an_unknown_attribute_is_not_invented():
     assert result.ok is True
     assert result.same_article is True
     assert result.differs is None
+
+
+@pytest.mark.anyio
+async def test_disposition_carries_where_the_severity_comes_from():
+    """`grundlage` trennt die gemeldete von der geschlossenen Schwere.
+
+    Ohne dieses Feld sieht `reconcile` nur den String `scrap` und kann ein
+    Totalschaden-Urteil aus "Artikel beschaedigt" nicht von einem erkennen,
+    das der Mensch so gemeldet hat.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        content = json.dumps({
+            "belegstelle": "keine",
+            "grundlage": "Annahme",
+            "disposition": "quarantine",
+            "confidence": 0.6,
+            "summary": "Ausmass unklar.",
+        })
+        return httpx.Response(200, json={"message": {"content": content}})
+
+    result = await _client_with(handler).classify_disposition(
+        description="Artikel beschaedigt"
+    )
+
+    assert result.ok is True
+    assert result.grundlage == "annahme"  # normalisiert
+    assert result.belegstelle == "keine"
+
+
+@pytest.mark.anyio
+async def test_an_unknown_severity_source_counts_as_unknown_not_as_guess():
+    """Ein Wert ausserhalb der Liste ist keine Auskunft -- und darf vor allem
+    nicht wie "annahme" wirken: sonst schickt ein Tippfehler des Modells jedes
+    `scrap` zum Menschen."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        content = json.dumps({
+            "grundlage": "gefuehl", "disposition": "scrap",
+            "confidence": 0.9, "summary": "x",
+        })
+        return httpx.Response(200, json={"message": {"content": content}})
+
+    result = await _client_with(handler).classify_disposition(description="foo")
+
+    assert result.ok is True
+    assert result.disposition == "scrap"
+    assert result.grundlage is None
+
+
+@pytest.mark.anyio
+async def test_missing_extra_fields_do_not_invalidate_the_verdict():
+    """Die Zusatzfelder sind Nachlese. Ein Modell, das nur die drei alten
+    Schluessel liefert, bleibt brauchbar."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        content = json.dumps({
+            "disposition": "rework", "confidence": 0.5, "summary": "Etikett."
+        })
+        return httpx.Response(200, json={"message": {"content": content}})
+
+    result = await _client_with(handler).classify_disposition(description="foo")
+
+    assert result.ok is True
+    assert result.grundlage is None
+    assert result.belegstelle is None
+
+
+@pytest.mark.anyio
+async def test_system_prompt_states_the_doubt_case_and_names_scrap_words():
+    """Der Prompt ist die eigentliche Aenderung; ohne diese beiden Stuecke
+    faellt sie auf den Stand zurueck, der "Artikel beschaedigt" als
+    Totalschaden gelesen hat."""
+    from app.services.llm_client import _SYSTEM_PROMPT
+
+    assert "Im Zweifel gilt quarantine" in _SYSTEM_PROMPT
+    assert "irreparabel" in _SYSTEM_PROMPT
+    assert "'Artikel beschaedigt' -> quarantine" in _SYSTEM_PROMPT
+    # Runde 2 der Messung: ohne diesen Satz nennt das Modell "Artikel
+    # beschaedigt" `wortlaut` -- und die Regel in `reconcile` greift nie.
+    assert "sind immer \"annahme\"" in _SYSTEM_PROMPT

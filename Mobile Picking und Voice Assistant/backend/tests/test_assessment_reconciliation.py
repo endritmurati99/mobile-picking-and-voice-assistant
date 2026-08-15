@@ -223,3 +223,62 @@ def test_the_note_always_survives():
                 assert "MERKMAL" in result.photo_analysis, (
                     article, damage, disposition
                 )
+
+
+def test_a_concluded_total_loss_without_photo_proof_goes_to_a_human():
+    """Der gemessene Fehlerfall: "Artikel beschaedigt" -> scrap, Konfidenz
+    0,90. Der Satz nennt keinen Totalschaden. Aussondern ist die einzige der
+    vier Dispositionen, die sich nicht zurueckdrehen laesst -- also
+    entscheidet ein Mensch, wenn weder Meldung noch Foto sie tragen."""
+    for damage in ("intact", "unavailable"):
+        result = reconcile(
+            disposition="scrap",
+            grundlage="annahme",
+            confidence=0.9,
+            summary="Totalschaden angenommen.",
+            finding=_finding(damage=damage),
+        )
+        assert result.contradiction is True, damage
+        assert "Aussondern" in result.photo_analysis
+        assert "nicht wirksam" in result.photo_analysis
+
+
+def test_a_reported_total_loss_stays_in_force():
+    """Sagt die Meldung selbst "irreparabel", entscheidet der Mensch, der die
+    Ware angefasst hat -- nicht das Foto."""
+    result = reconcile(
+        disposition="scrap", grundlage="wortlaut", finding=_finding(damage="intact")
+    )
+    assert result.contradiction is False
+
+
+def test_a_concluded_total_loss_stays_in_force_when_the_photo_shows_damage():
+    """Ueber die SCHWERE sagt das Bild nichts -- aber der Anlass ist belegt.
+    Die Regel ist eng gehalten, damit sie nicht jede Bewertung zum Menschen
+    schickt."""
+    result = reconcile(
+        disposition="scrap", grundlage="annahme", finding=_finding(damage="damaged")
+    )
+    assert result.contradiction is False
+
+
+def test_an_unknown_severity_source_changes_nothing():
+    """`None` heisst unbekannt. Ein aelteres Modell, das das Feld nicht
+    liefert, darf nicht dieselbe Wirkung haben wie ein ausgesprochenes
+    "annahme"."""
+    for grundlage in (None, "", "gefuehl"):
+        result = reconcile(
+            disposition="scrap", grundlage=grundlage, finding=_finding(damage="intact")
+        )
+        assert result.contradiction is False, grundlage
+
+
+def test_reversible_dispositions_are_not_escalated_when_concluded():
+    """quarantine und rework lassen sich zurueckdrehen. Sie zum Menschen zu
+    schicken, weil das Modell die Schwere geschlossen hat, waere Handarbeit
+    ohne Gegenwert."""
+    for disposition in ("quarantine", "rework", "sellable"):
+        result = reconcile(
+            disposition=disposition, grundlage="annahme", finding=_finding(damage="intact")
+        )
+        assert result.contradiction is False, disposition

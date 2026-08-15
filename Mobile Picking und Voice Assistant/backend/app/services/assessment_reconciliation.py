@@ -39,6 +39,11 @@ _REPORTED_BUT_UNSEEN = (
     "Hinweis: Foto zeigt keinen sichtbaren Schaden, die Meldung nennt einen. "
     "Bitte stichprobenartig prüfen."
 )
+_SCRAP_UNGEDECKT = (
+    "Hinweis: Die Meldung spricht keinen Totalschaden aus — die Einstufung "
+    "„Aussondern“ ist geschlossen, nicht gemeldet, und kein Foto bestätigt "
+    "sie. Bitte manuell entscheiden."
+)
 
 
 def _mit_texturteil(
@@ -112,7 +117,20 @@ def reconcile(
     finding: PhotoFinding,
     confidence: float | None = None,
     summary: str | None = None,
+    grundlage: str | None = None,
 ) -> Reconciled:
+    """`grundlage` sagt, WORAUF die Schwere beruht: "wortlaut" oder "annahme".
+
+    Bis zum 2026-08-15 kannte diese Tabelle nur den String `scrap` und konnte
+    nicht unterscheiden, ob der Mensch einen Totalschaden gemeldet hat oder ob
+    das Textmodell ihn aus "Artikel beschaedigt" geschlossen hat. Der zweite
+    Fall ging ohne Vermerk als Aussondern durch -- die einzige der vier
+    Dispositionen, die sich nicht zurueckdrehen laesst.
+
+    `None` heisst ausdruecklich "unbekannt" und aendert nichts. Nur ein
+    ausgesprochenes "annahme" wirkt; sonst haetten ein aelteres Modell, ein
+    Tippfehler und eine echte Aussage dieselbe Folge.
+    """
     # Falscher Artikel schlaegt alles andere: ein Schaden am falschen Teil
     # sagt nichts ueber die gemeldete Ware, und ein Urteil ueber ein Foto, das
     # den Artikel nicht zeigt, ist wertlos.
@@ -129,6 +147,28 @@ def reconcile(
             contradiction=True,
             photo_analysis=_mit_texturteil(
                 f"{finding.note}\n{_SELLABLE_BUT_DAMAGED}",
+                disposition,
+                confidence,
+                summary,
+            ),
+        )
+
+    # Geschlossener Totalschaden ohne Bildbeleg geht an einen Menschen. Die
+    # Bedingung ist bewusst eng: nur `scrap` (rework und quarantine sind
+    # umkehrbar), nur bei ausdruecklichem "annahme", und nur solange das Foto
+    # den Schaden NICHT zeigt. Bestaetigt das Bild einen Schaden, bleibt das
+    # Urteil stehen -- ueber die Schwere kann das Bild ohnehin nichts sagen,
+    # aber der Anlass ist dann belegt. `unavailable` zaehlt nicht als Beleg;
+    # genau dort lief ein `scrap` bisher ohne jeden Vermerk durch.
+    if (
+        disposition == "scrap"
+        and grundlage == "annahme"
+        and finding.damage != "damaged"
+    ):
+        return Reconciled(
+            contradiction=True,
+            photo_analysis=_mit_texturteil(
+                f"{finding.note}\n{_SCRAP_UNGEDECKT}",
                 disposition,
                 confidence,
                 summary,

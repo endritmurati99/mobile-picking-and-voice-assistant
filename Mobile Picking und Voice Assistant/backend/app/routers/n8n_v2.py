@@ -1019,6 +1019,7 @@ async def _assess(llm, vision, runtime, body) -> QualityAssessmentV2Response:
         disposition=result.disposition if result.ok else None,
         confidence=result.confidence if result.ok else None,
         summary=result.summary if result.ok else None,
+        grundlage=result.grundlage if result.ok else None,
         finding=finding,
     )
 

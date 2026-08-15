@@ -33,16 +33,88 @@ RECOMMENDED_ACTIONS = {
     "sellable": "Sichtprüfung durch Qualitätsteam.",
 }
 
+# **Der Schweregrad war durch nichts gedeckt.** Bis zum 2026-08-15 beschrieb
+# dieser Prompt die vier Werte in je drei Worten -- ohne Abstufungsregel, ohne
+# Zweifelsfall, ohne Beispiel, waehrend die beiden anderen Prompts derselben
+# Datei genau das haben. Gemessen: "Artikel beschaedigt" wurde `scrap` mit
+# Konfidenz 0,90. Der Satz sagt, dass etwas nicht stimmt; er sagt nicht, dass
+# die Ware verloren ist.
+#
+# `scrap` ist die einzige der vier Dispositionen, die sich nicht
+# zurueckdrehen laesst -- ausgesonderte Ware kommt nicht wieder. Der
+# Zweifelsfall gilt darum quarantine: eine Quarantaene kostet eine Pruefung.
+#
+# **`belegstelle` und `grundlage` sind Messgeraet, nicht Steuerung** -- derselbe
+# Gedanke wie `unterschied` im Vergleichsprompt. `grundlage` trennt, ob die
+# MELDUNG die Schwere ausspricht oder ob das Modell sie schliesst; erst damit
+# kann `reconcile` ein ungedecktes Totalschaden-Urteil erkennen, statt nur den
+# String `scrap` zu sehen. `belegstelle` steht davor, weil das Zitat vor dem
+# Urteil kommen muss: wird zuerst nach dem Urteil gefragt, antwortet das Modell
+# aus dem Schema statt aus der Sache (gemessen am 2026-08-05 in
+# `vision_client.DESCRIBE_PROMPT`, wiederholt am 2026-08-09 im Textvergleich).
+#
+# **Gemessen** (`infrastructure/bildkorpus/schweregradmessung.py`, 21
+# beschriftete Meldetexte, `qwen2.5:7b`): alter Prompt 11/21 richtig mit 3
+# falschen `scrap`, dieser hier 19/21 mit 1. Median 10 s -> 15 s.
+#
+# **`grundlage` brauchte eine zweite Runde.** In der ersten Fassung hiess es
+# nur "die Meldung nennt die Schwere" -- und "Artikel beschaedigt" bekam
+# `wortlaut`, weil das Wort ja dasteht. Gefragt ist aber das AUSMASS, nicht der
+# Mangel. Mit der scharfen Fassung kippt genau dieser Fall auf `annahme`, die
+# Disposition bleibt bei 19/21. Was offen bleibt: "Ware kaputt" urteilt
+# weiterhin `scrap` mit `wortlaut` und laeuft damit an der Regel in
+# `reconcile` vorbei -- der einzige verbliebene Fall im Korpus, in dem
+# geschlossene Schwere Ware vernichtet.
 _SYSTEM_PROMPT = (
-    "Du bist Qualitaetspruefer in einem Lager und klassifizierst eine gemeldete "
-    "Qualitaetsstoerung in genau eine Disposition. "
-    "scrap = Totalschaden/unbrauchbar, quarantine = sperren und pruefen, "
-    "rework = Nacharbeit moeglich, sellable = verkaufsfaehig/kein relevanter Mangel. "
-    "Nutze ausschliesslich die gegebene Beschreibung und den Kontext, erfinde keine Fakten. "
-    "Antworte ausschliesslich mit JSON der Form "
-    '{"disposition": <scrap|quarantine|rework|sellable>, '
-    '"confidence": <Zahl 0..1>, "summary": <kurze deutsche Begruendung, max 200 Zeichen>}.'
+    "Du bist Qualitaetspruefer in einem Lager und stufst eine gemeldete "
+    "Qualitaetsstoerung in genau eine Disposition ein.\n"
+    "Die vier Werte, vom schwersten zum leichtesten:\n"
+    "- scrap: der Artikel ist unbrauchbar und nicht zu retten.\n"
+    "- quarantine: es ist etwas nicht in Ordnung, aber wie schlimm, steht "
+    "nicht fest. Auch Verdacht, Feuchtigkeit, Fremdkoerper, Korrosion.\n"
+    "- rework: der Mangel ist benannt und mit einem Handgriff zu beheben --"
+    " Etikett, Verpackung, Beschriftung, fehlende Kleinteile.\n"
+    "- sellable: kein Mangel, der den Verkauf hindert.\n"
+    "Regeln:\n"
+    "- Stufe nur so hoch ein, wie die Meldung es HERGIBT. 'beschaedigt', "
+    "'defekt', 'kaputt' ohne weitere Angabe sagt NICHT, dass der Artikel "
+    "verloren ist. Das ist quarantine, nicht scrap.\n"
+    "- scrap nur, wenn die Meldung die Zerstoerung oder die Unbrauchbarkeit "
+    "ausspricht: zerbrochen, zersplittert, zerstoert, irreparabel, "
+    "unbrauchbar.\n"
+    "- Der Zustand der VERPACKUNG ist nicht der Zustand der Ware. Ein "
+    "beschaedigter Karton bei heiler Ware ist rework.\n"
+    "- Im Zweifel gilt quarantine. Eine Quarantaene kostet eine Pruefung; ein "
+    "vorschnelles scrap vernichtet verkaeufliche Ware, ein vorschnelles "
+    "sellable schickt Schaden zum Kunden.\n"
+    "- Nutze ausschliesslich Beschreibung und Kontext, erfinde keine Fakten. "
+    "Prioritaet und Anzahl der Fotos sagen nichts ueber die Schwere.\n"
+    "Beispiele:\n"
+    "  'Artikel beschaedigt' -> quarantine\n"
+    "  'Gehaeuse zersplittert, Teile fehlen' -> scrap\n"
+    "  'Karton aufgerissen, Ware unbeschaedigt' -> rework\n"
+    "  'Ware in Ordnung' -> sellable\n"
+    "Antworte ausschliesslich mit JSON mit diesen Schluesseln, in dieser "
+    "Reihenfolge:\n"
+    '  "belegstelle": die Woerter der Meldung, auf die du die Schwere '
+    'stuetzt, woertlich zitiert -- "keine", wenn die Meldung die Schwere '
+    "nicht benennt,\n"
+    '  "grundlage": genau eines von "wortlaut" oder "annahme". "wortlaut" '
+    "nur, wenn die Meldung das AUSMASS selbst ausspricht: dass der Artikel "
+    "zerstoert oder unbrauchbar ist, dass er in Ordnung ist, oder welcher "
+    "Handgriff ihn behebt. Nennt sie bloss, DASS etwas ist, und du schliesst "
+    'das Ausmass, dann "annahme". "beschaedigt", "defekt", "kaputt", "stimmt '
+    'etwas nicht" allein sind immer "annahme",\n'
+    '  "disposition": <scrap|quarantine|rework|sellable>,\n'
+    '  "confidence": <Zahl 0..1>,\n'
+    '  "summary": <kurze deutsche Begruendung, max 200 Zeichen>'
 )
+
+# Geschlossene Liste, wie `_UNTERSCHIEDE`. Ein Wert ausserhalb ist keine
+# Auskunft: `grundlage=None` heisst "unbekannt" und loest nichts aus. Nur ein
+# ausdrueckliches "annahme" kann ein `scrap` zum Menschen schicken -- ein
+# missverstandenes Wort darf nicht dieselbe Wirkung haben wie eine Aussage.
+_GRUNDLAGEN = frozenset({"wortlaut", "annahme"})
 
 
 # **Erst die Formen benennen, dann urteilen.** Derselbe Grundsatz wie in
@@ -154,6 +226,13 @@ class LlmDispositionResult:
     confidence: float | None = None
     summary: str | None = None
     recommended_action: str | None = None
+    # Woher die Schwere kommt: "wortlaut" (die Meldung nennt sie) oder
+    # "annahme" (das Modell schliesst sie). `None` heisst nicht benannt oder
+    # ausserhalb der Liste -- und wirkt wie "unbekannt", nicht wie "annahme".
+    grundlage: str | None = None
+    # Das Zitat, auf das sich die Schwere stuetzt. Reine Nachlese fuer die
+    # Auswertung; es entscheidet nichts.
+    belegstelle: str | None = None
 
 
 class LlmClient:
@@ -392,6 +471,12 @@ class LlmClient:
             summary = f"LLM-Einstufung: {disposition}."
         summary = summary[:200]
 
+        # Fehlende oder unbekannte Zusatzfelder machen das Urteil NICHT
+        # ungueltig. Sie sind Nachlese; ein Modell, das nur die drei alten
+        # Schluessel liefert, bleibt brauchbar.
+        grundlage = str(parsed.get("grundlage", "")).strip().lower()
+        belegstelle = str(parsed.get("belegstelle", "")).strip()
+
         return LlmDispositionResult(
             ok=True,
             model=self._model,
@@ -399,4 +484,6 @@ class LlmClient:
             confidence=confidence,
             summary=summary,
             recommended_action=RECOMMENDED_ACTIONS[disposition],
+            grundlage=grundlage if grundlage in _GRUNDLAGEN else None,
+            belegstelle=belegstelle[:200] or None,
         )
