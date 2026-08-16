@@ -54,12 +54,14 @@ def test_damage_reported_but_nothing_seen_is_noted_not_blocked():
     """Die eine bewusst entschiedene Zeile. Der Kommissionierer hatte den
     Artikel in der Hand, das Modell nur ein 512-px-Foto -- und es hat einen
     sichtbaren Riss uebersehen. Das Texturteil bleibt, die Abweichung wird
-    sichtbar."""
-    for disposition in ("scrap", "rework"):
-        result = reconcile(disposition=disposition, finding=_finding(damage="intact"))
-        assert result.contradiction is False, disposition
-        assert "keinen sichtbaren Schaden" in result.photo_analysis
-        assert "stichprobenartig" in result.photo_analysis
+    sichtbar.
+
+    Seit dem 2026-08-15 gilt das nur noch fuer `rework`: `scrap` braucht einen
+    Bildbeleg, weil Aussondern sich nicht zurueckdrehen laesst."""
+    result = reconcile(disposition="rework", finding=_finding(damage="intact"))
+    assert result.contradiction is False
+    assert "keinen sichtbaren Schaden" in result.photo_analysis
+    assert "stichprobenartig" in result.photo_analysis
 
 
 def test_quarantine_is_never_contradicted():
@@ -86,9 +88,10 @@ def test_missing_reference_image_only_drops_the_article_check():
 
 
 def test_failed_photo_check_leaves_the_text_verdict_standing():
-    """Ein Ausfall der Zweitmeinung darf die Erstmeinung nicht loeschen."""
+    """Ein Ausfall der Zweitmeinung darf die Erstmeinung nicht loeschen --
+    ausser bei `scrap`, das seit dem 2026-08-15 einen Bildbeleg braucht."""
     result = reconcile(
-        disposition="scrap",
+        disposition="rework",
         finding=PhotoFinding(
             article="unavailable",
             damage="unavailable",
@@ -198,11 +201,13 @@ def test_no_verdict_line_without_a_verdict():
 def test_the_vermerk_path_keeps_its_hint_and_adds_nothing():
     """Der vermerkte Widerspruch (Mensch meldet Schaden, Modell sieht keinen)
     setzt `contradiction` nicht -- das Urteil bleibt wirksam und gehoert
-    deshalb nicht als "nicht wirksam" in den Klartext."""
+    deshalb nicht als "nicht wirksam" in den Klartext. Gilt fuer die
+    umkehrbaren Dispositionen; `scrap` geht seit dem 2026-08-15 ohne
+    Bildbeleg an einen Menschen."""
     result = reconcile(
-        disposition="scrap",
+        disposition="rework",
         confidence=0.9,
-        summary="Ware unbrauchbar.",
+        summary="Nacharbeit noetig.",
         finding=_finding(damage="intact", note="Kein Schaden sichtbar."),
     )
     assert result.contradiction is False
@@ -243,13 +248,16 @@ def test_a_concluded_total_loss_without_photo_proof_goes_to_a_human():
         assert "nicht wirksam" in result.photo_analysis
 
 
-def test_a_reported_total_loss_stays_in_force():
-    """Sagt die Meldung selbst "irreparabel", entscheidet der Mensch, der die
-    Ware angefasst hat -- nicht das Foto."""
+def test_even_a_reported_total_loss_needs_photo_proof():
+    """Der erste Anlauf liess ein gemeldetes "irreparabel" ohne Bild durch.
+    Das haelt nicht: "Ware kaputt" urteilte `scrap` und nannte die Schwere
+    `wortlaut` -- die Regel haette an einer Selbstauskunft des Modells
+    gehangen. Jetzt haengt sie am Bild, und der Satz faellt anders aus."""
     result = reconcile(
         disposition="scrap", grundlage="wortlaut", finding=_finding(damage="intact")
     )
-    assert result.contradiction is False
+    assert result.contradiction is True
+    assert "kein Foto belegt einen Schaden" in result.photo_analysis
 
 
 def test_a_concluded_total_loss_stays_in_force_when_the_photo_shows_damage():
@@ -262,15 +270,35 @@ def test_a_concluded_total_loss_stays_in_force_when_the_photo_shows_damage():
     assert result.contradiction is False
 
 
-def test_an_unknown_severity_source_changes_nothing():
-    """`None` heisst unbekannt. Ein aelteres Modell, das das Feld nicht
-    liefert, darf nicht dieselbe Wirkung haben wie ein ausgesprochenes
-    "annahme"."""
-    for grundlage in (None, "", "gefuehl"):
+def test_the_severity_source_only_colours_the_sentence():
+    """`grundlage` steuert seit der haerteren Regel nichts mehr -- ohne
+    Bildbeleg geht jedes `scrap` zum Menschen. Es entscheidet nur noch, ob
+    dort "geschlossen, nicht gemeldet" steht oder der neutrale Satz."""
+    for grundlage in (None, "", "gefuehl", "wortlaut"):
         result = reconcile(
             disposition="scrap", grundlage=grundlage, finding=_finding(damage="intact")
         )
-        assert result.contradiction is False, grundlage
+        assert result.contradiction is True, grundlage
+        assert "kein Foto belegt einen Schaden" in result.photo_analysis, grundlage
+
+    geschlossen = reconcile(
+        disposition="scrap", grundlage="annahme", finding=_finding(damage="intact")
+    )
+    assert "geschlossen, nicht gemeldet" in geschlossen.photo_analysis
+
+
+def test_no_photo_at_all_blocks_scrap_and_nothing_else():
+    """Der ausgesprochene Preis der Regel: eine Meldung ohne Foto kann nie
+    mehr automatisch aussondern. Die drei umkehrbaren Dispositionen laufen
+    unveraendert durch -- sonst blockierte die Regel den halben Betrieb."""
+    ohne_bild = PhotoFinding(
+        article="unavailable", damage="unavailable",
+        note="Ohne Bildprüfung: der Meldung liegt kein Foto bei.",
+    )
+    assert reconcile(disposition="scrap", finding=ohne_bild).contradiction is True
+    for disposition in ("quarantine", "rework", "sellable"):
+        result = reconcile(disposition=disposition, finding=ohne_bild)
+        assert result.contradiction is False, disposition
 
 
 def test_reversible_dispositions_are_not_escalated_when_concluded():

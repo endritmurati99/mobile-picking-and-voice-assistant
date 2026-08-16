@@ -112,6 +112,29 @@ def llm_ok(signed_env):
 
 
 @pytest.fixture
+def llm_rework(signed_env):
+    """Ein UMKEHRBARES Urteil.
+
+    Seit dem 2026-08-15 blockiert `scrap` ohne Bildbeleg. Tests, deren Punkt
+    nicht das Aussondern ist, sondern dass ein ausbleibender Bildbefund das
+    Texturteil stehen laesst, brauchen darum eine Disposition, die von der
+    Regel nicht erfasst wird.
+    """
+    fake = install_llm(
+        LlmDispositionResult(
+            ok=True,
+            model="qwen2.5:7b",
+            disposition="rework",
+            confidence=0.8,
+            summary="Verpackung nacharbeiten.",
+            recommended_action="Nacharbeit prüfen.",
+        )
+    )
+    yield fake
+    app.dependency_overrides.pop(dependencies.get_llm_client, None)
+
+
+@pytest.fixture
 def llm_down(signed_env):
     fake = install_llm(LlmDispositionResult(ok=False, model="qwen2.5:7b"))
     yield fake
@@ -312,9 +335,31 @@ def test_a_dog_photo_contradicts_a_sellable_verdict(signed_env):
     assert body["disposition"] == "sellable"
 
 
-def test_damage_reported_but_unseen_is_noted_not_blocked(llm_ok, signed_env):
-    """llm_ok liefert scrap. Das Modell sieht keinen Schaden -- der
-    Kommissionierer hatte den Artikel in der Hand, also bleibt sein Urteil."""
+def test_damage_reported_but_unseen_is_noted_not_blocked(llm_rework, signed_env):
+    """Das Modell sieht keinen Schaden -- der Kommissionierer hatte den
+    Artikel in der Hand, also bleibt sein Urteil. Gilt fuer die umkehrbaren
+    Dispositionen; `scrap` steht im Test darunter."""
+    signed_env["o19-a"].response = MEDIA_RESPONSE
+    install_vision(
+        SIEHT_ARTIKEL,
+        DamageCheck(ok=True, damaged=False, anomalies=()),
+    )
+    try:
+        response = post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    body = response.json()
+    assert body["disposition"] == "rework"
+    assert body["contradiction"] is False
+    assert "keinen sichtbaren Schaden" in body["photo_analysis"]
+
+
+def test_scrap_without_photo_proof_goes_to_a_human(llm_ok, signed_env):
+    """Die haertere Regel durch die ganze Route: llm_ok liefert scrap, das
+    Foto zeigt keinen Schaden -- Aussondern laesst sich nicht zurueckdrehen,
+    also entscheidet ein Mensch. Das Texturteil bleibt im Klartext nachlesbar,
+    aber ausdruecklich als nicht wirksam."""
     signed_env["o19-a"].response = MEDIA_RESPONSE
     install_vision(
         SIEHT_ARTIKEL,
@@ -327,11 +372,14 @@ def test_damage_reported_but_unseen_is_noted_not_blocked(llm_ok, signed_env):
 
     body = response.json()
     assert body["disposition"] == "scrap"
-    assert body["contradiction"] is False
-    assert "keinen sichtbaren Schaden" in body["photo_analysis"]
+    assert body["contradiction"] is True
+    assert "kein Foto belegt einen Schaden" in body["photo_analysis"]
+    assert "nicht wirksam" in body["photo_analysis"]
 
 
-def test_vision_failure_leaves_the_text_verdict_standing(llm_ok, signed_env):
+def test_vision_failure_leaves_the_text_verdict_standing(llm_rework, signed_env):
+    """Ein Ausfall der Zweitmeinung loescht die Erstmeinung nicht -- ausser
+    bei `scrap`, siehe Test darunter."""
     signed_env["o19-a"].response = MEDIA_RESPONSE
     install_vision(SIEHT_NICHTS, DamageCheck(ok=False))
     try:
@@ -341,10 +389,26 @@ def test_vision_failure_leaves_the_text_verdict_standing(llm_ok, signed_env):
 
     body = response.json()
     assert body["llm_ok"] is True
-    assert body["disposition"] == "scrap"
+    assert body["disposition"] == "rework"
     assert body["photo_checked"] is False
     assert body["contradiction"] is False
     assert "nicht geprüft" in body["photo_analysis"]
+
+
+def test_vision_failure_blocks_scrap(llm_ok, signed_env):
+    """Ein ausgefallener Bildbefund ist kein Beleg. Bis zum 2026-08-15 lief
+    `scrap` hier ohne jeden Vermerk durch."""
+    signed_env["o19-a"].response = MEDIA_RESPONSE
+    install_vision(SIEHT_NICHTS, DamageCheck(ok=False))
+    try:
+        response = post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    body = response.json()
+    assert body["disposition"] == "scrap"
+    assert body["contradiction"] is True
+    assert "kein Foto belegt einen Schaden" in body["photo_analysis"]
 
 
 def test_odoo_failure_leaves_the_text_verdict_standing(llm_ok, signed_env):
@@ -474,9 +538,29 @@ def test_without_a_catalogue_image_one_damage_check_still_runs(llm_ok, signed_en
     assert "Fotos: 1 weitere ungeprüft" in response.json()["photo_analysis"]
 
 
-def test_vision_disabled_behaves_like_before_the_rebuild(llm_ok, signed_env):
+def test_vision_disabled_behaves_like_before_the_rebuild(llm_rework, signed_env):
     """Der Notausgang: vision_enabled=false. Kein Odoo-Aufruf, kein
-    Bildbefund, Texturteil wie vorher."""
+    Bildbefund, Texturteil wie vorher.
+
+    Der ausgesprochene Preis der Regel vom 2026-08-15: mit abgeschalteter
+    Bildpruefung kann NICHTS mehr automatisch aussondern -- deshalb prueft
+    dieser Test ein umkehrbares Urteil, der naechste das andere."""
+    app.dependency_overrides[dependencies.get_vision_client] = lambda: None
+    try:
+        response = post(assess_body())
+    finally:
+        app.dependency_overrides.pop(dependencies.get_vision_client, None)
+
+    body = response.json()
+    assert body["disposition"] == "rework"
+    assert body["photo_checked"] is False
+    assert body["photo_analysis"] == "Bildprüfung abgeschaltet."
+    assert signed_env["o19-a"].calls == []
+
+
+def test_vision_disabled_blocks_scrap(llm_ok, signed_env):
+    """Notausgang plus Aussondern: der Klartext behaelt seinen Satz und
+    bekommt den Hinweis dazu, die Meldung geht an einen Menschen."""
     app.dependency_overrides[dependencies.get_vision_client] = lambda: None
     try:
         response = post(assess_body())
@@ -485,9 +569,9 @@ def test_vision_disabled_behaves_like_before_the_rebuild(llm_ok, signed_env):
 
     body = response.json()
     assert body["disposition"] == "scrap"
-    assert body["photo_checked"] is False
-    assert body["photo_analysis"] == "Bildprüfung abgeschaltet."
-    assert signed_env["o19-a"].calls == []
+    assert body["contradiction"] is True
+    assert body["photo_analysis"].startswith("Bildprüfung abgeschaltet.")
+    assert "kein Foto belegt einen Schaden" in body["photo_analysis"]
 
 
 def _large_jpeg_b64(edge=1200):

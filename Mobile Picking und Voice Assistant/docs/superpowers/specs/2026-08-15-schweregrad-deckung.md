@@ -31,21 +31,31 @@ Vergleichsprompt: Messgröße, keine Steuerung. Die Reihenfolge ist der
 gemessene Punkt aus `vision_client.DESCRIBE_PROMPT` — wird zuerst nach dem
 Urteil gefragt, antwortet das Modell aus dem Schema statt aus der Sache.
 
-**Regel** (`assessment_reconciliation.reconcile`): `scrap` + `grundlage ==
-"annahme"` + Foto zeigt den Schaden **nicht** (`intact` oder `unavailable`)
-→ `contradiction=True`, die Meldung geht an einen Menschen; im Klartext steht,
-dass die Einstufung geschlossen und nicht gemeldet ist, samt dem unwirksamen
-Texturteil.
+**Regel** (`assessment_reconciliation.reconcile`), **zweiter Anlauf: kein
+Aussondern ohne Bildbeleg.** `scrap` + Foto zeigt den Schaden **nicht**
+(`intact` *oder* `unavailable`) → `contradiction=True`, die Meldung geht an
+einen Menschen, samt dem unwirksamen Texturteil im Klartext.
 
-Die Bedingung ist bewusst eng:
+Der erste Anlauf machte das nur bei `grundlage == "annahme"` und ließ damit
+genau die Lücke offen, die er schließen sollte: `"Ware kaputt"` urteilte
+`scrap` und nannte die Schwere `wortlaut`. Die Regel hing an einer
+**Selbstauskunft des Modells** — und die traf im Korpus bei den vagen Fällen
+nur 3 von 5. Jetzt hängt sie am Bild. `grundlage` steuert nichts mehr, färbt
+aber den Hinweissatz: der Mensch soll lesen können, ob der Totalschaden
+gemeldet (`_SCRAP_OHNE_BELEG`) oder geschlossen (`_SCRAP_UNGEDECKT`) war.
+
+Die Bedingung bleibt eng, wo sie eng sein muss:
 
 - Nur `scrap`. `quarantine`, `rework` und `sellable` sind umkehrbar; sie zum
-  Menschen zu schicken, wäre Handarbeit ohne Gegenwert.
-- Nur bei ausdrücklichem `"annahme"`. `None` heißt „unbekannt" und wirkt
-  nicht — sonst hätten ein älteres Modell, ein Tippfehler und eine echte
-  Aussage dieselbe Folge.
+  Menschen zu schicken, wäre Handarbeit ohne Gegenwert. Sie sind unberührt.
 - Bestätigt das Foto einen Schaden, bleibt das Urteil. Über die *Schwere* sagt
   das Bild nichts, aber der Anlass ist dann belegt.
+
+**Der Preis ist ausgesprochen:** eine Meldung ohne Foto, eine mit
+ausgefallener Bildprüfung und eine bei abgeschalteter Bildprüfung können nie
+mehr automatisch aussondern — alle drei liefern `damage="unavailable"`. Das
+ist gewollt: `scrap` ist die einzige der vier Dispositionen, die sich nicht
+zurückdrehen lässt.
 
 Nebenbei geschlossen: `damage == "unavailable"` erzeugte bisher keinen
 Hinweissatz, ein `scrap` ging dort ohne jeden Vermerk durch (offener Punkt 2
@@ -92,20 +102,28 @@ drei `scrap`-Fällen sagt es in beiden Fassungen `wortlaut`.
   Abgleich mit dem Katalogbild bestätigt den Befund." Derselbe vage Meldetext,
   der vorher Ware ausgesondert hätte.
 
-1070 Backend-Tests grün, 9 neu. Die neue Regel fällt per Mutation
-(`grundlage == "annahme"` → `False`) — der Test prüft sie wirklich.
+Nach der härteren Regel:
+
+- **QA/0349** (Produkt 73, foto_4, Text „Totalschaden am Gehaeuse, komplett
+  zerstoert"): 160 s, `completed`, `scrap` 1,0, „Ware sperren, aussondern und
+  Schichtleitung informieren." Ausgesprochener Totalschaden **mit**
+  Schadensfoto geht weiterhin automatisch durch — die Regel blockiert nicht
+  pauschal.
+- **QA/0350** (derselbe Text, ohne Foto): 30 s, `review_required`.
+  Fotoanalyse: „Ohne Bildprüfung: der Meldung liegt kein Foto bei. Hinweis:
+  Die Einstufung lautet „Aussondern", aber kein Foto belegt einen Schaden.
+  Aussondern lässt sich nicht zurücknehmen — bitte manuell entscheiden."
+  Dazu das unwirksame Texturteil `scrap, Konfidenz 1.00`.
+
+1074 Backend-Tests grün. Die Regel fällt per Mutation (Bedingung → `False`):
+7 Tests brechen — sie prüfen sie wirklich.
 
 ## Was offen bleibt
 
-1. **`"Ware kaputt"` urteilt weiter `scrap`, und zwar mit `wortlaut`** — läuft
-   also auch an der neuen Regel vorbei. Der einzige verbliebene Fall im
-   Korpus, in dem geschlossene Schwere Ware vernichtet. Weiter am Prompt zu
-   drehen hieße, ihn an 21 Sätze anzupassen; die Alternative wäre die härtere
-   Regel „kein `scrap` ohne Bildbeleg, unabhängig von `grundlage`".
-2. `"Teil defekt"` → `rework` (zu niedrig). Harmlos in der Wirkung, aber
+1. `"Teil defekt"` → `rework` (zu niedrig). Harmlos in der Wirkung, aber
    dieselbe Wurzel.
-3. Korpus ist selbst geschrieben, nicht aus dem Betrieb gezogen. 21 Sätze,
+2. Korpus ist selbst geschrieben, nicht aus dem Betrieb gezogen. 21 Sätze,
    eine Beschrifterin. Echte Meldetexte aus Odoo wären belastbarer.
-4. Die Konfidenz bleibt unbenutzt und unkalibriert (0,90 für eine Vermutung).
+3. Die Konfidenz bleibt unbenutzt und unkalibriert (0,90 für eine Vermutung).
    Bewusst: eine Schwelle darauf wäre Scheinsicherheit — dieselbe Überlegung
    wie in `assessment_reconciliation`.

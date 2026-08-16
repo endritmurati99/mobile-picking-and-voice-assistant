@@ -18,6 +18,11 @@ Meldung "verkaufsfaehig" sagt, geht die Meldung an einen Menschen. Die
 Asymmetrie ist Absicht -- das Bild darf eskalieren, aber die Aussage eines
 Menschen, der die Ware angefasst hat, nicht abschwaechen.
 
+**Eine Ausnahme davon: `scrap`.** Aussondern laesst sich nicht zurueckdrehen,
+und darum reicht dort das Texturteil allein nicht -- ohne Foto, das einen
+Schaden zeigt, entscheidet ein Mensch. Das ist der einzige Punkt, an dem ein
+ausbleibender Bildbefund blockiert statt nur zu vermerken.
+
 **Modellkonfidenz kommt hier bewusst nicht vor.** Beim uebersehenen Riss war
 das Modell zu 95 Prozent sicher. Eine Schwelle darauf waere Scheinsicherheit.
 """
@@ -43,6 +48,11 @@ _SCRAP_UNGEDECKT = (
     "Hinweis: Die Meldung spricht keinen Totalschaden aus — die Einstufung "
     "„Aussondern“ ist geschlossen, nicht gemeldet, und kein Foto bestätigt "
     "sie. Bitte manuell entscheiden."
+)
+_SCRAP_OHNE_BELEG = (
+    "Hinweis: Die Einstufung lautet „Aussondern“, aber kein Foto belegt einen "
+    "Schaden. Aussondern lässt sich nicht zurücknehmen — bitte manuell "
+    "entscheiden."
 )
 
 
@@ -153,22 +163,30 @@ def reconcile(
             ),
         )
 
-    # Geschlossener Totalschaden ohne Bildbeleg geht an einen Menschen. Die
-    # Bedingung ist bewusst eng: nur `scrap` (rework und quarantine sind
-    # umkehrbar), nur bei ausdruecklichem "annahme", und nur solange das Foto
-    # den Schaden NICHT zeigt. Bestaetigt das Bild einen Schaden, bleibt das
-    # Urteil stehen -- ueber die Schwere kann das Bild ohnehin nichts sagen,
-    # aber der Anlass ist dann belegt. `unavailable` zaehlt nicht als Beleg;
-    # genau dort lief ein `scrap` bisher ohne jeden Vermerk durch.
-    if (
-        disposition == "scrap"
-        and grundlage == "annahme"
-        and finding.damage != "damaged"
-    ):
+    # **Kein Aussondern ohne Bildbeleg.** Zeigt das Foto keinen Schaden --
+    # gleich ob es keinen sieht, keins vorliegt oder die Pruefung ausfiel --,
+    # entscheidet ein Mensch.
+    #
+    # Der erste Anlauf am 2026-08-15 machte das nur bei `grundlage="annahme"`
+    # und liess damit genau die Luecke offen, die er schliessen sollte: "Ware
+    # kaputt" urteilte `scrap` und nannte die Schwere `wortlaut`. Die Regel
+    # haengte an einer Selbstauskunft des Modells -- und die traf im Korpus
+    # bei den vagen Faellen nur 3 von 5. Jetzt haengt sie am Bild.
+    #
+    # Der Preis ist ausgesprochen: eine Meldung OHNE Foto kann nie mehr
+    # automatisch aussondern (`damage="unavailable"`), ebensowenig eine, deren
+    # Bildpruefung ausgefallen oder abgeschaltet ist. Das ist gewollt --
+    # `scrap` ist die einzige der vier Dispositionen, die sich nicht
+    # zurueckdrehen laesst; die drei anderen bleiben unberuehrt.
+    #
+    # `grundlage` steuert hier nichts mehr, faerbt aber den Satz: der Mensch
+    # soll lesen koennen, ob der Totalschaden gemeldet oder geschlossen war.
+    if disposition == "scrap" and finding.damage != "damaged":
+        hinweis = _SCRAP_UNGEDECKT if grundlage == "annahme" else _SCRAP_OHNE_BELEG
         return Reconciled(
             contradiction=True,
             photo_analysis=_mit_texturteil(
-                f"{finding.note}\n{_SCRAP_UNGEDECKT}",
+                f"{finding.note}\n{hinweis}",
                 disposition,
                 confidence,
                 summary,
