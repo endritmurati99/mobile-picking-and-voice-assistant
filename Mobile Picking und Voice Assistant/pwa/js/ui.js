@@ -38,6 +38,100 @@ export function subscribe(fn) {
     return () => listeners.delete(fn);
 }
 
+export function buildClusterStops(lines) {
+    const source = Array.isArray(lines) ? lines : [];
+    const entries = source.map((line) => {
+        const location = line?.location_src_id ?? line?.location_src;
+        const lineKey = `line:${line?.id}`;
+        const canGroup = line?.tracking === 'none'
+            && line?.product_id != null
+            && location != null
+            && String(location).trim()
+            && line?.picking_id != null;
+        return {
+            line,
+            lineKey,
+            key: canGroup
+                ? JSON.stringify([String(line.product_id), String(location).trim()])
+                : lineKey,
+        };
+    });
+    const buckets = new Map();
+    entries.forEach(({ key, line }) => {
+        if (!buckets.has(key)) buckets.set(key, []);
+        buckets.get(key).push(line);
+    });
+
+    const emitted = new Set();
+    const quantity = (line) => {
+        const value = Number(line?.quantity_demand ?? 0);
+        return Number.isFinite(value) ? value : 0;
+    };
+
+    return entries.flatMap(({ key, line, lineKey }) => {
+        const bucket = buckets.get(key) || [line];
+        const pickingIds = new Set(bucket.map((item) => item.picking_id));
+        const grouped = bucket.length > 1 && pickingIds.size === bucket.length;
+        const allocations = grouped
+            ? [...bucket].sort((a, b) => Number(a.box_index ?? Infinity) - Number(b.box_index ?? Infinity))
+            : [line];
+
+        if (allocations.length > 1) {
+            if (emitted.has(key)) return [];
+            emitted.add(key);
+        }
+
+        const total = allocations.reduce((sum, item) => sum + quantity(item), 0);
+        const done = allocations.reduce(
+            (sum, item) => sum + (item.picked ? quantity(item) : 0),
+            0,
+        );
+        return [{
+            ...allocations[0],
+            stop_key: grouped ? key : lineKey,
+            allocations,
+            grouped,
+            quantity_demand: total,
+            quantity_done: done,
+            quantity_remaining: total - done,
+            picked: allocations.every((item) => Boolean(item.picked)),
+        }];
+    });
+}
+
+export function resolveClusterScan(stop, scannedValue, verifiedProductBarcode = '') {
+    const scanned = String(scannedValue ?? '').trim();
+    if (stop?.tracking !== 'none') return { kind: 'tracked' };
+
+    const productBarcode = String(stop?.product_barcode ?? '').trim();
+    if (!productBarcode) return { kind: 'product_missing' };
+
+    const verifiedBarcode = String(verifiedProductBarcode ?? '').trim();
+    if (!verifiedBarcode) {
+        return scanned === productBarcode
+            ? { kind: 'product_ok', barcode: scanned }
+            : { kind: 'wrong_product' };
+    }
+
+    const allocations = Array.isArray(stop?.allocations) ? stop.allocations : [stop];
+    const normalizedPackage = scanned.toLowerCase();
+    const allocation = allocations.find((item) => {
+        if (!item || item.picked) return false;
+        const packageName = String(item.package_name ?? '').trim().toLowerCase();
+        const packageId = item.package_id == null ? '' : String(item.package_id).trim();
+        return Boolean(scanned) && (
+            (packageName && normalizedPackage === packageName)
+            || (packageId && scanned === packageId)
+        );
+    });
+
+    if (allocation) {
+        return { kind: 'allocation_ok', allocation, scanned_package: scanned };
+    }
+    if (scanned === productBarcode) return { kind: 'product_already_ok' };
+    return { kind: 'wrong_package' };
+}
+
 function getProductVisualInitials(label) {
     return String(label || 'PK')
         .split(/\s+/)
@@ -142,7 +236,7 @@ export function renderError(message) {
 export function showToast(message, type = 'info') {
     const toast = document.createElement('div');
     toast.className = `toast toast--${type}`;
-    toast.setAttribute('role', 'status');
+    toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
     toast.textContent = message;
     document.body.appendChild(toast);
     requestAnimationFrame(() => {

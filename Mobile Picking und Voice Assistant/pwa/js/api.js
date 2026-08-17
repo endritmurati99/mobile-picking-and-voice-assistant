@@ -8,7 +8,7 @@ const STORAGE_KEYS = {
     pickerCatalog: 'picking-assistant-picker-catalog',
     deviceId: 'picking-assistant-device-id',
     preferredZone: 'picking-assistant-preferred-zone',
-    highContrastEnabled: 'picking-assistant-high-contrast',
+    darkModeEnabled: 'picking-assistant-dark-mode',
     searchQuery: 'picking-assistant-search-query',
     odooInstance: 'picking-assistant-odoo-instance',
 };
@@ -159,12 +159,12 @@ export function setStoredPreferredZone(zone) {
     }));
 }
 
-export function getStoredHighContrastEnabled() {
-    return safeStorageGet(STORAGE_KEYS.highContrastEnabled) === 'true';
+export function getStoredDarkModeEnabled() {
+    return safeStorageGet(STORAGE_KEYS.darkModeEnabled) === 'true';
 }
 
-export function setStoredHighContrastEnabled(enabled) {
-    safeStorageSet(STORAGE_KEYS.highContrastEnabled, enabled ? 'true' : 'false');
+export function setStoredDarkModeEnabled(enabled) {
+    safeStorageSet(STORAGE_KEYS.darkModeEnabled, enabled ? 'true' : 'false');
 }
 
 export function getStoredSearchQuery() {
@@ -299,6 +299,27 @@ export async function loginPickerSession({ login, password, odoo_instance }, opt
         device_id: getDeviceId(),
         odoo_instance: normalizeInstanceName(odoo_instance),
     }, { signal: options.signal });
+    setCsrfToken(result.csrf_token);
+    setActivePicker({
+        id: result.principal.picker_user_id,
+        name: result.principal.picker_name,
+    });
+    setActiveInstance(result.principal.odoo_instance);
+    return result;
+}
+
+export async function switchPickerInstance(odooInstance, options = {}) {
+    // Tauscht die Sitzung gegen eine im anderen Lager. Das Backend prueft, ob
+    // derselbe Anmeldename dort eine Rolle traegt; ein Passwort verlangt es
+    // nicht. Antwortet es 401, ist der Weg ueber den Login-Schirm noetig.
+    // Der CSRF-Token liegt im `sessionStorage` und ueberlebt keinen neuen Tab;
+    // das Sitzungs-Cookie schon. Ohne Token waere der Wechsel dort ein 403 --
+    // also erst einen holen. (Dieselbe Luecke trifft jeden anderen
+    // schreibenden Aufruf, siehe `rotateCsrfToken`, das sonst niemand ruft.)
+    if (!getCsrfToken()) await rotateCsrfToken({ signal: options.signal });
+    const result = await request('POST', '/auth/switch-instance', {
+        odoo_instance: normalizeInstanceName(odooInstance),
+    }, { headers: getWriteHeaders(), signal: options.signal });
     setCsrfToken(result.csrf_token);
     setActivePicker({
         id: result.principal.picker_user_id,

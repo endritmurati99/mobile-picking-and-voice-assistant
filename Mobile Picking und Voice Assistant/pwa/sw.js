@@ -1,3 +1,7 @@
+// v24: Lagerwechsel tauscht die Sitzung (`/auth/switch-instance`), statt nur
+// den localStorage zu setzen (app.js, api.js). Ohne Bump behaelt jedes Geraet
+// den alten Umschalter, der still im ersten Lager bleibt.
+// v23: Cluster-Artikel-/Kartonscan und mobile Rundgangsdarstellung.
 // v22: Idempotenzschluessel prozentkodiert + gefaltet (api.js) -- ohne Bump
 // schickt der alte Worker weiter rohe Umlaute und Leerzeichen im Header und
 // jede Qualitaetsmeldung mit deutschem Beschreibungstext bleibt bei 400.
@@ -10,7 +14,7 @@
 // no login screen, legacy identity headers that the backend no longer honours,
 // and a health probe against a route that does not exist. The symptom is an app
 // that looks merely broken, which is the worst kind of stale cache.
-const CACHE_NAME = 'picking-v22';
+const CACHE_NAME = 'picking-v24';
 const PRECACHE = [
     '/',
     '/index.html',

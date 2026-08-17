@@ -69,8 +69,13 @@ export function isBarcodeDetectorAvailable() {
  * onScan(barcode) wird aufgerufen sobald ein Barcode erkannt wurde.
  */
 export async function openCameraScanner(onScan) {
+    const returnFocus = document.activeElement;
     const overlay = document.createElement('div');
     overlay.id = 'barcode-scanner-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'scanner-title');
+    overlay.tabIndex = -1;
     overlay.style.cssText = [
         'position:fixed', 'inset:0', 'z-index:500',
         'background:#000', 'display:flex', 'flex-direction:column',
@@ -86,20 +91,21 @@ export async function openCameraScanner(onScan) {
                 <div style="width:260px;height:130px;border:3px solid var(--primary);border-radius:10px;box-shadow:0 0 0 9999px rgba(0,0,0,0.45);"></div>
             </div>
             <div style="position:absolute;top:16px;left:0;right:0;text-align:center;">
-                <span style="background:rgba(0,0,0,0.6);color:var(--text-primary);padding:6px 14px;border-radius:20px;font-size:0.85rem;">
+                <span style="background:rgba(0,0,0,0.6);color:#fff;padding:6px 14px;border-radius:20px;font-size:0.85rem;">
                     ${hasDetector ? 'Barcode in den Rahmen halten' : 'Barcode scannen'}
                 </span>
             </div>
         </div>
         <div style="padding:16px;background:var(--bg);display:flex;flex-direction:column;gap:10px;">
+            <strong id="scanner-title" style="color:var(--ink);font-size:1.1rem;">Barcode scannen</strong>
             <div style="display:flex;gap:8px;align-items:center;">
                 <input type="text" id="scanner-manual-input" placeholder="Barcode manuell eingeben"
-                       inputmode="numeric" autocomplete="off"
-                       style="flex:1;padding:12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text-primary);font-size:1rem;">
-                <button id="scanner-manual-submit"
+                       inputmode="text" autocomplete="off"
+                       style="flex:1;min-width:0;padding:12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--ink);font-size:1rem;">
+                <button type="button" id="scanner-manual-submit"
                         style="padding:12px 18px;background:var(--success);color:#041514;border:none;border-radius:8px;font-weight:600;">OK</button>
             </div>
-            <button id="scanner-close"
+            <button type="button" id="scanner-close"
                     style="padding:12px;background:var(--danger);color:#fff;border:none;border-radius:8px;font-weight:600;font-size:1rem;">
                 Abbrechen
             </button>
@@ -109,6 +115,7 @@ export async function openCameraScanner(onScan) {
 
     let videoStream = null;
     let rafHandle = null;
+    let closed = false;
 
     const videoEl = document.getElementById('scanner-video');
 
@@ -120,13 +127,40 @@ export async function openCameraScanner(onScan) {
         videoEl.srcObject = videoStream;
     } catch {
         videoEl.parentElement.style.display = 'none';
+        overlay.style.background = 'var(--bg)';
+        overlay.lastElementChild.style.margin = 'auto 0';
     }
 
     function close() {
+        if (closed) return;
+        closed = true;
         if (rafHandle) cancelAnimationFrame(rafHandle);
         if (videoStream) videoStream.getTracks().forEach(t => t.stop());
+        document.removeEventListener('keydown', handleDialogKeydown);
         overlay.remove();
+        returnFocus?.focus?.();
     }
+
+    function handleDialogKeydown(event) {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            close();
+            return;
+        }
+        if (event.key !== 'Tab') return;
+        const focusable = [...overlay.querySelectorAll('input, button:not([disabled])')];
+        const first = focusable[0];
+        const last = focusable.at(-1);
+        if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first?.focus();
+        }
+    }
+
+    document.addEventListener('keydown', handleDialogKeydown);
 
     document.getElementById('scanner-close').addEventListener('click', close);
 
@@ -181,7 +215,7 @@ export function showManualInput(onSubmit) {
     container.id = 'manual-barcode-input';
     container.className = 'manual-barcode-entry';
     container.innerHTML = `
-        <input type="text" id="barcode-input" class="manual-barcode-entry__input" inputmode="numeric"
+        <input type="text" id="barcode-input" class="manual-barcode-entry__input" inputmode="text"
                placeholder="Barcode eingeben" autocomplete="off">
         <button id="barcode-submit"
                 class="manual-barcode-entry__submit">
