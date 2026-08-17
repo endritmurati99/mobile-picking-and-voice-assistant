@@ -76,3 +76,14 @@ infrastructure/secrets/*
 
 # Importlaeufe legen hier Zeitstempel-Verzeichnisse mit Live-Zustand ab.
 n8n/backups/
+
+# ── Agent session artifacts (2026-08-17 cleanup) ─────────────────────────────
+.claude/
+.serena/
+.design/
+docs/superpowers/
+docs/parallel-chats/
+docs/SESSION_*.md
+CLAUDE.md
+AGENTS.md
+infrastructure/bildkorpus/messwerte/**/*.log

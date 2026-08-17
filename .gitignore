@@ -60,3 +60,20 @@ Mobile Picking und Voice Assistant/img
 env-backup-*.env
 .gemini-skills/
 .gemini/
+
+# ── Agent / tooling scaffolding (2026-08-17 cleanup) ─────────────────────────
+**/.claude/
+**/.serena/
+**/.design/
+**/.superpowers/
+.superpowers/
+.code-review-graph/
+graphify/
+**/graphify-out/
+**/AGENTS.md
+**/CLAUDE.md
+backup-n8n-*/
+**/backups/
+*.bak
+# personal thesis-submission docs (keep docs/**/*.pdf)
+/*.pdf
