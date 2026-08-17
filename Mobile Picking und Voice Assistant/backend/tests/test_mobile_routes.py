@@ -460,3 +460,27 @@ def test_quality_alert_creation_leaves_the_verdict_to_the_chain():
     # Weder eine Ersatzbewertung noch der alte synchrone Webhook.
     odoo.write.assert_not_awaited()
     n8n.fire_event.assert_not_awaited()
+
+
+def test_uncaught_odoo_error_returns_clean_502():
+    """Sicherheitsnetz-Handler (main.py): ein in einem Browser-Router
+    ungefangener OdooAPIError wird ein sauberer 502, kein 500 mit Stacktrace.
+    /api/pickers reicht einen OdooAPIError bewusst nicht durch -- er faellt bis
+    zum globalen exception_handler durch."""
+    from app.services.odoo_client import OdooAPIError
+
+    workflow = _create_workflow_mock()
+    workflow.list_pickers = AsyncMock(side_effect=OdooAPIError({"message": "boom"}))
+    _override_dependencies(workflow=workflow)
+
+    try:
+        with TestClient(app, headers=BROWSER_GATE_HEADERS, raise_server_exceptions=False) as client:
+            response = client.get("/api/pickers")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 502
+    body = response.json()
+    assert "detail" in body
+    assert "Traceback" not in body["detail"]
+    assert "boom" not in body["detail"]

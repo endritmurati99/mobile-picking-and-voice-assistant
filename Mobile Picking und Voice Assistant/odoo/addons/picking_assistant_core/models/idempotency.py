@@ -128,12 +128,24 @@ class PickingAssistantIdempotency(models.Model):
         row = self.env.cr.fetchone()
         existing = self.sudo().browse(row[0]) if row else self.sudo().browse()
 
+        # picking_id ist reine Metadaten (ondelete="set null"). Ein Reserve fuer
+        # eine nicht (mehr) existente Kommissionierung -- getippte/veraltete ID --
+        # schrieb bisher eine baumelnde FK und liess PostgreSQL den INSERT mit
+        # einer Fremdschluesselverletzung abbrechen; die Odoo-Meldung ("Another
+        # model is using the record you are trying to delete") kam als roher 500
+        # beim Aufrufer an (2026-08-17 live belegt: claim auf pick 99999). Die
+        # Existenz einmal pruefen und sonst False speichern: die Reservierung
+        # gelingt, und der nachgelagerte claim/heartbeat meldet sauber "missing".
+        picking_ref = int(picking_id) if picking_id else False
+        if picking_ref and not self.env["stock.picking"].sudo().browse(picking_ref).exists():
+            picking_ref = False
+
         values = {
             "endpoint": endpoint,
             "principal_scope": principal_scope,
             "key": key,
             "request_fingerprint": request_fingerprint,
-            "picking_id": int(picking_id) if picking_id else False,
+            "picking_id": picking_ref,
             "picker_user_id": int(picker_user_id) if picker_user_id else False,
             "device_id": device_id or False,
             "expires_at": now + timedelta(seconds=int(ttl_seconds or 86400)),

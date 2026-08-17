@@ -33,7 +33,7 @@ import {
     getPickingDetail,
     getPickings,
     getTraceabilityDemo,
-    getStoredHighContrastEnabled,
+    getStoredDarkModeEnabled,
     getStoredPreferredZone,
     getStoredSearchQuery,
     loginPickerSession,
@@ -41,14 +41,15 @@ import {
     requestReplenishment,
     releasePicking,
     setActiveInstance,
-    setStoredHighContrastEnabled,
+    setStoredDarkModeEnabled,
     setStoredPreferredZone,
     setStoredSearchQuery,
     setTraceabilityDemoMode,
+    switchPickerInstance,
     heartbeatPicking,
 } from './api.js';
 import { feedbackSuccess, feedbackError } from './feedback.js';
-import { setState, getState, subscribe, renderLoading, renderError, renderProductVisual, showToast } from './ui.js';
+import { buildClusterStops, resolveClusterScan, setState, getState, subscribe, renderLoading, renderError, renderProductVisual, showToast } from './ui.js';
 import { initHIDScanner, showManualInput, openCameraScanner } from './scanner.js';
 import {
     speak,
@@ -64,6 +65,7 @@ import {
     setVoiceStatusListener,
 } from './voice.js';
 import {
+    buildReadbackPrompt,
     buildSpeechPrompt,
     buildVoiceAssistPayload,
     buildVoiceRequestContext,
@@ -80,7 +82,7 @@ const DEFAULT_FILTER = 'all';
 const ZONE_FILTER = 'zone';
 const VOICE_ASSIST_SHORTAGE_RE = /\b(fehlt|fehlmenge|mangel|nachschub|leer|restbestand)\b/i;
 const DEFAULT_THEME_COLOR = '#F6F8FC';
-const HIGH_CONTRAST_THEME_COLOR = '#FFFFFF';
+const DARK_THEME_COLOR = '#0F1728';
 const LIFECYCLE_REFRESH_DEBOUNCE_MS = 900;
 const lineStockCache = new Map();
 
@@ -375,8 +377,11 @@ let voiceStatusResetTimer = null;
 let searchQuery = getStoredSearchQuery();
 let mobileSearchOpen = Boolean(searchQuery);
 let preferredZone = getStoredPreferredZone();
-let highContrastEnabled = getStoredHighContrastEnabled();
+let darkModeEnabled = getStoredDarkModeEnabled();
 let sessionState = 'profile_required';
+let verifiedClusterStopKey = '';
+let verifiedClusterProductBarcode = '';
+let clusterConfirmPending = false;
 let lastLifecycleRefreshAt = 0;
 let lifecycleRefreshPromise = null;
 const pendingRequestControllers = new Set();
@@ -396,7 +401,7 @@ const searchInputEl = () => document.getElementById('search-input');
 const taskCounterEl = () => document.getElementById('task-counter');
 const filterChipsEl = () => document.getElementById('filter-chips');
 const filterRowEl = () => document.querySelector('.header-row--filters');
-const highContrastToggleEl = () => document.getElementById('high-contrast-toggle');
+const themeToggleEl = () => document.getElementById('theme-toggle');
 const searchToggleEl = () => document.getElementById('search-toggle');
 const instanceSwitchEl = () => document.getElementById('instance-switch');
 const demoTraceabilityModeEl = () => document.getElementById('demo-traceability-mode');
@@ -498,10 +503,10 @@ function setMainContent(markup, { resetScroll = true } = {}) {
 }
 
 function syncThemeChrome() {
-    const themeColor = highContrastEnabled ? HIGH_CONTRAST_THEME_COLOR : DEFAULT_THEME_COLOR;
-    document.documentElement.style.colorScheme = 'light';
+    const themeColor = darkModeEnabled ? DARK_THEME_COLOR : DEFAULT_THEME_COLOR;
+    document.documentElement.style.colorScheme = darkModeEnabled ? 'dark' : 'light';
     themeColorMetaEl()?.setAttribute('content', themeColor);
-    statusBarMetaEl()?.setAttribute('content', 'default');
+    statusBarMetaEl()?.setAttribute('content', darkModeEnabled ? 'black-translucent' : 'default');
 }
 
 function resetSearchUi() {
@@ -548,18 +553,32 @@ function getStatusShortLabel(kind) {
 }
 
 function updateToolbar(view) {
+    const previousView = sessionState;
     sessionState = view;
-    const buttons = [btnVoice(), btnScan(), btnAlert()];
     const visualView = view === 'search_expanded' ? 'list' : view;
-    const show = visualView === 'detail';
-    buttons.forEach((button) => {
-        if (button) button.classList.toggle('hidden', !show);
-    });
+    const showDetailTools = visualView === 'detail';
+    const showClusterScan = visualView === 'cluster_walk';
+    btnVoice()?.classList.toggle('hidden', !showDetailTools);
+    btnAlert()?.classList.toggle('hidden', !showDetailTools);
+    btnScan()?.classList.toggle('hidden', !(showDetailTools || showClusterScan));
     const nav = navEl();
-    if (nav) nav.classList.toggle('hidden', !show);
-    if (!show) {
+    if (nav) nav.classList.toggle('hidden', !(showDetailTools || showClusterScan));
+    if (!showDetailTools) {
         btnVoice()?.classList.remove('nav-btn--ptt');
         if (isVoiceModeActive()) stopVoiceMode();
+    }
+    if (previousView === 'cluster_walk' && view !== 'cluster_walk') {
+        resetClusterScanState();
+    }
+
+    const scanButton = btnScan();
+    if (scanButton) {
+        scanButton.setAttribute(
+            'aria-label',
+            showClusterScan ? 'Cluster-Barcode mit Kamera scannen' : 'Kamera-Scan starten',
+        );
+        const meta = scanButton.querySelector('.nav-btn__meta');
+        if (meta) meta.textContent = showClusterScan ? 'Artikel / Karton' : 'Kamera';
     }
 
     document.body.dataset.view = visualView;
@@ -646,10 +665,84 @@ async function initInstanceSwitch() {
     }
 
     select.hidden = false;
+    // Ein Lagerwechsel ist ein neuer LOGIN, keine Umschaltung einer Anzeige.
+    // Das Backend liest die Instanz ausschliesslich aus dem Sitzungs-Cookie
+    // (`v1.<instanz>.<token>`, `parse_session_token`), und die Sitzung selbst
+    // liegt in der Odoo-Datenbank JENER Instanz. Ein Klick kann sie nicht
+    // umbiegen -- die alte Sitzung muss enden und eine neue entstehen.
+    //
+    // Vorher schrieb dieser Zweig nur den localStorage und lud neu. Das Cookie
+    // blieb bestehen, `getCurrentSession()` holte die alte Instanz zurueck und
+    // ueberschrieb die Auswahl (`setActiveInstance(principal.odoo_instance)`,
+    // api.js). Sichtbar stand danach "Lager 2", geliefert wurde Lager 1 --
+    // am 2026-08-16 gemessen: nach dem Wechsel derselbe Auftragsbestand.
+    //
+    // Kein `{ once: true }` mehr: ohne den Reload muss der Zuhoerer den
+    // zweiten Wechsel ueberleben.
     select.addEventListener('change', () => {
-        setActiveInstance(select.value);
-        window.location.reload();
-    }, { once: true });
+        void switchInstance(select.value);
+    });
+}
+
+// Haelt die Anzeige an der WIRKLICH angemeldeten Instanz. Die Liste entsteht
+// vor der Sitzungspruefung, also aus dem Speicher; erst `/auth/me` sagt, was
+// gilt. Ohne diesen Abgleich kann das Feld etwas anderes behaupten als das
+// Cookie -- genau die Luege, die den Fehler so zaeh gemacht hat.
+function syncInstanceSwitch() {
+    const select = instanceSwitchEl();
+    if (!select || select.hidden) return;
+    const aktiv = getActiveInstance();
+    if (select.value !== aktiv) select.value = aktiv;
+}
+
+// Tauscht die Sitzung gegen eine im anderen Lager, ohne nach dem Passwort zu
+// fragen: dieselben Menschen bedienen beide Lager, und das Backend prueft, ob
+// derselbe Anmeldename dort eine Rolle traegt (`/auth/switch-instance`).
+// Verweigert es das, bleibt der ehrliche Weg ueber den Login-Schirm.
+async function switchInstance(name) {
+    const gewaehlt = String(name || '').trim().toLowerCase();
+    if (!gewaehlt || gewaehlt === getActiveInstance()) return;
+
+    // Der Anspruch auf einen Auftrag gehoert dem ALTEN Lager und braucht die
+    // alte Sitzung -- also zurueckgeben, solange sie noch gilt.
+    updateToolbar('switching_profile');
+    abortPendingRequests();
+    stopSpeaking();
+    closeOverlay();
+    lineStockCache.clear();
+    stopClaimHeartbeat();
+    if (isVoiceModeActive()) stopVoiceMode();
+    btnVoice()?.classList.remove('nav-btn--ptt');
+    await releaseCurrentClaim();
+
+    try {
+        await withManagedRequest(
+            (signal) => switchPickerInstance(gewaehlt, { signal }),
+            { handleExpiry: false },
+        );
+    } catch (error) {
+        if (isAbortError(error)) return;
+        // Kein Konto dieses Namens im Ziel-Lager, keine Rolle dort, oder die
+        // Sitzung ist abgelaufen. Dann zaehlt die Wahl trotzdem -- sie steht
+        // auf dem Login-Schirm vorausgewaehlt bereit.
+        console.warn('Lagerwechsel ohne Anmeldung nicht moeglich:', error);
+        setActiveInstance(gewaehlt);
+        try {
+            await switchProfile();
+        } catch (abmeldefehler) {
+            console.warn('Lagerwechsel: Abmelden fehlgeschlagen:', abmeldefehler);
+            await showLoginScreen();
+        }
+        syncInstanceSwitch();
+        return;
+    }
+
+    setState({ currentPicking: null, currentLineIndex: 0, pickings: [] });
+    updatePickerIndicator();
+    syncInstanceSwitch();
+    // `skipRelease`, weil der Anspruch oben schon zurueckgegeben wurde -- ein
+    // zweiter Versuch liefe gegen das neue Lager, wo es ihn nie gab.
+    await loadPickingList({ skipRelease: true });
 }
 
 async function initDemoTraceabilitySwitch() {
@@ -779,15 +872,15 @@ function updateTaskCounter(count) {
     counter.textContent = safeCount === 1 ? '1 Aufgabe offen' : `${safeCount} Aufgaben offen`;
 }
 
-function applyHighContrastTheme() {
-    document.body.classList.toggle('high-contrast', highContrastEnabled);
+function applyDarkTheme() {
+    document.documentElement.dataset.theme = darkModeEnabled ? 'dark' : 'light';
     syncThemeChrome();
-    const toggle = highContrastToggleEl();
+    const toggle = themeToggleEl();
     if (!toggle) return;
-    toggle.setAttribute('aria-pressed', highContrastEnabled ? 'true' : 'false');
-    toggle.classList.toggle('status-toggle--active', highContrastEnabled);
-    toggle.dataset.shortLabel = 'AA';
-    toggle.title = highContrastEnabled ? 'Kontrast aktiv' : 'Kontrast';
+    toggle.setAttribute('aria-pressed', darkModeEnabled ? 'true' : 'false');
+    toggle.classList.toggle('status-toggle--active', darkModeEnabled);
+    toggle.title = darkModeEnabled ? 'Light Mode einschalten' : 'Dark Mode einschalten';
+    toggle.setAttribute('aria-label', toggle.title);
 }
 
 function applyMobileSearchState() {
@@ -1659,6 +1752,8 @@ async function submitLogin(fallbackInstance) {
         };
         setState({ currentPicker: picker, deviceId: getDeviceId() });
         updatePickerIndicator();
+        // Die Anmeldung hat die Instanz festgelegt; die Auswahl oben zieht nach.
+        syncInstanceSwitch();
         const firstName = picker.name?.split(/\s+/)[0] || picker.name || '';
         const hour = new Date().getHours();
         const salutation = hour < 12 ? 'Guten Morgen' : hour < 18 ? 'Guten Tag' : 'Guten Abend';
@@ -2206,7 +2301,8 @@ function askCartonConfirm(line, boxes) {
 
         const hintEl = overlay.querySelector('#carton-hint');
         if (hintEl) {
-            hintEl.textContent = `Auftrag ${line.picking_name || ''} → empfohlen: Karton `
+            hintEl.textContent = `${formatClusterQty(line.quantity_demand)} Stück → Auftrag `
+                + `${line.picking_name || ''} · Karton `
                 + `${expectedBoxIndex ?? '?'}${expectedName ? ' (' + expectedName + ')' : ''}`;
         }
         const warnEl = overlay.querySelector('#carton-warning');
@@ -2400,6 +2496,11 @@ async function handleScan(barcode) {
     }
 }
 
+function dispatchScan(barcode) {
+    if (sessionState === 'cluster_walk') return handleClusterScan(barcode);
+    return handleScan(barcode);
+}
+
 function onVoiceToggle() {
     if (!isVoiceSupported()) {
         showToast('Mikrofon nicht verfügbar', 'warning');
@@ -2489,7 +2590,11 @@ async function handleConfirmAll(picking, lines, startIndex) {
     // Rueckverfolgbarkeit hochwertiger Gueter auch im "Alle bestaetigen"-Pfad
     // erhalten bleibt. Nicht-getrackte Positionen werden direkt bestaetigt.
     const serialCount = remaining.filter((l) => l.tracking === 'serial' || l.tracking === 'lot').length;
-    speak(`${remaining.length} ${remaining.length === 1 ? 'Position' : 'Positionen'} werden bestätigt.`);
+    // Kein speak() vor der Schleife: die Vorab-Ansage kostete 0,9-1,9 s Synthese
+    // plus 1,6-3,3 s Wiedergabe und schaltete waehrenddessen das Mikrofon stumm,
+    // bevor ueberhaupt eine Buchung lief. Der Toast direkt darunter transportiert
+    // dieselbe Information sofort und ohne Mikrofon-Sperre. Quittiert wird am
+    // Ende, wenn es etwas zu quittieren gibt.
     showToast(
         serialCount > 0
             ? `Bestätige ${remaining.length} Positionen - ${serialCount} mit Charge/Seriennummer.`
@@ -2499,6 +2604,7 @@ async function handleConfirmAll(picking, lines, startIndex) {
 
     let pickingWasCompleted = false;
     let lastMessage = '';
+    let bookedCount = 0;
 
     for (const [offset, pickLine] of remaining.entries()) {
         const lineIdx = startIndex + offset;
@@ -2540,6 +2646,7 @@ async function handleConfirmAll(picking, lines, startIndex) {
                 return;
             }
 
+            bookedCount += 1;
             setState({ currentLineIndex: lineIdx + 1 });
             renderResponsiveCurrentLine();
 
@@ -2573,15 +2680,87 @@ async function handleConfirmAll(picking, lines, startIndex) {
     }
 
     await releaseCurrentClaim();
-    speak('Alles erledigt.');
+    // Menge mitquittieren, damit der Picker ohne Blick aufs Display weiss, was
+    // gebucht wurde. Bleibt unter PIPER_MIN_TEXT_LENGTH und laeuft damit ueber
+    // die schnelle Browser-Stimme.
+    speak(`Fertig, ${bookedCount} gebucht.`);
     setState({ currentLineIndex: lines.length });
     renderResponsiveCurrentLine();
 }
 
 // A write intent recognized below its direct threshold is held here until the
 // next affirmative confirms it, so a single misrecognition never books.
-let pendingWriteConfirm = null; // { intent, expiresAt }
-const READBACK_TTL_MS = 8000;
+let pendingWriteConfirm = null; // { intent, expiresAt, retries }
+// 25 s statt 8 s. Gemessen im Live-Log: zwischen der gestellten Rueckfrage und
+// der eintreffenden Antwort lagen 10 s -- Ansage vorlesen, Cooldown, sprechen,
+// Stillefenster, Transkription, und der Mensch ueberlegt auch noch. Mit 8 s war
+// die Rueckfrage bereits verfallen, als die Antwort kam, und die Buchung fiel
+// STUMM unter den Tisch. Genau das Verhalten, das als "erkennt confirm_all,
+// fuehrt es aber nicht aus" gemeldet wurde.
+const READBACK_TTL_MS = 25000;
+const READBACK_MAX_RETRIES = 2;
+
+// Eine wartende Buchung darf NUR durch eine ausdrueckliche Zustimmung ausgeloest
+// werden. Vorher genuegte irgendein `confirm`-Intent -- und weil die Engine
+// beilaeufige Floskeln ("alles gut", "super") als confirm auswertete, konnte ein
+// Nebensatz aus dem Hintergrund einen ganzen Auftrag buchen. Der Prompt fragt
+// eine geschlossene Ja/Nein-Frage, also wird auch nur darauf gehoert.
+const READBACK_YES = new Set([
+    'ja', 'jawohl', 'genau', 'richtig', 'stimmt', 'ok', 'okay',
+    'bestaetigen', 'bestaetige', 'buchen', 'jep', 'jup', 'passt',
+]);
+const READBACK_NO = new Set([
+    'nein', 'abbrechen', 'stopp', 'stop', 'abbruch', 'nicht', 'kein', 'keine',
+]);
+
+function normalizeSpokenAnswer(text) {
+    return String(text || '')
+        .toLowerCase()
+        .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+}
+
+// Whisper liefert selten ein blankes "Ja". Real gemessen kam auf die Rueckfrage
+// "3 Positionen buchen?" das Transkript "Kommt's raus, oh, ja, ist so." zurueck.
+// Ein Vergleich der GANZEN Aeusserung gegen eine Ja-Liste scheitert daran, und
+// die Buchung verschwand wortlos. Deshalb wird tokenweise gesucht -- aber ein
+// Abbruchwort schlaegt immer eine Zustimmung, damit ein "nein, doch nicht"
+// niemals als Ja durchgeht.
+function readbackAnswer(text) {
+    const words = normalizeSpokenAnswer(text).split(' ').filter(Boolean);
+    if (!words.length) return null;
+    if (words.some((word) => READBACK_NO.has(word))) return 'no';
+    if (words.some((word) => READBACK_YES.has(word))) return 'yes';
+    return null;
+}
+
+// Stufe 3: kein Zweig in `handleVoiceIntent` darf mehr ohne Rueckmeldung enden.
+// Ein `break` ohne Ansage ist fuer den Nutzer nicht davon zu unterscheiden, dass
+// der Befehl gar nicht angekommen ist -- gemessen 15 solcher stillen No-Ops im
+// 108-Satz-Korpus. Alle Texte bleiben bewusst unter PIPER_MIN_TEXT_LENGTH (24
+// Zeichen) und laufen damit ueber die schnelle Browser-Stimme; laengere Ansagen
+// gingen an Piper und holten den Latenzgewinn aus Stufe 1 wieder ein.
+const NO_ACTIVE_LINE = 'Keine aktive Position.';
+const NO_OPEN_LINE = 'Keine Position offen.';
+const LAST_LINE = 'Letzte Position.';
+const FIRST_LINE = 'Erste Position.';
+const LIST_ONLY = 'Nur in der Liste.';
+const VOICE_ALREADY_OFF = 'Sprachmodus ist aus.';
+const NOT_UNDERSTOOD = 'Nicht verstanden.';
+
+function announceNoActiveLine() {
+    speak(NO_ACTIVE_LINE);
+    showToast(NO_ACTIVE_LINE, 'warning');
+}
+
+// Verteidigung in der Tiefe: nach dem Surface-Filter in der Intent-Engine
+// erreichen filter_*/status die Detailansicht gar nicht mehr. Kommt doch eines
+// durch, wird es benannt statt verschluckt.
+function announceListOnly() {
+    speak(LIST_ONLY);
+    showToast(LIST_ONLY, 'warning');
+}
 
 async function handleVoiceIntent(result) {
     // STT returned nothing (Whisper down, or a hallucination dropped upstream):
@@ -2608,27 +2787,65 @@ async function handleVoiceIntent(result) {
         showToast(`"${result.text}"${intentLabel}`, result.intent !== 'unknown' ? 'info' : 'warning');
     }
 
-    // Resolve a pending read-back: an affirmative now runs the held booking.
-    if (pendingWriteConfirm && Date.now() < pendingWriteConfirm.expiresAt
-        && (result.intent === 'confirm' || result.intent === 'confirm_all')
-        && classification.kind !== 'unknown') {
-        const toRun = pendingWriteConfirm.intent;
+    // Eine wartende Rueckfrage aufloesen. Solange sie laeuft, wird die
+    // Aeusserung AUSSCHLIESSLICH als Antwort auf die gestellte Ja/Nein-Frage
+    // gelesen -- nicht als neues Kommando. Vorher fiel eine nicht eindeutige
+    // Antwort durch, verwarf die Buchung wortlos und lief als frischer Befehl
+    // weiter; der Nutzer sah nur, dass nichts passierte.
+    if (pendingWriteConfirm && Date.now() >= pendingWriteConfirm.expiresAt) {
         pendingWriteConfirm = null;
-        updateVoiceStatusIndicator('recognized', { temporary: true });
-        if (toRun === 'confirm_all') {
-            await triggerConfirmAll();
-        } else if (line) {
-            await handleScan(line.product_barcode || '');
-            speak('Gebucht.');
+    }
+
+    if (pendingWriteConfirm) {
+        const answer = readbackAnswer(result?.text);
+
+        if (answer === 'no') {
+            pendingWriteConfirm = null;
+            updateVoiceStatusIndicator('recognized', { temporary: true });
+            showToast('Abgebrochen.', 'info');
+            speak('Abgebrochen.');
+            return;
         }
+
+        if (answer === 'yes') {
+            const toRun = pendingWriteConfirm.intent;
+            pendingWriteConfirm = null;
+            updateVoiceStatusIndicator('recognized', { temporary: true });
+            if (toRun === 'confirm_all') {
+                await triggerConfirmAll();
+            } else if (line) {
+                await handleScan(line.product_barcode || '');
+                speak('Gebucht.');
+            }
+            return;
+        }
+
+        // Weder Ja noch Nein: nachfragen statt schweigen. Nach zwei
+        // erfolglosen Versuchen wird die Buchung ausdruecklich verworfen,
+        // damit die Rueckfrage nicht endlos scharf bleibt.
+        pendingWriteConfirm.retries = (pendingWriteConfirm.retries || 0) + 1;
+        if (pendingWriteConfirm.retries > READBACK_MAX_RETRIES) {
+            pendingWriteConfirm = null;
+            showToast('Abgebrochen.', 'warning');
+            speak('Abgebrochen.');
+            return;
+        }
+        pendingWriteConfirm.expiresAt = Date.now() + READBACK_TTL_MS;
+        updateVoiceStatusIndicator('uncertain', { temporary: true });
+        showToast('Bitte Ja oder Nein.', 'warning');
+        speak('Bitte Ja oder Nein.');
         return;
     }
-    // Any other utterance cancels a pending read-back.
-    pendingWriteConfirm = null;
 
     if (classification.kind === 'unknown') {
         if (await maybeHandleVoiceAssist(result, currentPicking, currentLineIndex)) return;
+        // Frueher endete dieser Zweig hier ohne Ton und ohne Text: der Nutzer
+        // sprach, und es passierte sichtbar nichts. Ein nicht verstandener
+        // Befehl muss als solcher hoerbar sein -- kurz, damit er nicht selbst
+        // zur Bremse wird.
         updateVoiceStatusIndicator('uncertain', { temporary: true });
+        showToast('Nicht verstanden.', 'warning');
+        speak('Nicht verstanden.');
         return;
     }
 
@@ -2640,7 +2857,11 @@ async function handleVoiceIntent(result) {
     }
 
     if (classification.kind === 'readback') {
-        pendingWriteConfirm = { intent: result.intent, expiresAt: Date.now() + READBACK_TTL_MS };
+        pendingWriteConfirm = {
+            intent: result.intent,
+            expiresAt: Date.now() + READBACK_TTL_MS,
+            retries: 0,
+        };
         const prompt = buildReadbackPrompt(result.intent, {
             line,
             remainingCount: Math.max(lines.length - currentLineIndex, 0),
@@ -2663,13 +2884,18 @@ async function handleVoiceIntent(result) {
             if (line) {
                 await handleScan(line.product_barcode || '');
                 speak('Gebucht.');
+            } else {
+                speak(NO_OPEN_LINE);
+                showToast(NO_OPEN_LINE, 'warning');
             }
             break;
         case 'whats_next':
             if (line) speak(buildSpeechPrompt(line));
+            else announceNoActiveLine();
             break;
         case 'where':
             if (line) speak(formatLocationForSpeech(line) || 'Kein Ort hinterlegt.');
+            else announceNoActiveLine();
             break;
         case 'how_many_left': {
             const remaining = Math.max(lines.length - currentLineIndex - 1, 0);
@@ -2685,6 +2911,13 @@ async function handleVoiceIntent(result) {
                 setState({ currentLineIndex: nextIndex });
                 renderResponsiveCurrentLine();
                 speak(getLineSpeechPrompt(lines[nextIndex]));
+            } else if (!lines.length) {
+                announceNoActiveLine();
+            } else {
+                // Am Ende der Liste passierte bisher nichts -- ununterscheidbar
+                // davon, dass der Befehl gar nicht ankam.
+                speak(LAST_LINE);
+                showToast(LAST_LINE, 'info');
             }
             break;
         case 'previous':
@@ -2693,10 +2926,16 @@ async function handleVoiceIntent(result) {
                 setState({ currentLineIndex: previousIndex });
                 renderResponsiveCurrentLine();
                 speak(getLineSpeechPrompt(lines[previousIndex]));
+            } else if (!lines.length) {
+                announceNoActiveLine();
+            } else {
+                speak(FIRST_LINE);
+                showToast(FIRST_LINE, 'info');
             }
             break;
         case 'repeat':
             if (line) speak(getLineSpeechPrompt(line));
+            else announceNoActiveLine();
             break;
         case 'problem':
             if (line) {
@@ -2709,12 +2948,26 @@ async function handleVoiceIntent(result) {
             openQualityAlertForm();
             break;
         case 'photo':
-            openCameraScanner((barcode) => handleScan(barcode));
+            openCameraScanner((barcode) => dispatchScan(barcode));
+            break;
+        case 'abort':
+            // Neue Aktion aus dem Negations-Guard: "Stopp, nicht weiter",
+            // "kein Foto". Ohne diesen Zweig fiele sie in `default` und der
+            // Nutzer bekaeme keine Rueckmeldung auf eine ausdrueckliche
+            // Verneinung. Eine wartende Buchung wird dabei verworfen.
+            pendingWriteConfirm = null;
+            showToast('Abgebrochen.', 'info');
+            speak('Abgebrochen.');
             break;
         case 'pause':
             if (isVoiceModeActive()) {
                 stopVoiceMode();
                 updateVoiceButtonState(false);
+            } else {
+                // Push-to-Talk: der Sprachmodus laeuft gar nicht, "Pause" hatte
+                // also nichts abzuschalten und blieb stumm.
+                speak(VOICE_ALREADY_OFF);
+                showToast(VOICE_ALREADY_OFF, 'info');
             }
             break;
         case 'done': {
@@ -2731,19 +2984,19 @@ async function handleVoiceIntent(result) {
             speak('Sag bestätigen, weiter, zurück, Problem oder fertig.');
             break;
         case 'filter_high':
-            if (currentPicking !== null) break;
+            if (currentPicking !== null) { announceListOnly(); break; }
             activeFilter = 'high';
             await loadPickingList({ skipRelease: true });
             speak('Nur Dringendes.');
             break;
         case 'filter_normal':
-            if (currentPicking !== null) break;
+            if (currentPicking !== null) { announceListOnly(); break; }
             activeFilter = DEFAULT_FILTER;
             await loadPickingList({ skipRelease: true });
             speak('Alle Aufträge.');
             break;
         case 'status': {
-            if (currentPicking !== null) break;
+            if (currentPicking !== null) { announceListOnly(); break; }
             const { pickings } = getState();
             const searched = filterBySearch(pickings || [], searchQuery);
             const visible = filterByActiveChip(searched);
@@ -2754,22 +3007,35 @@ async function handleVoiceIntent(result) {
             break;
         }
         case 'stock_query': {
+            // Normalerweise unerreichbar: `maybeHandleVoiceAssist` faengt
+            // stock_query oben ab und kehrt mit true zurueck. Faellt der
+            // Assist-Pfad weg, darf hier trotzdem keine Stille stehen.
+            speak(NOT_UNDERSTOOD);
+            showToast(NOT_UNDERSTOOD, 'warning');
             break;
         }
         default:
+            // Kein `break` ohne Rueckmeldung: ein erkanntes, aber hier nicht
+            // behandeltes Intent sah fuer den Nutzer aus wie "nicht gehoert".
+            showToast('Nicht verstanden.', 'warning');
+            speak('Nicht verstanden.');
             break;
     }
 }
 
-function shouldUseVoiceAssist(result, currentPicking) {
+function shouldUseVoiceAssist(result) {
     if (!result?.text) return false;
-    if (result.intent === 'stock_query' || result.intent === 'unknown') return true;
-    if (!currentPicking && result.intent === 'help') return false;
+    // NUR bei einer ausdruecklichen Bestandsfrage. Frueher stand hier auch
+    // `unknown` -- dadurch loeste JEDER nicht verstandene Satz einen
+    // n8n-Roundtrip aus, die App sagte "Ich pruefe die Datenbank" und las
+    // anschliessend vor, was auch immer zurueckkam. Ein missverstandenes
+    // Kommando muss "nicht verstanden" ergeben, keine Datenbankabfrage.
+    if (result.intent === 'stock_query') return true;
     return false;
 }
 
 async function maybeHandleVoiceAssist(result, currentPicking, currentLineIndex) {
-    if (!shouldUseVoiceAssist(result, currentPicking)) return false;
+    if (!shouldUseVoiceAssist(result)) return false;
 
     const payload = buildVoiceAssistPayload({
         result,
@@ -3071,7 +3337,7 @@ async function init() {
     clearActivePicker();
     resetOperatorUiState();
     setState({ deviceId: getDeviceId() });
-    applyHighContrastTheme();
+    applyDarkTheme();
     updatePickerIndicator();
     updateTaskCounter(0);
     updateVoiceStatusIndicator('idle');
@@ -3108,12 +3374,12 @@ async function init() {
 
     applyMobileSearchState();
 
-    const highContrastToggle = highContrastToggleEl();
-    if (highContrastToggle) {
-        highContrastToggle.addEventListener('click', () => {
-            highContrastEnabled = !highContrastEnabled;
-            setStoredHighContrastEnabled(highContrastEnabled);
-            applyHighContrastTheme();
+    const themeToggle = themeToggleEl();
+    if (themeToggle) {
+        themeToggle.addEventListener('click', () => {
+            darkModeEnabled = !darkModeEnabled;
+            setStoredDarkModeEnabled(darkModeEnabled);
+            applyDarkTheme();
         });
     }
 
@@ -3135,7 +3401,7 @@ async function init() {
         });
     }
 
-    initHIDScanner((barcode) => handleScan(barcode));
+    initHIDScanner((barcode) => dispatchScan(barcode));
 
     const voiceButton = btnVoice();
     if (voiceButton) {
@@ -3173,7 +3439,7 @@ async function init() {
     const scanButton = btnScan();
     if (scanButton) {
         scanButton.addEventListener('click', () => {
-            openCameraScanner((barcode) => handleScan(barcode));
+            openCameraScanner((barcode) => dispatchScan(barcode));
         });
     }
 
@@ -3225,7 +3491,11 @@ async function init() {
     updateToolbar('profile_required');
     // Restores an existing cookie session; only falls through to the login
     // screen when the server refuses it.
-    if (await ensurePickerSelection()) {
+    const angemeldet = await ensurePickerSelection();
+    // Erst hier steht fest, welche Instanz die Sitzung wirklich traegt. Die
+    // Auswahl oben wurde aus dem Speicher gebaut und kann daneben liegen.
+    syncInstanceSwitch();
+    if (angemeldet) {
         await loadPickingList({ skipRelease: true });
     }
 }
@@ -3248,9 +3518,114 @@ const CLUSTER_MIN_ORDERS = 2;
 const CLUSTER_RECOMMENDED_MIN_ORDERS = 4;
 const CLUSTER_MAX_ORDERS = 8;
 
+function resetClusterScanState() {
+    verifiedClusterStopKey = '';
+    verifiedClusterProductBarcode = '';
+    clusterConfirmPending = false;
+}
+
+function clusterStopStateKey(batch, stop) {
+    if (!batch?.batch_id || !stop?.stop_key) return '';
+    return `${batch.batch_id}:${stop.stop_key}`;
+}
+
+function getCurrentClusterStop(batch) {
+    return buildClusterStops(batch?.lines).find((stop) => !stop.picked) || null;
+}
+
+function syncClusterScanState(batch, currentStop) {
+    const key = clusterStopStateKey(batch, currentStop);
+    const expectedBarcode = String(currentStop?.product_barcode || '').trim();
+    const verified = Boolean(
+        key
+        && currentStop?.tracking === 'none'
+        && verifiedClusterStopKey === key
+        && verifiedClusterProductBarcode
+        && verifiedClusterProductBarcode === expectedBarcode
+    );
+    if (!verified && (verifiedClusterStopKey || verifiedClusterProductBarcode)) {
+        verifiedClusterStopKey = '';
+        verifiedClusterProductBarcode = '';
+    }
+    return verified;
+}
+
+function verifiedClusterBarcodeForLine(batch, line) {
+    const currentStop = getCurrentClusterStop(batch);
+    if (!currentStop || !syncClusterScanState(batch, currentStop)) return '';
+    const belongsToStop = (currentStop.allocations || [currentStop])
+        .some((allocation) => Number(allocation.id) === Number(line?.id));
+    return belongsToStop ? verifiedClusterProductBarcode : '';
+}
+
+async function handleClusterScan(barcode) {
+    stopSpeaking();
+    const scanned = String(barcode || '').trim();
+    if (!scanned) return;
+    if (clusterConfirmPending) {
+        showToast('Die vorige Kartonbuchung läuft noch.', 'warning');
+        return;
+    }
+
+    const batch = getState().batch;
+    const currentStop = getCurrentClusterStop(batch);
+    if (!batch || !currentStop) {
+        showToast('Kein offener Cluster-Halt.', 'warning');
+        return;
+    }
+
+    const verified = syncClusterScanState(batch, currentStop);
+    const decision = resolveClusterScan(
+        currentStop,
+        scanned,
+        verified ? verifiedClusterProductBarcode : '',
+    );
+
+    if (decision.kind === 'product_ok') {
+        verifiedClusterStopKey = clusterStopStateKey(batch, currentStop);
+        verifiedClusterProductBarcode = decision.barcode;
+        feedbackSuccess();
+        showToast('Artikel geprüft. Jetzt den Zielkarton scannen.', 'success');
+        renderClusterWalk(batch);
+        document.querySelector('.cluster-stop--current [data-stop-confirm]:not([disabled])')?.focus();
+        return;
+    }
+    if (decision.kind === 'allocation_ok') {
+        await submitClusterAllocation(batch, decision.allocation, {
+            scannedBarcode: verifiedClusterProductBarcode,
+            scannedPackage: decision.scanned_package,
+        });
+        return;
+    }
+    if (decision.kind === 'product_already_ok') {
+        showToast('Artikel ist bereits geprüft. Bitte den Zielkarton scannen.', 'info');
+        return;
+    }
+
+    feedbackError();
+    if (decision.kind === 'tracked') {
+        showToast('Charge oder Serie bitte über „Manuell bestätigen“ erfassen.', 'warning');
+    } else if (decision.kind === 'product_missing') {
+        showToast('Für diesen Artikel fehlt der Produktbarcode in Odoo.', 'error');
+    } else if (decision.kind === 'wrong_package') {
+        showToast('Falscher Karton. Es wurde nichts gebucht.', 'error');
+    } else {
+        showToast('Falscher Artikel. Es wurde nichts gebucht.', 'error');
+    }
+}
+
 function getClusterSelected() {
     const selected = getState().clusterSelected;
     return selected instanceof Set ? selected : new Set();
+}
+
+function getClusterSelectedSuggestions() {
+    const selected = getState().clusterSelectedSuggestions;
+    return selected instanceof Set ? selected : new Set();
+}
+
+function selectedPickingIds(suggestionIndexes, suggestions) {
+    return new Set(Array.from(suggestionIndexes).flatMap((index) => suggestions[index]?.picking_ids || []));
 }
 
 function formatClusterQty(value) {
@@ -3303,91 +3678,97 @@ async function enterClusterMode() {
     if (!pickerReady) return;
     updateToolbar('cluster_select');
     setMainContent(renderLoading());
-    // #13: Promise.allSettled so that a failing suggestions request does not block
-    // cluster entry; suggestions are best-effort. Only hard-fail if the pickings
-    // request rejected (and it is not an abort).
-    const [suggestionsResult, pickingsResult] = await Promise.allSettled([
-        withManagedRequest((signal) => getClusterSuggestions({ signal })),
-        withManagedRequest((signal) => getPickings({ signal })),
-    ]);
-    if (pickingsResult.status === 'rejected') {
-        if (isAbortError(pickingsResult.reason)) return;
-        setMainContent(renderError(`Cluster-Vorschläge konnten nicht geladen werden: ${pickingsResult.reason.message}`));
+    let suggestions;
+    try {
+        suggestions = await withManagedRequest((signal) => getClusterSuggestions({ signal }));
+    } catch (error) {
+        if (isAbortError(error)) return;
+        setMainContent(renderError(`Cluster-Vorschläge konnten nicht geladen werden: ${error.message}`));
         return;
     }
-    const suggestions = suggestionsResult.status === 'fulfilled' && Array.isArray(suggestionsResult.value)
-        ? suggestionsResult.value : [];
-    const pickings = Array.isArray(pickingsResult.value) ? pickingsResult.value : [];
     setState({
-        clusterSuggestions: suggestions,
-        clusterOpenPickings: pickings,
+        clusterSuggestions: Array.isArray(suggestions) ? suggestions : [],
+        clusterSelectedSuggestions: new Set(),
         clusterSelected: new Set(),
     });
     renderClusterSelect();
 }
 
 function renderClusterSelect() {
-    const { clusterSuggestions = [], clusterOpenPickings = [] } = getState();
+    const { clusterSuggestions = [] } = getState();
+    const selectedSuggestions = getClusterSelectedSuggestions();
     const selected = getClusterSelected();
     const ids = Array.from(selected);
     const status = getClusterSelectionStatus(ids);
+    const selectedDates = Array.from(selectedSuggestions)
+        .map((index) => clusterSuggestions[index]?.delivery_date)
+        .filter(Boolean);
+    const selectedDate = selectedDates[0] || '';
 
     const suggestionsHtml = clusterSuggestions.length
-        ? clusterSuggestions.map((group) => {
+        ? clusterSuggestions.map((group, index) => {
+            const groupIds = Array.isArray(group.picking_ids) ? group.picking_ids.map(Number).filter(Boolean) : [];
+            const isSelected = selectedSuggestions.has(index);
+            const combinedCount = new Set([...ids, ...groupIds]).size;
+            const incompatibleDate = !isSelected && selectedDate && group.delivery_date && group.delivery_date !== selectedDate;
+            const exceedsCapacity = !isSelected && combinedCount > CLUSTER_MAX_ORDERS;
+            const unavailable = incompatibleDate || exceedsCapacity;
             const reasonChips = Array.isArray(group.reasons)
                 ? group.reasons.map((reason) => `<span class="cluster-rule-chip">${escapeHtml(reason)}</span>`).join('')
                 : '';
-            const score = Number.isFinite(Number(group.score)) ? ` · Score ${safeInt(group.score)}` : '';
-            const delivery = group.delivery_date ? ` · ${escapeHtml(group.delivery_date)}` : '';
+            const orders = Array.isArray(group.picking_names)
+                ? group.picking_names.map((name) => `<span>${escapeHtml(name)}</span>`).join('')
+                : '';
+            const score = Number.isFinite(Number(group.score)) ? `${safeInt(group.score)}% Passung` : 'Passende Route';
+            const buttonLabel = isSelected
+                ? 'Ausgewählt · Entfernen'
+                : incompatibleDate
+                    ? 'Anderer Liefertag'
+                    : exceedsCapacity
+                        ? 'Wagen voll'
+                        : 'Vorschlag wählen';
             return `
-            <article class="cluster-suggestion" data-suggestion-zone="${escapeHtml(group.zone)}">
-                <div class="cluster-suggestion__info">
-                    <div class="cluster-suggestion__zone">${escapeHtml(group.zone)}</div>
-                    <div class="cluster-suggestion__meta">${group.order_count} Aufträge · ${group.line_count} Positionen${delivery}${score}</div>
-                    ${reasonChips ? `<div class="cluster-rule-chips">${reasonChips}</div>` : ''}
+            <article class="cluster-suggestion ${isSelected ? 'cluster-suggestion--selected' : ''} ${unavailable ? 'cluster-suggestion--unavailable' : ''}"
+                data-suggestion-index="${index}" data-suggestion-zone="${escapeHtml(group.zone)}">
+                <div class="cluster-suggestion__head">
+                    <span class="cluster-suggestion__number" aria-hidden="true">${index + 1}</span>
+                    <div class="cluster-suggestion__info">
+                        <div class="cluster-suggestion__label">Vorschlag ${index + 1}</div>
+                        <div class="cluster-suggestion__zone">${escapeHtml(group.zone)}</div>
+                    </div>
+                    <span class="cluster-suggestion__score">${score}</span>
                 </div>
-                <button type="button" class="picker-option cluster-suggestion__apply"
-                    data-apply-pickings="${escapeHtml(group.picking_ids.join(','))}">Übernehmen</button>
+                <div class="cluster-suggestion__metrics">
+                    <span><strong>${safeInt(group.order_count)}</strong> Aufträge</span>
+                    <span><strong>${safeInt(group.line_count)}</strong> Positionen</span>
+                    ${group.delivery_date ? `<span><strong>${escapeHtml(group.delivery_date)}</strong> Ausliefertag</span>` : ''}
+                </div>
+                ${orders ? `<div class="cluster-suggestion__orders">${orders}</div>` : ''}
+                <div class="cluster-suggestion__footer">
+                    ${reasonChips ? `<div class="cluster-rule-chips">${reasonChips}</div>` : ''}
+                    <button type="button" class="cluster-suggestion__apply"
+                        data-toggle-suggestion="${index}" aria-pressed="${isSelected ? 'true' : 'false'}"
+                        ${unavailable ? 'disabled' : ''}>${buttonLabel}</button>
+                </div>
             </article>`;
         }).join('')
-        : '<p class="cluster-empty">Kein Auto-Vorschlag verfügbar. Wähle Aufträge manuell aus.</p>';
-
-    const pickingsHtml = clusterOpenPickings.length
-        ? clusterOpenPickings.map((picking) => {
-            const isSelected = selected.has(picking.id);
-            const reference = picking.reference_code || picking.name || `#${picking.id}`;
-            const primary = picking.primary_item_display || 'Auftrag';
-            const zone = picking.next_location_short || '';
-            return `
-                <button type="button" class="cluster-pick ${isSelected ? 'cluster-pick--on' : ''}"
-                    data-cluster-pick-id="${safeInt(picking.id)}" aria-pressed="${isSelected ? 'true' : 'false'}">
-                    <span class="cluster-pick__check" aria-hidden="true">${isSelected ? '✓' : ''}</span>
-                    <span class="cluster-pick__body">
-                        <span class="cluster-pick__ref">${escapeHtml(reference)}</span>
-                        <span class="cluster-pick__primary">${escapeHtml(primary)}</span>
-                    </span>
-                    ${zone ? `<span class="cluster-pick__zone">${escapeHtml(zone)}</span>` : ''}
-                </button>`;
-        }).join('')
-        : renderListEmptyState('Keine offenen Aufträge zum Bündeln.');
+        : '<p class="cluster-empty">Aktuell gibt es keine automatisch passenden Cluster.</p>';
 
     const count = ids.length;
     setMainContent(`
         <section class="cluster-select">
-            <header class="queue-overview queue-overview--main" aria-label="Cluster-Picking">
-                <div class="queue-overview__eyebrow">Cluster-Picking</div>
-                <div class="queue-overview__title">Batch zusammenstellen</div>
-                <div class="queue-overview__helper">Vorschlag übernehmen oder Aufträge einzeln antippen. Wagen: separate Kartons je Auftrag.</div>
+            <header class="cluster-select__intro" aria-label="Cluster-Picking">
+                <div class="cluster-select__eyebrow">Gemeinsame Lagerroute</div>
+                <h1>Cluster zusammenstellen</h1>
+                <p>Wähle einen oder mehrere passende Vorschläge. Gleicher Ausliefertag, maximal acht Aufträge, separater Karton je Auftrag.</p>
             </header>
 
             <div class="cluster-section">
-                <h2 class="cluster-section__title">Vorschläge</h2>
+                <div class="cluster-section__head">
+                    <h2>Empfohlene Cluster</h2>
+                    <span>${clusterSuggestions.length} Vorschläge</span>
+                </div>
                 <div class="cluster-suggestions">${suggestionsHtml}</div>
-            </div>
-
-            <div class="cluster-section">
-                <h2 class="cluster-section__title">Offene Aufträge</h2>
-                <div class="cluster-picks">${pickingsHtml}</div>
             </div>
         </section>
 
@@ -3409,24 +3790,19 @@ function bindClusterSelect() {
     const root = mainEl();
     if (!root) return;
 
-    root.querySelectorAll('[data-apply-pickings]').forEach((btn) => {
+    root.querySelectorAll('[data-toggle-suggestion]').forEach((btn) => {
         btn.addEventListener('click', () => {
-            const ids = String(btn.dataset.applyPickings || '')
-                .split(',').map(Number).filter(Boolean);
-            const selected = new Set(getClusterSelected());
-            ids.forEach((id) => selected.add(id));
-            setState({ clusterSelected: selected });
-            renderClusterSelect();
-        });
-    });
-
-    root.querySelectorAll('[data-cluster-pick-id]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-            const id = Number(btn.dataset.clusterPickId);
-            const selected = new Set(getClusterSelected());
-            if (selected.has(id)) selected.delete(id);
-            else selected.add(id);
-            setState({ clusterSelected: selected });
+            const index = Number(btn.dataset.toggleSuggestion);
+            const { clusterSuggestions = [] } = getState();
+            const suggestionIndexes = new Set(getClusterSelectedSuggestions());
+            if (suggestionIndexes.has(index)) suggestionIndexes.delete(index);
+            else suggestionIndexes.add(index);
+            const selected = selectedPickingIds(suggestionIndexes, clusterSuggestions);
+            if (selected.size > CLUSTER_MAX_ORDERS) {
+                showToast(`Maximal ${CLUSTER_MAX_ORDERS} Aufträge pro Wagen.`, 'warning');
+                return;
+            }
+            setState({ clusterSelectedSuggestions: suggestionIndexes, clusterSelected: selected });
             renderClusterSelect();
         });
     });
@@ -3455,6 +3831,7 @@ async function createClusterBatch() {
             if (startBtn) startBtn.disabled = false;
             return;
         }
+        resetClusterScanState();
         setState({ batch });
         renderClusterWalk(batch);
         updateToolbar('cluster_walk');
@@ -3485,11 +3862,16 @@ async function loadBatch(batchId) {
 
 function renderClusterWalk(batch) {
     const lines = Array.isArray(batch.lines) ? batch.lines : [];
+    const stops = buildClusterStops(lines);
     const progress = batch.progress || { total: lines.length, done: 0, ratio: 0 };
     const doneCount = safeInt(progress.done);
     const totalCount = safeInt(progress.total);
     const pct = Math.max(0, Math.min(100, Math.round((Number(progress.ratio) || 0) * 100)));
     const allDone = totalCount > 0 && doneCount >= totalCount;
+    if (allDone && sessionState === 'cluster_walk') updateToolbar('cluster_ready');
+    const currentStopIndex = stops.findIndex((stop) => !stop.picked);
+    const currentStop = currentStopIndex >= 0 ? stops[currentStopIndex] : null;
+    const currentStopVerified = syncClusterScanState(batch, currentStop);
 
     const legendHtml = (batch.boxes || []).map((box) => `
         <span class="cluster-box-legend__item">
@@ -3497,36 +3879,136 @@ function renderClusterWalk(batch) {
             ${escapeHtml(box.picking_name)}${box.package_name ? `<span class="cluster-box-pkg">${escapeHtml(box.package_name)}</span>` : ''}
         </span>`).join('');
 
-    const linesHtml = lines.map((line) => {
+    const linesHtml = stops.map((line, stopIndex) => {
         const done = Boolean(line.picked);
+        const current = stopIndex === currentStopIndex;
         const loc = line.location_src_short || line.location_src || 'Lagerort';
         const qty = formatClusterQty(line.quantity_demand);
         const name = line.product_name || 'Produkt';
+        const allocations = Array.isArray(line.allocations) ? line.allocations : [line];
+        const grouped = allocations.length > 1;
+        const untracked = line.tracking === 'none';
+        const stopVerified = current && currentStopVerified;
+        const openAllocations = allocations.filter((allocation) => !allocation.picked);
+        const nextAllocation = openAllocations[0] || null;
         const trackingBadge = line.tracking === 'serial'
             ? '<span class="cluster-stop__serial">Serial</span>'
             : line.tracking === 'lot'
                 ? '<span class="cluster-stop__serial">Charge</span>'
                 : '';
         const lineId = safeInt(line.id);
+        const allocationHtml = grouped ? allocations.map((allocation) => {
+            const allocationDone = Boolean(allocation.picked);
+            const allocationQty = formatClusterQty(allocation.quantity_demand);
+            const boxIndex = safeInt(allocation.box_index, '?');
+            const confirmLabel = `${allocationQty} Stück ${name} in Karton ${boxIndex}`
+                + ` für Auftrag ${allocation.picking_name || ''} manuell bestätigen`;
+            const allocationDisabled = !current || (untracked && !stopVerified) || clusterConfirmPending;
+            const allocationAction = !current
+                ? 'Warten'
+                : stopVerified
+                    ? 'Manuell'
+                    : 'Gesperrt';
+            return `
+                <div class="cluster-stop__allocation ${allocationDone ? 'cluster-stop__allocation--done' : ''}">
+                    <span class="cluster-box-chip" style="--box-color:${safeColor(allocation.box_color)}">${boxIndex}</span>
+                    <span class="cluster-stop__allocation-body">
+                        <strong>${escapeHtml(allocationQty)} Stück → Karton&nbsp;${boxIndex}</strong>
+                        <span>${escapeHtml(allocation.picking_name || '')}</span>
+                        ${allocation.package_name ? `<span class="cluster-box-pkg">${escapeHtml(allocation.package_name)}</span>` : ''}
+                    </span>
+                    ${allocationDone
+                        ? '<span class="cluster-stop__allocation-check" aria-label="Verteilt">✓</span>'
+                        : `<button type="button" class="btn-confirm cluster-stop__confirm cluster-stop__allocation-confirm"
+                            data-stop-confirm="${safeInt(allocation.id)}" aria-label="${escapeHtml(confirmLabel)}"
+                            ${allocationDisabled ? 'disabled' : ''}>${allocationAction}</button>`}
+                </div>`;
+        }).join('') : '';
+        const doneQty = Number(line.quantity_done || 0);
+        const distributionLabel = done
+            ? 'vollständig verteilt'
+            : doneQty > 0
+                ? `${formatClusterQty(doneQty)} von ${qty} verteilt`
+                : 'gesamt entnehmen';
+        const productBarcode = String(line.product_barcode || '').trim();
+        const nextBox = nextAllocation ? safeInt(nextAllocation.box_index, '?') : '?';
+        const scanStatusHtml = current && !done
+            ? line.tracking === 'serial' || line.tracking === 'lot'
+                ? `<div class="cluster-scan-status cluster-scan-status--tracked" role="status">
+                    <span class="cluster-scan-status__icon" aria-hidden="true">#</span>
+                    <span><strong>${line.tracking === 'serial' ? 'Seriennummer' : 'Charge'} erfassen</strong>
+                    <small>Über „Bestätigen“ atomar diesem Auftrag zuordnen.</small></span>
+                </div>`
+                : `<div class="cluster-scan-status ${stopVerified ? 'cluster-scan-status--verified' : ''} ${clusterConfirmPending ? 'cluster-scan-status--busy' : ''}"
+                    role="${productBarcode ? 'status' : 'alert'}" aria-live="polite">
+                    <span class="cluster-scan-status__icon" aria-hidden="true">${stopVerified ? '✓' : '▦'}</span>
+                    <span class="cluster-scan-status__copy">
+                        <strong>${clusterConfirmPending
+                            ? 'Karton wird gebucht'
+                            : stopVerified
+                                ? 'Artikel geprüft'
+                                : productBarcode
+                                    ? 'Jetzt Artikel scannen'
+                                    : 'Produktbarcode fehlt in Odoo'}</strong>
+                        <small>${stopVerified
+                            ? `Jetzt Karton ${nextBox} scannen · ${openAllocations.length} offen.`
+                            : productBarcode
+                                ? `Produktcode ${escapeHtml(productBarcode)} · danach Zielkarton scannen.`
+                                : 'Nur die deutlich markierte manuelle Ausnahme ist möglich.'}</small>
+                    </span>
+                    ${nextAllocation && !clusterConfirmPending
+                        ? `<button type="button" class="cluster-scan-status__manual" data-stop-manual="${safeInt(nextAllocation.id)}">
+                            ${stopVerified ? 'Karton manuell wählen' : 'Ohne Scan manuell'}
+                        </button>`
+                        : ''}
+                </div>`
+            : '';
+        const singleConfirmDisabled = !current || (untracked && !stopVerified) || clusterConfirmPending;
+        const singleConfirmLabel = !current
+            ? 'Warten'
+            : untracked
+                ? stopVerified ? 'Manuell' : 'Gesperrt'
+                : 'Bestätigen';
         return `
-            <article class="cluster-stop ${done ? 'cluster-stop--done' : ''}"
-                style="--box-color:${safeColor(line.box_color)}"
-                data-stop-line="${lineId}" data-stop-picking="${safeInt(line.picking_id)}">
+            <article class="cluster-stop ${done ? 'cluster-stop--done' : ''} ${current ? 'cluster-stop--current' : ''}"
+                style="--box-color:${grouped ? 'var(--primary)' : safeColor(line.box_color)}"
+                data-stop-line="${lineId}" data-stop-picking="${safeInt(line.picking_id)}"
+                data-stop-key="${escapeHtml(line.stop_key || '')}"
+                ${current ? 'aria-current="step"' : ''}>
                 <div class="cluster-stop__location">${escapeHtml(loc)}</div>
-                <div class="cluster-stop__body">
-                    <div class="cluster-stop__product">${escapeHtml(name)} ${trackingBadge}</div>
-                    <div class="cluster-stop__box">
-                        <span class="cluster-box-chip" style="--box-color:${safeColor(line.box_color)}">${safeInt(line.box_index, '?')}</span>
-                        <span class="cluster-stop__order">${escapeHtml(line.picking_name || '')}</span>
-                        <span class="cluster-stop__qty">${escapeHtml(qty)} Stück</span>
-                        ${line.package_name ? `<span class="cluster-box-pkg">${escapeHtml(line.package_name)}</span>` : ''}
+                <div class="cluster-stop__identity">
+                    ${current ? renderProductVisual({
+                        productId: line.product_id,
+                        label: name,
+                        className: 'cluster-stop__visual product-visual product-visual--card',
+                        loading: 'eager',
+                        size: 512,
+                    }) : ''}
+                    <div class="cluster-stop__body">
+                        <div class="cluster-stop__product">${escapeHtml(name)} ${trackingBadge}</div>
+                        ${grouped ? `
+                        <div class="cluster-stop__total">
+                            <strong>${escapeHtml(qty)} Stück</strong>
+                            <span>${escapeHtml(distributionLabel)} · ${allocations.length} Aufträge</span>
+                        </div>` : `<div class="cluster-stop__box">
+                            <span class="cluster-box-chip" style="--box-color:${safeColor(line.box_color)}">${safeInt(line.box_index, '?')}</span>
+                            <span class="cluster-stop__order">${escapeHtml(line.picking_name || '')}</span>
+                            <span class="cluster-stop__qty">${escapeHtml(qty)} Stück</span>
+                            ${line.package_name ? `<span class="cluster-box-pkg">${escapeHtml(line.package_name)}</span>` : ''}
+                        </div>`}
                     </div>
                 </div>
+                ${grouped ? `<div class="cluster-stop__allocations" aria-label="Aufteilung auf ${allocations.length} Kartons">${allocationHtml}</div>` : ''}
+                ${scanStatusHtml}
                 <div class="cluster-stop__actions">
-                    <button type="button" class="icon-btn cluster-stop__voice" data-stop-voice="${lineId}" aria-label="Vorlesen">🔊</button>
+                    <button type="button" class="icon-btn cluster-stop__voice" data-stop-voice="${lineId}"
+                        aria-label="Anweisung für ${escapeHtml(name)} an ${escapeHtml(loc)} vorlesen">🔊</button>
                     ${done
                         ? '<span class="cluster-stop__check" aria-label="Erledigt">✓</span>'
-                        : `<button type="button" class="btn-confirm cluster-stop__confirm" data-stop-confirm="${lineId}">Bestätigen</button>`}
+                        : grouped
+                            ? ''
+                            : `<button type="button" class="btn-confirm cluster-stop__confirm" data-stop-confirm="${lineId}"
+                                ${singleConfirmDisabled ? 'disabled' : ''}>${singleConfirmLabel}</button>`}
                 </div>
             </article>`;
     }).join('');
@@ -3536,9 +4018,9 @@ function renderClusterWalk(batch) {
             <header class="cluster-progress" aria-label="Batch-Fortschritt">
                 <div class="cluster-progress__head">
                     <div class="cluster-progress__title">${escapeHtml(batch.name || 'Batch')}</div>
-                    <div class="cluster-progress__count">${doneCount} / ${totalCount}</div>
+                    <div class="cluster-progress__count" aria-label="${doneCount} von ${totalCount} Aufteilungen erledigt">${doneCount} / ${totalCount}</div>
                 </div>
-                <div class="cluster-progress__helper">Wagen: separate Kartons je Auftrag.</div>
+                <div class="cluster-progress__helper">Gesamtmenge entnehmen, danach auf die Auftragskartons verteilen.</div>
                 <div class="cluster-progress__track" aria-hidden="true">
                     <span class="cluster-progress__bar" style="width:${pct}%"></span>
                 </div>
@@ -3556,18 +4038,34 @@ function renderClusterWalk(batch) {
             </button>
         </div>
     `);
-    bindClusterWalk(batch);
+    bindClusterWalk(batch, stops);
 }
 
-function bindClusterWalk(batch) {
+function bindClusterWalk(batch, stops) {
     const root = mainEl();
     if (!root) return;
     const lineById = new Map((batch.lines || []).map((line) => [String(line.id), line]));
+    const stopById = new Map((stops || []).map((stop) => [String(stop.id), stop]));
 
     root.querySelectorAll('[data-stop-voice]').forEach((btn) => {
         btn.addEventListener('click', () => {
-            const line = lineById.get(String(btn.dataset.stopVoice));
-            if (line?.voice_instruction_short) speak(line.voice_instruction_short);
+            const stop = stopById.get(String(btn.dataset.stopVoice));
+            if (!stop) return;
+            if (!stop.grouped) {
+                if (stop.voice_instruction_short) speak(stop.voice_instruction_short);
+                return;
+            }
+            const openAllocations = stop.allocations.filter((allocation) => !allocation.picked);
+            const remaining = formatClusterQty(stop.quantity_remaining);
+            const total = formatClusterQty(stop.quantity_demand);
+            const location = stop.location_src_short || stop.location_src || 'Lagerort';
+            const action = stop.quantity_done > 0
+                ? `Noch ${remaining} Stück verteilen`
+                : `${total} Stück entnehmen`;
+            const distribution = openAllocations.map((allocation) =>
+                `${formatClusterQty(allocation.quantity_demand)} in Karton ${safeInt(allocation.box_index, '?')}`
+            ).join(', ');
+            speak(`${location}. ${action}. ${stop.product_name || 'Produkt'}. ${distribution}.`);
         });
     });
 
@@ -3578,12 +4076,23 @@ function bindClusterWalk(batch) {
         });
     });
 
+    root.querySelectorAll('[data-stop-manual]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const line = lineById.get(String(btn.dataset.stopManual));
+            if (line) handleClusterConfirm(batch, line, btn);
+        });
+    });
+
     document.querySelector('[data-cluster-walk-back]')?.addEventListener('click', () => loadPickingList());
     document.querySelector('[data-cluster-validate]')?.addEventListener('click', () => validateClusterBatch(batch));
 }
 
 async function handleClusterConfirm(batch, line, btn) {
     stopSpeaking();
+    if (clusterConfirmPending) {
+        showToast('Die vorige Kartonbuchung läuft noch.', 'warning');
+        return;
+    }
     if (btn) btn.disabled = true;
 
     // #11: Helper that re-enables the button only when it is still in the document.
@@ -3620,37 +4129,68 @@ async function handleClusterConfirm(batch, line, btn) {
         }
     }
 
+    await submitClusterAllocation(batch, line, {
+        scannedBarcode: verifiedClusterBarcodeForLine(batch, line),
+        scannedPackage,
+        serialNumber,
+        btn,
+    });
+}
+
+async function submitClusterAllocation(
+    batch,
+    line,
+    { scannedBarcode = '', scannedPackage = '', serialNumber = '', btn = null } = {},
+) {
+    if (clusterConfirmPending) return false;
+    clusterConfirmPending = true;
+    if (btn) btn.disabled = true;
+    if (sessionState === 'cluster_walk') renderClusterWalk(batch);
+
     try {
         const result = await withManagedRequest((signal) => confirmClusterLine(
             batch.batch_id,
             {
                 picking_id: line.picking_id,
                 move_line_id: line.id,
-                scanned_barcode: line.product_barcode || '',
+                scanned_barcode: scannedBarcode,
                 quantity: line.quantity_demand,
                 serial_number: serialNumber,
                 scanned_package: scannedPackage,
             },
             {
-                idempotencyKey: buildOperationKey('cluster-confirm',
-                    [batch.batch_id, line.id, line.quantity_demand, scannedPackage, serialNumber], { unique: true }),
+                idempotencyKey: buildOperationKey('cluster-confirm', [
+                    batch.batch_id,
+                    line.id,
+                    line.quantity_demand,
+                    scannedBarcode,
+                    scannedPackage,
+                    serialNumber,
+                ]),
                 signal,
             },
         ));
         if (!result?.success) {
+            clusterConfirmPending = false;
             feedbackError();
             showToast(result?.message || 'Bestätigung fehlgeschlagen.', 'error');
-            reenableBtn();
-            return;
+            if (btn?.isConnected) btn.disabled = false;
+            if (sessionState === 'cluster_walk') renderClusterWalk(getState().batch || batch);
+            return false;
         }
+        clusterConfirmPending = false;
         feedbackSuccess();
-        await loadBatch(batch.batch_id);  // frischer Fortschritt + Re-Render (btn nun detached)
+        await loadBatch(batch.batch_id);
+        return true;
     } catch (error) {
-        if (isAbortError(error)) return;
+        clusterConfirmPending = false;
+        if (isAbortError(error)) return false;
         feedbackError();
-        reenableBtn();
+        if (btn?.isConnected) btn.disabled = false;
         const detail = error instanceof ApiError ? error.message : 'Bestätigung fehlgeschlagen.';
         showToast(detail, 'error');
+        if (sessionState === 'cluster_walk') renderClusterWalk(getState().batch || batch);
+        return false;
     }
 }
 
@@ -3695,6 +4235,7 @@ async function validateClusterBatch(batch) {
 function renderClusterComplete(batch) {
     const orders = (batch.boxes || []).length;
     const positions = (batch.lines || []).length;
+    updateToolbar('cluster_complete');
     setMainContent(`
         <section class="cluster-complete state-panel" role="status">
             <div class="state-panel__eyebrow">Abgeschlossen</div>

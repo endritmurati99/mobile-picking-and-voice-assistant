@@ -44,7 +44,13 @@ async def create_picker_session(
             ),
             origin=request.headers.get("Origin"),
         )
-    except (AuthenticationFailed, CsrfFailed) as exc:
+    except CsrfFailed as exc:
+        # Origin nicht erlaubt ist KEIN Anmeldefehler. Frueher wurde beides zu
+        # 401 "Anmeldung fehlgeschlagen" zusammengefasst -- ein von der falschen
+        # PWA_ORIGINS getriggerter 403 sah dann aus wie ein Passwortfehler und
+        # kostete eine ganze Debugging-Session. Getrennt halten.
+        raise HTTPException(status_code=403, detail="Origin ist nicht erlaubt.") from exc
+    except AuthenticationFailed as exc:
         raise HTTPException(status_code=401, detail="Anmeldung fehlgeschlagen.") from exc
     response.set_cookie(
         key=settings.session_cookie_name,

@@ -116,6 +116,15 @@ class MobileWorkflowService:
             [picking_id, identity.user_id, identity.device_id, settings.mobile_claim_ttl_seconds],
         )
         self._raise_on_claim_conflict(result)
+        # Der Heartbeat legt seit dem IDOR-Fix (2026-08-17) keinen Claim mehr an:
+        # fehlt der eigene aktive Claim, meldet Odoo status "missing". confirm-line
+        # nutzt den Heartbeat als einzigen Ownership-Check -- also muss ein fehlender
+        # Claim hier hart abgewiesen werden, sonst wuerde eine Zeile ohne gueltigen
+        # Claim gebucht. Als Konflikt behandeln: der Client zeigt den Neu-Beanspruchen-
+        # Dialog. claim/release bleiben bewusst conflict-only (Release ohne Claim ist
+        # ein No-op, kein Fehler).
+        if result and result.get("status") == "missing":
+            raise ClaimConflictError(result)
         return result
 
     async def release_picking(self, picking_id: int, identity: PickerIdentity) -> dict:

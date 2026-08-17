@@ -69,6 +69,17 @@ class StockPicking(models.Model):
             return payload
         return None
 
+    def _has_active_owned_claim(self, picker_user_id, device_id):
+        self.ensure_one()
+        now = fields.Datetime.now()
+        expires_at = self.mobile_claim_expires_at
+        return bool(
+            expires_at
+            and expires_at > now
+            and self.mobile_claim_user_id.id == picker_user_id
+            and (self.mobile_claim_device_id or "") == (device_id or "")
+        )
+
     def _find_internal_replenishment_type(self):
         self.ensure_one()
         picking_type_model = self.env["stock.picking.type"].sudo()
@@ -111,6 +122,21 @@ class StockPicking(models.Model):
         conflict = picking._active_claim_conflict(int(picker_user_id), device_id)
         if conflict:
             return conflict
+
+        # Heartbeat verlaengert NUR einen bereits gehaltenen, noch aktiven Claim.
+        # Frueher legte ein Heartbeat auf einen unbeanspruchten oder abgelaufenen
+        # Auftrag stillschweigend einen neuen Claim fuer den Aufrufer an. Da
+        # confirm-line den Heartbeat als einzigen Ownership-Check nutzt, konnte
+        # so ein nie beanspruchter Auftrag -- oder nach Lease-Ablauf der Auftrag
+        # eines anderen Pickers -- gebucht werden (IDOR, 2026-08-17 live belegt).
+        # Fehlt der eigene aktive Claim, meldet der Heartbeat "missing"; der
+        # Client muss dann ueber api_claim_mobile neu beanspruchen.
+        if not picking._has_active_owned_claim(int(picker_user_id), device_id):
+            return {
+                "success": False,
+                "status": "missing",
+                "message": "Kein aktiver Claim -- bitte den Auftrag neu beanspruchen.",
+            }
 
         return picking._upsert_mobile_claim(int(picker_user_id), device_id, ttl_seconds)
 

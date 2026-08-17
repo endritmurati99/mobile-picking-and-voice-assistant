@@ -29,10 +29,15 @@ let ttsBusy = false;
 let voiceState = VOICE_STATES.IDLE;
 
 const SPEECH_RMS = 18;
-// 700 statt 300 ms: bei 300 ms schnitt eine natuerliche Sprechpause das
-// Kommando-Ende ab ("hinten nicht geklappt"). 700 ms toleriert die Pause
-// zwischen Woertern und wartet auf ein echtes Sprechende.
-const SILENCE_AFTER_SPEECH = 700;
+// Historie: urspruenglich 300 ms, das schnitt bei natuerlichen Sprechpausen das
+// Kommando-Ende ab ("hinten nicht geklappt"), danach 700 ms.
+// Jetzt 550 ms: der Stille-Tail am Blob-Ende bringt gemessen KEINEN
+// Erkennungsnutzen (0 / 0,75 / 1,5 s Stille -> 2775 / 2693 / 2668 ms stt, kein
+// Trend) -- er ist reine Wartezeit vor jeder Reaktion. Bewusst nur ein
+// 150-ms-Schritt zurueck und nicht bis auf die 300 ms, die nachweislich zu
+// knapp waren. Abbruchkriterium fuer den Feldtest: mehr als 1 abgeschnittenes
+// Transkript pro 40 Aufnahmen heisst zurueck auf 650 ms.
+const SILENCE_AFTER_SPEECH = 550;
 const NO_SPEECH_TIMEOUT = 6000;
 const MIN_SPEECH_MS = 100;
 const MAX_RECORDING_MS = 10000;
@@ -55,6 +60,11 @@ let pushToTalkActive = false;
 // Cleared on explicit yes, no, or when a different intent overrides it.
 let _pendingConfirmAction = null;
 let _pendingConfirmValue = null;
+// Ohne Verfallszeit blieb eine unbeantwortete Rueckfrage unbegrenzt scharf: ein
+// beilaeufiges "ja" Minuten spaeter fuehrte noch die damals gemeinte Aktion aus.
+// Analog zu READBACK_TTL_MS in app.js.
+let _pendingConfirmExpiresAt = 0;
+const PENDING_CONFIRM_TTL_MS = 15000;
 
 let cachedDeVoice = null;
 
@@ -71,6 +81,16 @@ let _speechEpoch = 0;
 function _resetConfirmationState() {
     _pendingConfirmAction = null;
     _pendingConfirmValue = null;
+    _pendingConfirmExpiresAt = 0;
+}
+
+function _hasLivePendingConfirm() {
+    if (!_pendingConfirmAction) return false;
+    if (Date.now() >= _pendingConfirmExpiresAt) {
+        _resetConfirmationState();
+        return false;
+    }
+    return true;
 }
 
 /**
@@ -83,13 +103,31 @@ function _resetConfirmationState() {
  *  4. Backend sets requires_confirmation → speak prompt, store action, wait.
  *  5. Normal high-confidence result → forward to onIntentCallback directly.
  */
+// onIntentCallback ist async (handleVoiceIntent). Ein dort geworfener Fehler
+// wurde bisher zu einer unhandled rejection und verschwand lautlos -- genau so
+// blieb der fehlende buildReadbackPrompt-Import monatelang unbemerkt. Jeder
+// Aufruf laeuft ab jetzt durch diesen Wrapper: Fehler werden geloggt UND dem
+// Picker als hoerbares Signal gemeldet, statt still zu sterben.
+function _dispatchIntent(payload) {
+    if (!onIntentCallback) return;
+    try {
+        Promise.resolve(onIntentCallback(payload)).catch((err) => {
+            console.error('[voice] Intent-Verarbeitung fehlgeschlagen:', err);
+            speak('Sprachbefehl konnte nicht ausgefuehrt werden.');
+        });
+    } catch (err) {
+        console.error('[voice] Intent-Dispatch fehlgeschlagen:', err);
+        speak('Sprachbefehl konnte nicht ausgefuehrt werden.');
+    }
+}
+
 function _handleIntentWithRecovery(result) {
-    if (_pendingConfirmAction) {
+    if (_hasLivePendingConfirm()) {
         if (result.intent === 'confirm') {
             const action = _pendingConfirmAction;
             const value = _pendingConfirmValue;
             _resetConfirmationState();
-            if (onIntentCallback) onIntentCallback({ ...result, intent: action, value });
+            _dispatchIntent({ ...result, intent: action, value });
             return;
         }
         if (result.intent === 'pause' || result.intent === 'unknown') {
@@ -105,10 +143,11 @@ function _handleIntentWithRecovery(result) {
         speak(result.confirmation_prompt);
         _pendingConfirmAction = result.intent;
         _pendingConfirmValue = result.value ?? null;
+        _pendingConfirmExpiresAt = Date.now() + PENDING_CONFIRM_TTL_MS;
         return;
     }
 
-    if (onIntentCallback) onIntentCallback(result);
+    _dispatchIntent(result);
 }
 
 function setVoiceState(event, options = {}) {
@@ -529,10 +568,14 @@ async function startListeningCycle() {
             isRecording = false;
             stopMonitor();
 
+            // `<` statt `<=`: der naechste Zyklus wird per setTimeout auf exakt
+            // POST_TTS_COOLDOWN_MS gestartet. Feuert der Timer puenktlich, gilt
+            // startedAt === lastTtsEndedAt + 250 -- mit `<=` wurde dann genau die
+            // Aufnahme verworfen, in der der Nutzer auf die Rueckfrage antwortet.
             const staleCapture =
                 cycleGeneration !== recognitionGeneration ||
                 ttsBusy ||
-                startedAt <= lastTtsEndedAt + POST_TTS_COOLDOWN_MS;
+                startedAt < lastTtsEndedAt + POST_TTS_COOLDOWN_MS;
 
             if (staleCapture || audioChunks.length === 0 || !hasSpeech || speechMs < MIN_SPEECH_MS) {
                 resolve(null);
@@ -607,9 +650,11 @@ async function startListeningCycle() {
             // Browser-Konsole (F12) ablesbar.
             console.log('[Voice] gehört:', JSON.stringify(transcript),
                 '| intent:', result?.intent, '| conf:', result?.confidence);
+            // Gleiche Off-by-one-Korrektur wie bei staleCapture oben: hier ist die
+            // Transkription bereits bezahlt, das Ergebnis wurde trotzdem verworfen.
             const staleResult =
                 capture.generation !== recognitionGeneration ||
-                capture.startedAt <= lastTtsEndedAt + POST_TTS_COOLDOWN_MS;
+                capture.startedAt < lastTtsEndedAt + POST_TTS_COOLDOWN_MS;
 
             if (!staleResult && transcript) {
                 const shouldDropEcho =

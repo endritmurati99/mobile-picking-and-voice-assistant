@@ -1,5 +1,8 @@
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from app.services.odoo_client import OdooAPIError
 
 from app.config import settings, parse_origins, reject_wildcard_origins_with_credentials
 from app.middleware import RequestBodySizeLimitMiddleware
@@ -240,6 +243,23 @@ def create_app(candidate_settings: Settings = settings) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Sicherheitsnetz fuer ungefangene Odoo-Fehler. Die meisten Router fangen
+    # OdooAPIError bereits ab (demo/quality/cluster/picking_service), aber die
+    # Browser-Router pickings.py und voice.py taten es nicht -- ein Odoo-Timeout,
+    # ein 5xx oder eine baumelnde Referenz kam dort als 500 mitsamt Stacktrace
+    # beim Client an (2026-08-17 live belegt am Idempotency-Reserve). Ein Ausfall
+    # der wichtigsten Abhaengigkeit ist ein 502, kein Programmierfehler des
+    # Backends, und der Client soll eine saubere, umlautfeste Meldung sehen statt
+    # eines Tracebacks. Handler statt try/except pro Handler: keine Route kann
+    # ihn vergessen, analog zur Gate-Verdrahtung.
+    @application.exception_handler(OdooAPIError)
+    async def _handle_odoo_api_error(_request, exc: OdooAPIError):
+        logging.getLogger("app.odoo").warning("Odoo-Aufruf fehlgeschlagen: %s", exc)
+        return JSONResponse(
+            status_code=502,
+            content={"detail": "Odoo ist momentan nicht erreichbar. Bitte erneut versuchen."},
+        )
 
     # Pre-auth: die einzigen beiden Router, die eine Anfrage ohne Sitzung
     # ueberhaupt erreichen darf. `auth` traegt sein eigenes, feineres Gate

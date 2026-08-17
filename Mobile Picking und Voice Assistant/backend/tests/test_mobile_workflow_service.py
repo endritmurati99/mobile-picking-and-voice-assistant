@@ -65,6 +65,37 @@ class TestMobileWorkflowService:
         assert exc.value.detail["claimed_by_name"] == "Andere Person"
 
     @pytest.mark.anyio
+    async def test_heartbeat_refreshes_owned_claim(self, service, odoo):
+        # Der Normalfall: eigener aktiver Claim -> Odoo verlaengert und meldet
+        # "claimed". heartbeat_picking gibt das Ergebnis unveraendert zurueck.
+        odoo.execute_kw.return_value = {"success": True, "status": "claimed"}
+
+        result = await service.heartbeat_picking(
+            7, PickerIdentity(user_id=7, device_id="scanner-2")
+        )
+
+        assert result["status"] == "claimed"
+
+    @pytest.mark.anyio
+    async def test_heartbeat_missing_claim_raises_conflict(self, service, odoo):
+        # IDOR-Fix 2026-08-17: der Heartbeat legt keinen Claim mehr an. Fehlt der
+        # eigene aktive Claim, meldet Odoo "missing" -- und da confirm-line den
+        # Heartbeat als einzigen Ownership-Check nutzt, muss das hart abgewiesen
+        # werden, statt eine Buchung ohne Claim durchzulassen.
+        odoo.execute_kw.return_value = {
+            "success": False,
+            "status": "missing",
+            "message": "Kein aktiver Claim -- bitte den Auftrag neu beanspruchen.",
+        }
+
+        with pytest.raises(ClaimConflictError) as exc:
+            await service.heartbeat_picking(
+                60, PickerIdentity(user_id=6, device_id="scanner-9")
+            )
+
+        assert exc.value.detail["status"] == "missing"
+
+    @pytest.mark.anyio
     async def test_begin_idempotent_request_is_disabled_without_key(self, service):
         reservation = await service.begin_idempotent_request(
             "pickings.confirm-line",

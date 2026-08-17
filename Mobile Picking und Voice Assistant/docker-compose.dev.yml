@@ -23,6 +23,14 @@ services:
   backend:
     ports:
       - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
+    # Die Produktionsdatei setzt PWA_ORIGINS auf genau eine LAN-Origin
+    # (https://${LAN_HOST}). Beim Testen ueber den Rechner selbst laeuft die PWA
+    # aber unter https://localhost -- deren Origin stand nicht auf der Liste, und
+    # der Login schlug mit einem als 401 getarnten Origin-Reject fehl (seit
+    # dieser Runde als 403 getrennt). Das Overlay erlaubt daher zusaetzlich
+    # localhost. Beide sind HTTPS, die Produktions-Validierung bliebe erfuellt.
+    environment:
+      PWA_ORIGINS: "https://${LAN_HOST:-localhost},https://localhost"
 
   db:
     ports:
