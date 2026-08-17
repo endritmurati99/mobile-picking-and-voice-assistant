@@ -323,3 +323,120 @@ async def test_login_releases_the_reservation_when_authentication_raises():
         )
 
     assert calls == ["api_begin_login_attempt", "api_finish_login_attempt"]
+
+
+# --- Lagerwechsel ohne zweite Passworteingabe -----------------------------
+# Der Anmeldename ist hier der Ausweis: dieselben Menschen bedienen beide
+# Lager, und `admin` in Lager 2 ist ein ANDERER Datensatz als `admin` in
+# Lager 1 -- nur der Name ist derselbe. Was diese Tests festhalten, ist die
+# Grenze dieser Entscheidung, nicht ihre Bequemlichkeit.
+
+
+class ZielOdoo(FakeOdoo):
+    """Ziel-Lager: kennt `res.users` als Nachschlagewerk fuer den Namen."""
+
+    def __init__(self, *, treffer=(11,), login="mina", **kwargs):
+        super().__init__(**kwargs)
+        self.treffer = list(treffer)
+        self.login = login
+
+    async def execute_kw(self, model, method, args, kwargs=None):
+        if model == "res.users" and method == "read":
+            self.calls.append((model, method, args))
+            return [{"id": args[0][0], "login": self.login}]
+        if model == "res.users" and method == "search":
+            self.calls.append((model, method, args))
+            return self.treffer
+        return await super().execute_kw(model, method, args, kwargs)
+
+
+def _zwei_lager(*, ziel: ZielOdoo, quelle: ZielOdoo | None = None):
+    quelle = quelle or ZielOdoo(instance="o19")
+    dienst = SessionService(
+        client_factory=lambda name: ziel if name == "lager-2" else quelle,
+        instance_names={"o19", "lager-2"},
+        throttle_secret=b"t" * 32,
+        allowed_origins={"https://picking.test"},
+    )
+    return dienst, quelle
+
+
+@pytest.mark.asyncio
+async def test_switch_issues_a_session_in_the_target_and_ends_the_old_one():
+    ziel = ZielOdoo(instance="lager-2", uid=11)
+    dienst, quelle = _zwei_lager(ziel=ziel)
+
+    created = await dienst.switch_instance(
+        _principal(), "lager-2", origin="https://picking.test"
+    )
+
+    assert created.cookie_token.startswith("v1.lager-2.")
+    assert created.principal.odoo_instance == "lager-2"
+    # Dasselbe Geraet, nicht ein neues: der Wechsel ist kein neuer Handheld.
+    assert created.principal.device_id == _principal().device_id
+    # Die alte Sitzung ist beendet -- sonst laegen zwei gueltige Cookies fuer
+    # denselben Menschen in zwei Lagern.
+    assert quelle.revoked_session_ids == [_principal().session_id]
+
+
+@pytest.mark.asyncio
+async def test_switch_needs_the_same_login_to_exist_in_the_target():
+    ziel = ZielOdoo(instance="lager-2", treffer=())
+    dienst, quelle = _zwei_lager(ziel=ziel)
+
+    with pytest.raises(AuthenticationFailed, match="Lagerwechsel nicht moeglich"):
+        await dienst.switch_instance(
+            _principal(), "lager-2", origin="https://picking.test"
+        )
+    # Und die bestehende Sitzung bleibt: wer nirgends ankommt, soll dort
+    # bleiben, wo er angemeldet war.
+    assert quelle.revoked_session_ids == []
+
+
+@pytest.mark.asyncio
+async def test_switch_needs_a_role_in_the_target_not_merely_an_account():
+    ziel = ZielOdoo(instance="lager-2", allowed=False)
+    dienst, quelle = _zwei_lager(ziel=ziel)
+
+    with pytest.raises(AuthenticationFailed, match="Lagerwechsel nicht moeglich"):
+        await dienst.switch_instance(
+            _principal(), "lager-2", origin="https://picking.test"
+        )
+    assert quelle.revoked_session_ids == []
+
+
+@pytest.mark.asyncio
+async def test_switch_refuses_an_unknown_target_and_the_current_one():
+    ziel = ZielOdoo(instance="lager-2")
+    dienst, _quelle = _zwei_lager(ziel=ziel)
+
+    for ungueltig in ("gibt-es-nicht", "o19"):
+        with pytest.raises(AuthenticationFailed, match="Lagerwechsel nicht moeglich"):
+            await dienst.switch_instance(
+                _principal(), ungueltig, origin="https://picking.test"
+            )
+
+
+@pytest.mark.asyncio
+async def test_switch_refuses_a_foreign_origin():
+    ziel = ZielOdoo(instance="lager-2")
+    dienst, _quelle = _zwei_lager(ziel=ziel)
+
+    with pytest.raises(CsrfFailed):
+        await dienst.switch_instance(
+            _principal(), "lager-2", origin="https://angreifer.test"
+        )
+
+
+@pytest.mark.asyncio
+async def test_switch_never_takes_the_first_of_two_matching_logins():
+    """`login` ist in Odoo eindeutig -- zwei Treffer heissen, dass die Annahme
+    nicht mehr gilt. Dann ist Abbrechen die einzige richtige Antwort."""
+    ziel = ZielOdoo(instance="lager-2", treffer=(11, 12))
+    dienst, quelle = _zwei_lager(ziel=ziel)
+
+    with pytest.raises(AuthenticationFailed, match="Lagerwechsel nicht moeglich"):
+        await dienst.switch_instance(
+            _principal(), "lager-2", origin="https://picking.test"
+        )
+    assert quelle.revoked_session_ids == []

@@ -89,6 +89,13 @@ ALIASES = {
         "auftrag abschliessen",
         "alles erledigt",
         "alle erledigt",
+        # "alles fertig"/"alle fertig" standen bisher NUR in den done-Aliassen.
+        # _match_exact laeuft vor _match_regex, traf dort also `done` -- und das
+        # wird bei offenen Positionen vom Surface-Gate auf unknown gesetzt.
+        # Ergebnis: "alles fertig" tat gar nichts. confirm_all steht in
+        # PRIORITY_ORDER vor done und faengt es jetzt korrekt ab.
+        "alles fertig",
+        "alle fertig",
         "alle durch",
         "alles durch",
         "komplett",
@@ -319,6 +326,26 @@ ALIASES = {
 
 REGEX_PATTERNS = {
     "confirm_all": (
+        # Scope-Regeln: ein Reichweiten-Wort ("alle", "komplett", "ganz") in
+        # Verbindung mit einem Buchungsverb meint den GANZEN Auftrag, egal wie
+        # der Satz drumherum gebaut ist. Vorher war nur die woertliche Wendung
+        # "alles bestaetigen" erfasst, weshalb "den ganzen Auftrag bestaetigen"
+        # auf das Einzelzeilen-confirm fiel.
+        #
+        # Das Fenster von hoechstens drei Fuellwoertern zwischen Scope und Verb
+        # ist die entscheidende Begrenzung: es erlaubt Artikel und Mengenangaben
+        # ("alle SECHS bestaetigen", "den KOMPLETTEN Auftrag"), verhindert aber,
+        # dass Scope- und Verbwort aus zwei unabhaengigen Aussagen
+        # zusammengezogen werden.
+        r"\b(alle|alles|allen|saemtliche|komplett\w*|ganze\w*|gesamt\w*|jede\w*)\b"
+        r"(?:\s+\w+){0,3}\s+"
+        r"\b(bestaetig\w*|buch\w*|abschliess\w*|fertig|erledigt|abgeschlossen|durch)\b",
+        r"\b(bestaetig\w*|buch\w*|abschliess\w*)\b"
+        r"(?:\s+\w+){0,3}\s+"
+        r"\b(alle|alles|allen|saemtliche|komplett\w*|ganze\w*|gesamt\w*)\b",
+        r"\b(auftrag|auftrags|lieferung)\b"
+        r"(?:\s+\w+){0,2}\s+"
+        r"\b(komplett|fertig|erledigt|abgeschlossen|abschliessen|bestaetigen|durch)\b",
         r"\b(alles bestaetigen|alle bestaetigen|komplett bestaetigen)\b",
         r"\b(alle positionen bestaetigen|auftrag komplett|auftrag abschliessen)\b",
         r"\b(alles erledigt|alle erledigt|alle durch|alles durch)\b",
@@ -326,10 +353,20 @@ REGEX_PATTERNS = {
         r"\b(bestaetige den auftrag|auftrag fertig|auftrag erledigt|komplett fertig)\b",
     ),
     "confirm": (
-        r"\b(bestaetigt|bestaetige|bestaetigen|ja|ok|okay|check)\b",
-        r"\b(jep|jup|jo|joa|jupp|klar|gut|passt|stimmt|richtig|genau|jawohl|sicher)\b",
-        r"\b(alles klar|geht klar|in ordnung|perfekt|super|alles gut)\b",
-        r"\b(paket|karton|position|artikel)\s+(erledigt|fertig)\b",
+        # Buchungsverben duerfen mitten im Satz stehen ("bitte bestaetigen").
+        # Die Alle-Faelle faengt confirm_all vorher ab, es steht in
+        # PRIORITY_ORDER davor.
+        r"\b(bestaetigt|bestaetige|bestaetigen|buche|buchen|gebucht)\b",
+        # Kurze Zustimmungen und Hoeflichkeitspartikeln NUR als vollstaendige
+        # Aeusserung. Vorher genuegte ihr blosses Vorkommen irgendwo im Satz --
+        # "super gemacht", "alles gut soweit" und "guten morgen" haben damit
+        # ungefragt eine Position gebucht. Als Antwort auf die Rueckfrage
+        # ("<Produkt>, richtig?") bleiben sie vollstaendig erhalten, denn dort
+        # ist die Aeusserung genau ein Wort.
+        r"^(?:ja|jawohl|jep|jup|jo|joa|jupp|ok|okay|check|klar|gut|passt|stimmt"
+        r"|richtig|genau|sicher|perfekt|super|alles klar|geht klar|in ordnung"
+        r"|alles gut|das passt|passt so|das passt so|stimmt so)$",
+        r"^(?:paket|karton|position|artikel)\s+(?:erledigt|fertig)$",
     ),
     "next_order": (
         r"\b(naechster|naechsten|naechste)\s+auftrag\b",
@@ -339,7 +376,10 @@ REGEX_PATTERNS = {
     "next": (
         r"\b(naechster|naechste|naechstes|weiter|weitermachen|skip|ueberspringen)\b",
         r"\b(naechste position|naechste zeile|mach weiter|geh weiter)\b",
-        r"\b(vor|vorwarts|continue|next|forward|los|go|komm)\b",
+        r"\b(vorwarts|continue|forward)\b",
+        # Kurze Allerweltswoerter nur als ganze Aeusserung: "vor" trifft sonst
+        # "vor dem Regal", "los" trifft "es geht los damit".
+        r"^(?:vor|los|go|komm|next)$",
         r"\b(und weiter|weiter gehts|weitergehts|weiter so)\b",
     ),
     "previous": (
@@ -362,7 +402,10 @@ REGEX_PATTERNS = {
         r"^was$",
     ),
     "pause": (
-        r"\b(pause|stopp|stop|halt|warten|moment)\b",
+        r"\b(pause|stopp|stop|warten|moment)\b",
+        # "halt" ist die haeufigste deutsche Modalpartikel ("das ist halt so",
+        # "mach halt weiter") und schaltete unverankert den Sprachmodus ab.
+        r"^halt$",
         r"\b(warte mal|warte kurz|sekunde|einen moment)\b",
         r"\b(abbrechen|aufhoren|genug|schluss|kurze pause)\b",
     ),
@@ -380,17 +423,26 @@ REGEX_PATTERNS = {
         r"\b(bestand pruefen|vorratig|verfugbar|auf lager)\b",
         r"\b(wie viel haben wir|restbestand|restmenge)\b",
     ),
+    # Die drei Filter-/Status-Intents sind Listenkommandos und bestehen aus
+    # Allerweltswoertern ("alle", "alles", "offen", "auftrage"). Unverankert
+    # kaperten sie jeden Satz, der eines davon enthielt: "alle sechs
+    # bestaetigen" wurde zu filter_normal, und weil app.js dafuer bei
+    # geoeffnetem Auftrag ein `break` ohne Ansage hat, passierte GAR NICHTS --
+    # aus Nutzersicht nicht unterscheidbar von "hat mich nicht gehoert".
+    # Als vollstaendige Aeusserung bleiben sie erhalten.
     "filter_high": (
-        r"\b(dringend\w*|dringlich\w*|wichtig\w*|hohe?\s*prioritat|eilig\w*)\b",
-        r"\b(zeig.*dringend\w*|nur\s*dringend\w*|express)\b",
+        r"^(?:nur\s+)?(?:dringend\w*|dringlich\w*|wichtig\w*|eilig\w*|express)$",
+        r"^(?:hohe?\s*prioritat|prio)$",
+        r"^zeig\w*\s+(?:mir\s+)?(?:nur\s+)?(?:die\s+)?dringend\w*$",
     ),
     "filter_normal": (
-        r"\b(alle|alles|normal|zurucksetzen|filter weg|reset)\b",
-        r"\b(zeig.*alle|alle anzeigen|filter aus)\b",
+        r"^(?:alle|alles|normal|zurucksetzen|filter weg|filter aus|reset)$",
+        r"^(?:zeig\w*\s+(?:mir\s+)?)?alle(?:\s+auftrage)?(?:\s+anzeigen)?$",
     ),
     "status": (
-        r"\b(wie viele|status|ubersicht|anzahl)\b",
-        r"\b(offen|auftrage|was steht an|was ist offen|uberblick)\b",
+        r"^(?:status|ubersicht|uberblick|anzahl)$",
+        r"^wie ?viele?(?:\s+\w+){0,2}$",
+        r"^(?:was steht an|was ist offen|was ist noch offen)$",
     ),
     "whats_next": (
         r"\b(was jetzt|was nun|was als naechstes|was ist dran)\b",
@@ -406,7 +458,32 @@ REGEX_PATTERNS = {
     ),
 }
 
-FUZZY_ACTIONS = {"confirm", "next", "problem", "repeat", "pause", "done"}
+def _normalize_pattern(pattern: str) -> str:
+    """Zieht ae/oe/ue in einem Regex-Literal genauso zusammen wie normalize_text
+    es mit dem Eingabetext tut.
+
+    Ohne das konnten 26 der 211 Muster NIE treffen: sie sind in
+    ae/oe/ue-Schreibweise notiert ("bestaetigen", "naechste", "ueberspringen"),
+    geprueft werden sie aber gegen Text, den normalize_text vorher auf a/o/u
+    kollabiert hat ("bestatigen", "nachste", "uberspringen"). Betroffen war unter
+    anderem die komplette bestaetigen- und naechst-Familie -- `confirm_all` und
+    `next_order` waren ueber den Regex-Pfad damit ueberhaupt nicht erreichbar,
+    weshalb jede Umformulierung von "alles bestaetigen" beim Einzelzeilen-
+    `confirm` landete.
+
+    Sicher, weil kein Regex-Metazeichen die Folgen ae/oe/ue enthaelt.
+    """
+    return pattern.replace("ae", "a").replace("oe", "o").replace("ue", "u")
+
+
+REGEX_PATTERNS = {
+    action: tuple(_normalize_pattern(pattern) for pattern in patterns)
+    for action, patterns in REGEX_PATTERNS.items()
+}
+
+# confirm_all gehoert in die Fuzzy-Stufe, sonst ist es nur ueber exakte
+# Wortgleichheit erreichbar und jede Umformulierung faellt auf confirm zurueck.
+FUZZY_ACTIONS = {"confirm", "confirm_all", "next", "problem", "repeat", "pause", "done"}
 SHORT_EXACT_ONLY = {"ja", "ok"}
 
 
@@ -565,8 +642,22 @@ def _best_fuzzy_score(normalized_text: str, aliases: tuple[str, ...]) -> float |
             score = levenshtein_similarity(candidate, normalized_alias)
             if score < threshold:
                 continue
-            if best_score is None or score > best_score:
-                best_score = score
+            # Abdeckungsstrafe: wie viel der GESAMTEN Aeusserung erklaert dieser
+            # Treffer eigentlich? Vorher zaehlte nur das Maximum ueber alle
+            # Token/Alias-Paare, ohne Laengenbezug -- ein einziges erkanntes Wort
+            # in einem beliebig langen Satz lieferte 1.00. In "kompletten auftrag
+            # bestatigen" traf das Token "bestatigen" den confirm-Alias exakt und
+            # gewann damit gegen den eigentlich gemeinten Gesamtsinn.
+            #
+            # Der Deckel 0.94 liegt bewusst HART UNTER EXACT_MATCH_CONFIDENCE
+            # (0.95): ein Teiltreffer kann einen exakten Volltreffer strukturell
+            # nicht mehr schlagen. Zugleich rutschen schwach abgedeckte Treffer
+            # unter die Schwellen und erreichen damit erstmals die Rueckfrage
+            # bzw. den LLM-Fallback, statt stumm zu buchen.
+            coverage = min(1.0, len(normalized_alias) / max(len(normalized_text), 1))
+            adjusted = min(0.94, score * (0.5 + 0.5 * coverage))
+            if best_score is None or adjusted > best_score:
+                best_score = adjusted
 
     return best_score
 
@@ -631,17 +722,71 @@ WRITE_ACTIONS = frozenset({"confirm", "confirm_all"})
 
 
 def _has_negation(normalized_text: str) -> bool:
+    """Bleibt als gemeinsame Vorpruefung erhalten: enthaelt die Aeusserung
+    ueberhaupt irgendeine Verneinung? Die Unterscheidung, welche Art, trifft
+    _apply_negation_guard ueber CANCEL_TERMS und DISCOURSE_NEGATIONS."""
     return any(term in normalized_text.split() for term in NEGATION_TERMS)
 
 
-def _apply_negation_guard(intent: Intent, normalized_text: str) -> Intent:
-    """A negation anywhere in the utterance cancels a booking intent.
+# Echte Verneinung: hebt das Kommando auf.
+CANCEL_TERMS = ("nicht", "kein", "keine", "keinen", "nie", "niemals")
+# Diskursmarker: leiten eine Selbstkorrektur ein, heben das FOLGENDE Kommando
+# aber nicht auf. "Nein, weiter zur naechsten Position" ist ein Weiter-Befehl.
+# Sie stehen bewusst NICHT in CANCEL_TERMS -- genau darin liegt der
+# Unterschied zwischen "nein, weiter" (ausfuehren) und "nicht weiter" (abbrechen).
+DISCOURSE_NEGATIONS = ("nein", "doch")
+# Wendungen, in denen die Verneinung Teil des Alias selbst ist -- hier darf der
+# Guard nicht greifen, sonst wird eine Problemmeldung zur Problemmeldung
+# umgedeutet oder eine Rueckfrage unmoeglich.
+NEGATION_LITERAL_PHRASES = (
+    "stimmt nicht",
+    "nicht in ordnung",
+    "nicht richtig",
+    "nicht verstanden",
+    "nicht gefunden",
+    "nichts mehr",
+    "passt nicht",
+    "da stimmt was nicht",
+    "was stimmt nicht",
+)
 
-    Prevents "nicht ok"/"nicht gut" (not covered by the problem regex) from
-    matching the confirm regex and silently booking. Downgrades to a problem
-    report instead of confirming.
+
+def _has_cancel_term(normalized_text: str) -> bool:
+    return any(term in normalized_text.split() for term in CANCEL_TERMS)
+
+
+def _apply_negation_guard(intent: Intent, normalized_text: str) -> Intent:
+    """Eine Verneinung hebt das erkannte Kommando auf -- fuer ALLE Intents.
+
+    Vorher galt der Schutz nur fuer Buchungen (WRITE_ACTIONS). "Kein Foto
+    machen" oeffnete deshalb die Kamera und "keine Pause" beendete den
+    Sprachmodus -- die Verneinung wurde schlicht ignoriert.
+
+    Zwei Klassen, weil sie Gegenteiliges bedeuten:
+      * Cancel-Term (nicht/kein/nie): hebt auf. Bei Buchungen weiterhin
+        Umdeutung zu `problem` (die etablierte, getestete Zusage), sonst
+        `abort`.
+      * Diskursmarker (nein/doch) OHNE Cancel-Term: Selbstkorrektur, das
+        Kommando dahinter ist gemeint und wird ausgefuehrt.
+
+    `abort` ist bewusst NICHT in EXTERNAL_INTENT_LABELS -- der LLM darf es
+    nicht erfinden.
     """
-    if intent.action in WRITE_ACTIONS and _has_negation(normalized_text):
+    # Billige Vorpruefung: ohne jede Verneinung ist hier nichts zu tun.
+    if not _has_negation(normalized_text):
+        return intent
+
+    if any(phrase in normalized_text for phrase in NEGATION_LITERAL_PHRASES):
+        return intent
+
+    # Ab hier steht fest: es gibt eine Verneinung, aber keine woertliche
+    # Ausnahme. Ohne echten Cancel-Term bleibt nur ein Diskursmarker
+    # (DISCOURSE_NEGATIONS) oder "falsch" uebrig -- beides hebt das Kommando
+    # nicht auf. "Nein, weiter zur naechsten Position" bleibt damit `next`.
+    if not _has_cancel_term(normalized_text):
+        return intent
+
+    if intent.action in WRITE_ACTIONS:
         return Intent(
             action="problem",
             value=None,
@@ -650,7 +795,18 @@ def _apply_negation_guard(intent: Intent, normalized_text: str) -> Intent:
             normalized_text=normalized_text,
             match_strategy="negation",
         )
-    return intent
+
+    if intent.action == "unknown":
+        return intent
+
+    return Intent(
+        action="abort",
+        value=None,
+        confidence=EXACT_MATCH_CONFIDENCE,
+        raw_text=intent.raw_text,
+        normalized_text=normalized_text,
+        match_strategy="negation",
+    )
 
 
 # Labels an externally-produced classifier (LLM) may return. Mirrors the safe
@@ -712,24 +868,59 @@ def _extract_number(text: str) -> int | None:
     return None
 
 
-SEGMENT_PENALTY = 0.9
+# 0.85 statt 0.9: ein perfekter Segment-Treffer ergab 1.00 * 0.9 = 0.90 und traf
+# damit EXAKT die Direktbuchungs-Schwelle der PWA (VOICE_CONFIRM_DIRECT_THRESHOLD
+# in voice-runtime.mjs). Ein Fallback-Treffer ist per Definition schwaechere
+# Evidenz als ein Volltreffer und darf nie ohne Rueckfrage buchen -- 0.85 legt
+# ihn strikt darunter.
+SEGMENT_PENALTY = 0.85
+
+
+# Aliase, die nur als VOLLSTAENDIGE Aeusserung gelten duerfen. Es sind kurze
+# Allerweltswoerter; im Segment-Fallback erzeugten sie sonst Treffer mitten in
+# unbeteiligten Woertern.
+WHOLE_UTTERANCE_ONLY = frozenset({
+    "gut", "super", "klar", "passt", "stimmt", "richtig", "genau", "bitte",
+    "halt", "los", "vor", "was", "komm", "go", "next", "check", "sicher",
+    "perfekt", "alle", "alles", "normal", "offen", "prio", "ende", "durch",
+})
 
 
 def _partial_ratio(pattern: str, text: str) -> float:
-    """Sliding-window Levenshtein similarity — equivalent to fuzz.partial_ratio.
+    """Levenshtein-Aehnlichkeit ueber zusammenhaengende TOKEN-Fenster.
 
-    Finds the best window in `text` of length `len(pattern)` and returns its
-    similarity to `pattern`. O(|text| * |pattern|) — fast enough for short
-    voice commands and typical Whisper transcripts.
+    Vorher lief hier ein Zeichen-Schiebefenster. Das fand `gut` in "Guten
+    Morgen", `vor` in "vorsichtig" und `was` in "Waschbecken" -- mit voller
+    Aehnlichkeit 1.00, die nach SEGMENT_PENALTY exakt auf der Direktbuchungs-
+    Schwelle landete. "Guten Morgen" buchte damit eine Position.
+
+    Ein Tokenfenster kann das strukturell nicht: verglichen wird nur gegen
+    ganze Woerter bzw. Wortfolgen. Zusaetzlich muss jedes Einzeltoken des
+    Fensters fuer sich plausibel sein (>= 0.72), sonst zieht ein einzelnes
+    perfekt passendes Wort ein ansonsten unpassendes Fenster nach oben.
     """
-    plen, tlen = len(pattern), len(text)
-    if plen == 0 or tlen == 0:
+    if not pattern or not text:
         return 0.0
-    if plen >= tlen:
+
+    pattern_tokens = pattern.split()
+    text_tokens = text.split()
+    if not pattern_tokens or not text_tokens:
+        return 0.0
+
+    span = len(pattern_tokens)
+    if span > len(text_tokens):
         return levenshtein_similarity(pattern, text)
+
     best = 0.0
-    for i in range(tlen - plen + 1):
-        score = levenshtein_similarity(text[i : i + plen], pattern)
+    for start in range(len(text_tokens) - span + 1):
+        window = text_tokens[start : start + span]
+        per_token = [
+            levenshtein_similarity(window_token, pattern_token)
+            for window_token, pattern_token in zip(window, pattern_tokens)
+        ]
+        if min(per_token) < 0.72:
+            continue
+        score = levenshtein_similarity(" ".join(window), pattern)
         if score > best:
             best = score
         if best == 1.0:
@@ -792,6 +983,17 @@ def recognize_intent_from_segments(
         for alias in ALIASES.get(action, ()):
             norm_alias = normalize_text(alias)
             if not norm_alias:
+                continue
+
+            # Allerweltswoerter zaehlen im Segment-Fallback nur, wenn sie die
+            # GANZE Aeusserung sind -- sonst kapert "gut" jedes "guten Morgen".
+            if norm_alias in WHOLE_UTTERANCE_ONLY:
+                if normalized == norm_alias:
+                    ratio = 1.0
+                    if ratio > best_conf:
+                        best_conf = ratio
+                        best_action = action
+                        best_alias = norm_alias
                 continue
 
             if len(norm_alias) < 3:

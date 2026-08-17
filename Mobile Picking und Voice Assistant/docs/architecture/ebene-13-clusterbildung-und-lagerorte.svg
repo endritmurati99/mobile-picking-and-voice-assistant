@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="920" viewBox="0 0 1600 920" role="img" aria-labelledby="title desc">
+  <title id="title">Clusterbildung und Herkunft der Lagerorte</title>
+  <desc id="desc">Odoo-Aufträge werden gefiltert, bewertet und als eindeutige Vorschläge angezeigt. Die Lagerroute nutzt die Quelllagerorte der Odoo-Move-Lines.</desc>
+  <defs>
+    <style>
+      .bg{fill:#f6f8fc}.panel{fill:#fff;stroke:#d9e0ec;stroke-width:2}.blue{fill:#355cff}.blueSoft{fill:#eaf0ff;stroke:#9eb2ff;stroke-width:2}.green{fill:#e7f8ef;stroke:#53c98d;stroke-width:2}.amber{fill:#fff5dc;stroke:#f4b544;stroke-width:2}.ink{fill:#142033;font-family:Segoe UI,Arial,sans-serif}.soft{fill:#5b6b82;font-family:Segoe UI,Arial,sans-serif}.white{fill:#fff;font-family:Segoe UI,Arial,sans-serif}.h1{font-size:42px;font-weight:800}.h2{font-size:25px;font-weight:800}.body{font-size:20px}.small{font-size:17px}.mono{font-family:Consolas,monospace}.arrow{stroke:#7c8ba1;stroke-width:4;fill:none;marker-end:url(#head)}
+    </style>
+    <marker id="head" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#7c8ba1"/></marker>
+  </defs>
+  <rect class="bg" width="1600" height="920"/>
+  <text class="ink h1" x="70" y="72">Ebene 13 · Clusterbildung und Lagerorte</text>
+  <text class="soft body" x="70" y="108">Odoo bleibt die Wahrheit: Vorschläge helfen bei der Auswahl, Move-Lines bestimmen Produkt und Regal.</text>
+
+  <rect class="panel" x="70" y="160" width="300" height="210" rx="24"/>
+  <text class="ink h2" x="100" y="205">1 · Odoo-Kandidaten</text>
+  <text class="soft body" x="100" y="246">assigned</text><text class="soft body" x="100" y="278">noch ohne Batch</text>
+  <text class="soft body" x="100" y="310">2–8 Aufträge</text>
+  <text class="soft small mono" x="100" y="344">stock.picking</text>
+
+  <path class="arrow" d="M370 265 H455"/>
+  <rect class="blueSoft" x="470" y="160" width="390" height="210" rx="24"/>
+  <text class="ink h2" x="500" y="205">2 · Regeln und Score</text>
+  <text class="ink body" x="500" y="246">Pflicht: gleiche Firma + Lieferdatum</text>
+  <text class="soft body" x="500" y="282">Bonus: gleiche Zone</text>
+  <text class="soft body" x="500" y="314">Bonus: gemeinsame Produkte</text>
+  <text class="soft small" x="500" y="346">Doppelte Aufträge werden entfernt.</text>
+
+  <path class="arrow" d="M860 265 H945"/>
+  <rect class="panel" x="960" y="145" width="570" height="240" rx="24"/>
+  <text class="ink h2" x="990" y="190">3 · Nummerierte PWA-Vorschläge</text>
+  <rect class="blue" x="995" y="220" width="55" height="55" rx="14"/><text class="white h2" x="1016" y="257">1</text>
+  <text class="ink body" x="1070" y="244">Vorschlag wählen</text><text class="soft small" x="1070" y="270">oder Ausgewählt · Entfernen</text>
+  <rect class="green" x="995" y="300" width="205" height="46" rx="16"/><text class="ink small" x="1020" y="329">4/8 im Wagen</text>
+  <rect class="amber" x="1220" y="300" width="270" height="46" rx="16"/><text class="ink small" x="1240" y="329">Anderer Liefertag: gesperrt</text>
+
+  <path class="arrow" d="M800 405 V475"/>
+  <rect class="blue" x="565" y="490" width="470" height="100" rx="24"/>
+  <text class="white h2" x="690" y="535">Batch starten</text>
+  <text class="white small" x="640" y="565">FastAPI prüft Odoo erneut und legt erst jetzt den Batch an.</text>
+
+  <rect class="panel" x="70" y="670" width="420" height="175" rx="24"/>
+  <text class="ink h2" x="100" y="715">Odoo-Position</text>
+  <text class="soft body mono" x="100" y="755">stock.move.line.product_id</text>
+  <text class="soft body mono" x="100" y="790">stock.move.line.location_id</text>
+  <text class="soft small" x="100" y="820">z. B. WH/Stock/Regal B-01</text>
+
+  <path class="arrow" d="M490 755 H575"/>
+  <rect class="green" x="590" y="670" width="420" height="175" rx="24"/>
+  <text class="ink h2" x="620" y="715">Gemeinsame Route</text>
+  <text class="ink body" x="620" y="755">Sortiert nach Odoo-Quelllagerort</text>
+  <text class="soft body" x="620" y="790">Produkt + Regal bleiben gekoppelt</text>
+  <text class="soft small" x="620" y="820">Mehrere Produkte dürfen dasselbe Regal nutzen.</text>
+
+  <path class="arrow" d="M1010 755 H1095"/>
+  <rect class="panel" x="1110" y="650" width="420" height="215" rx="24"/>
+  <text class="ink h2" x="1140" y="695">Wo in Odoo?</text>
+  <text class="soft body" x="1140" y="738">Inventory → Products → Produkt</text>
+  <text class="soft body" x="1140" y="775">→ On Hand → Update Quantity</text>
+  <text class="soft small" x="1140" y="815">Bestand je Ort: stock.quant</text>
+  <text class="soft small" x="1140" y="842">Auftragsquelle: Move-Line / Source Location</text>
+</svg>

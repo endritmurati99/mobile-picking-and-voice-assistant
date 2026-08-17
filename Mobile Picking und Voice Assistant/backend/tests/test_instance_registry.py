@@ -23,7 +23,7 @@ def test_local_profile_always_present_from_settings():
     assert isinstance(local, OdooProfile)
     assert local.url == "http://odoo:8069"
     assert local.db == "picking"
-    assert local.display_name == "Lokal"
+    assert local.display_name == "Lager 1"
 
 
 def test_extra_profile_parsed_from_json(monkeypatch):

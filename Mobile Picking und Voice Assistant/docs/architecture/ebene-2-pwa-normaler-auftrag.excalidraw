@@ -115,7 +115,7 @@
       "id": "phase-login-text", "type": "text", "x": 80, "y": 480, "width": 270, "height": 420, "angle": 0,
       "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
       "groupIds": [], "frameId": null, "roundness": null, "seed": 2120, "version": 1, "versionNonce": 3120, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
-      "fontSize": 18, "fontFamily": 1, "text": "ANMELDUNG\n\nPWA\nPOST /auth/picker-session\nCookie + CSRF übernehmen\n\n↓\n\nFastAPI\nZugang prüfen\nsichere Sitzung anlegen\n\n↓\n\nOdoo\nBenutzer und Berechtigung prüfen", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "ANMELDUNG\n\nPWA\nPOST /auth/picker-session\nCookie + CSRF übernehmen\n\n↓\n\nFastAPI\nZugang prüfen\nsichere Sitzung anlegen\n\n↓\n\nOdoo\nBenutzer und Berechtigung prüfen", "autoResize": true, "lineHeight": 1.25
+      "fontSize": 18, "fontFamily": 1, "text": "ANMELDUNG\n\nPWA\nPOST /api/auth/picker-session\nReload: GET /api/auth/me\nCookie + CSRF übernehmen\n\n↓\n\nFastAPI\nZugang prüfen\nsichere Sitzung anlegen\n\n↓\n\nOdoo\nBenutzer und Berechtigung prüfen", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "ANMELDUNG\n\nPWA\nPOST /api/auth/picker-session\nReload: GET /api/auth/me\nCookie + CSRF übernehmen\n\n↓\n\nFastAPI\nZugang prüfen\nsichere Sitzung anlegen\n\n↓\n\nOdoo\nBenutzer und Berechtigung prüfen", "autoResize": true, "lineHeight": 1.25
     },
     {
       "id": "phase-list", "type": "rectangle", "x": 397, "y": 450, "width": 320, "height": 500, "angle": 0,
@@ -126,7 +126,7 @@
       "id": "phase-list-text", "type": "text", "x": 422, "y": 480, "width": 270, "height": 420, "angle": 0,
       "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
       "groupIds": [], "frameId": null, "roundness": null, "seed": 2122, "version": 1, "versionNonce": 3122, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
-      "fontSize": 18, "fontFamily": 1, "text": "AUFTRAGSLISTE\n\nPWA\nGET /pickings\nKarten anzeigen\n\n↓\n\nFastAPI\nListe und Laufweg aufbereiten\n\n↓\n\nOdoo\nassigned Pickings\nProdukte + Plätze liefern", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "AUFTRAGSLISTE\n\nPWA\nGET /pickings\nKarten anzeigen\n\n↓\n\nFastAPI\nListe und Laufweg aufbereiten\n\n↓\n\nOdoo\nassigned Pickings\nProdukte + Plätze liefern", "autoResize": true, "lineHeight": 1.25
+      "fontSize": 18, "fontFamily": 1, "text": "AUFTRAGSLISTE\n\nPWA\nGET /api/pickings\nKarten anzeigen\n\n↓\n\nFastAPI\nListe und Laufweg aufbereiten\n\n↓\n\nOdoo\nassigned Pickings\nProdukte + Plätze liefern", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "AUFTRAGSLISTE\n\nPWA\nGET /api/pickings\nKarten anzeigen\n\n↓\n\nFastAPI\nListe und Laufweg aufbereiten\n\n↓\n\nOdoo\nassigned Pickings\nProdukte + Plätze liefern", "autoResize": true, "lineHeight": 1.25
     },
     {
       "id": "phase-open", "type": "rectangle", "x": 739, "y": 450, "width": 320, "height": 500, "angle": 0,
@@ -137,7 +137,7 @@
       "id": "phase-open-text", "type": "text", "x": 764, "y": 480, "width": 270, "height": 420, "angle": 0,
       "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
       "groupIds": [], "frameId": null, "roundness": null, "seed": 2124, "version": 1, "versionNonce": 3124, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
-      "fontSize": 18, "fontFamily": 1, "text": "AUFTRAG ÖFFNEN\n\nPWA\nPOST /pickings/360/claim\ndann GET /pickings/360\n\n↓\n\nFastAPI\nIdentität + Idempotenz prüfen\n\n↓\n\nOdoo\nClaim mit Gerät + Ablaufzeit\nspeichern und Details liefern", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "AUFTRAG ÖFFNEN\n\nPWA\nPOST /pickings/360/claim\ndann GET /pickings/360\n\n↓\n\nFastAPI\nIdentität + Idempotenz prüfen\n\n↓\n\nOdoo\nClaim mit Gerät + Ablaufzeit\nspeichern und Details liefern", "autoResize": true, "lineHeight": 1.25
+      "fontSize": 18, "fontFamily": 1, "text": "AUFTRAG ÖFFNEN\n\nPWA\nPOST /api/pickings/360/claim\ndann GET /api/pickings/360\n\n↓\n\nFastAPI\nIdentität + Idempotenz prüfen\n\n↓\n\nOdoo\nClaim mit Gerät + Ablaufzeit\nspeichern und Details liefern", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "AUFTRAG ÖFFNEN\n\nPWA\nPOST /api/pickings/360/claim\ndann GET /api/pickings/360\n\n↓\n\nFastAPI\nIdentität + Idempotenz prüfen\n\n↓\n\nOdoo\nClaim mit Gerät + Ablaufzeit\nspeichern und Details liefern", "autoResize": true, "lineHeight": 1.25
     },
     {
       "id": "phase-confirm", "type": "rectangle", "x": 1081, "y": 450, "width": 320, "height": 500, "angle": 0,
@@ -148,7 +148,7 @@
       "id": "phase-confirm-text", "type": "text", "x": 1106, "y": 480, "width": 270, "height": 420, "angle": 0,
       "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
       "groupIds": [], "frameId": null, "roundness": null, "seed": 2126, "version": 1, "versionNonce": 3126, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
-      "fontSize": 18, "fontFamily": 1, "text": "POSITION BUCHEN\n\nPWA\nPOST /confirm-line\nBarcode + Menge + Serial\n\n↓\n\nFastAPI\nClaim, Barcode, Bestand,\nSerial und Idempotenz prüfen\n\n↓\n\nOdoo\nMenge schreiben\npicked = true", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "POSITION BUCHEN\n\nPWA\nPOST /confirm-line\nBarcode + Menge + Serial\n\n↓\n\nFastAPI\nClaim, Barcode, Bestand,\nSerial und Idempotenz prüfen\n\n↓\n\nOdoo\nMenge schreiben\npicked = true", "autoResize": true, "lineHeight": 1.25
+      "fontSize": 17, "fontFamily": 1, "text": "POSITION BUCHEN\n\nPWA\nPOST /api/pickings/360/confirm-line\nBarcode + Menge + Serial\n\n↓\n\nFastAPI\nClaim, Barcode, Bestand,\nSerial und Idempotenz prüfen\n\n↓\n\nOdoo\nMenge schreiben\npicked = true", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "POSITION BUCHEN\n\nPWA\nPOST /api/pickings/360/confirm-line\nBarcode + Menge + Serial\n\n↓\n\nFastAPI\nClaim, Barcode, Bestand,\nSerial und Idempotenz prüfen\n\n↓\n\nOdoo\nMenge schreiben\npicked = true", "autoResize": true, "lineHeight": 1.25
     },
     {
       "id": "phase-done", "type": "rectangle", "x": 1423, "y": 450, "width": 320, "height": 500, "angle": 0,
@@ -159,7 +159,7 @@
       "id": "phase-done-text", "type": "text", "x": 1448, "y": 480, "width": 270, "height": 420, "angle": 0,
       "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
       "groupIds": [], "frameId": null, "roundness": null, "seed": 2128, "version": 1, "versionNonce": 3128, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
-      "fontSize": 18, "fontFamily": 1, "text": "ABSCHLUSS\n\nPWA\nNur bei true „Fertig“ zeigen\n\n↑\n\nFastAPI\nWenn alle Zeilen gepickt:\nbutton_validate aufrufen\n\n↑\n\nOdoo\nstock.picking = done\noder begründet offen lassen", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "ABSCHLUSS\n\nPWA\nNur bei true „Fertig“ zeigen\n\n↑\n\nFastAPI\nWenn alle Zeilen gepickt:\nbutton_validate aufrufen\n\n↑\n\nOdoo\nstock.picking = done\noder begründet offen lassen", "autoResize": true, "lineHeight": 1.25
+      "fontSize": 18, "fontFamily": 1, "text": "ABSCHLUSS\n\nPWA\nNur bei picking_complete = true\n„Fertig“ zeigen\n\n↑\n\nFastAPI\nWenn alle Zeilen gepickt:\nbutton_validate aufrufen\n\n↑\n\nOdoo\nstock.picking = done\noder begründet offen lassen", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "ABSCHLUSS\n\nPWA\nNur bei picking_complete = true\n„Fertig“ zeigen\n\n↑\n\nFastAPI\nWenn alle Zeilen gepickt:\nbutton_validate aufrufen\n\n↑\n\nOdoo\nstock.picking = done\noder begründet offen lassen", "autoResize": true, "lineHeight": 1.25
     },
     {
       "id": "safety-label", "type": "text", "x": 55, "y": 985, "width": 290, "height": 25, "angle": 0,
@@ -199,6 +199,17 @@
       "strokeColor": "#0f172a", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
       "groupIds": [], "frameId": null, "roundness": null, "seed": 2135, "version": 1, "versionNonce": 3135, "isDeleted": false, "boundElements": [], "updated": 1786125600000, "link": null, "locked": false,
       "fontSize": 18, "fontFamily": 1, "text": "3 · IDEMPOTENZ\nEine wiederholte Anfrage bucht dieselbe Position nicht doppelt.", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "3 · IDEMPOTENZ\nEine wiederholte Anfrage bucht dieselbe Position nicht doppelt.", "autoResize": true, "lineHeight": 1.25
+    },
+    {
+      "id": "scope-note", "type": "rectangle", "x": 55, "y": 1180, "width": 1690, "height": 42, "angle": 0,
+      "strokeColor": "transparent", "backgroundColor": "#f1f5f9", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": {"type": 3}, "seed": 2136, "version": 1, "versionNonce": 3136, "isDeleted": false, "boundElements": [], "updated": 1786204800000, "link": null, "locked": false
+    },
+    {
+      "id": "scope-note-text", "type": "text", "x": 205, "y": 1190, "width": 1390, "height": 23, "angle": 0,
+      "strokeColor": "#475569", "backgroundColor": "transparent", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100,
+      "groupIds": [], "frameId": null, "roundness": null, "seed": 2137, "version": 1, "versionNonce": 3137, "isDeleted": false, "boundElements": [], "updated": 1786204800000, "link": null, "locked": false,
+      "fontSize": 16, "fontFamily": 1, "text": "Anwendungspfad: PWA → FastAPI → Odoo. /api/* läuft technisch über Caddy; n8n und KI bleiben außen vor.", "textAlign": "center", "verticalAlign": "top", "containerId": null, "originalText": "Anwendungspfad: PWA → FastAPI → Odoo. /api/* läuft technisch über Caddy; n8n und KI bleiben außen vor.", "autoResize": true, "lineHeight": 1.25
     }
   ],
   "appState": {"gridSize": null, "viewBackgroundColor": "#ffffff"},

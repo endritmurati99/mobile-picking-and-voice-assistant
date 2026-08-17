@@ -234,7 +234,7 @@ def build_cluster_rule_report(candidates: list[dict[str, Any]]) -> dict[str, Any
     product_sets = [set(c.get("product_ids", [])) for c in candidates]
     overlap = set.intersection(*product_sets) if product_sets and all(product_sets) else set()
     if len(candidates) > 1 and not overlap:
-        errors.append("no_product_overlap")
+        warnings.append("Keine gemeinsamen Produkte; die gemeinsame Route bleibt nutzbar.")
 
     zones = [c.get("primary_zone") for c in candidates if c.get("primary_zone")]
     if len(set(zones)) == 1 and zones:
@@ -312,37 +312,53 @@ class ClusterService:
             raise
 
         candidates = _cluster_candidates_from_pickings(pickings, lines)
-        groups: dict[tuple[str, str], dict[str, Any]] = defaultdict(
-            lambda: {"candidates": [], "line_count": 0}
-        )
+        groups: dict[tuple[str, str, int], list[dict[str, Any]]] = defaultdict(list)
         for candidate in candidates:
-            key = (candidate.get("delivery_date") or "", candidate.get("primary_zone") or "Unbekannt")
-            groups[key]["candidates"].append(candidate)
-            groups[key]["line_count"] += candidate.get("line_count", 0)
+            date_key = candidate.get("delivery_date") or ""
+            zone = candidate.get("primary_zone") or "Unbekannt"
+            for product_id in candidate.get("product_ids", []):
+                groups[(date_key, zone, product_id)].append(candidate)
 
         result = []
-        for (_delivery_date, zone), data in groups.items():
-            grouped_candidates = data["candidates"]
-            report = build_cluster_rule_report(grouped_candidates)
-            if not report["eligible"]:
-                continue
-            pids = sorted(candidate["id"] for candidate in grouped_candidates)
-            result.append(
-                {
-                    "zone": zone,
-                    "delivery_date": report["delivery_date"],
-                    "picking_ids": pids,
-                    "order_count": len(pids),
-                    "line_count": data["line_count"],
-                    "picking_names": [name_by_id[p] for p in pids],
-                    "score": report["score"],
-                    "reasons": report["reasons"],
-                    "warnings": report["warnings"],
-                    "product_overlap_count": report["product_overlap_count"],
-                }
-            )
+        seen_groups: set[tuple[int, ...]] = set()
+        for (_delivery_date, zone, _product_id), grouped in groups.items():
+            ordered = sorted(grouped, key=lambda candidate: candidate["id"])
+            for offset in range(0, len(ordered), CLUSTER_MAX_ORDERS):
+                grouped_candidates = ordered[offset:offset + CLUSTER_MAX_ORDERS]
+                pids = tuple(candidate["id"] for candidate in grouped_candidates)
+                if len(pids) < CLUSTER_MIN_ORDERS or pids in seen_groups:
+                    continue
+                seen_groups.add(pids)
+                report = build_cluster_rule_report(grouped_candidates)
+                if not report["eligible"]:
+                    continue
+                result.append(
+                    {
+                        "zone": zone,
+                        "delivery_date": report["delivery_date"],
+                        "picking_ids": list(pids),
+                        "order_count": len(pids),
+                        "line_count": sum(candidate.get("line_count", 0) for candidate in grouped_candidates),
+                        "picking_names": [name_by_id[p] for p in pids],
+                        "score": report["score"],
+                        "reasons": report["reasons"],
+                        "warnings": report["warnings"],
+                        "product_overlap_count": report["product_overlap_count"],
+                    }
+                )
         result.sort(key=lambda g: (-g["score"], -g["order_count"], g["zone"]))
-        return result
+
+        # Ein Auftrag darf nur in einem Vorschlag auftauchen. Überlappende Karten
+        # sahen wie verschiedene Batches aus, obwohl sie dieselben Pickings enthielten.
+        distinct = []
+        suggested_ids: set[int] = set()
+        for group in result:
+            group_ids = set(group["picking_ids"])
+            if group_ids & suggested_ids:
+                continue
+            distinct.append(group)
+            suggested_ids.update(group_ids)
+        return distinct
 
     async def create_batch(self, picking_ids, picker_identity=None) -> dict[str, Any]:
         """Echten stock.picking.batch anlegen und bestaetigen (draft -> in_progress)."""
@@ -406,7 +422,6 @@ class ClusterService:
             messages = {
                 "mixed_company": "Cluster darf keine Pickings aus mehreren Companies enthalten.",
                 "mixed_delivery_date": "Cluster-Pickings brauchen denselben Ausliefertag.",
-                "no_product_overlap": "Cluster braucht Produktueberlappung zwischen den Auftraegen.",
                 "cluster_capacity": f"Cluster braucht mindestens {CLUSTER_MIN_ORDERS} Auftraege.",
             }
             message = messages.get(code, "Cluster-Auswahl ist fachlich nicht gueltig.")

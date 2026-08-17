@@ -385,6 +385,31 @@ class TestConfirmPickLine:
         assert "nicht gefunden" in result["message"]
 
     @pytest.mark.anyio
+    async def test_rejects_move_line_from_other_picking_before_product_read_or_write(
+        self, service, odoo
+    ):
+        # Move-Line 99 exists under picking 2, so the scoped query for picking 1
+        # must return no row and stop before any product lookup or mutation.
+        odoo.execute_kw.return_value = []
+
+        result = await service.confirm_pick_line(1, 99, "4006381333931", 1.0)
+
+        assert result["success"] is False
+        odoo.execute_kw.assert_awaited_once_with(
+            "stock.move.line",
+            "search_read",
+            [[("id", "=", 99), ("picking_id", "=", 1)]],
+            {
+                "fields": [
+                    "id", "product_id", "quantity", "move_id", "location_id", "lot_id",
+                ],
+                "limit": 1,
+            },
+        )
+        odoo.search_read.assert_not_awaited()
+        odoo.write.assert_not_awaited()
+
+    @pytest.mark.anyio
     async def test_rejects_wrong_barcode(self, service, odoo):
         odoo.execute_kw.return_value = [
             {"id": 20, "product_id": [5, "Schraube M8"], "quantity": 10}
@@ -519,7 +544,8 @@ class TestConfirmPickLineSerial:
     @pytest.mark.anyio
     async def test_writes_lot_name_for_serial_tracked_product(self, service, odoo, n8n):
         async def fake_execute_kw(model, method, args, kwargs=None):
-            if model == "stock.move.line" and method == "read":
+            if (model == "stock.move.line" and method == "search_read"
+                    and args == [[("id", "=", 50), ("picking_id", "=", 1)]]):
                 return [{"id": 50, "product_id": [5, "[CPU] Xeon"], "quantity": 1,
                          "move_id": [10, "MOVE/10"], "location_id": [1, "WH/Stock/A-1"],
                          "lot_id": False}]
@@ -574,7 +600,8 @@ class TestConfirmPickLineSerial:
     @pytest.mark.anyio
     async def test_does_not_write_lot_name_for_untracked_product(self, service, odoo, n8n):
         async def fake_execute_kw(model, method, args, kwargs=None):
-            if model == "stock.move.line" and method == "read":
+            if (model == "stock.move.line" and method == "search_read"
+                    and args == [[("id", "=", 50), ("picking_id", "=", 1)]]):
                 return [{"id": 50, "product_id": [5, "[X] Brick"], "quantity": 1,
                          "move_id": [10, "MOVE/10"], "location_id": [1, "WH/Stock/A-1"],
                          "lot_id": False}]
@@ -611,7 +638,8 @@ class TestConfirmPickLineSerial:
     async def test_whitespace_only_serial_is_rejected_for_serial_product(self, service, odoo, n8n):
         """Serial-tracked products must not be confirmed without a concrete serial."""
         async def fake_execute_kw(model, method, args, kwargs=None):
-            if model == "stock.move.line" and method == "read":
+            if (model == "stock.move.line" and method == "search_read"
+                    and args == [[("id", "=", 50), ("picking_id", "=", 1)]]):
                 return [{"id": 50, "product_id": [5, "[CPU] Xeon"], "quantity": 1,
                          "move_id": [10, "MOVE/10"], "location_id": [1, "WH/Stock/A-1"],
                          "lot_id": False}]
@@ -646,7 +674,8 @@ class TestConfirmPickLineSerial:
     @pytest.mark.anyio
     async def test_rejects_unknown_serial_for_serial_tracked_product(self, service, odoo, n8n):
         async def fake_execute_kw(model, method, args, kwargs=None):
-            if model == "stock.move.line" and method == "read":
+            if (model == "stock.move.line" and method == "search_read"
+                    and args == [[("id", "=", 50), ("picking_id", "=", 1)]]):
                 return [{"id": 50, "product_id": [5, "[CPU] Xeon"], "quantity": 1,
                          "move_id": [10, "MOVE/10"], "location_id": [1, "WH/Stock/A-1"],
                          "lot_id": False}]

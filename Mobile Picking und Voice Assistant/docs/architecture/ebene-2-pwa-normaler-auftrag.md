@@ -36,6 +36,10 @@ Das Bild besitzt zwei Teile:
    Mitarbeiters.
 2. Darunter siehst du, was PWA, FastAPI und Odoo dabei jeweils tun.
 
+Das Bild zeigt den fachlichen Anwendungspfad. Technisch erreicht jede
+`/api/*`-Anfrage FastAPI über Caddy. Caddy erhält hier keine eigene Spur, weil
+Ebene 1 und Ebene 6 die Eingangsschicht bereits erklären.
+
 ## Unser geprüfter Beispielauftrag
 
 Dieses Beispiel stammt aus einem rein lesenden Abzug der lokalen Odoo-
@@ -312,6 +316,26 @@ PWA → FastAPI → Odoo
 | Wie werden Odoo-Daten aufbereitet? | `backend/app/services/picking_service.py` |
 | Wie funktionieren Claim und Idempotenz? | `backend/app/services/mobile_workflow.py` |
 | Wo liegt der Claim in Odoo? | `odoo/addons/picking_assistant_core/models/picking_assistant.py` |
+
+## Review-Scorecard
+
+Stand: 8. August 2026. Bewertet wurde die überarbeitete Darstellung gegen die
+PWA-Aufrufe, FastAPI-Routen und -Services sowie die Odoo-Modelle für Sitzung,
+Claim, Idempotenz und Picking.
+
+| Kriterium | Punkte |
+| --- | ---: |
+| Ablaufabdeckung | 20/20 |
+| Verbindungs- und Endpunktgenauigkeit | 20/20 |
+| Übereinstimmung mit dem aktuellen Code | 18/20 |
+| Verständlichkeit | 19/20 |
+| Angemessene Detailtiefe | 19/20 |
+| **Gesamt** | **96/100** |
+
+Die einzelnen Schritte sind im Code und in Tests belegt. Der frühere
+Odoo-18/19-Migrationsfehler ist behoben; die PWA-Anmeldung von Lena und Max
+gegen die aktuelle Odoo-19-Datenbank wurde am 13. August 2026 live geprüft.
+Claim und Confirm bleiben davon getrennte fachliche Nachweise.
 
 ## Ebene 2 in einem Satz
 

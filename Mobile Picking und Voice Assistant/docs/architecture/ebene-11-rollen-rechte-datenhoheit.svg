@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1200" viewBox="0 0 1800 1200" role="img" aria-labelledby="title desc">
+  <title id="title">Ebene 11: Rollen, Rechte, Datenhoheit und Vertrauensgrenzen</title>
+  <desc id="desc">Darstellung der menschlichen Rollen Picker und Supervisor, der Browsergrenze, FastAPI als Policy-Gate, Odoo als System of Record sowie signierter n8n- und Modellautomation.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#334155"/></marker>
+    <marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#2563eb"/></marker>
+    <style>
+      text{font-family:Arial,sans-serif;fill:#172033}.h{font-size:34px;font-weight:700}.s{font-size:17px;fill:#526173}.section{font-size:22px;font-weight:700}.t{font-size:18px;font-weight:700}.b{font-size:14px}.x{font-size:12px;fill:#526173}.tag{font-size:12px;font-weight:700;letter-spacing:.5px}.center{text-anchor:middle}.flow{stroke:#334155;stroke-width:3;fill:none;marker-end:url(#arrow)}.signed{stroke:#2563eb;stroke-width:3;fill:none;marker-end:url(#arrowBlue)}.dashed{stroke-dasharray:8 6}.boundary{stroke:#64748b;stroke-width:2;stroke-dasharray:9 7;fill:none}
+    </style>
+  </defs>
+  <rect width="1800" height="1200" fill="#ffffff"/>
+  <text x="70" y="60" class="h">Ebene 11 · Rollen, Rechte und Datenhoheit</text>
+  <text x="70" y="94" class="s">Wer darf was anstoßen? Welche Grenze prüft? Welches System besitzt danach die Wahrheit?</text>
+  <rect x="1510" y="30" width="220" height="72" rx="16" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/>
+  <text x="1620" y="61" class="t center" fill="#047857">100/100</text><text x="1620" y="86" class="x center">Review-Scorecard</text>
+
+  <!-- Hauptpfad -->
+  <rect x="55" y="125" width="1690" height="310" rx="22" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="85" y="162" class="section">1 · Autorität entsteht serverseitig – nicht im Browser</text>
+
+  <rect x="80" y="185" width="400" height="220" rx="18" fill="#fff7ed" stroke="#fdba74" stroke-width="2"/>
+  <text x="280" y="214" class="tag center" fill="#9a3412">AUSSERHALB DER VERTRAUENSZONE</text>
+  <rect x="105" y="235" width="155" height="68" rx="13" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+  <text x="182" y="264" class="t center">Picker</text><text x="182" y="286" class="x center">Rolle: picker</text>
+  <rect x="285" y="235" width="170" height="68" rx="13" fill="#ede9fe" stroke="#7c3aed" stroke-width="2"/>
+  <text x="370" y="264" class="t center">Supervisor</text><text x="370" y="286" class="x center">supervisor ⇒ picker</text>
+  <path class="flow" d="M182 307 V329 H245"/><path class="flow" d="M370 307 V329 H315"/>
+  <rect x="150" y="330" width="260" height="55" rx="13" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+  <text x="280" y="354" class="t center">PWA / Browser</text><text x="280" y="375" class="x center">Eingabe + Anzeige · kein Fachzustand</text>
+
+  <path class="flow" d="M480 357 H535"/>
+  <text x="507" y="344" class="x center">HTTPS</text>
+  <rect x="550" y="235" width="190" height="150" rx="16" fill="#e0f2fe" stroke="#0284c7" stroke-width="2"/>
+  <text x="645" y="270" class="t center">Caddy</text>
+  <text x="645" y="300" class="b center">TLS · 16 MB Limit</text>
+  <text x="645" y="323" class="b center">öffentliche Pfade</text>
+  <text x="645" y="346" class="b center">intern → 404</text>
+  <text x="645" y="372" class="x center">kein Fachentscheider</text>
+
+  <path class="flow" d="M740 310 H795"/>
+  <text x="767" y="294" class="x center">Cookie + CSRF</text>
+  <rect x="810" y="190" width="350" height="215" rx="18" fill="#dbeafe" stroke="#2563eb" stroke-width="3"/>
+  <text x="985" y="225" class="t center">FastAPI · Policy-Gate</text>
+  <text x="985" y="256" class="b center">Session → unveränderlicher Principal</text>
+  <text x="985" y="280" class="b center">Origin + CSRF bei Mutationen</text>
+  <text x="985" y="304" class="b center">Instanz aus Principal, nicht Header</text>
+  <text x="985" y="328" class="b center">Claim · Besitz · Idempotenz</text>
+  <rect x="855" y="350" width="260" height="36" rx="10" fill="#eff6ff" stroke="#93c5fd"/>
+  <text x="985" y="374" class="b center">vermittelt – speichert keine Fachwahrheit</text>
+
+  <path class="flow" d="M1160 295 H1215"/>
+  <text x="1187" y="279" class="x center">bewachte api_* RPCs</text>
+  <rect x="1230" y="170" width="465" height="235" rx="18" fill="#dcfce7" stroke="#16a34a" stroke-width="3"/>
+  <text x="1462" y="207" class="t center">Odoo · System of Record</text>
+  <rect x="1270" y="230" width="165" height="54" rx="12" fill="#f0fdf4" stroke="#86efac"/>
+  <text x="1352" y="252" class="b center">API-Service</text><text x="1352" y="272" class="x center">technische Rolle</text>
+  <rect x="1450" y="230" width="205" height="54" rx="12" fill="#f0fdf4" stroke="#86efac"/>
+  <text x="1552" y="252" class="b center">Rollen + Sitzung</text><text x="1552" y="272" class="x center">serverseitig geprüft</text>
+  <text x="1462" y="316" class="b center">Auftrag · Bestand · Seriennummer · Claim · Batch</text>
+  <text x="1462" y="341" class="b center">Quality · Job · Outbox · Receipt · Nonce</text>
+  <text x="1462" y="373" class="tag center" fill="#047857">BESTÄTIGTER ODOO-ZUSTAND GEWINNT</text>
+
+  <!-- Automation -->
+  <rect x="55" y="455" width="1690" height="315" rx="22" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="2"/>
+  <text x="85" y="492" class="section">2 · Automation ist getrennt autorisiert und bleibt fachlich begrenzt</text>
+  <text x="85" y="520" class="s">Zwei HMAC-Richtungen · exakter Pfad + Methode + Generation + Zeit + Nonce + Body-Hash</text>
+
+  <rect x="100" y="560" width="300" height="150" rx="17" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+  <text x="250" y="592" class="t center">Odoo-Outbox</text>
+  <text x="250" y="623" class="b center">dauerhaftes Event</text>
+  <text x="250" y="646" class="b center">Lease + Generation</text>
+  <text x="250" y="669" class="b center">Ack / Nack / Dead</text>
+  <text x="250" y="696" class="x center">Zustellwahrheit liegt in Odoo</text>
+
+  <path class="signed" d="M400 615 H480"/>
+  <text x="440" y="600" class="x center">Lease</text>
+  <rect x="495" y="560" width="305" height="150" rx="17" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+  <text x="647" y="592" class="t center">FastAPI Dispatcher</text>
+  <text x="647" y="623" class="b center">holt Byte-identisches Event</text>
+  <text x="647" y="646" class="b center">signiert mit aktivem Key</text>
+  <text x="647" y="669" class="b center">prüft Event-ID-Antwort</text>
+  <text x="647" y="696" class="x center">Transport, kein Workflow-Owner</text>
+
+  <path class="signed" d="M800 615 H880"/>
+  <text x="840" y="600" class="x center">HMAC</text>
+  <rect x="895" y="550" width="315" height="170" rx="17" fill="#fce7f3" stroke="#db2777" stroke-width="2"/>
+  <text x="1052" y="584" class="t center">n8n · Orchestrator</text>
+  <text x="1052" y="615" class="b center">verifiziert + dedupliziert</text>
+  <text x="1052" y="638" class="b center">steuert Quality-Workflow</text>
+  <text x="1052" y="661" class="b center">sendet signierten Callback</text>
+  <text x="1052" y="690" class="x center">kein Browser-Backend · kein SoR</text>
+
+  <path class="flow" d="M1210 610 H1280"/>
+  <text x="1245" y="595" class="x center">interner Auftrag</text>
+  <rect x="1295" y="550" width="370" height="170" rx="17" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+  <text x="1480" y="584" class="t center">Whisper · Ollama · Piper</text>
+  <text x="1480" y="615" class="b center">transkribieren · interpretieren</text>
+  <text x="1480" y="638" class="b center">bewerten · sprechen</text>
+  <text x="1480" y="666" class="b center">kein direkter Odoo-Write</text>
+  <text x="1480" y="694" class="x center">Ergebnis bleibt bis zur Prüfung ein Vorschlag</text>
+
+  <path class="signed dashed" d="M1052 720 V744 H647 V712"/>
+  <text x="850" y="758" class="x center">n8n → FastAPI: VerifiedInternalRequest → Odoo-Receipt / Fachstatus</text>
+
+  <!-- Ownership -->
+  <rect x="55" y="790" width="1690" height="280" rx="22" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
+  <text x="85" y="827" class="section">3 · Datenhoheit – vier Arten von Wahrheit</text>
+
+  <rect x="85" y="860" width="370" height="165" rx="16" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+  <text x="270" y="892" class="t center">Odoo · fachlich dauerhaft</text>
+  <text x="270" y="924" class="b center">Benutzer · Rollen · Sitzung</text>
+  <text x="270" y="947" class="b center">Bestand · Auftrag · Claim · Batch</text>
+  <text x="270" y="970" class="b center">Alert · Job · Outbox · Receipt</text>
+  <text x="270" y="1002" class="tag center" fill="#047857">SYSTEM OF RECORD PRO INSTANZ</text>
+
+  <rect x="480" y="860" width="370" height="165" rx="16" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+  <text x="665" y="892" class="t center">FastAPI · geprüft und flüchtig</text>
+  <text x="665" y="924" class="b center">Principal im Request</text>
+  <text x="665" y="947" class="b center">Transkript · Intent · Modellantwort</text>
+  <text x="665" y="970" class="b center">Transport- und Policy-Entscheidung</text>
+  <text x="665" y="1002" class="x center">keine parallele Fachdatenbank</text>
+
+  <rect x="875" y="860" width="370" height="165" rx="16" fill="#fce7f3" stroke="#db2777" stroke-width="2"/>
+  <text x="1060" y="892" class="t center">n8n · technische Orchestrierung</text>
+  <text x="1060" y="924" class="b center">Workflowdefinitionen</text>
+  <text x="1060" y="947" class="b center">Ausführungsprotokolle</text>
+  <text x="1060" y="970" class="b center">temporäre Workflowdaten</text>
+  <text x="1060" y="1002" class="x center">kein Lager- oder Alert-System of Record</text>
+
+  <rect x="1270" y="860" width="390" height="165" rx="16" fill="#fff7ed" stroke="#f97316" stroke-width="2"/>
+  <text x="1465" y="892" class="t center">Browser · nur Bedienzustand</text>
+  <text x="1465" y="924" class="b center">Geräte-ID · UI-Präferenzen</text>
+  <text x="1465" y="947" class="b center">Sitzungscookie · CSRF-Klartext</text>
+  <text x="1465" y="970" class="b center">Anzeige aus Serverantwort</text>
+  <text x="1465" y="1002" class="x center">Local Storage erzeugt keine Autorität</text>
+
+  <rect x="55" y="1090" width="1690" height="78" rx="16" fill="#fff1f2" stroke="#e11d48" stroke-width="2"/>
+  <text x="900" y="1121" class="t center" fill="#be123c">Niemals: Browser → Odoo / n8n / DB · Modell → Lagerbuchung · Header → Identität · n8n → System of Record</text>
+  <text x="900" y="1149" class="b center">Rollenname ≠ Generalschlüssel · Signatur ≠ fachliche Richtigkeit · zugestellt ≠ verarbeitet</text>
+</svg>

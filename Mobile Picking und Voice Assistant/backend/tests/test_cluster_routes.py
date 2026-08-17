@@ -23,8 +23,11 @@ def client(cluster_service, sample_principal):
     # (Session, Origin/CSRF, Idempotency-Key) wird in
     # tests/test_route_security.py bewiesen und hier nur erfuellt.
     install_browser_gate(app, sample_principal)
-    yield TestClient(app, headers=BROWSER_GATE_HEADERS)
-    app.dependency_overrides.clear()
+    try:
+        with TestClient(app, headers=BROWSER_GATE_HEADERS) as test_client:
+            yield test_client
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_get_suggestions(client, cluster_service):

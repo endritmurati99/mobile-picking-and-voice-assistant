@@ -163,3 +163,85 @@ def test_csrf_rotation_endpoint_does_not_require_csrf_token_header():
         assert response.json()["csrf_token"] == "n" * 43
     finally:
         app.dependency_overrides.clear()
+
+
+class SwitchFakeSessions(CsrfFakeSessions):
+    """Wie `CsrfFakeSessions`, plus den Lagerwechsel."""
+
+    def __init__(self, *, valid_csrf_token: str):
+        super().__init__(valid_csrf_token=valid_csrf_token)
+        self.switched_to = None
+
+    async def switch_instance(self, principal, target, *, origin):
+        self._require_origin(origin)
+        self.switched_to = target
+        return CreatedSession(
+            cookie_token="v1.lager-2." + ("c" * 43),
+            csrf_token="d" * 43,
+            principal=Principal(
+                picker_user_id=11,
+                picker_name="Mina Muster",
+                device_id=principal.device_id,
+                odoo_instance=target,
+                roles=frozenset({"picker"}),
+                session_id="7c1f0a6e-1a2b-4c3d-9e8f-0a1b2c3d4e5f",
+                expires_at=datetime(2026, 7, 23, 20, 0, tzinfo=timezone.utc),
+            ),
+        )
+
+
+def test_switch_instance_without_csrf_token_is_rejected():
+    """Ohne diese Pruefung genuegte ein Klick auf einer fremden Seite, um
+    jemanden unbemerkt in ein anderes Lager zu setzen."""
+    sessions = SwitchFakeSessions(valid_csrf_token="v" * 43)
+    _override_auth(sessions)
+    try:
+        client = TestClient(app, base_url="https://picking.test")
+        response = client.post(
+            "/api/auth/switch-instance",
+            headers={"Origin": ALLOWED_ORIGIN},
+            json={"odoo_instance": "lager-2"},
+        )
+        assert response.status_code == 403
+        assert sessions.switched_to is None
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_switch_instance_sets_the_new_cookie_with_the_same_contract():
+    sessions = SwitchFakeSessions(valid_csrf_token="v" * 43)
+    _override_auth(sessions)
+    try:
+        client = TestClient(app, base_url="https://picking.test")
+        response = client.post(
+            "/api/auth/switch-instance",
+            headers={"Origin": ALLOWED_ORIGIN, "X-CSRF-Token": "v" * 43},
+            json={"odoo_instance": "lager-2"},
+        )
+        assert response.status_code == 200
+        assert sessions.switched_to == "lager-2"
+        assert response.json()["principal"]["odoo_instance"] == "lager-2"
+        cookie = response.headers["set-cookie"]
+        for teil in ("pwr_session=", "HttpOnly", "Secure", "SameSite=strict",
+                     "Path=/api", "Max-Age=28800"):
+            assert teil in cookie
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_switch_instance_rejects_an_unknown_field():
+    """`extra="forbid"`: ein mitgeschicktes `login` waere der Weg in ein
+    fremdes Konto -- die Identitaet kommt ausschliesslich aus der Sitzung."""
+    sessions = SwitchFakeSessions(valid_csrf_token="v" * 43)
+    _override_auth(sessions)
+    try:
+        client = TestClient(app, base_url="https://picking.test")
+        response = client.post(
+            "/api/auth/switch-instance",
+            headers={"Origin": ALLOWED_ORIGIN, "X-CSRF-Token": "v" * 43},
+            json={"odoo_instance": "lager-2", "login": "fremd"},
+        )
+        assert response.status_code == 422
+        assert sessions.switched_to is None
+    finally:
+        app.dependency_overrides.clear()

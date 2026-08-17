@@ -16,6 +16,7 @@ from app.services.cluster_service import (
     PACKAGE_MODEL_ODOO19,
     assign_boxes,
     build_cluster_lines,
+    build_cluster_rule_report,
 )
 
 
@@ -131,6 +132,30 @@ class TestSuggestBatches:
         assert result[0]["product_overlap_count"] == 1
         assert result[0]["score"] > 0
         assert any("Ausliefertag" in reason for reason in result[0]["reasons"])
+
+    @pytest.mark.anyio
+    async def test_suggests_distinct_groups_without_repeating_an_order(self, service, odoo):
+        async def fake_search_read(model, domain, fields, limit=100):
+            if model == "stock.picking":
+                return [
+                    {"id": 1, "name": "OUT/1", "company_id": [1, "A"], "scheduled_date": "2026-07-09"},
+                    {"id": 2, "name": "OUT/2", "company_id": [1, "A"], "scheduled_date": "2026-07-09"},
+                    {"id": 3, "name": "OUT/3", "company_id": [1, "A"], "scheduled_date": "2026-07-09"},
+                ]
+            if model == "stock.move.line":
+                return [
+                    {"picking_id": [1, "OUT/1"], "location_id": [5, "WH/Stock/Links/A1"], "product_id": [100, "A"]},
+                    {"picking_id": [2, "OUT/2"], "location_id": [6, "WH/Stock/Links/A2"], "product_id": [100, "A"]},
+                    {"picking_id": [2, "OUT/2"], "location_id": [6, "WH/Stock/Links/A2"], "product_id": [200, "B"]},
+                    {"picking_id": [3, "OUT/3"], "location_id": [7, "WH/Stock/Links/A3"], "product_id": [200, "B"]},
+                ]
+            raise AssertionError(model)
+
+        odoo.search_read.side_effect = fake_search_read
+
+        result = await service.suggest_batches()
+
+        assert [group["picking_ids"] for group in result] == [[1, 2]]
 
     @pytest.mark.anyio
     async def test_suggestions_fail_closed_when_picking_batch_field_is_missing(self, service, odoo, caplog):
@@ -272,24 +297,15 @@ class TestCreateBatch:
         assert result["code"] == "mixed_delivery_date"
 
     @pytest.mark.anyio
-    async def test_create_batch_rejects_without_product_overlap(self, service, odoo):
-        odoo.search_read.side_effect = [
-            [
-                {"id": 1, "name": "OUT/1", "company_id": [1, "A"],
-                 "scheduled_date": "2026-07-09 08:00:00", "batch_id": False},
-                {"id": 2, "name": "OUT/2", "company_id": [1, "A"],
-                 "scheduled_date": "2026-07-09 10:00:00", "batch_id": False},
-            ],
-            [
-                {"id": 10, "picking_id": [1, "OUT/1"], "location_id": [5, "WH/Stock/Links/A1"],
-                 "product_id": [100, "SKU-A"]},
-                {"id": 20, "picking_id": [2, "OUT/2"], "location_id": [6, "WH/Stock/Links/A2"],
-                 "product_id": [101, "SKU-B"]},
-            ],
-        ]
-        result = await service.create_batch([1, 2], picker_identity=SimpleNamespace(user_id=7))
-        assert result["success"] is False
-        assert result["code"] == "no_product_overlap"
+    def test_product_overlap_improves_score_but_is_not_required(self):
+        report = build_cluster_rule_report([
+            {"id": 1, "company_id": 1, "delivery_date": "2026-07-09", "primary_zone": "Links", "product_ids": [100]},
+            {"id": 2, "company_id": 1, "delivery_date": "2026-07-09", "primary_zone": "Links", "product_ids": [101]},
+        ])
+
+        assert report["eligible"] is True
+        assert report["product_overlap_count"] == 0
+        assert any("Keine gemeinsamen Produkte" in warning for warning in report["warnings"])
 
     @pytest.mark.anyio
     async def test_scopes_picking_ids_to_assigned_unbatched(self, service, odoo):

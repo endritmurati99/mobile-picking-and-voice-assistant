@@ -796,9 +796,12 @@ class PickingService:
         _t0 = time.monotonic()
         lines = await self._odoo.execute_kw(
             "stock.move.line",
-            "read",
-            [[move_line_id]],
-            {"fields": ["id", "product_id", "quantity", "move_id", "location_id", "lot_id"]},
+            "search_read",
+            [[("id", "=", move_line_id), ("picking_id", "=", picking_id)]],
+            {
+                "fields": ["id", "product_id", "quantity", "move_id", "location_id", "lot_id"],
+                "limit": 1,
+            },
         )
         if not lines:
             _emit_serial_confirm(False, picking_id, move_line_id, None, False, _t0)

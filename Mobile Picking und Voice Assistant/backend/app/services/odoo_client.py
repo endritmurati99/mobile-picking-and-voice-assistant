@@ -21,7 +21,7 @@ class OdooClient:
         # Ohne Profil: kanonische lokale Instanz aus settings (Verhalten wie bisher).
         if profile is None:
             profile = OdooProfile(
-                name="local", display_name="Lokal",
+                name="local", display_name="Lager 1",
                 url=settings.odoo_url, db=settings.odoo_db, user=settings.odoo_user,
                 api_key=settings.odoo_api_key, password=settings.odoo_password,
             )

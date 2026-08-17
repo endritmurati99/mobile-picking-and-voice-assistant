@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1200" viewBox="0 0 1800 1200" role="img" aria-labelledby="title desc">
+  <title id="title">Ebene 10: Status und Lebenszyklen</title>
+  <desc id="desc">Vier Lebenszyklusgruppen für Identität und Besitz, Picking und Cluster, Quality-Job sowie Outbox und Event-Receipt.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#334155"/></marker>
+    <style>
+      text{font-family:Arial,sans-serif;fill:#172033}.h{font-size:34px;font-weight:700}.s{font-size:17px;fill:#526173}.lane{font-size:22px;font-weight:700}.tag{font-size:13px;font-weight:700}.t{font-size:17px;font-weight:700}.b{font-size:14px}.x{font-size:12px;fill:#526173}.center{text-anchor:middle}.flow{stroke:#334155;stroke-width:3;fill:none;marker-end:url(#arrow)}.retry{stroke:#d97706;stroke-width:2.5;fill:none;marker-end:url(#arrow);stroke-dasharray:7 6}.reject{stroke:#dc2626;stroke-width:2.5;fill:none;marker-end:url(#arrow);stroke-dasharray:7 6}
+    </style>
+  </defs>
+  <rect width="1800" height="1200" fill="#ffffff"/>
+  <text x="70" y="62" class="h">Ebene 10 · Status und Lebenszyklen</text>
+  <text x="70" y="96" class="s">Mehrere gekoppelte Zustandsautomaten – jeder beantwortet eine andere fachliche oder technische Frage</text>
+  <rect x="1510" y="32" width="220" height="72" rx="16" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/>
+  <text x="1620" y="62" class="t center">100/100</text><text x="1620" y="88" class="x center">Review-Scorecard</text>
+
+  <rect x="55" y="125" width="1690" height="210" rx="22" fill="#eff6ff" stroke="#93c5fd" stroke-width="2"/>
+  <text x="85" y="162" class="lane">A · Identität und Arbeitsbesitz</text>
+  <text x="95" y="207" class="tag">SITZUNG · aus Zeitfeldern abgeleitet</text>
+  <rect x="365" y="178" width="205" height="65" rx="14" fill="#f1f5f9" stroke="#64748b" stroke-width="2"/><text x="467" y="207" class="t center">nicht angemeldet</text><text x="467" y="229" class="x center">kein Session-Datensatz</text>
+  <path class="flow" d="M580 210 H640"/>
+  <rect x="655" y="178" width="245" height="65" rx="14" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/><text x="777" y="207" class="t center">aktiv</text><text x="777" y="229" class="x center">nicht widerrufen · nicht abgelaufen</text>
+  <path class="flow" d="M910 210 H970"/>
+  <rect x="985" y="178" width="265" height="65" rx="14" fill="#fee2e2" stroke="#dc2626" stroke-width="2"/><text x="1117" y="207" class="t center">abgelaufen / widerrufen</text><text x="1117" y="229" class="x center">401 → PWA zurück zum Login</text>
+  <text x="1320" y="207" class="b">maximal 8 Stunden</text><text x="1320" y="229" class="x">Löschen erst spätere Retention</text>
+
+  <text x="95" y="285" class="tag">CLAIM · Besitzer + Gerät + Ablaufzeit</text>
+  <rect x="365" y="255" width="205" height="60" rx="14" fill="#f1f5f9" stroke="#64748b" stroke-width="2"/><text x="467" y="284" class="t center">frei / abgelaufen</text><text x="467" y="305" class="x center">kein aktiver Besitzer</text>
+  <path class="flow" d="M580 285 H640"/>
+  <rect x="655" y="255" width="245" height="60" rx="14" fill="#ede9fe" stroke="#7c3aed" stroke-width="2"/><text x="777" y="284" class="t center">claimed</text><text x="777" y="305" class="x center">TTL 120 s · Heartbeat 30 s</text>
+  <path class="flow" d="M910 285 H970"/>
+  <rect x="985" y="255" width="205" height="60" rx="14" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/><text x="1087" y="284" class="t center">released</text><text x="1087" y="305" class="x center">Claim-Felder geleert</text>
+  <path class="reject" d="M900 295 V325 H1260 V295"/><rect x="1275" y="255" width="250" height="60" rx="14" fill="#fff1f2" stroke="#e11d48" stroke-width="2"/><text x="1400" y="284" class="t center">conflict-Antwort</text><text x="1400" y="305" class="x center">bestehender Claim bleibt unverändert</text>
+
+  <rect x="55" y="355" width="1690" height="235" rx="22" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="85" y="392" class="lane">B · Facharbeit: normaler Auftrag und Cluster</text>
+  <text x="95" y="438" class="tag">NORMAL · Odoo-Picking plus Move-Line</text>
+  <rect x="390" y="408" width="210" height="65" rx="14" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/><text x="495" y="437" class="t center">assigned / offen</text><text x="495" y="459" class="x center">Move-Line picked = false</text>
+  <path class="flow" d="M610 440 H670"/>
+  <rect x="685" y="408" width="220" height="65" rx="14" fill="#fef3c7" stroke="#d97706" stroke-width="2"/><text x="795" y="437" class="t center">Position gepickt</text><text x="795" y="459" class="x center">picked = true</text>
+  <path class="flow" d="M915 440 H975"/>
+  <rect x="990" y="408" width="205" height="65" rx="14" fill="#e0e7ff" stroke="#4f46e5" stroke-width="2"/><text x="1092" y="437" class="t center">Odoo validiert</text><text x="1092" y="459" class="x center">alle Lines gepickt</text>
+  <path class="flow" d="M1205 440 H1265"/>
+  <rect x="1280" y="408" width="195" height="65" rx="14" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/><text x="1377" y="437" class="t center">done</text><text x="1377" y="459" class="x center">picking_complete = true</text>
+  <path class="reject" d="M1195 455 C1320 495 1450 495 1500 455"/><rect x="1500" y="408" width="200" height="65" rx="14" fill="#fff1f2" stroke="#e11d48" stroke-width="2"/><text x="1600" y="437" class="t center">abgelehnt</text><text x="1600" y="459" class="x center">Lines können gepickt sein</text>
+
+  <text x="95" y="545" class="tag">CLUSTER · echter Odoo-Batch</text>
+  <rect x="390" y="515" width="180" height="55" rx="14" fill="#f1f5f9" stroke="#64748b" stroke-width="2"/><text x="480" y="548" class="t center">Auswahl</text>
+  <path class="flow" d="M580 542 H640"/>
+  <rect x="655" y="515" width="180" height="55" rx="14" fill="#e0e7ff" stroke="#4f46e5" stroke-width="2"/><text x="745" y="548" class="t center">draft</text>
+  <path class="flow" d="M845 542 H905"/>
+  <rect x="920" y="515" width="210" height="55" rx="14" fill="#ede9fe" stroke="#7c3aed" stroke-width="2"/><text x="1025" y="548" class="t center">in_progress</text>
+  <path class="flow" d="M1140 542 H1200"/>
+  <rect x="1215" y="515" width="180" height="55" rx="14" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/><text x="1305" y="548" class="t center">done</text>
+  <path class="reject" d="M835 555 V575 H1450 V560"/><rect x="1465" y="515" width="170" height="55" rx="14" fill="#fee2e2" stroke="#dc2626" stroke-width="2"/><text x="1550" y="548" class="t center">cancel</text>
+
+  <rect x="55" y="610" width="1690" height="235" rx="22" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="2"/>
+  <text x="85" y="647" class="lane">C · Quality-Fachstatus und Integrationsjob</text>
+  <text x="95" y="693" class="tag">ALERT · AI-Status (`stage_id` bleibt separat)</text>
+  <rect x="420" y="663" width="200" height="60" rx="14" fill="#fef3c7" stroke="#d97706" stroke-width="2"/><text x="520" y="698" class="t center">pending</text>
+  <path class="flow" d="M630 693 H690"/>
+  <rect x="705" y="663" width="205" height="60" rx="14" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/><text x="807" y="690" class="t center">completed</text><text x="807" y="712" class="x center">Urteil darf gesetzt werden</text>
+  <rect x="940" y="663" width="235" height="60" rx="14" fill="#fff7ed" stroke="#f97316" stroke-width="2"/><text x="1057" y="690" class="t center">review_required</text><text x="1057" y="712" class="x center">kein Ersatzurteil</text>
+  <rect x="1205" y="663" width="190" height="60" rx="14" fill="#fee2e2" stroke="#dc2626" stroke-width="2"/><text x="1300" y="690" class="t center">failed</text><text x="1300" y="712" class="x center">Fehlergrund</text>
+  <path class="flow" d="M620 685 C690 635 890 635 940 678"/><path class="flow" d="M620 700 C760 755 1140 755 1205 700"/>
+
+  <text x="95" y="790" class="tag">JOB · erlaubte Transitionstabelle</text>
+  <rect x="420" y="755" width="180" height="60" rx="14" fill="#e0e7ff" stroke="#4f46e5" stroke-width="2"/><text x="510" y="790" class="t center">queued</text>
+  <path class="flow" d="M610 785 H670"/>
+  <rect x="685" y="755" width="180" height="60" rx="14" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/><text x="775" y="790" class="t center">running</text>
+  <path class="flow" d="M875 785 H935"/>
+  <rect x="950" y="755" width="300" height="60" rx="14" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/><text x="1100" y="783" class="t center">terminal</text><text x="1100" y="806" class="x center">succeeded · review_required · failed</text>
+  <rect x="1375" y="755" width="235" height="60" rx="14" fill="#fef3c7" stroke="#d97706" stroke-width="2"/><text x="1492" y="783" class="t center">retry_scheduled</text><text x="1492" y="806" class="x center">neue Generation → running</text><path class="retry" d="M1375 785 H1320 V835 H775 V815"/>
+
+  <rect x="55" y="865" width="1690" height="245" rx="22" fill="#fff7ed" stroke="#fdba74" stroke-width="2"/>
+  <text x="85" y="902" class="lane">D · Technische Zustellung und Verarbeitung</text>
+  <text x="95" y="948" class="tag">OUTBOX · Übergabe an n8n</text>
+  <rect x="360" y="918" width="175" height="60" rx="14" fill="#fef3c7" stroke="#d97706" stroke-width="2"/><text x="447" y="953" class="t center">pending</text>
+  <path class="flow" d="M545 948 H605"/>
+  <rect x="620" y="918" width="175" height="60" rx="14" fill="#e0e7ff" stroke="#4f46e5" stroke-width="2"/><text x="707" y="946" class="t center">leased</text><text x="707" y="968" class="x center">60 Sekunden</text>
+  <path class="flow" d="M805 948 H865"/>
+  <rect x="880" y="918" width="185" height="60" rx="14" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/><text x="972" y="946" class="t center">delivered</text><text x="972" y="968" class="x center">angenommen ≠ fertig</text>
+  <path class="retry" d="M707 978 V995 H447 V985"/>
+  <path class="reject" d="M795 965 V1005 H1230 V978"/>
+  <rect x="1125" y="918" width="210" height="60" rx="14" fill="#fee2e2" stroke="#dc2626" stroke-width="2"/><text x="1230" y="943" class="t center">dead</text><text x="1230" y="963" class="x center">10 Fehler · Supervisor → pending</text>
+
+  <text x="95" y="1050" class="tag">RECEIPT · angenommene Verarbeitung</text>
+  <rect x="360" y="1020" width="175" height="60" rx="14" fill="#e0e7ff" stroke="#4f46e5" stroke-width="2"/><text x="447" y="1055" class="t center">accepted</text>
+  <path class="flow" d="M545 1050 H605"/>
+  <rect x="620" y="1020" width="200" height="60" rx="14" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/><text x="720" y="1048" class="t center">processing</text><text x="720" y="1070" class="x center">Lease 5 Minuten</text>
+  <path class="flow" d="M830 1050 H890"/>
+  <rect x="905" y="1020" width="190" height="60" rx="14" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/><text x="1000" y="1055" class="t center">completed</text>
+  <path class="retry" d="M720 1080 V1092 H1160 V1050 H1175"/><rect x="1175" y="1020" width="205" height="60" rx="14" fill="#fef3c7" stroke="#d97706" stroke-width="2"/><text x="1277" y="1048" class="t center">retryable</text><text x="1277" y="1070" class="x center">Watchdog + Generation</text>
+  <path class="retry" d="M1175 1070 V1100 H720 V1080"/>
+
+  <rect x="55" y="1130" width="1690" height="50" rx="16" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/>
+  <text x="900" y="1162" class="b center"><tspan font-weight="700">Nicht verwechseln:</tspan> delivered = an n8n übergeben · completed = Verarbeitung/AI-Ergebnis · stage_id = menschlicher Quality-Workflow</text>
+</svg>

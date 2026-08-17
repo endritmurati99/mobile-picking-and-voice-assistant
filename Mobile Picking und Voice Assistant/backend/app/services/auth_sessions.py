@@ -181,8 +181,31 @@ class SessionService:
                 "api_finish_login_attempt",
                 [login_key, ip_key, attempt_token, succeeded],
             )
+        return await self._issue_session(
+            odoo,
+            body.odoo_instance,
+            uid,
+            str(body.device_id),
+            identity["roles"],
+        )
+
+    async def _issue_session(
+        self,
+        odoo,
+        instance: str,
+        uid: int,
+        device_id: str,
+        roles: list,
+    ) -> CreatedSession:
+        """Legt die Sitzung an -- der Teil NACH der bestandenen Pruefung.
+
+        Zwei Aufrufer: die Anmeldung mit Passwort und der Lagerwechsel. Was
+        geprueft wird, unterscheidet sich; was danach entsteht, darf sich nicht
+        unterscheiden -- sonst haette ein Wechsel andere Gueltigkeiten oder ein
+        anders gebautes Cookie als eine Anmeldung.
+        """
         session_id = str(uuid4())
-        cookie_token = f"v1.{body.odoo_instance}.{secrets.token_urlsafe(32)}"
+        cookie_token = f"v1.{instance}.{secrets.token_urlsafe(32)}"
         csrf_token = secrets.token_urlsafe(32)
         expires_at = self._now() + timedelta(seconds=self._session_seconds)
         stored = await odoo.execute_kw(
@@ -193,17 +216,78 @@ class SessionService:
                 _sha256(cookie_token),
                 _sha256(csrf_token),
                 uid,
-                str(body.device_id),
-                identity["roles"],
+                device_id,
+                roles,
                 to_odoo_datetime(expires_at),
             ],
         )
-        principal = self._principal(body.odoo_instance, stored)
         return CreatedSession(
             cookie_token=cookie_token,
             csrf_token=csrf_token,
-            principal=principal,
+            principal=self._principal(instance, stored),
         )
+
+    async def switch_instance(
+        self,
+        principal: Principal,
+        target: str,
+        *,
+        origin: str | None,
+    ) -> CreatedSession:
+        """Wechselt das Lager, ohne erneut nach dem Passwort zu fragen.
+
+        **Was das bedeutet, ausgesprochen:** wer in Lager 1 angemeldet ist,
+        bekommt eine Sitzung in Lager 2, ohne dort ein Passwort gezeigt zu
+        haben. Die beiden Odoo-Datenbanken sind getrennt, `admin` in `lager2_o19`
+        ist ein anderer Datensatz als `admin` in `masterfischer_o19` -- nur der
+        Anmeldename ist derselbe. Genau dieser Name ist hier der Ausweis.
+
+        Das ist eine bewusste Entscheidung fuer diese Anlage: dieselben
+        Menschen bedienen beide Lager, und ein zweites Passwort pro Wechsel
+        waere Reibung ohne Gewinn. Wer die Lager gegeneinander abschotten will,
+        muss diese Methode entfernen -- eine Einstellung dafuer gibt es
+        absichtlich nicht, damit die Entscheidung sichtbar im Code steht.
+
+        Zwei Bedingungen bleiben: der Anmeldename muss im Ziel-Lager als
+        aktiver Benutzer existieren, und er muss dort eine Rolle tragen. Ohne
+        Rolle ist es kein Kommissionierer, sondern irgendein Odoo-Konto.
+        """
+        self._require_origin(origin)
+        if target not in self._instance_names or target == principal.odoo_instance:
+            raise AuthenticationFailed("Lagerwechsel nicht moeglich.")
+
+        quelle = self._client_factory(principal.odoo_instance)
+        benutzer = await quelle.execute_kw(
+            "res.users", "read", [[principal.picker_user_id], ["login"]]
+        )
+        login = str(benutzer[0]["login"]) if benutzer else ""
+        if not login:
+            raise AuthenticationFailed("Lagerwechsel nicht moeglich.")
+
+        ziel = self._client_factory(target)
+        treffer = await ziel.execute_kw(
+            "res.users",
+            "search",
+            [[["login", "=", login], ["active", "=", True]]],
+            {"limit": 2},
+        )
+        # Zwei Treffer sind in Odoo unmoeglich (`login` ist eindeutig), aber
+        # ein stiller Griff auf den ersten waere die falsche Antwort darauf.
+        if len(treffer) != 1:
+            raise AuthenticationFailed("Lagerwechsel nicht moeglich.")
+        identity = await ziel.execute_kw(
+            "res.users", "api_get_picker_principal", [treffer[0]]
+        )
+        if not identity.get("allowed"):
+            raise AuthenticationFailed("Lagerwechsel nicht moeglich.")
+
+        created = await self._issue_session(
+            ziel, target, treffer[0], principal.device_id, identity["roles"]
+        )
+        # Erst danach die alte Sitzung beenden: scheitert das Anlegen, soll der
+        # Mensch dort bleiben, wo er angemeldet ist, statt nirgends zu sein.
+        await self.revoke(principal)
+        return created
 
     async def resolve_principal(
         self,

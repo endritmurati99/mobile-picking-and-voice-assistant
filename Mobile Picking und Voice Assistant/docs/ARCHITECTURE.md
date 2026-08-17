@@ -19,6 +19,13 @@ Die weiteren Ebenen vervollständigen den Lernpfad:
 - [Ebene 4: Voice mit Whisper und Piper](./architecture/ebene-4-voice.md)
 - [Ebene 5: Quality, n8n sowie Text- und Bild-KI](./architecture/ebene-5-quality-n8n-ki.md)
 - [Ebene 6: Docker, Netzwerke, Daten und Sicherheit](./architecture/ebene-6-docker-daten-sicherheit.md)
+- [Ebene 7: Intent, Problemerkennung und Ollama](./architecture/ebene-7-intent-problemerkennung-ollama.md)
+- [Ebene 8: Fehler, Offline und Wiederanlauf](./architecture/ebene-8-fehler-offline-wiederanlauf.md)
+- [Ebene 9: Mitarbeiterreise](./architecture/ebene-9-mitarbeiterreise.md)
+- [Ebene 10: Status und Lebenszyklen](./architecture/ebene-10-status-und-lebenszyklen.md)
+- [Ebene 11: Rollen, Rechte und Datenhoheit](./architecture/ebene-11-rollen-rechte-datenhoheit.md)
+- [Ebene 12: Login, Benutzer und Geräte](./architecture/ebene-12-login-benutzer-geraete.md)
+- [Ebene 13: Clusterbildung und Lagerorte](./architecture/ebene-13-clusterbildung-und-lagerorte.md)
 
 Die editierbaren und exportierten Grafiken liegen daneben:
 
@@ -34,6 +41,8 @@ Die editierbaren und exportierten Grafiken liegen daneben:
 - [Ebene-5-SVG-Grafik](./architecture/ebene-5-quality-n8n-ki.svg)
 - [Ebene-6-Excalidraw-Quelle](./architecture/ebene-6-docker-daten-sicherheit.excalidraw)
 - [Ebene-6-SVG-Grafik](./architecture/ebene-6-docker-daten-sicherheit.svg)
+- [Ebene-12-Excalidraw-Quelle](./architecture/ebene-12-login-benutzer-geraete.excalidraw)
+- [Ebene-12-SVG-Grafik](./architecture/ebene-12-login-benutzer-geraete.svg)
 
 ## Stabile Architekturregeln
 
@@ -66,6 +75,30 @@ Die editierbaren und exportierten Grafiken liegen daneben:
 | 4 | [Voice mit Whisper und Piper](./architecture/ebene-4-voice.md) | vorhanden |
 | 5 | [Quality, n8n sowie Text- und Bild-KI](./architecture/ebene-5-quality-n8n-ki.md) | vorhanden |
 | 6 | [Docker, Netzwerke, Daten, Sicherheit und Fehlerfälle](./architecture/ebene-6-docker-daten-sicherheit.md) | vorhanden |
+| 7 | [Intent, Problemerkennung und Ollama](./architecture/ebene-7-intent-problemerkennung-ollama.md) | vorhanden |
+| 8 | [Fehler, Offline und Wiederanlauf](./architecture/ebene-8-fehler-offline-wiederanlauf.md) | vorhanden |
+| 9 | [Mitarbeiterreise](./architecture/ebene-9-mitarbeiterreise.md) | vorhanden |
+| 10 | [Status und Lebenszyklen](./architecture/ebene-10-status-und-lebenszyklen.md) | vorhanden |
+| 11 | [Rollen, Rechte und Datenhoheit](./architecture/ebene-11-rollen-rechte-datenhoheit.md) | vorhanden |
+| 12 | [Login, Benutzer und Geräte](./architecture/ebene-12-login-benutzer-geraete.md) | vorhanden |
+| 13 | [Clusterbildung und Lagerorte](./architecture/ebene-13-clusterbildung-und-lagerorte.md) | vorhanden |
+
+## Nächste sinnvolle Vertiefungen
+
+Die Ebenen sollen nicht dieselbe Architektur mehrfach erzählen. Deshalb werden
+vorhandene Ebenen zuerst vertieft und nur eine neue Querschnittsebene ergänzt:
+
+| Priorität | Verbesserung | Inhalt |
+| ---: | --- | --- |
+| 1 | **Ebene 3 und 13: Cluster** | Aktualisiert: Sammelentnahme am Lagerort, getrennte Kartonaufteilungen, PWA-Projektion, Odoo-JSON-RPC und Docker-Laufweg. |
+| 2 | **Ebene 2: PWA-Innenansicht ausbauen** | Seitenhülle, ES-Module, Browserzustand, Rendering, Scanner-/Kameraadapter, Service Worker und API-Grenze genauer erklären. |
+| 3 | **Ebene 6: Änderungs- und Deployment-Matrix ergänzen** | Zeigen, wann ein Browser-Reload, Uvicorn-Reload, Container-Recreate, Image-Rebuild oder Odoo-Modul-Upgrade nötig ist. |
+| 4 | **Neue Ebene 14: Vom Browser durch FastAPI bis Odoo** | Den wiederverwendbaren Anfragepfad `api.js → Caddy → Middleware → Router → Dependency → Service → RuntimeServices → OdooClient → JSON-RPC` an einem GET- und einem POST-Beispiel erklären. |
+
+Eine eigene weitere Ebene nur für „PWA“ oder nur für „Docker“ wäre derzeit
+doppelt: Ebene 2 besitzt bereits den Browserablauf und Ebene 6 die vollständige
+Container- und Netzwerkgrenze. Ebene 14 ist sinnvoll, weil der generische
+technische Anfragepfad bisher nur verteilt über mehrere Fachdokumente vorkommt.
 
 ## Technische Quellen
 
@@ -83,7 +116,7 @@ Verdrahtung gelten weiterhin Code und Konfiguration:
 Historische Spezifikationen und alte Vertragsdokumente beschreiben teilweise
 frühere Ausbaustufen. Bei Widersprüchen hat der aktuelle Code Vorrang.
 
-## Reviewcheck vom 7. August 2026
+## Reviewcheck, aktualisiert am 13. August 2026
 
 Der normale Listen-Schritt wurde gegen Graphify, aktuellen Code, vier gezielte
 Service-Tests und einen rein lesenden Abzug der lokalen Odoo-Daten geprüft:
@@ -92,12 +125,8 @@ Service-Tests und einen rein lesenden Abzug der lokalen Odoo-Daten geprüft:
 - Die vier Tests für `TestGetOpenPickings` sind grün.
 - Auftrag `WH/INT/00360` ergibt mit der Produktionslogik „Ente Henri“, sechs
   offene Positionen und als ersten Stopp `Brick 2x2 pink` an `L-E1-P2`.
-- Ein kompletter Live-Durchlauf ist derzeit **nicht** grün: Der Odoo-Server
-  läuft als Version 19, während die Datenbankmodule noch Version 18 melden.
-  Die Anmeldung bricht deshalb an der fehlenden Spalte
-  `res_users.totp_last_counter` ab. Beim Review wurden keine Odoo-Daten
-  verändert.
+- Der frühere Odoo-18/19-Migrationsfehler ist behoben. Lena und Max wurden mit
+  ihren Odoo-Zugangsdaten erfolgreich über die PWA angemeldet.
 
-Damit sind Codepfad, Projektion und Beispieldaten belegt; Login, Claim und
-Buchung dürfen erst nach der Odoo-19-Datenbankmigration als live
-end-to-end-verifiziert gelten.
+Damit sind Codepfad, Projektion, Beispieldaten und der Login gegen die aktuelle
+Odoo-19-Datenbank live belegt. Claim und Buchung bleiben eigene Prüfschritte.

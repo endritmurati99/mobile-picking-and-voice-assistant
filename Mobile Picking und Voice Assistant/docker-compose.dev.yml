@@ -12,6 +12,13 @@
 #
 # The backend loopback exists so signed internal-route fixtures can bypass the
 # edge deny-list; production publishes no backend port at all.
+# `core-net` and `automation-net` are `internal: true`. A container that hangs
+# ONLY there cannot be reached through a published port: Docker accepts the
+# mapping, but the packet is never routed and `curl 127.0.0.1:8069` just hangs
+# (gemessen 2026-08-04 -- backend war erreichbar, odoo/n8n/db nicht, weil nur
+# backend ohnehin an `edge-net` haengt). Deshalb haengt dieses Overlay jeden
+# publizierten Dienst zusaetzlich an `edge-net`. Nur Dev -- die Produktionsdatei
+# laesst sie auf den internen Netzen.
 services:
   backend:
     ports:
@@ -20,15 +27,28 @@ services:
   db:
     ports:
       - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
+    networks:
+      - core-net
+      - automation-net
+      - edge-net
 
   odoo:
     ports:
       - "127.0.0.1:${ODOO_HOST_PORT:-8069}:8069"
+    networks:
+      - core-net
+      - edge-net
 
   odoo-lager-2:
     ports:
       - "127.0.0.1:${ODOO_LAGER2_HOST_PORT:-8070}:8069"
+    networks:
+      - core-net
+      - edge-net
 
   n8n:
     ports:
       - "127.0.0.1:${N8N_HOST_PORT:-5678}:5678"
+    networks:
+      - automation-net
+      - edge-net

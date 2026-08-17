@@ -4,6 +4,7 @@ from app.config import get_instance_registry, settings
 from app.dependencies import get_current_principal, get_session_service
 from app.models.auth import (
     CsrfResponse,
+    InstanceSwitchRequest,
     PickerSessionLoginRequest,
     PickerSessionResponse,
     Principal,
@@ -45,6 +46,52 @@ async def create_picker_session(
         )
     except (AuthenticationFailed, CsrfFailed) as exc:
         raise HTTPException(status_code=401, detail="Anmeldung fehlgeschlagen.") from exc
+    response.set_cookie(
+        key=settings.session_cookie_name,
+        value=created.cookie_token,
+        max_age=settings.session_max_age_seconds,
+        secure=True,
+        httponly=True,
+        samesite="strict",
+        path="/api",
+    )
+    return PickerSessionResponse(
+        principal=PrincipalResponse.from_principal(created.principal),
+        csrf_token=created.csrf_token,
+    )
+
+
+@router.post("/switch-instance", response_model=PickerSessionResponse)
+async def switch_instance(
+    body: InstanceSwitchRequest,
+    request: Request,
+    response: Response,
+    x_csrf_token: str | None = Header(default=None, alias="X-CSRF-Token"),
+    principal: Principal = Depends(get_current_principal),
+    service: SessionService = Depends(get_session_service),
+):
+    """Lagerwechsel ohne zweite Passworteingabe.
+
+    Zustandsaendernd, also mit CSRF-Pruefung wie `logout` -- ein Wechsel per
+    fremder Seite waere sonst ein Klick, der jemanden unbemerkt in ein anderes
+    Lager setzt.
+    """
+    try:
+        await service.validate_csrf(
+            principal, x_csrf_token, request.headers.get("Origin")
+        )
+    except CsrfFailed as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    try:
+        created = await service.switch_instance(
+            principal,
+            body.odoo_instance,
+            origin=request.headers.get("Origin"),
+        )
+    except (AuthenticationFailed, CsrfFailed) as exc:
+        raise HTTPException(
+            status_code=401, detail="Lagerwechsel nicht moeglich."
+        ) from exc
     response.set_cookie(
         key=settings.session_cookie_name,
         value=created.cookie_token,

@@ -106,9 +106,9 @@
   <g aria-label="Anmeldephase">
     <rect x="275" y="475" width="270" height="165" rx="15" fill="#eff6ff" stroke="#93c5fd" stroke-width="2"/>
     <text x="410" y="510" text-anchor="middle" class="box-title">Anmeldung senden</text>
-    <text x="410" y="538" text-anchor="middle" class="small">POST /auth/picker-session</text>
+    <text x="410" y="538" text-anchor="middle" class="small">POST /api/auth/picker-session</text>
     <text x="410" y="568" text-anchor="middle" class="box-copy">Cookie + CSRF übernehmen</text>
-    <text x="410" y="598" text-anchor="middle" class="small">bei Reload: GET /auth/me</text>
+    <text x="410" y="598" text-anchor="middle" class="small">bei Reload: GET /api/auth/me</text>
     <rect x="275" y="665" width="270" height="145" rx="15" fill="#f0fdf4" stroke="#86efac" stroke-width="2"/>
     <text x="410" y="707" text-anchor="middle" class="box-title">Zugang prüfen</text>
     <text x="410" y="737" text-anchor="middle" class="box-copy">sichere Sitzung anlegen</text>
@@ -122,7 +122,7 @@
   <g aria-label="Listenphase">
     <rect x="575" y="475" width="270" height="165" rx="15" fill="#eff6ff" stroke="#93c5fd" stroke-width="2"/>
     <text x="710" y="510" text-anchor="middle" class="box-title">Liste anfordern</text>
-    <text x="710" y="538" text-anchor="middle" class="small">GET /pickings</text>
+    <text x="710" y="538" text-anchor="middle" class="small">GET /api/pickings</text>
     <text x="710" y="568" text-anchor="middle" class="box-copy">Karten anzeigen</text>
     <text x="710" y="598" text-anchor="middle" class="small">Suche/Filter nur im Browser</text>
     <rect x="575" y="665" width="270" height="145" rx="15" fill="#f0fdf4" stroke="#86efac" stroke-width="2"/>
@@ -138,9 +138,10 @@
   <g aria-label="Öffnungsphase">
     <rect x="875" y="475" width="270" height="165" rx="15" fill="#eff6ff" stroke="#93c5fd" stroke-width="2"/>
     <text x="1010" y="510" text-anchor="middle" class="box-title">Claim, dann Detail</text>
-    <text x="1010" y="538" text-anchor="middle" class="small">POST /pickings/360/claim · GET /pickings/360</text>
-    <text x="1010" y="568" text-anchor="middle" class="box-copy">aktuelle Position zeigen</text>
-    <text x="1010" y="598" text-anchor="middle" class="small">Heartbeat läuft im Hintergrund</text>
+    <text x="1010" y="532" text-anchor="middle" class="small">POST /api/pickings/360/claim</text>
+    <text x="1010" y="552" text-anchor="middle" class="small">GET /api/pickings/360</text>
+    <text x="1010" y="580" text-anchor="middle" class="box-copy">aktuelle Position zeigen</text>
+    <text x="1010" y="608" text-anchor="middle" class="small">Heartbeat läuft im Hintergrund</text>
     <rect x="875" y="665" width="270" height="145" rx="15" fill="#f0fdf4" stroke="#86efac" stroke-width="2"/>
     <text x="1010" y="707" text-anchor="middle" class="box-title">Claim schützen</text>
     <text x="1010" y="737" text-anchor="middle" class="box-copy">Identität + Idempotenz prüfen</text>
@@ -154,7 +155,7 @@
   <g aria-label="Bestätigungsphase">
     <rect x="1175" y="475" width="270" height="165" rx="15" fill="#eff6ff" stroke="#93c5fd" stroke-width="2"/>
     <text x="1310" y="510" text-anchor="middle" class="box-title">Barcode senden</text>
-    <text x="1310" y="538" text-anchor="middle" class="small">POST /confirm-line</text>
+    <text x="1310" y="538" text-anchor="middle" class="small">POST /api/pickings/360/confirm-line</text>
     <text x="1310" y="568" text-anchor="middle" class="box-copy">Menge + optionale Serial</text>
     <text x="1310" y="598" text-anchor="middle" class="small">danach nächste Position</text>
     <rect x="1175" y="665" width="270" height="145" rx="15" fill="#f0fdf4" stroke="#86efac" stroke-width="2"/>
@@ -212,5 +213,5 @@
   </g>
 
   <rect x="55" y="1220" width="1690" height="30" rx="12" fill="#f1f5f9"/>
-  <text x="900" y="1242" text-anchor="middle" class="small">Kernweg: PWA → FastAPI → Odoo. n8n und KI sind für die normale Buchung nicht erforderlich.</text>
+  <text x="900" y="1242" text-anchor="middle" class="small">Anwendungspfad: PWA → FastAPI → Odoo. /api/* läuft technisch über Caddy; n8n und KI bleiben außen vor.</text>
 </svg>

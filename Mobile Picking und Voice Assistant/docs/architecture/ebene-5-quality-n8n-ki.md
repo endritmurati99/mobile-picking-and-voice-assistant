@@ -25,26 +25,31 @@ Die [Excalidraw-Quelldatei](./ebene-5-quality-n8n-ki.excalidraw) ist
 editierbar. Die [SVG-Datei](./ebene-5-quality-n8n-ki.svg) ist die
 Exportfassung.
 
-## Ein echter Odoo-Datensatz
+## Ein echter, vollständiger v2-Durchlauf
 
-Der rein lesende Datenabzug vom 7. August 2026 enthält diesen bereits
-vorhandenen Quality Alert:
+Der rein lesende Review vom 8. August 2026 fand im laufenden Odoo diesen
+bereits abgeschlossenen Quality Alert:
 
 ```text
-Meldung:  QA/0149
-Auftrag:  WH/INT/00336
-Produkt:  Plate 2x4 weiß
-Problem:  Artikel beschädigt
-Priorität: 3
-Fotos:    2
-Ergebnis: quarantine
-Aktion:   Ware sperren und manuelle Prüfung anfordern.
+Meldung:   QA/0225
+Produkt:   [4166960] Brick 2x2 blau
+Lagerort:  WH/Stock/Regal A-01
+Problem:   Baustein gerissen, Ecke abgebrochen
+Fotos:     1
+Job:       succeeded, Generation 1, Sequenz 1
+Outbox:    delivered beim ersten Versuch
+Ergebnis:  quarantine
+Aktion:    Ware sperren und manuelle Pruefung anfordern.
+Bildbefund: Artikel stimmt; Schaden sichtbar; Soll-Ist bestätigt ihn
 ```
 
-Der Datensatz belegt die echte Odoo-Struktur und die sichtbaren Ergebnisfelder.
-Er ist historisch und deshalb kein Beweis für einen heute vollständig laufenden
-v2-Durchlauf; dessen Live-Test ist durch die im Architektur-Review genannte
-Odoo-19-Datenbankmigration blockiert.
+Er belegt den vollständigen Weg durch Alert, Job, Outbox, Text- und Bildanalyse
+bis zum Callback. Dabei wurde im Review nichts neu angelegt oder geschrieben.
+
+> **Aktueller Betriebsstatus:** `n8n list:workflow` führt „Quality Assessment
+> v2“ am 8. August 2026 unter den **inaktiven** Workflows. Der Ablauf ist damit
+> nachgewiesen, aber für neue Meldungen momentan nicht betriebsbereit. Vor
+> Produktion muss der verwaltete Workflow wieder aktiviert werden.
 
 ## Schritt 1: Problem in der PWA melden
 
@@ -103,8 +108,9 @@ POST /api/internal/n8n/v2/events/accept
 ```
 
 FastAPI prüft HMAC und Schema; Odoo prüft Event, Fingerprint, Generation und
-Job. Nonce und Receipt werden dauerhaft reserviert. Ein bereits angenommenes
-Duplikat erhält `process: false` und wird nicht erneut bewertet.
+Job. Die Nonce bleibt 15 Minuten gespeichert; terminale Event-Receipts werden
+90 Tage aufbewahrt. Ein bereits angenommenes Duplikat erhält innerhalb dieses
+Lebenszyklus `process: false` und wird nicht erneut bewertet.
 
 ## Nur eine lokale Bewertung zur Zeit
 
@@ -132,17 +138,29 @@ Die konkrete Handlungsempfehlung wird anschließend deterministisch aus der
 Einstufung gewählt. Timeout, ungültiges JSON oder ein unbekannter Wert erzeugt
 kein heuristisches Ersatzurteil.
 
-## Schritt 6: Bilder lokal prüfen
+## Schritt 6: Bilder lokal in drei Stufen prüfen
 
 Über Job, Generation und Lease liest FastAPI höchstens drei Originalfotos und
 das Katalogbild aus Odoo. Die Bildbytes werden geprüft und für den
-Artikelvergleich auf maximal 512 Pixel verkleinert. Die separate
-Schadensprüfung erhält bis zu 768 Pixel, weil echte Risse bei 512 Pixeln in
-Messungen verschwanden. Anschließend analysiert `qwen2.5vl:7b` die Bilder.
+Artikelvergleich auf maximal 512 Pixel verkleinert. Schadens- und
+Zustandsprüfung erhalten bis zu 768 Pixel, weil echte Risse bei 512 Pixeln in
+Messungen verschwanden. `qwen2.5vl:7b` beschreibt jedes Bild einzeln; das
+Textmodell vergleicht anschließend die Beschreibungen.
 
-Das erste Foto wird mit dem Katalogbild verglichen; alle berücksichtigten Fotos
-werden auf Schäden geprüft. Meldet das Bild einen falschen Artikel oder
-widerspricht es einem „verkaufbar“-Texturteil, ist menschliche Prüfung nötig.
+Die drei Stufen sind:
+
+1. erstes Meldefoto gegen Katalogbild: Ist es derselbe Artikel?
+2. jedes berücksichtigte Meldefoto einzeln: Ist ein Schaden sichtbar?
+3. Zustandsbeschreibung gegen Katalogbild: Weicht der Ist-Zustand vom
+   Neuzustand ab?
+
+Der Soll-Befund des Katalogbilds wird prozesslokal anhand seines SHA-256-Werts
+zwischengespeichert. Ein Fehler oder abgelaufenes 240-Sekunden-Bildbudget wird
+offen benannt. Der Soll-Ist-Vergleich darf einen Befund nur verschärfen, nie
+einen bereits gesehenen Schaden zurücknehmen.
+
+Meldet das Bild einen falschen Artikel oder widerspricht ein Schaden einem
+„verkaufbar“-Texturteil, ist menschliche Prüfung nötig.
 
 Die Beobachtung des Mitarbeiters wird nicht abgeschwächt: „Schaden gemeldet,
 Bildmodell sieht keinen“ hebt die Meldung nicht automatisch auf.
@@ -173,11 +191,13 @@ sichtbar.
 - Modellplatz länger als 150 Sekunden belegt: keine Teilbewertung, menschliche Prüfung.
 - Callback ausgefallen: Lease läuft ab; eine neue Generation kann erneut starten.
 - Mehr als drei Fotos: weitere Originale bleiben gespeichert, werden aber nicht bewertet.
-- Dead-Letter: Der aktuelle v2-Pfad setzt einen `dead`-Eintrag nicht automatisch
-  auf `failed`; ein Alert kann deshalb in Odoo auf `pending` stehen bleiben.
-- Repository-Zustand: Die Registry verlangt Produktion-Aktivierung, das
-  Workflow-JSON selbst enthält `active: false`. Ob der Workflow live aktiviert
-  ist, lässt sich nur am laufenden n8n prüfen.
+- Soll-Ist-Vergleich ausgefallen: der zuvor ermittelte Schadensbefund bleibt bestehen.
+- Dead-Letter: Nach zehn Fehlzustellungen bleibt der Job `queued` und der Alert
+  kann `pending` bleiben. Ein Supervisor kann das Event nach Behebung manuell
+  wieder auf `pending` setzen.
+- Aktueller Live-Stand: Registry fordert Produktionsaktivierung und die
+  Repository-Datei enthält `active: false`; auch der laufende n8n-Container
+  listet den Quality-Workflow derzeit als inaktiv.
 
 ## Wo der Ablauf im Projekt steckt
 
@@ -189,12 +209,36 @@ sichtbar.
 - `backend/app/routers/n8n_v2.py`: signierte Annahme und Callbacks
 - `backend/app/services/llm_client.py`: Textbewertung
 - `backend/app/services/vision_client.py`: Bildbewertung
+- `backend/app/services/assessment_reconciliation.py`: asymmetrischer Abgleich
 - `n8n/workflows/quality-assessment-v2.json`: Orchestrierung
+
+## Review-Scorecard
+
+Stand: 8. August 2026. Bewertet wurde die überarbeitete Darstellung gegen
+PWA-Upload, FastAPI-Routen, Odoo-Modelle, Outbox und Receipts, den importierten
+n8n-Workflow sowie Text-, Bild- und Abgleichslogik.
+
+| Kriterium | Punkte |
+| --- | ---: |
+| Ablaufabdeckung | 20/20 |
+| Verbindungs- und Endpunktgenauigkeit | 20/20 |
+| Übereinstimmung mit aktuellem Code und Laufzeit | 20/20 |
+| Verständlichkeit | 20/20 |
+| Angemessene Detailtiefe | 20/20 |
+| **Gesamt** | **100/100** |
+
+Belegt sind die signierten n8n-Transporttests, die aktuelle Odoo-Kette von
+`QA/0225` bis zum terminalen Callback sowie der direkt geprüfte n8n-Status.
+Die 100/100 bewerten die korrekte Architekturdarstellung, nicht die momentane
+Betriebsbereitschaft: Diese bleibt bis zur erneuten Workflow-Aktivierung rot.
 
 ## Kurz zusammengefasst
 
 1. PWA und FastAPI speichern die Meldung sofort in Odoo.
 2. Odoos Outbox macht die asynchrone Zustellung wiederholbar.
 3. HMAC, Nonces und Receipts schützen beide Richtungen.
-4. Ollama bewertet Text und höchstens drei Bilder lokal, jeweils nur einen Fall zur Zeit.
+4. Ollama bewertet Text, Artikel, Schaden und Soll-Ist-Zustand lokal, jeweils
+   nur einen Fall zur Zeit.
 5. Widersprüche und Ausfälle führen zur Prüfung statt zu einem erfundenen Urteil.
+6. Der Ablauf ist belegt; neue Durchläufe warten aktuell auf die Aktivierung
+   des Quality-Workflows in n8n.

@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1120" viewBox="0 0 1800 1120" role="img" aria-labelledby="title desc">
+  <title id="title">Ebene 7: Intent- und Problemerkennung</title>
+  <desc id="desc">Detailansicht der deterministischen Intent-Erkennung, des optionalen Ollama-Fallbacks, der Sicherheitsgates und der Verzweigung in Bestands- oder Quality-Dialog.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#334155"/></marker>
+    <style>
+      text{font-family:Arial,sans-serif;fill:#172033}.h{font-size:34px;font-weight:700}.s{font-size:17px;fill:#526173}.t{font-size:20px;font-weight:700}.b{font-size:15px}.x{font-size:13px;fill:#526173}.flow{stroke:#334155;stroke-width:3;fill:none;marker-end:url(#arrow)}.dash{stroke-dasharray:8 6}.center{text-anchor:middle}
+    </style>
+  </defs>
+  <rect width="1800" height="1120" fill="#ffffff"/>
+  <text x="70" y="65" class="h">Ebene 7 · Intent- und Problemerkennung</text>
+  <text x="70" y="98" class="s">Detail zwischen Ebene 4 (Voice) und Ebene 5 (Quality) · Regeln zuerst, Ollama nur als sicherer Fallback</text>
+  <rect x="1510" y="35" width="220" height="70" rx="16" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/>
+  <text x="1620" y="64" class="t center">100/100</text><text x="1620" y="88" class="x center">Architekturdarstellung</text>
+
+  <g transform="translate(55 145)">
+    <rect width="220" height="150" rx="18" fill="#e8f1ff" stroke="#3b82f6" stroke-width="2"/>
+    <text x="20" y="38" class="t">1 Whisper-Text</text><text x="20" y="72" class="b">Audio → deutscher Text</text><text x="20" y="100" class="b">+ sichtbarer UI-Kontext</text><text x="20" y="127" class="x">leer → unknown · keine Aktion</text>
+    <path class="flow" d="M230 75 H275"/>
+    <g transform="translate(290)"><rect width="250" height="150" rx="18" fill="#e8f7ee" stroke="#22c55e" stroke-width="2"/><text x="20" y="38" class="t">2 Regeln zuerst</text><text x="20" y="72" class="b">exakt → Regex → ähnlich</text><text x="20" y="100" class="b">Problem hat Priorität</text><text x="20" y="127" class="x">exakt / Regex: 0,95</text></g>
+    <path class="flow" d="M550 75 H595"/>
+    <g transform="translate(610)"><rect width="250" height="150" rx="18" fill="#fff4df" stroke="#f59e0b" stroke-width="2"/><text x="20" y="38" class="t">3 Unter 0,73?</text><text x="20" y="72" class="b">Segmentvergleich</text><text x="20" y="100" class="b">danach Ollama optional</text><text x="20" y="127" class="x">qwen2.5:1.5b · 4 s</text></g>
+    <path class="flow" d="M870 75 H915"/>
+    <g transform="translate(930)"><rect width="250" height="150" rx="18" fill="#f1eafe" stroke="#8b5cf6" stroke-width="2"/><text x="20" y="38" class="t">4 Schutzgates</text><text x="20" y="72" class="b">Allowlist + Verneinung</text><text x="20" y="100" class="b">Seite + aktive Position</text><text x="20" y="127" class="x">LLM-Write höchstens 0,85</text></g>
+    <path class="flow" d="M1190 75 H1235"/>
+    <g transform="translate(1250)"><rect width="220" height="150" rx="18" fill="#e8f1ff" stroke="#3b82f6" stroke-width="2"/><text x="20" y="38" class="t">5 PWA bewertet</text><text x="20" y="72" class="b">&lt; 0,73: nicht handeln</text><text x="20" y="100" class="b">Write: ggf. Rückfrage</text><text x="20" y="127" class="x">problem ≥ 0,73: öffnen</text></g>
+    <path class="flow" d="M1480 75 H1500"/>
+    <g transform="translate(1515)"><rect width="205" height="150" rx="18" fill="#feecec" stroke="#ef4444" stroke-width="2"/><text x="20" y="38" class="t">6 Intent</text><text x="20" y="72" class="b">problem</text><text x="20" y="100" class="b">oder andere Aktion</text><text x="20" y="127" class="x">noch kein Odoo-Write</text></g>
+  </g>
+
+  <rect x="70" y="350" width="1660" height="410" rx="22" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="100" y="395" class="t">Wenn der erlaubte Intent „problem“ lautet</text>
+  <rect x="120" y="445" width="330" height="150" rx="18" fill="#feecec" stroke="#ef4444" stroke-width="2"/>
+  <text x="145" y="484" class="t">Problem erkannt</text><text x="145" y="518" class="b">kaputt · falsch · Mangel</text><text x="145" y="548" class="b">passt/stimmt nicht</text><text x="145" y="576" class="x">Intent allein speichert nichts</text>
+  <path class="flow" d="M465 520 H590"/>
+  <polygon points="700,435 815,520 700,605 585,520" fill="#fff4df" stroke="#f59e0b" stroke-width="2"/>
+  <text x="700" y="508" class="t center">Fehlbestand?</text><text x="700" y="537" class="x center">Cache oder Sprachbegriff</text>
+  <path class="flow" d="M815 485 H980"/><text x="870" y="468" class="x">ja</text>
+  <rect x="995" y="420" width="310" height="165" rx="18" fill="#fff4df" stroke="#f59e0b" stroke-width="2"/>
+  <text x="1020" y="458" class="t">Dialog „Kein Bestand“</text><text x="1020" y="492" class="b">Problem melden</text><text x="1020" y="520" class="b">Nachschub anfordern</text><text x="1020" y="548" class="b">oder zurückstellen</text><text x="1020" y="572" class="x">bewusste Auswahl</text>
+  <path class="flow" d="M700 605 V660 H980"/><text x="720" y="643" class="x">nein</text>
+  <path class="flow" d="M1150 585 V615"/><text x="1165" y="608" class="x">Problem melden</text>
+  <rect x="995" y="625" width="310" height="105" rx="18" fill="#e8f1ff" stroke="#3b82f6" stroke-width="2"/>
+  <text x="1020" y="664" class="t">Quality-Formular</text><text x="1020" y="694" class="b">Text · Priorität · Fotos</text><text x="1020" y="716" class="x">prüfen und bewusst absenden</text>
+  <path class="flow" d="M1320 678 H1435"/>
+  <rect x="1450" y="625" width="230" height="105" rx="18" fill="#e8f7ee" stroke="#22c55e" stroke-width="2"/>
+  <text x="1475" y="664" class="t">Ebene 5 beginnt</text><text x="1475" y="694" class="b">POST /quality-alerts</text><text x="1475" y="716" class="x">Odoo → Outbox → n8n</text>
+
+  <rect x="70" y="805" width="800" height="190" rx="18" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/>
+  <text x="100" y="845" class="t">Sicherheitslinie</text>
+  <text x="100" y="882" class="b">• Ollama darf nur erlaubte Labels liefern, keine freie Aktion.</text>
+  <text x="100" y="912" class="b">• Verneinung und sichtbare Seite werden danach erneut geprüft.</text>
+  <text x="100" y="942" class="b">• Quality-Formular offen: Voice erlaubt nur Pause oder Wiederholen.</text>
+  <text x="100" y="972" class="x">n8n ist an der Intent-Erkennung nicht beteiligt.</text>
+
+  <rect x="930" y="805" width="800" height="190" rx="18" fill="#fff7ed" stroke="#f97316" stroke-width="2"/>
+  <text x="960" y="845" class="t">Sicherer Fehlerfall · Live-Stand 08.08.2026</text>
+  <text x="960" y="882" class="b">Ollama-Timeout / ungültiges JSON → bisheriger Regelbefund bleibt.</text>
+  <text x="960" y="912" class="b">Live-Test: 1,5B-Laden lief bei zwei residenten 7B-Modellen ins 4-s-Limit.</text>
+  <text x="960" y="942" class="b">Ergebnis: ok=False · keine erfundene Aktion · kein Schreibzugriff.</text>
+  <text x="960" y="972" class="x">Der optionale Fallback ist damit keine Voraussetzung für den Picking-Pfad.</text>
+
+  <rect x="70" y="1035" width="1660" height="58" rx="14" fill="#eff6ff" stroke="#3b82f6" stroke-width="2"/>
+  <text x="900" y="1071" class="b center"><tspan font-weight="700">Lesereihenfolge:</tspan> Ebene 4 Voice → Ebene 7 Entscheidung → bei Absenden Ebene 5 Quality · Ebene 6 trägt alle drei technisch.</text>
+</svg>

@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1200" viewBox="0 0 1800 1200" role="img" aria-labelledby="title desc">
+  <title id="title">Ebene 9: Die komplette Mitarbeiterreise</title>
+  <desc id="desc">Storyboard vom Login über normales oder Cluster-Picking, optionale Voice- und Quality-Wege bis zum von Odoo bestätigten Abschluss und sicheren Wiederanlauf.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#334155"/></marker>
+    <style>
+      text{font-family:Arial,sans-serif;fill:#172033}.h{font-size:34px;font-weight:700}.s{font-size:17px;fill:#526173}.lane{font-size:22px;font-weight:700}.n{font-size:14px;font-weight:700;fill:#ffffff}.t{font-size:18px;font-weight:700}.b{font-size:14px}.x{font-size:12px;fill:#526173}.center{text-anchor:middle}.flow{stroke:#334155;stroke-width:3;fill:none;marker-end:url(#arrow)}.soft{stroke:#64748b;stroke-width:2.5;fill:none;marker-end:url(#arrow);stroke-dasharray:7 6}
+    </style>
+  </defs>
+  <rect width="1800" height="1200" fill="#ffffff"/>
+  <text x="70" y="62" class="h">Ebene 9 · Die komplette Mitarbeiterreise</text>
+  <text x="70" y="96" class="s">Ein roter Faden durch Login, Normal- oder Cluster-Picking, Voice, Quality, Abschluss und Recovery</text>
+  <rect x="1510" y="32" width="220" height="72" rx="16" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/>
+  <text x="1620" y="62" class="t center">100/100</text><text x="1620" y="88" class="x center">Review-Scorecard</text>
+
+  <rect x="55" y="130" width="1690" height="285" rx="22" fill="#eff6ff" stroke="#93c5fd" stroke-width="2"/>
+  <text x="85" y="170" class="lane">1 · Was Mira in der PWA erlebt</text>
+
+  <g>
+    <rect x="85" y="205" width="205" height="165" rx="16" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+    <text x="187" y="252" class="t center">1 · Anmelden</text>
+    <text x="187" y="284" class="b center">Instanz + Odoo-Benutzer</text>
+    <text x="187" y="310" class="x center">Sitzung und CSRF</text>
+    <text x="187" y="336" class="x center">serverseitig gebunden</text>
+  </g>
+  <path class="flow" d="M298 287 H310"/>
+  <g>
+    <rect x="320" y="205" width="205" height="165" rx="16" fill="#e0e7ff" stroke="#4f46e5" stroke-width="2"/>
+    <text x="422" y="252" class="t center">2 · Arbeit wählen</text>
+    <text x="422" y="284" class="b center">Normal oder Cluster</text>
+    <text x="422" y="310" class="x center">Liste / Vorschläge</text>
+    <text x="422" y="336" class="x center">noch keine Buchung</text>
+  </g>
+  <path class="flow" d="M533 287 H545"/>
+  <g>
+    <rect x="555" y="205" width="205" height="165" rx="16" fill="#ede9fe" stroke="#7c3aed" stroke-width="2"/>
+    <text x="657" y="252" class="t center">3 · Arbeit sichern</text>
+    <text x="657" y="284" class="b center">Claim oder Batch</text>
+    <text x="657" y="310" class="x center">Besitz wird geprüft</text>
+    <text x="657" y="336" class="x center">Konflikt → 409</text>
+  </g>
+  <path class="flow" d="M768 287 H780"/>
+  <g>
+    <rect x="790" y="205" width="205" height="165" rx="16" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+    <text x="892" y="252" class="t center">4 · Position picken</text>
+    <text x="892" y="284" class="b center">Touch · Scanner · Kamera</text>
+    <text x="892" y="310" class="x center">Barcode / Seriennummer</text>
+    <text x="892" y="336" class="x center">Cluster: Zielkarton</text>
+  </g>
+  <path class="flow" d="M1003 287 H1015"/>
+  <g>
+    <rect x="1025" y="205" width="205" height="165" rx="16" fill="#fce7f3" stroke="#db2777" stroke-width="2"/>
+    <text x="1127" y="252" class="t center">5 · Optional helfen</text>
+    <text x="1127" y="284" class="b center">Voice oder Problem</text>
+    <text x="1127" y="310" class="x center">keine Nebenlogik</text>
+    <text x="1127" y="336" class="x center">bewusste Aktion nötig</text>
+  </g>
+  <path class="flow" d="M1238 287 H1250"/>
+  <g>
+    <rect x="1260" y="205" width="205" height="165" rx="16" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+    <text x="1362" y="252" class="t center">6 · Abschluss</text>
+    <text x="1362" y="284" class="b center">Odoo validiert</text>
+    <text x="1362" y="310" class="x center">nur bestätigt = grün</text>
+    <text x="1362" y="336" class="x center">sonst neu laden</text>
+  </g>
+  <path class="flow" d="M1473 287 H1485"/>
+  <g>
+    <rect x="1495" y="205" width="205" height="165" rx="16" fill="#f1f5f9" stroke="#64748b" stroke-width="2"/>
+    <text x="1597" y="252" class="t center">7 · Weiter / Logout</text>
+    <text x="1597" y="284" class="b center">nächster Auftrag</text>
+    <text x="1597" y="310" class="x center">Claim freigeben</text>
+    <text x="1597" y="336" class="x center">Sitzung widerrufen</text>
+  </g>
+
+  <rect x="55" y="440" width="1690" height="300" rx="22" fill="#fafafa" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="85" y="480" class="lane">2 · Alternative Hauptwege und optionale Abzweigungen</text>
+  <rect x="85" y="520" width="385" height="170" rx="16" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+  <text x="277" y="555" class="t center">A · Normaler Auftrag</text>
+  <text x="277" y="587" class="b center">Claim → Detail → confirm-line</text>
+  <text x="277" y="615" class="b center">Heartbeat während der Bearbeitung</text>
+  <text x="277" y="643" class="x center">letzte Position → Odoo-Auftragsvalidierung</text>
+  <text x="277" y="668" class="x center">Ebene 2</text>
+
+  <rect x="495" y="520" width="385" height="170" rx="16" fill="#ede9fe" stroke="#7c3aed" stroke-width="2"/>
+  <text x="687" y="555" class="t center">B · Cluster-Picking</text>
+  <text x="687" y="587" class="b center">2–8 Aufträge → Batch + Zielkartons</text>
+  <text x="687" y="615" class="b center">gemeinsame Route → confirm-line</text>
+  <text x="687" y="643" class="x center">eigener validate-Endpunkt für den Batch</text>
+  <text x="687" y="668" class="x center">Ebene 3</text>
+
+  <rect x="905" y="520" width="385" height="170" rx="16" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+  <text x="1097" y="555" class="t center">C · Voice-Hilfe</text>
+  <text x="1097" y="587" class="b center">Audio → Whisper → sichere Intent-Regeln</text>
+  <text x="1097" y="615" class="b center">Ollama nur als begrenztes Fallback</text>
+  <text x="1097" y="643" class="x center">Schreibaktion nutzt denselben Picking-Pfad</text>
+  <text x="1097" y="668" class="x center">Ebenen 4 und 7</text>
+
+  <rect x="1315" y="520" width="385" height="170" rx="16" fill="#fce7f3" stroke="#db2777" stroke-width="2"/>
+  <text x="1507" y="555" class="t center">D · Quality-Problem</text>
+  <text x="1507" y="587" class="b center">Dialog → bewusst absenden → Odoo</text>
+  <text x="1507" y="615" class="b center">Outbox → n8n → lokale KI → Callback</text>
+  <text x="1507" y="643" class="x center">Meldung sicher, Bewertung asynchron</text>
+  <text x="1507" y="668" class="x center">Ebene 5</text>
+
+  <rect x="55" y="765" width="1690" height="260" rx="22" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
+  <text x="85" y="805" class="lane">3 · Was darunter die Wahrheit schützt</text>
+
+  <rect x="90" y="850" width="245" height="120" rx="16" fill="#e0f2fe" stroke="#0284c7" stroke-width="2"/>
+  <text x="212" y="885" class="t center">PWA</text><text x="212" y="917" class="b center">zeigt und bedient</text><text x="212" y="944" class="x center">kein lokaler Fachabschluss</text>
+  <path class="flow" d="M345 910 H405"/>
+  <rect x="420" y="835" width="285" height="150" rx="16" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+  <text x="562" y="875" class="t center">FastAPI</text><text x="562" y="907" class="b center">prüft Sitzung, Besitz, Intent</text><text x="562" y="934" class="b center">und Idempotenz</text><text x="562" y="961" class="x center">vermittelt alle Integrationen</text>
+  <path class="flow" d="M715 910 H775"/>
+  <rect x="790" y="825" width="305" height="170" rx="16" fill="#dcfce7" stroke="#16a34a" stroke-width="3"/>
+  <text x="942" y="865" class="t center">Odoo · System of Record</text><text x="942" y="899" class="b center">Auftrag · Bestand · Claim · Batch</text><text x="942" y="927" class="b center">Alert · Outbox · Abschluss</text><text x="942" y="958" class="x center">bestätigter Zustand gewinnt</text>
+
+  <rect x="1135" y="835" width="245" height="150" rx="16" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+  <text x="1257" y="870" class="t center">Voice-Dienste</text><text x="1257" y="902" class="b center">Whisper · Ollama · Piper</text><text x="1257" y="930" class="x center">verstehen / helfen / sprechen</text><text x="1257" y="957" class="x center">entscheiden keinen Bestand</text>
+  <path class="soft" d="M650 835 V818 H1257 V825"/>
+
+  <rect x="1420" y="835" width="280" height="150" rx="16" fill="#fce7f3" stroke="#db2777" stroke-width="2"/>
+  <text x="1560" y="870" class="t center">Quality-Automation</text><text x="1560" y="902" class="b center">Outbox · n8n · lokale KI</text><text x="1560" y="930" class="x center">asynchron und wiederholbar</text><text x="1560" y="957" class="x center">Callback zurück nach Odoo</text>
+  <path class="soft" d="M1010 995 V1010 H1560 V995"/>
+
+  <rect x="55" y="1050" width="820" height="105" rx="18" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/>
+  <text x="80" y="1083" class="t">Sicherer Erfolg</text>
+  <text x="80" y="1113" class="b">Scanner, Touch und Voice sind Eingaben · FastAPI prüft · Odoo bestätigt und speichert.</text>
+  <text x="80" y="1138" class="x">Ein UI-Zustand ist niemals stärker als Odoos Antwort.</text>
+
+  <rect x="905" y="1050" width="840" height="105" rx="18" fill="#fff7ed" stroke="#f97316" stroke-width="2"/>
+  <text x="930" y="1083" class="t">Sicherer Wiederanlauf</text>
+  <text x="930" y="1113" class="b">Offline → kein Write · 401 → Login · 409 → Konflikt · Online/Resume → Serverstand neu laden.</text>
+  <text x="930" y="1138" class="x">Quality bleibt nach dem Absenden in Odoos Outbox; Watchdog und Backoff arbeiten im Hintergrund.</text>
+  <text x="900" y="1184" class="b center"><tspan font-weight="700">Roter Faden:</tspan> Ebene 9 verbindet die Ebenen 1–8, ohne ihre Detailerklärungen zu duplizieren.</text>
+</svg>

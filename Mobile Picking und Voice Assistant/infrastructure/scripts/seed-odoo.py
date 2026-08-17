@@ -37,6 +37,10 @@ ODOO_KWARG_KEYS = {
     "order",
 }
 
+# Nur lokale Seed-/Demo-Daten. In Produktion werden individuelle Passwoerter
+# oder API-Keys ausserhalb des Repositories verwaltet.
+DEMO_PASSWORD = "admin"
+
 
 def _normalize_execute_args(args, kwargs):
     normalized_args = list(args)
@@ -172,6 +176,8 @@ def main():
     parser.add_argument("--db", default="masterfischer_o19")
     parser.add_argument("--user", default="admin")
     parser.add_argument("--api-key", required=True)
+    parser.add_argument("--users-only", action="store_true",
+                        help="Nur Demo-Benutzer, Passwoerter und Picker-Rollen synchronisieren")
     parser.add_argument("--bom-mode", action="store_true",
                         help="BOM-basierte Pickings aus echten Produkten erstellen (loescht bestehende nicht-done Pickings)")
     parser.add_argument("--lego-seed", action="store_true",
@@ -221,20 +227,38 @@ def main():
             return
         group_user_id = group_user[0]["res_id"]
 
+        group_picker = execute(
+            "ir.model.data", "search_read",
+            [
+                ("module", "=", "picking_assistant_integration"),
+                ("name", "=", "group_picker"),
+            ],
+            {"fields": ["res_id"], "limit": 1},
+        )
+        if not group_picker:
+            print("  [WARN] Picker-Gruppe nicht gefunden - Demo-Benutzer werden uebersprungen.")
+            return
+        group_picker_id = group_picker[0]["res_id"]
+
         demo_users = [
-            ("Administrator", "admin"),
-            ("Lena Lager", "lena.lager"),
-            ("Max Picker", "max.picker"),
+            ("Administrator", "admin", False),
+            ("Lena Lager", "lena.lager", True),
+            ("Max Picker", "max.picker", True),
         ]
 
-        for name, login in demo_users:
+        for name, login, is_picker in demo_users:
             existing = execute(
                 "res.users", "search_read",
                 [("login", "=", login)],
                 {"fields": ["id", "name"], "limit": 1},
             )
             if existing:
-                print(f"  [=] existiert: {existing[0]['name']} (Login: {login}, ID: {existing[0]['id']})")
+                user_id = existing[0]["id"]
+                values = {"password": DEMO_PASSWORD}
+                if is_picker:
+                    values["group_ids"] = [(4, group_picker_id)]
+                execute("res.users", "write", [user_id], values)
+                print(f"  [=] synchronisiert: {existing[0]['name']} (Login: {login}, ID: {user_id})")
                 continue
 
             try:
@@ -245,12 +269,15 @@ def main():
                         "name": name,
                         "login": login,
                         "email": f"{login}@local.test",
-                        "password": "demo123",
+                        "password": DEMO_PASSWORD,
                         "company_id": company_id,
                         "company_ids": [(6, 0, [company_id])],
                         # Odoo 19: res.users.groups_id wurde zu group_ids umbenannt
                         # (all_group_ids ist der berechnete transitive Abschluss).
-                        "group_ids": [(6, 0, [group_user_id])],
+                        "group_ids": [(6, 0, [
+                            group_user_id,
+                            *([group_picker_id] if is_picker else []),
+                        ])],
                         "notification_type": "email",
                         "active": True,
                     },
@@ -296,6 +323,10 @@ def main():
                 print(f"  [OK] erstellt: {vals['name']} (ID: {partner_id})")
             partner_ids[index] = partner_id
         return partner_ids
+
+    if args.users_only:
+        ensure_demo_users()
+        return
 
     if args.lego_seed:
         seed_lego(execute)

@@ -58,16 +58,30 @@ async function mockClusterApi(page, options = {}) {
     });
 
     if (path === '/api/cluster/suggestions' && method === 'GET') {
-      return json(200, [{
-        zone: 'Lager Links', picking_ids: [1001, 1002],
-        order_count: 2, line_count: 2,
-        picking_names: ['WH/INT/00007', 'WH/INT/00008'],
-        delivery_date: '2026-07-09',
-        score: 85,
-        reasons: ['Ausliefertag 2026-07-09', 'Zone Lager Links', '1 gemeinsame Produkte'],
-        warnings: ['2 Aufträge sind gültig, empfohlen sind 4-8.'],
-        product_overlap_count: 1,
-      }]);
+      return json(200, [
+        {
+          zone: 'Lager Links', picking_ids: [1001, 1002],
+          order_count: 2, line_count: 2,
+          picking_names: ['WH/INT/00007', 'WH/INT/00008'],
+          delivery_date: '2026-07-09', score: 85,
+          reasons: ['Ausliefertag 2026-07-09', 'Zone Lager Links', '1 gemeinsame Produkte'],
+          warnings: ['2 Aufträge sind gültig, empfohlen sind 4-8.'], product_overlap_count: 1,
+        },
+        {
+          zone: 'Lager Rechts', picking_ids: [1003, 1004],
+          order_count: 2, line_count: 5,
+          picking_names: ['WH/INT/00009', 'WH/INT/00010'],
+          delivery_date: '2026-07-09', score: 75,
+          reasons: ['Ausliefertag 2026-07-09', 'Zone Lager Rechts'], warnings: [], product_overlap_count: 0,
+        },
+        {
+          zone: 'Hochregal', picking_ids: [1005, 1006],
+          order_count: 2, line_count: 4,
+          picking_names: ['WH/INT/00011', 'WH/INT/00012'],
+          delivery_date: '2026-07-10', score: 70,
+          reasons: ['Ausliefertag 2026-07-10', 'Zone Hochregal'], warnings: [], product_overlap_count: 0,
+        },
+      ]);
     }
     if (path === '/api/cluster/batches' && method === 'POST') {
       return json(200, batchPayload());
@@ -98,9 +112,11 @@ async function mockClusterApi(page, options = {}) {
 
 async function enterCluster(page) {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Lena Lager' }).click();
+  await page.locator('#login-user').fill('lena.lager');
+  await page.locator('#login-password').fill('admin');
+  await page.locator('#login-submit').click();
   await page.locator('[data-cluster-start]').first().click();
-  await expect(page.getByText('Batch zusammenstellen')).toBeVisible();
+  await expect(page.getByText('Cluster zusammenstellen')).toBeVisible();
 }
 
 // #8: Wizard / pending_action: validate returns pending_action -> error toast, button re-enabled.
@@ -123,7 +139,7 @@ test('Cluster-Validate: pending_action wizard zeigt Fehler-Toast und entsperrt B
   });
 
   await enterCluster(page);
-  await page.getByRole('button', { name: 'Übernehmen' }).first().click();
+  await page.getByRole('button', { name: 'Vorschlag wählen' }).first().click();
   await page.locator('[data-cluster-confirm]').click();
 
   // Mark all lines as done so the validate button is enabled.
@@ -152,7 +168,7 @@ test('Cluster-Flow: Auswahl -> Rundgang -> Serial -> Abschluss', async ({ page }
   await enterCluster(page);
 
   // Vorschlag uebernehmen -> beide Auftraege ausgewaehlt
-  await page.getByRole('button', { name: 'Übernehmen' }).first().click();
+  await page.getByRole('button', { name: 'Vorschlag wählen' }).first().click();
   const startBtn = page.locator('[data-cluster-confirm]');
   await expect(startBtn).toContainText('(2/8)');
 
@@ -196,7 +212,7 @@ test('Cluster-Karton: falscher Karton warnt und blockiert, richtiger geht durch'
   const cluster = await mockClusterApi(page);
 
   await enterCluster(page);
-  await page.getByRole('button', { name: 'Übernehmen' }).first().click();
+  await page.getByRole('button', { name: 'Vorschlag wählen' }).first().click();
   await page.locator('[data-cluster-confirm]').click();
 
   // Position 5001 (Auftrag 1001) bestaetigen, aber FALSCHEN Karton (Auftrag 1002) tippen
@@ -218,15 +234,31 @@ test('Cluster-Karton: falscher Karton warnt und blockiert, richtiger geht durch'
   expect(reqs[0]).toMatchObject({ move_line_id: 5001, scanned_package: 'CLUSTER-B1/WH/INT/00007' });
 });
 
-test('Cluster-Auswahl sperrt Einzelauftrag', async ({ page }) => {
+test('Cluster-Vorschlag kann ausgewählt und wieder entfernt werden', async ({ page }) => {
   await mockPwaApi(page);
   await mockClusterApi(page);
 
   await enterCluster(page);
-  await page.locator('[data-cluster-pick-id]').first().click();
-
+  const firstSuggestion = page.locator('[data-suggestion-index="0"]');
+  await firstSuggestion.getByRole('button').click();
+  await expect(firstSuggestion).toHaveClass(/cluster-suggestion--selected/);
+  await expect(page.locator('[data-cluster-confirm]')).toContainText('(2/8)');
+  await firstSuggestion.getByRole('button').click();
+  await expect(firstSuggestion).not.toHaveClass(/cluster-suggestion--selected/);
   await expect(page.locator('[data-cluster-confirm]')).toBeDisabled();
-  await expect(page.getByText(/Mindestens 2/i)).toBeVisible();
+});
+
+test('mehrere kompatible Vorschläge werden kombiniert und anderer Liefertag gesperrt', async ({ page }) => {
+  await mockPwaApi(page);
+  await mockClusterApi(page);
+  await enterCluster(page);
+
+  await page.locator('[data-suggestion-index="0"] button').click();
+  await page.locator('[data-suggestion-index="1"] button').click();
+
+  await expect(page.locator('[data-cluster-confirm]')).toContainText('(4/8)');
+  await expect(page.locator('[data-suggestion-index="2"] button')).toBeDisabled();
+  await expect(page.locator('[data-suggestion-index="2"] button')).toHaveText('Anderer Liefertag');
 });
 
 test('Cluster-Vorschlag zeigt fachliche Gruende', async ({ page }) => {
@@ -235,9 +267,11 @@ test('Cluster-Vorschlag zeigt fachliche Gruende', async ({ page }) => {
 
   await enterCluster(page);
 
-  await expect(page.getByText(/Ausliefertag/i)).toBeVisible();
-  await expect(page.getByText(/gemeinsame Produkte/i)).toBeVisible();
-  await expect(page.getByText(/separate Kartons/i)).toBeVisible();
+  await expect(page.getByText(/Ausliefertag/i).first()).toBeVisible();
+  await expect(page.getByText(/gemeinsame Produkte/i).first()).toBeVisible();
+  await expect(page.getByText(/separater Karton/i)).toBeVisible();
+  await expect(page.getByText('Vorschlag 1')).toBeVisible();
+  await expect(page.getByText('Offene Aufträge')).toHaveCount(0);
 });
 
 test('Cluster-Karton: fehlender Zielkarton blockiert Confirm', async ({ page }) => {
@@ -245,7 +279,7 @@ test('Cluster-Karton: fehlender Zielkarton blockiert Confirm', async ({ page }) 
   const cluster = await mockClusterApi(page, { missingFirstPackage: true });
 
   await enterCluster(page);
-  await page.getByRole('button', { name: 'Übernehmen' }).first().click();
+  await page.getByRole('button', { name: 'Vorschlag wählen' }).first().click();
   await page.locator('[data-cluster-confirm]').click();
 
   await page.locator('[data-stop-confirm="5001"]').click();

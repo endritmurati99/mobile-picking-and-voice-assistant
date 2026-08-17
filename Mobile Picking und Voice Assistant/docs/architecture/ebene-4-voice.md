@@ -10,10 +10,10 @@ Die PWA nimmt eine kurze Äußerung auf und sendet Audio plus den sichtbaren
 Arbeitskontext an FastAPI. FastAPI wandelt das Audio über Whisper in Text um
 und erkennt daraus einen erlaubten Befehl.
 
-Unklare oder riskante Schreibbefehle müssen bestätigt werden. Eine echte
-Positionsbuchung läuft danach durch denselben FastAPI- und Odoo-Pfad wie bei
-Touch. Antworten spricht bevorzugt Piper; bei kurzen Texten oder Fehlern kann
-der Browser selbst sprechen.
+`confirm_all` und unsichere Schreibbefehle müssen bestätigt werden. Ein sicher
+erkanntes einzelnes `confirm` darf direkt weiterlaufen. Jede echte
+Positionsbuchung nutzt denselben FastAPI- und Odoo-Pfad wie bei Touch. Die PWA
+spricht kurze Texte im Browser und ruft für längere Texte bevorzugt Piper auf.
 
 > **Merksatz:** Whisper hört, FastAPI versteht und prüft, Piper spricht – Odoo
 > bleibt für Lagerbuchungen zuständig.
@@ -27,16 +27,20 @@ Die [Excalidraw-Quelldatei](./ebene-4-voice.excalidraw) ist editierbar. Die
 
 ## Das geprüfte LEGO-Beispiel
 
-Die PWA zeigt im realen Auftrag `WH/INT/00360` für das Modell „Ente Henri“ die
-Position „1 × Brick 2x2 pink“ am Platz `L-E1-P2`. Der Mitarbeiter sagt:
+Der rein lesende Review vom 8. August 2026 fand im laufenden Odoo den offenen
+Auftrag `WH/OUT/00050` für das Modell „Ente Henri“. Die von der aktuellen
+Routenlogik zuerst angezeigte Position lautet „1 × Brick 2x2x2 R=15 gelb“ am
+Platz `Regal A-01`. Der Mitarbeiter sagt:
 
 ```text
 „Position bestätigen“
 ```
 
-Whisper liefert Text. Die Intent-Erkennung erkennt `confirm`. Weil dies eine
-Lagerbuchung auslöst, fragt die PWA bei zu geringer Sicherheit noch einmal
-nach. Nach „Ja“ nutzt sie denselben `confirm-line`-Endpunkt wie der Touchknopf.
+Whisper liefert Text. Die Intent-Erkennung erkennt `confirm`. Bei einer
+Konfidenz unter `0,90`, aber mindestens `0,73`, fragt die PWA noch einmal nach.
+Nach „Ja“ nutzt sie denselben `confirm-line`-Endpunkt wie der Touchknopf. Ein
+exakter Treffer wie „Position bestätigen“ erreicht aktuell `0,95` und läuft
+ohne zusätzliche Rückfrage weiter.
 
 ## Schritt 1: Aufnahme starten
 
@@ -45,9 +49,14 @@ Der Voice-Knopf unterstützt zwei Bedienweisen:
 - kurzer Klick: Hands-free-Modus ein- oder ausschalten,
 - längerer Druck: Push-to-Talk.
 
-Die PWA fordert ein Mono-Mikrofon mit Echo- und Rauschunterdrückung an. Sie
-beendet die Aufnahme bei Stille oder spätestens nach zehn Sekunden. Sehr kurze
-Geräusche werden verworfen.
+Die PWA fordert ein Mono-Mikrofon mit Echo- und Rauschunterdrückung an. Im
+Hands-free-Modus beendet sie die Aufnahme nach erkannter Sprache bei 550 ms
+Stille oder spätestens nach zehn Sekunden. Ohne Sprache endet der Zyklus nach
+sechs Sekunden; weniger als 100 ms erkannte Sprache werden verworfen.
+
+Push-to-Talk folgt bewusst einer anderen Regel: Die Aufnahme läuft bis zum
+Loslassen. Dafür gelten aktuell weder die automatische Zehn-Sekunden-Grenze
+noch die Hands-free-Prüfung für Stille und sehr kurze Geräusche.
 
 ## Schritt 2: Audio und Kontext senden
 
@@ -55,11 +64,16 @@ Geräusche werden verworfen.
 POST /api/voice/recognize
 ```
 
-Neben dem Audio sendet die PWA nur den nötigen UI-Kontext, zum Beispiel:
+Neben dem Audio sendet die PWA genau vier UI-Kontextfelder:
 
-- aktuelle Oberfläche,
-- sichtbare Auftragsposition,
-- Anzahl der verbleibenden Positionen.
+- `context`: `awaiting_command` oder `idle`,
+- `surface`: zum Beispiel `detail`, `list`, `quality_alert` oder `complete`,
+- `remaining_line_count`: Zahl der danach verbleibenden Positionen,
+- `active_line_present`: ob gerade eine Position aktiv ist.
+
+Die konkrete Picking-, Positions- oder Produkt-ID gehört nicht zu
+`/voice/recognize`. Der getrennte Assist-Aufruf überträgt diese IDs erst dann,
+wenn eine ausdrückliche Bestandsfrage lokalen Odoo-Kontext benötigt.
 
 So kann „weiter“ auf der Detailseite anders behandelt werden als auf der
 Anmeldeseite.
@@ -73,9 +87,10 @@ Mono-WAV mit 16 kHz um. Danach ruft es den internen Whisper-Dienst auf:
 FastAPI → POST http://whisper:9000/asr
 ```
 
-Whisper transkribiert auf Deutsch mit einem kurzen Lager-Domänenhinweis.
-Segmente, die sehr wahrscheinlich nur Stille oder Halluzination sind, werden
-verworfen.
+Whisper transkribiert auf Deutsch mit einem kurzen Lager-Domänenhinweis. Meldet
+mindestens ein Segment eine `no_speech_prob` von `0,60` oder mehr, verwirft der
+Whisper-Client das gesamte Transkript. Bei Whisper-Fehlern liefert er ebenfalls
+einen leeren Text zurück. In beiden Fällen erfolgt sicher keine Aktion.
 
 ## Schritt 4: Einen erlaubten Intent erkennen
 
@@ -130,8 +145,9 @@ absichtlich lesend.
 
 ## Schritt 6: Antwort sprechen
 
-Kurze Texte kann die Browserfunktion `speechSynthesis` direkt ausgeben.
-Längere Texte sendet die PWA bevorzugt an:
+Die PWA entscheidet über den Ausgabeweg. Texte bis einschließlich 24 Zeichen
+gibt sie direkt mit der Browserfunktion `speechSynthesis` aus. Längere Texte
+sendet sie bevorzugt an:
 
 ```text
 POST /api/voice/tts → FastAPI → Piper
@@ -148,9 +164,11 @@ als neuen Befehl versteht.
 ## Fehler und sichere Rückfälle
 
 - Kein Mikrofon oder keine Berechtigung: Touch, Scanner und Kamera bleiben da.
-- Leere oder verrauschte Aufnahme: keine Aktion.
-- Whisper nicht erreichbar: verständliche Fehlermeldung, keine Buchung.
-- Unbekannter Intent: Rückfrage oder Abbruch.
+- Leere oder verrauschte Hands-free-Aufnahme: keine Aktion, nächster Hörzyklus.
+- Whisper nicht erreichbar oder Transkript verworfen: keine Aktion und keine
+  Buchung; der aktuelle Voice-Loop erzeugt dafür noch keine akustische Meldung.
+- Unbekannter Intent mit Transkript: hörbare Meldung „Nicht verstanden“, keine
+  Aktion.
 - Ollama nicht erreichbar: deterministische Erkennung bleibt maßgeblich.
 - Piper nicht erreichbar: Browser-TTS übernimmt.
 - Odoo lehnt eine Buchung ab: kein falscher Erfolgszustand.
@@ -167,11 +185,32 @@ als neuen Befehl versteht.
 - `backend/app/services/piper_client.py`: Piper-Zugriff
 - `backend/app/services/voice_intent_classifier.py`: optionaler Ollama-Fallback
 
+## Review-Scorecard
+
+Stand: 8. August 2026. Bewertet wurde die überarbeitete Darstellung gegen die
+PWA-Aufnahme- und TTS-Logik, FastAPI-Routen, Whisper-, Piper- und
+Intent-Services sowie den normalen Picking-Schreibpfad bis Odoo.
+
+| Kriterium | Punkte |
+| --- | ---: |
+| Ablaufabdeckung | 20/20 |
+| Verbindungs- und Endpunktgenauigkeit | 20/20 |
+| Übereinstimmung mit aktuellem Code und Laufzeit | 20/20 |
+| Verständlichkeit | 20/20 |
+| Angemessene Detailtiefe | 20/20 |
+| **Gesamt** | **100/100** |
+
+Belegt sind 38 erfolgreiche Voice-Frontendtests, erreichbare Whisper-, Piper-
+und Ollama-Dienste, eine erfolgreiche Piper-WAV-Erzeugung und der rein lesend
+geprüfte Odoo-Auftrag `WH/OUT/00050`. Die Scorecard bewertet die korrekte
+Architekturdarstellung. Im Review wurde bewusst keine Lagerbuchung ausgelöst.
+
 ## Kurz zusammengefasst
 
-1. Die PWA nimmt kurz Audio auf.
+1. Die PWA nimmt Audio per Hands-free oder Push-to-Talk auf.
 2. Whisper liefert deutschen Text.
 3. FastAPI erkennt nur kontextuell erlaubte Intents.
-4. Schreibaktionen erhalten Rückfragen und normale Backend-Prüfungen.
+4. `confirm_all` und unsichere Schreibaktionen erhalten Rückfragen; jede
+   Buchung durchläuft die normalen Backend-Prüfungen.
 5. Piper oder der Browser spricht die Antwort.
 6. Touch und Scanner bleiben jederzeit verfügbar.

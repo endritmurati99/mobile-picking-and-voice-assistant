@@ -78,13 +78,16 @@ test('filters locally by search, urgency and preferred zone', async ({ page }) =
   await expect(page.locator('#task-counter')).toHaveText('1 Aufgabe offen');
 });
 
-test('toggles high contrast mode from the header', async ({ page }) => {
+test('toggles and remembers dark mode from the header', async ({ page }) => {
   await mockPwaApi(page);
 
   await page.goto('/');
   await choosePicker(page);
 
-  await expect(page.locator('body')).not.toHaveClass(/high-contrast/);
-  await page.locator('#high-contrast-toggle').click();
-  await expect(page.locator('body')).toHaveClass(/high-contrast/);
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await page.locator('#theme-toggle').click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(page.locator('#theme-toggle')).toHaveAttribute('aria-pressed', 'true');
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 });

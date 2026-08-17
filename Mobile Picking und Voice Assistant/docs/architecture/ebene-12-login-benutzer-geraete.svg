@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
+  <title id="title">Ebene 12: Login, Benutzer und Geräte</title>
+  <desc id="desc">Der Loginpfad von Lagergerät und Admin-PC über PWA, Caddy und FastAPI zu Odoo sowie die lokalen Demo-Benutzer.</desc>
+  <defs>
+    <style>
+      .bg{fill:#f5f7fb}.card{fill:#fff;stroke:#d8deea;stroke-width:2}.blue{fill:#edf2ff;stroke:#365cff;stroke-width:3}.green{fill:#eaf8f1;stroke:#198754;stroke-width:3}.amber{fill:#fff7df;stroke:#c58a00;stroke-width:3}.red{fill:#fff0f0;stroke:#dc4c5d;stroke-width:3}.title{font:700 38px Arial,sans-serif;fill:#111c34}.h{font:700 24px Arial,sans-serif;fill:#111c34}.t{font:18px Arial,sans-serif;fill:#34415d}.small{font:16px Arial,sans-serif;fill:#55627a}.mono{font:700 17px monospace;fill:#23345d}.arrow{stroke:#365cff;stroke-width:5;fill:none;marker-end:url(#head)}.dash{stroke:#9aa6ba;stroke-width:2;stroke-dasharray:9 8;fill:none}
+    </style>
+    <marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#365cff"/></marker>
+  </defs>
+  <rect class="bg" width="1600" height="1000"/>
+  <text class="title" x="70" y="75">Ebene 12 · Login, Benutzer und Geräte</text>
+  <text class="t" x="70" y="112">Gleiche Odoo-Zugangsdaten · getrennte Sitzungen · Rechte gehören Benutzern, nicht Rechnern</text>
+
+  <rect class="card" x="70" y="165" width="300" height="260" rx="24"/>
+  <text class="h" x="100" y="210">Lagergerät</text>
+  <text class="t" x="100" y="250">Smartphone · Tablet · Scanner</text>
+  <text class="mono" x="100" y="300">lena.lager / admin</text>
+  <text class="mono" x="100" y="335">max.picker / admin</text>
+  <text class="small" x="100" y="380">Zugang: PWA über HTTPS</text>
+  <text class="small" x="100" y="407">Rolle: picker</text>
+
+  <rect class="amber" x="70" y="480" width="300" height="260" rx="24"/>
+  <text class="h" x="100" y="525">Docker-/Admin-PC</text>
+  <text class="mono" x="100" y="580">admin / admin</text>
+  <text class="small" x="100" y="625">PWA über HTTPS</text>
+  <text class="small" x="100" y="655">Odoo-Web nur lokal im Dev-Overlay</text>
+  <text class="small" x="100" y="685">127.0.0.1:8069</text>
+  <text class="small" x="100" y="715">Adminrecht kommt vom Konto</text>
+
+  <rect class="blue" x="470" y="255" width="260" height="390" rx="24"/>
+  <text class="h" x="520" y="305">PWA + Caddy</text>
+  <text class="t" x="510" y="355">Loginformular</text>
+  <text class="t" x="510" y="390">Benutzer + Passwort</text>
+  <text class="t" x="510" y="425">gewählte Instanz</text>
+  <path class="dash" d="M510 458H690"/>
+  <text class="small" x="510" y="500">speichert kein Passwort</text>
+  <text class="small" x="510" y="535">erhält HttpOnly-Cookie</text>
+  <text class="small" x="510" y="570">hält CSRF-Token flüchtig</text>
+  <text class="small" x="510" y="605">device_id gibt keine Rolle</text>
+
+  <rect class="green" x="840" y="255" width="280" height="390" rx="24"/>
+  <text class="h" x="895" y="305">FastAPI</text>
+  <text class="mono" x="875" y="355">POST /auth/</text>
+  <text class="mono" x="875" y="382">picker-session</text>
+  <text class="t" x="875" y="430">prüft Origin + Drosselung</text>
+  <text class="t" x="875" y="465">fragt Odoo nach Identität</text>
+  <text class="t" x="875" y="500">erzeugt PWA-Sitzung</text>
+  <text class="t" x="875" y="535">bindet Instanz + Gerät</text>
+  <path class="dash" d="M875 570H1085"/>
+  <text class="small" x="875" y="610">keine Benutzer-Datenbank</text>
+
+  <rect class="red" x="1230" y="165" width="300" height="575" rx="24"/>
+  <text class="h" x="1295" y="210">Odoo 19</text>
+  <text class="t" x="1265" y="255">prüft Benutzer + Passwort</text>
+  <text class="t" x="1265" y="290">liefert Rollen</text>
+  <text class="t" x="1265" y="325">speichert PWA-Sitzung</text>
+  <path class="dash" d="M1265 360H1495"/>
+  <text class="mono" x="1265" y="405">admin</text>
+  <text class="small" x="1265" y="435">Systemadmin / API-Service</text>
+  <text class="mono" x="1265" y="485">lena.lager</text>
+  <text class="small" x="1265" y="515">picker</text>
+  <text class="mono" x="1265" y="565">max.picker</text>
+  <text class="small" x="1265" y="595">picker</text>
+  <path class="dash" d="M1265 630H1495"/>
+  <text class="small" x="1265" y="675">Passwort admin:</text>
+  <text class="small" x="1265" y="705">nur lokale Demo</text>
+
+  <path class="arrow" d="M370 300H470"/>
+  <path class="arrow" d="M370 605H470"/>
+  <path class="arrow" d="M730 450H840"/>
+  <path class="arrow" d="M1120 450H1230"/>
+
+  <rect class="card" x="470" y="800" width="660" height="125" rx="20"/>
+  <text class="h" x="505" y="845">Merksatz</text>
+  <text class="t" x="505" y="882">Der Rechner öffnet nur die Tür. Der angemeldete Odoo-Benutzer bestimmt die Rechte.</text>
+  <text class="small" x="505" y="910">Gleiche Zugangsdaten in PWA und Odoo – aber zwei getrennte, serverseitig geprüfte Sitzungen.</text>
+</svg>

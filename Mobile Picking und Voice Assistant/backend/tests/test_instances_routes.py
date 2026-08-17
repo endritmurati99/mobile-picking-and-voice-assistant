@@ -13,7 +13,7 @@ def test_list_instances_returns_local_without_secrets():
     names = {item["name"] for item in data}
     assert "local" in names
     local = next(item for item in data if item["name"] == "local")
-    assert local["display_name"] == "Lokal"
+    assert local["display_name"] == "Lager 1"
     # Keine Secrets/URLs leaken:
     for item in data:
         assert set(item.keys()) == {"name", "display_name"}

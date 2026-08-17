@@ -20,6 +20,24 @@ class PickerSessionLoginRequest(BaseModel):
         return value.lower()
 
 
+class InstanceSwitchRequest(BaseModel):
+    """Der Lagerwechsel kennt nur ein Feld -- alles andere steht in der Sitzung.
+
+    Kein `login`, kein `device_id`: beides aus dem Cookie zu nehmen ist nicht
+    nur kuerzer, es ist der Punkt. Ein Client, der hier einen Anmeldenamen
+    mitschicken duerfte, koennte sich in ein fremdes Konto wechseln.
+    """
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    odoo_instance: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+    @field_validator("odoo_instance")
+    @classmethod
+    def normalize_instance(cls, value: str) -> str:
+        return value.lower()
+
+
 @dataclass(frozen=True)
 class SessionTokenHint:
     version: str

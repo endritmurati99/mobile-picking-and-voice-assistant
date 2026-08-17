@@ -234,6 +234,7 @@ function createPickers() {
 async function mockPwaApi(page, options = {}) {
   const pickers = clone(options.pickers || createPickers());
   const instances = clone(options.instances || [{ name: 'local', display_name: 'Lager 1' }]);
+  let principal = null;
   let pickingsState = clone(options.pickings || createPickingList());
   let detailState = clone(options.detail || createPickingDetail());
   const confirmResponses = options.confirmResponses || [
@@ -259,9 +260,39 @@ async function mockPwaApi(page, options = {}) {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const pickerHeader = request.headers()['x-picker-user-id'];
-    const activePicker = pickers.find((picker) => String(picker.id) === String(pickerHeader)) || pickers[0];
+    const activePicker = principal
+      ? pickers.find((picker) => picker.id === principal.picker_user_id)
+      : pickers.find((picker) => String(picker.id) === String(pickerHeader)) || pickers[0];
 
-    if (path === '/api/health' && request.method() === 'GET') {
+    if (path === '/api/auth/instances' && request.method() === 'GET') {
+      return jsonResponse(route, 200, instances);
+    }
+
+    if (path === '/api/auth/me' && request.method() === 'GET') {
+      return principal
+        ? jsonResponse(route, 200, principal)
+        : jsonResponse(route, 401, { detail: 'Ungueltige oder abgelaufene Sitzung.' });
+    }
+
+    if (path === '/api/auth/picker-session' && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() || '{}');
+      const picker = pickers.find((item) => item.name === 'Lena Lager') || pickers[0];
+      principal = {
+        picker_user_id: picker.id,
+        picker_name: picker.name,
+        device_id: body.device_id,
+        odoo_instance: body.odoo_instance || 'local',
+        roles: ['picker'],
+        session_id: '00000000-0000-4000-8000-000000000001',
+        expires_at: '2026-08-14T08:00:00Z',
+      };
+      return jsonResponse(route, 200, {
+        principal,
+        csrf_token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      });
+    }
+
+    if ((path === '/api/health' || path === '/api/health/live') && request.method() === 'GET') {
       return jsonResponse(route, 200, { status: 'ok' });
     }
 
@@ -283,9 +314,6 @@ async function mockPwaApi(page, options = {}) {
     }
 
     if (path === '/api/pickings' && request.method() === 'GET') {
-      if (!pickerHeader) {
-        return jsonResponse(route, 400, { detail: 'X-Picker-User-Id ist erforderlich.' });
-      }
       pickingsRequests += 1;
       return jsonResponse(route, 200, pickingsState);
     }
@@ -299,17 +327,11 @@ async function mockPwaApi(page, options = {}) {
     }
 
     if (path === `/api/pickings/${detailState.id}` && request.method() === 'GET') {
-      if (!pickerHeader) {
-        return jsonResponse(route, 400, { detail: 'X-Picker-User-Id ist erforderlich.' });
-      }
       detailRequests += 1;
       return jsonResponse(route, 200, detailState);
     }
 
     if (/^\/api\/pickings\/\d+\/stock$/.test(path) && request.method() === 'GET') {
-      if (!pickerHeader) {
-        return jsonResponse(route, 400, { detail: 'X-Picker-User-Id ist erforderlich.' });
-      }
       const params = new URL(request.url()).searchParams;
       const productId = Number(params.get('product_id'));
       const locationId = Number(params.get('location_id'));
