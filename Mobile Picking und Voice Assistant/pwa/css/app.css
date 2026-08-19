@@ -4299,3 +4299,125 @@ body[data-view="cluster_walk"] .cluster-walk {
         transition: none;
     }
 }
+
+/* ==========================================================================
+   Mobile Dichte (19.08.2026)
+   --------------------------------------------------------------------------
+   Am iPhone belegten Kopfbereich und Ueberblickskarte rund zwei Drittel des
+   Bildschirms, bevor der erste Auftrag sichtbar wurde. Gemessen am Foto vom
+   Geraet: Picker-Chip, Begruessung, H1, Dauer-Suchfeld und DREI Zeilen
+   Filter-Chips. Fuer den Picker ist die Auftragsliste der Inhalt, alles
+   andere ist Rahmen -- das Verhaeltnis war genau verkehrt herum.
+
+   Zwei davon waren echte Fehler, keine Geschmacksfrage:
+   * #filter-chips hatte keine eigene Regel. Der Elternknoten scrollt zwar
+     waagerecht, der Innenknoten umbrach die Chips aber auf drei Zeilen, also
+     scrollte nie etwas.
+   * Der Suchknopf im Kopf setzt seit jeher `body[data-search-open]`, aber
+     kein einziges Stylesheet hat dieses Attribut je gelesen. Der Knopf war
+     wirkungslos, das Suchfeld dauerhaft sichtbar.
+   ========================================================================== */
+
+/* Gilt in jeder Breite: die Chips gehoeren in EINE scrollbare Zeile. */
+#filter-chips {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
+    align-items: center;
+}
+
+@media (max-width: 599px) {
+    #header {
+        padding: 10px 16px 8px;
+    }
+
+    .header-row--top {
+        margin-bottom: 10px;
+    }
+
+    /* Der Picker-Chip nennt den Namen bereits. Die Begruessung sagt daneben
+       dasselbe ein zweites Mal und kostet eine ganze Zeile. */
+    .greeting {
+        display: none;
+    }
+
+    h1.page-title {
+        font-size: 1.15rem;
+        letter-spacing: -0.01em;
+        line-height: 1.2;
+    }
+
+    /* Suchfeld nur auf Anforderung. Der Knopf dafuer ist vorhanden und
+       gesetzt, ihm fehlte bloss die Regel. */
+    .search-row {
+        display: none;
+        margin-top: 10px;
+    }
+
+    body[data-search-open="true"] .search-row {
+        display: flex;
+    }
+
+    .header-row--filters {
+        padding: 8px 16px;
+        margin: 0 -16px -8px;
+    }
+
+    /* Ueberblickskarte: Titel und Kennzahlen bleiben, der wiederholte Name
+       und der Erklaersatz fliegen raus. */
+    .queue-overview__meta,
+    .queue-overview__helper {
+        display: none;
+    }
+
+    .queue-overview__eyebrow {
+        font-size: 0.68rem;
+        letter-spacing: 0.14em;
+        margin-bottom: 2px;
+    }
+
+    .queue-overview__title {
+        font-size: 1.25rem;
+        line-height: 1.15;
+        margin-bottom: 10px;
+    }
+
+    /* Die drei Kennzahlen standen auf `min-width: 120px` und passten damit
+       nie nebeneinander auf ein Telefon -- sie liefen ueber den Kartenrand
+       hinaus. Zusaetzlich sind Beschriftung und Wert <span>, also inline:
+       das `margin-top` am Wert lief ins Leere und es stand "DRINGEND2"
+       ohne Trennung. Beides hier korrigiert. */
+    .queue-overview__stats {
+        gap: 8px;
+        margin-top: 10px;
+    }
+
+    .queue-stat {
+        min-width: 0;
+        flex: 1 1 0;
+        padding: 8px 10px;
+        text-align: center;
+    }
+
+    .queue-stat__label,
+    .queue-stat__value {
+        display: block;
+    }
+
+    .queue-stat__label {
+        font-size: 0.62rem;
+        letter-spacing: 0.1em;
+    }
+
+    .queue-stat__value {
+        margin-top: 2px;
+        font-size: 0.95rem;
+    }
+
+    /* Sprachstatus: im Ruhezustand sagt "Bereit" nichts und belegt eine
+       ganze Zeile im Kopf. Sichtbar wird die Anzeige erst, wenn sie etwas
+       zu melden hat -- zuhoeren, erkannt, unsicher, Antwort. */
+    .voice-status--idle {
+        display: none;
+    }
+}
