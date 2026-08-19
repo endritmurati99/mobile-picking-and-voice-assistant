@@ -6,8 +6,8 @@ erzeugt zwei Vektor-PDFs:
 
   * ``handy-start.pdf``            - Einseitiges Startblatt mit QR-Code,
                                      Anmeldedaten und Geräte-Hinweisen.
-  * ``simulationsbogen-lager2.pdf`` - Zweiseitiger Simulationsbogen, der den
-                                     physischen Regalrundgang ersetzt.
+  * ``kommissionierbogen-lager1.pdf`` - Kommissionierbogen mit allen Codes des
+                                     Sammelauftrags.
 
 Beispiel vom Projektroot aus (WSL, Docker-Integration aus):
 
@@ -18,8 +18,8 @@ Beispiel vom Projektroot aus (WSL, Docker-Integration aus):
       mobilepickingundvoiceassistant-odoo-1:/tmp/demo-sheets/handy-start.pdf \
       docs/testing/handy-start.pdf
     docker cp \
-      mobilepickingundvoiceassistant-odoo-1:/tmp/demo-sheets/simulationsbogen-lager2.pdf \
-      docs/testing/simulationsbogen-lager2.pdf
+      mobilepickingundvoiceassistant-odoo-1:/tmp/demo-sheets/kommissionierbogen-lager1.pdf \
+      docs/testing/kommissionierbogen-lager1.pdf
 
 Einzelne Bögen lassen sich über ``--sheet start`` bzw. ``--sheet simulation``
 und ``--output`` erzeugen; ohne Angabe werden beide geschrieben.
@@ -42,8 +42,8 @@ from reportlab.pdfgen import canvas as pdf_canvas
 
 # --------------------------------------------------------------------------
 # Stammdaten - hier und nur hier anpassen, wenn ein anderer Sammelauftrag
-# abgedeckt werden soll. Alle Werte stammen aus der Demonstrationsdatenbank
-# ``lager2_o19`` (Instanz "Lager 2").
+# abgedeckt werden soll. Alle Werte stammen aus der Datenbank
+# ``masterfischer_o19`` (Instanz "Lager 1").
 # --------------------------------------------------------------------------
 
 SHEET_DATE = "19.08.2026"
@@ -52,59 +52,65 @@ SHEET_DATE = "19.08.2026"
 PWA_URL = "https://172.22.147.158/"
 LOGIN_USER = "lena.lager"
 LOGIN_PASSWORD = "admin"
-LOGIN_WAREHOUSE = "Lager 2"
+LOGIN_WAREHOUSE = "Lager 1"
 
 # Abschnitt 1 - Halte in Rundgangsreihenfolge.
 # Die App sortiert die Halte nach Lagerplatzname, deshalb ist die Reihenfolge
 # dieser Liste identisch mit der Reihenfolge in der Anwendung.
 PICK_STOPS = [
     {
-        "location": "Regal A-01",
-        "barcode": "4006381333931",
-        "product": "Schraube M8x40",
-        "split": "10 in Karton 1, 25 in Karton 2, 6 in Karton 3",
-    },
-    {
-        "location": "Regal A-02",
-        "barcode": "4006381333948",
-        "product": "Mutter M8 DIN934",
-        "split": "10 in Karton 1, 25 in Karton 2, 6 in Karton 3",
-    },
-    {
         "location": "Regal B-01",
-        "barcode": "5901234123457",
-        "product": "Winkel 40x40",
-        "split": "5 in Karton 1",
+        "barcode": "4166960",
+        "product": "Brick 2x2 blau",
+        "split": "2 Stück in Karton 3",
+    },
+    {
+        "location": "Regal B-02",
+        "barcode": "6269088",
+        "product": "Brick 2x2 dot blau Propeller",
+        "split": "je 1 Stück in Karton 1, 2 und 4",
+    },
+    {
+        "location": "Regal C-01",
+        "barcode": "6294208",
+        "product": "Flower hellblau",
+        "split": "1 Stück in Karton 3",
     },
     {
         "location": "Regal C-02",
-        "barcode": "4006381334013",
-        "product": "Sechskantschraube M6",
-        "split": "10 in Karton 3",
+        "barcode": "343701",
+        "product": "Brick 2x2 weiß",
+        "split": "je 1 Stück in Karton 1, 2 und 4",
+    },
+    {
+        "location": "Regal C-02",
+        "barcode": "6096680",
+        "product": "Brick Round 2x2x2 weiß",
+        "split": "je 2 Stück in Karton 1, 2 und 4",
     },
 ]
 
-# Abschnitt 2 - Kartonetiketten.
-# Diese Namen vergibt Odoo selbst beim Start des Sammelauftrags nach dem Muster
-# CLUSTER-B{Nummer}/{Auftrag}; die Nummer folgt der aufsteigenden Auftrags-ID
-# (WH/OUT/00022 = ID 22, WH/OUT/00025 = ID 25, WH/OUT/00030 = ID 30).
+# Abschnitt 2 - Kartonetiketten. Die Nummer folgt der aufsteigenden
+# Auftrags-ID (47, 51, 53, 54); das System vergibt diese Namen beim Start
+# des Sammelauftrags selbst.
 CARTONS = [
-    {"label": "Karton 1", "picking": "WH/OUT/00022", "value": "CLUSTER-B1/WH/OUT/00022"},
-    {"label": "Karton 2", "picking": "WH/OUT/00025", "value": "CLUSTER-B2/WH/OUT/00025"},
-    {"label": "Karton 3", "picking": "WH/OUT/00030", "value": "CLUSTER-B3/WH/OUT/00030"},
+    {"label": "Karton 1", "picking": "WH/OUT/00047", "value": "CLUSTER-B1/WH/OUT/00047"},
+    {"label": "Karton 2", "picking": "WH/OUT/00051", "value": "CLUSTER-B2/WH/OUT/00051"},
+    {"label": "Karton 3", "picking": "WH/OUT/00053", "value": "CLUSTER-B3/WH/OUT/00053"},
+    {"label": "Karton 4", "picking": "WH/OUT/00054", "value": "CLUSTER-B4/WH/OUT/00054"},
 ]
 
-# Abschnitt 3 - Köder. Echte Artikel aus Lager 2, die aber zu keinem der drei
-# Aufträge dieses Sammelauftrags gehören.
+# Abschnitt 3 - Köder: gleiche Bauform, falsche Farbe. Genau die Verwechslung,
+# die im Betrieb passiert. Beide gehören zu keinem der vier Aufträge.
 DECOYS = [
-    {"barcode": "4006381333955", "product": "Unterlegscheibe M8"},
-    {"barcode": "7622210100528", "product": "Gewindestange M8"},
+    {"barcode": "343721", "product": "Brick 2x2 rot"},
+    {"barcode": "343724", "product": "Brick 2x2 gelb"},
 ]
 
 # Abschnitt 4 - Prüfliste.
 EXPECTED_RESULTS = [
-    "8 Positionen gebucht (4 Halte, davon 2 auf je drei Kartons verteilt).",
-    "3 Aufträge abgeschlossen: WH/OUT/00022, WH/OUT/00025, WH/OUT/00030.",
+    "11 Positionen gebucht (5 Halte, davon 3 auf je drei Kartons verteilt).",
+    "4 Aufträge abgeschlossen: WH/OUT/00047, 00051, 00053, 00054.",
     "Beide Köder abgewiesen - die App meldet \"falscher Artikel\".",
     "Kein Fehlschlag beim Kartonwechsel: jeder Kartoncode wird angenommen.",
 ]
@@ -421,8 +427,8 @@ def build_start_sheet():
         MARGIN + 6 * mm,
         48 * mm,
         [
-            "Die Barcode-Erkennung über die Kamera funktioniert nur unter Android mit Chrome.",
-            "Auf dem iPhone bleibt die manuelle Eingabe des Codes.",
+            "Die Barcode-Erkennung läuft über die Handykamera. Erkennt das Gerät einen Code",
+            "einmal nicht, lässt er sich im Scanner-Fenster auch von Hand eingeben.",
         ],
         size=9.5,
         leading=5.5 * mm,
@@ -465,16 +471,16 @@ def build_simulation_sheet():
     )
 
     # Abgesetzter Kasten: dieser Bogen ersetzt das Regal.
-    add_box(page_one, y=230 * mm, height=27 * mm, fill=RED_TINT, stroke=RED)
-    add_text(page_one, MARGIN + 6 * mm, 250 * mm, "ES GIBT KEIN PHYSISCHES REGAL", size=12, color=RED, font="Helvetica-Bold")
+    add_box(page_one, y=230 * mm, height=27 * mm, fill=BLUE_TINT, stroke=BLUE)
+    add_text(page_one, MARGIN + 6 * mm, 250 * mm, "SO ARBEITEN SIE DEN RUNDGANG AB", size=12, color=BLUE, font="Helvetica-Bold")
     add_lines(
         page_one,
         MARGIN + 6 * mm,
         243.5 * mm,
         [
-            "Lager 2 ist eine Demonstrationsdatenbank. Die hier genannten Lagerplätze existieren",
-            "nicht als Regal. Dieser Bogen ersetzt den Rundgang: Code ausdrucken oder auf einem",
-            "zweiten Bildschirm anzeigen und das Handy davorhalten - wie eine Entnahme aus dem Regal.",
+            "Die Halte stehen in der Reihenfolge, in der die App sie anzeigt. An jedem Halt zuerst den",
+            "Artikelcode scannen, danach den Karton, in den die Menge gehört. Sind mehrere Kartons",
+            "genannt, wiederholt sich der Kartonschritt je Karton.",
         ],
         size=9,
         leading=5 * mm,
@@ -504,7 +510,7 @@ def build_simulation_sheet():
         page_one,
         PAGE_WIDTH / 2,
         22 * mm,
-        "Seite 1 von 2 | A4, bei 100 Prozent drucken | Klartext unter dem Code entspricht exakt dem Scanwert",
+        "Seite 1 von 3 | A4, bei 100 Prozent drucken | Klartext unter dem Code entspricht exakt dem Scanwert",
         size=8,
         color=MUTED,
         anchor="middle",
@@ -539,23 +545,35 @@ def build_simulation_sheet():
     )
 
     label_height = 30 * mm
-    label_gap = 3 * mm
-    label_top = 228 * mm
+    label_gap = 6 * mm
+    label_top = 236 * mm
     for index, carton in enumerate(CARTONS):
         label_y = label_top - (index + 1) * label_height - index * label_gap
         used_symbologies.append(
             draw_carton_label(page_two, carton, y=label_y, height=label_height)
         )
 
-    # Abschnitt 3 - Negativtest
-    add_box(page_two, y=62 * mm, height=62 * mm, fill=ORANGE_TINT, stroke=ORANGE)
-    add_text(page_two, MARGIN + 6 * mm, 117 * mm, "3  NEGATIVTEST - MUSS ABGEWIESEN WERDEN", size=13, color=ORANGE, font="Helvetica-Bold")
-    add_lines(
+    add_text(
         page_two,
+        PAGE_WIDTH / 2,
+        11 * mm,
+        "Seite 2 von 3 | A4, bei 100 Prozent drucken | Klartext unter dem Code entspricht exakt dem Scanwert",
+        size=8,
+        color=MUTED,
+        anchor="middle",
+    )
+
+    page_three = new_page()
+
+    # Abschnitt 3 - Negativtest
+    add_box(page_three, y=62 * mm, height=62 * mm, fill=ORANGE_TINT, stroke=ORANGE)
+    add_text(page_three, MARGIN + 6 * mm, 117 * mm, "3  NEGATIVTEST - MUSS ABGEWIESEN WERDEN", size=13, color=ORANGE, font="Helvetica-Bold")
+    add_lines(
+        page_three,
         MARGIN + 6 * mm,
         110.5 * mm,
         [
-            "Beide Artikel gibt es wirklich in Lager 2, sie gehören aber nicht zu diesem Sammelauftrag.",
+            "Beide Artikel gibt es wirklich im Lager, sie gehören aber nicht zu diesem Sammelauftrag.",
             "Genau diese Verwechslung passiert im Betrieb - die App MUSS beide zurückweisen.",
         ],
         size=9,
@@ -568,15 +586,15 @@ def build_simulation_sheet():
     for index, decoy in enumerate(DECOYS):
         decoy_x = decoy_left + index * (decoy_width + 5 * mm)
         used_symbologies.append(
-            draw_decoy_card(page_two, decoy, x=decoy_x, y=63 * mm, width=decoy_width, height=38 * mm)
+            draw_decoy_card(page_three, decoy, x=decoy_x, y=63 * mm, width=decoy_width, height=38 * mm)
         )
 
     # Abschnitt 4 - Erwartetes Ergebnis
-    add_box(page_two, y=17 * mm, height=41 * mm, fill=GREEN_TINT, stroke=GREEN)
-    add_text(page_two, MARGIN + 6 * mm, 51 * mm, "4  ERWARTETES ERGEBNIS", size=13, color=GREEN, font="Helvetica-Bold")
+    add_box(page_three, y=17 * mm, height=41 * mm, fill=GREEN_TINT, stroke=GREEN)
+    add_text(page_three, MARGIN + 6 * mm, 51 * mm, "4  ERWARTETES ERGEBNIS", size=13, color=GREEN, font="Helvetica-Bold")
     for index, entry in enumerate(EXPECTED_RESULTS):
         row_y = 42 * mm - index * 6.5 * mm
-        page_two.add(
+        page_three.add(
             Rect(
                 MARGIN + 7 * mm,
                 row_y - 1 * mm,
@@ -587,18 +605,18 @@ def build_simulation_sheet():
                 strokeWidth=1.0,
             )
         )
-        add_text(page_two, MARGIN + 15 * mm, row_y, entry, size=10, color=INK)
+        add_text(page_three, MARGIN + 15 * mm, row_y, entry, size=10, color=INK)
 
     add_text(
-        page_two,
+        page_three,
         PAGE_WIDTH / 2,
         11 * mm,
-        "Seite 2 von 2 | A4, bei 100 Prozent drucken | Artikelcodes EAN-13, Kartonetiketten Code128",
+        "Seite 3 von 3 | A4, bei 100 Prozent drucken | alle Codes Code128",
         size=8,
         color=MUTED,
         anchor="middle",
     )
-    return [page_one, page_two], used_symbologies
+    return [page_one, page_two, page_three], used_symbologies
 
 
 def draw_pick_card(page, stop, *, number: int, y: float, height: float) -> tuple:
@@ -728,7 +746,7 @@ def write_pages(pages, output: Path, title: str) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Startblatt und Simulationsbogen für den Handytest in Lager 2 erzeugen."
+        description="Startblatt und Kommissionierbogen für den Sammelauftrag in Lager 1 erzeugen."
     )
     parser.add_argument(
         "--sheet",
@@ -761,9 +779,9 @@ def main() -> None:
         write_pages(build_start_sheet(), target, "Handy-Start Lager 2")
         targets.append(target)
     if args.sheet in ("simulation", "both"):
-        target = args.output if args.sheet == "simulation" and args.output else args.output_dir / "simulationsbogen-lager2.pdf"
+        target = args.output if args.sheet == "simulation" and args.output else args.output_dir / "kommissionierbogen-lager1.pdf"
         pages, symbologies = build_simulation_sheet()
-        write_pages(pages, target, "Simulationsbogen Lager 2")
+        write_pages(pages, target, "Kommissionierbogen Lager 1")
         for value, symbology in symbologies:
             print(f"  {value}: {symbology_note(symbology)}")
         targets.append(target)
