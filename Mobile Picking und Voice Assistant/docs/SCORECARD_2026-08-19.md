@@ -16,20 +16,23 @@ was es soll, und ob es belegt ist.
 
 ## Gesamtbild
 
-| Bereich | Punkte | Kurzurteil |
-|---|---:|---|
-| Backend und API | 85/100 | Funktional stark, ein strukturelles Loch bei der Autorisierung |
-| Dokumentation | 88/100 | Technisch außergewöhnlich präzise, zwei überholte Vorbehalte |
-| Odoo und Datenhaltung | 80/100 | Sauber und driftfrei, aber ohne Backup des produktiven Standes |
-| n8n und KI-Kette | 78/100 | Hauptweg belegt erfolgreich, Fehlerweg vollständig tot |
-| Repository und Struktur | 75/100 | Repo sauber, Umfeld und Branch-Lage nicht |
-| Voice | 72/100 | Latenzproblem gelöst, Dialogführung uneinheitlich |
-| Tests und Qualitätssicherung | 70/100 | Viele Tests, wenig Automatisierung, kein CI |
-| PWA und Bedienung | 68/100 | Vollständige Abläufe, Lücken bei Offline und Barrierefreiheit |
-| Sicherheit | 65/100 | Gute Bausteine, produktives Profil nicht aktiv |
-| Vorführbarkeit | 60/100 | Am Rechner sofort, am Mobilgerät derzeit blockiert |
-| Betrieb und Auslieferung | 55/100 | Kein CI, kein Backupverfahren, Werkzeugkette teils defekt |
-| **Gesamt** | **72/100** | Fachlich weit, betrieblich unfertig |
+Die erste Spalte ist die Bewertung vom Vormittag des 19. August, die zweite der
+Stand nach der Abarbeitung am selben Tag (siehe Nachtrag unten).
+
+| Bereich | Vormittag | Nachmittag | Kurzurteil nach der Abarbeitung |
+|---|---:|---:|---|
+| Backend und API | 85/100 | 92/100 | Autorisierungsloch geschlossen, Fehlerpfade abgesichert |
+| Dokumentation | 88/100 | 90/100 | Überholte Vorbehalte in `.env` und Beispielkonfiguration korrigiert |
+| Odoo und Datenhaltung | 80/100 | 88/100 | Sicherung des produktiven Standes vorhanden und prüfsummengesichert |
+| n8n und KI-Kette | 78/100 | 88/100 | Fehlerweg repariert und live belegt, Hauptweg unverändert stark |
+| Repository und Struktur | 75/100 | 82/100 | Ballast entfernt, Abbildungen der Arbeit versioniert |
+| Voice | 72/100 | 80/100 | Rückmeldung durchgängig deutsch, Statusanzeige sichtbar |
+| Tests und Qualitätssicherung | 70/100 | 80/100 | Verwaiste Suiten laufen, weiterhin kein CI |
+| PWA und Bedienung | 68/100 | 74/100 | Kontrast und Bedienelementgrößen korrigiert, Offline weiter offen |
+| Sicherheit | 65/100 | 78/100 | Produktionsprofil aktiv und belegt, Rollen-Gate scharf |
+| Vorführbarkeit | 60/100 | 85/100 | Zertifikat und Adresse aktuell, ganze Kette live nachgewiesen |
+| Betrieb und Auslieferung | 55/100 | 68/100 | Sicherung und Runbook vorhanden, weiterhin kein CI |
+| **Gesamt** | **72/100** | **82/100** | Die Lücken sind jetzt benannte Entscheidungen, keine Versäumnisse |
 
 Das Muster ist über alle Bereiche gleich: **Was gebaut wurde, ist gut gebaut und
 überwiegend belegt. Was fehlt, ist der Rahmen darum** — Automatisierung,
@@ -37,7 +40,140 @@ Nachweisführung, Betriebsverfahren.
 
 ---
 
+## Nachtrag vom 19. August 2026 — was am selben Tag behoben wurde
+
+Alles Folgende ist umgesetzt, geprüft und im Commit `ad38776` und seinem
+Nachfolger festgehalten. Wo etwas nur teilweise erledigt ist, steht das dabei.
+
+### Die vier echten Fehler
+
+1. **Fehlerbenachrichtigung repariert.** Der n8n-Error-Workflow las das
+   Callback-Secret über `$env`, was der Container verbietet; drei Läufe, drei
+   Fehler. Er bezieht es jetzt über eine `httpHeaderAuth`-Credential — der Wert
+   steht damit gar nicht mehr im Workflow-JSON. **Live belegt:** ein absichtlich
+   zum Scheitern gebrachter Workflow löste den Error-Workflow aus
+   (Ausführung 118, `mode=error`, Status `success`), und das Backend nahm die
+   Benachrichtigung mit 200 an.
+2. **Rollenautorisierung verdrahtet.** `require_browser_roles("picker")` hängt am
+   Router-Einschluss aller fünf Browser-Router, nicht an einzelnen Handlern. Die
+   Rolle kommt aus Odoo (`api_get_picker_principal`, `group_picker`; ein
+   Supervisor trägt `picker` implizit mit). Gegenprobe: mit ausgebautem Gate
+   fallen drei Tests um, mit Gate sind es 1101 grüne.
+3. **Produktionsprofil aktiv.** Der Vorbehalt in der `.env` — Produktion sei
+   mangels Schlüsselmaterial unerreichbar — war überholt. `RUNTIME_PROFILE`
+   steht auf `production`, und aus einem Nachbarcontainer im selben Netz
+   antworten `/api/docs`, `/api/openapi.json`, `/api/instances` und
+   `/api/demo/traceability` jetzt mit **404**, `/api/health/live` weiter mit 200.
+   Die Oberfläche ist nicht bloß am Edge verdeckt, sie wird gar nicht erst
+   gebaut. Damit gilt der Härtungsnachweis aus `test_route_security.py` für das
+   tatsächlich laufende Deployment.
+4. **Offline-Schreiben bleibt offen.** Hier wurde bewusst nichts geändert. Eine
+   Warteschlange für Schreibvorgänge ohne Netz ist ein eigenes Vorhaben mit
+   Konfliktauflösung und Wiederholungslogik; sie kurz vor der Abgabe einzubauen
+   wäre ein Risiko ohne Nutzen für die Arbeit. Die Grenze gehört benannt, nicht
+   überstürzt geschlossen.
+
+### Ein Fehler, der erst beim Umstellen sichtbar wurde
+
+Der Wechsel auf das Produktionsprofil hätte beinahe **Lager 1 aus dem System
+entfernt**. `get_instance_registry()` behandelt `ODOO_INSTANCES_JSON` in
+Produktion als autoritativ und lässt das implizite `local`-Profil dann weg — und
+in der Konfiguration stand nur Lager 2. Lager 1 ist jetzt explizit eingetragen;
+beide Standorte sind wieder anwählbar, live geprüft mit Anmeldung und
+Auftragsliste an beiden.
+
+### Zwei weitere Fehler, die dabei auffielen
+
+- **Der Fehlerpfad scheiterte am eigenen Protokoll.** `POST /api/integration/log`
+  schreibt in einen Ordner, den `docker-compose.yml` bewusst schreibgeschützt
+  einhängt, und das `mkdir` lag außerhalb der Fehlerbehandlung — der
+  Error-Workflow bekam einen 500 mitsamt Stacktrace. Jetzt: Warnung ins
+  Anwendungsprotokoll, Antwort `skipped`, kein Abbruch. Der Vorfall bleibt
+  sichtbar, nur eben im Containerprotokoll statt in der Notizablage.
+- **Ein Schreibvorgang lag im Abbruchbereich.** Nach dem Odoo-Write in
+  `confirm_pick_line` liefen Folgeabfrage und `button_validate` ungeschützt. Eine
+  Ausnahme dort ließ den Router die Idempotenz-Reservierung verwerfen, obwohl die
+  Position bereits gebucht war — ein Wiederholungsversuch mit demselben Schlüssel
+  hätte doppelt gebucht.
+
+### Vorführbarkeit
+
+- Zertifikat neu ausgestellt, **gleiche Zertifizierungsstelle** wie bisher, damit
+  Geräte, die sie schon kennen, nichts neu einrichten müssen. Es trägt jetzt
+  `localhost`, `127.0.0.1`, die aktuelle WLAN-Adresse `172.22.147.158`, die
+  Kabeladresse und die Tailscale-Adresse; gültig bis 19. November 2028.
+  `LAN_HOST` zeigt auf dieselbe Adresse.
+- **Die gesamte KI-Kette wurde nach der Umstellung noch einmal live gefahren:**
+  Qualitätsmeldung mit Foto angelegt, n8n-Ausführung 119 im Webhook-Modus
+  erfolgreich, 147 Sekunden, Ergebnis in Odoo zurückgeschrieben mit
+  Modellangabe, Vertrauenswert 0,8 und Handlungsempfehlung. Der Zählerstand
+  lautet damit 41 von 41 erfolgreichen Läufen.
+
+### Sicherung und Betrieb
+
+- Sicherung beider Odoo-19-Datenbanken, der n8n-Datenbank, des Filestores und
+  der Cluster-Rollen, mit Prüfsummen und geprüfter Übertragung.
+- Runbook `docs/runbooks/backup-und-wiederherstellung.md` mit Erzeugung, Prüfung,
+  Wiederherstellung und einer ausdrücklichen Liste dessen, was es *nicht*
+  abdeckt.
+- Dabei aufgefallen: der Filestore-Ordner heißt noch `masterfischer` aus der
+  Odoo-18-Zeit. Die Anhänge der Odoo-19-Datenbanken liegen als Binärfelder in der
+  Datenbank, der Dump genügt also.
+
+### Testkette
+
+- **Playwright vollständig entfernt**: 663 MB Browser-Cache, `node_modules`,
+  `playwright.config.js`, alle zugehörigen Make-Ziele und drei reine
+  Hilfsskripte. Die Spezifikationsdateien bleiben als Belegmaterial mit
+  `e2e/README.md`, weil das Projekt-Wiki sie an neun Stellen zitiert. Damit
+  entfällt auch die einzige automatisierte Barrierefreiheitsprüfung — der Verlust
+  gehört in der Arbeit benannt.
+- Neue Ziele `test-infra`, `test-n8n`, `test-pwa`, `test-odoo`, `test-all`.
+  Dadurch wurde erstmals sichtbar, dass 29 der Infrastrukturtests fehlschlugen:
+  22 davon prüften einen Workflow, der beim Wechsel auf die v2-Kette bewusst
+  zurückgezogen wurde. Sie sind auf den heutigen Workflow-Satz umgehängt, nicht
+  gelöscht.
+- Zwei Prüfregeln waren veraltet und wurden nachgezogen: der Vertragsprüfer
+  akzeptiert die Credential-Bindung als gleichwertigen — genau genommen
+  strengeren — Nachweis des Callback-Secrets, und `n8n-nodes-base.wait` ist aus
+  der Post-Acceptance-Freigabeliste entfernt, weil der Workflow, der diesen
+  Eintrag rechtfertigte, nicht mehr existiert.
+
+### Was bewusst rot bleibt
+
+`test_db_role_scripts.py::test_no_app_uses_cluster_bootstrap_role_in_compose`
+schlägt weiterhin fehl, und das ist Absicht. Der Test hat recht: die
+Rollentrennung für Postgres ist vollständig gebaut — `init-db-roles.sh` legt
+`pwr_db_admin`, `odoo_app` und `n8n_app` ohne Superuser-Rechte an, es gibt ein
+Migrations- und ein Prüfskript — aber in `docker-compose.yml` ist sie nie
+verdrahtet worden. Odoo und n8n verbinden sich weiterhin mit der
+Bootstrap-Rolle; die Variablen `ODOO_DB_USER` und `N8N_DB_USER` kommen im
+gesamten Repository nicht vor. Dass es bis heute niemandem auffiel, liegt daran,
+dass dieser Test nie ausgeführt wurde.
+
+Diese Migration jetzt durchzuführen hieße, Eigentümerrechte an allen Tabellen
+dreier Datenbanken zu verschieben, wenige Tage vor einer Vorführung. Der Nutzen
+für die Arbeit ist gering, das Risiko erheblich. Der Test bleibt deshalb rot: er
+ist der ehrlichste Ort für diesen Befund. Eine grüne Ampel, die durch Wegsehen
+entsteht, wäre schlechter als eine rote, die die Wahrheit sagt.
+
+### Nachweislage nach der Abarbeitung
+
+| Suite | Ergebnis |
+|---|---|
+| Backend | 1101 grün |
+| Infrastruktur | 151 grün, 1 rot (die dokumentierte Rollentrennung) |
+| n8n-Verträge | 15 grün |
+| PWA-Modultests | 47 grün |
+| Live: Anmeldung, Rollen-Gate, Auftragsliste, beide Lager | bestanden |
+| Live: KI-Bildbewertung Ende zu Ende | bestanden, 147 Sekunden |
+| Live: Fehlerweg von n8n zum Backend | bestanden |
+
+---
+
 ## Zusammenfassung in einfachen Worten
+
+> Diese Zusammenfassung beschreibt den Zustand am Vormittag des 19. August. Was davon am selben Tag behoben wurde, steht im Nachtrag weiter oben — insbesondere die vier als Fehler benannten Punkte.
 
 **Was gut klappt.** Das System tut, wofür es gebaut wurde. Ein Mitarbeiter meldet sich
 am Handy an, bekommt seine Aufträge, arbeitet sie Position für Position ab, scannt
@@ -528,6 +664,16 @@ Dokumentationsarbeit, vorher inhaltlich prüfen).
 ---
 
 ## Was jetzt zu tun ist
+
+> Stand nach der Abarbeitung am 19. August: erledigt sind 1 bis 6, 8 und 9,
+> Punkt 6 durch Verdrahtung statt durch Dokumentation. Punkt 10 ist zur
+> Hälfte erledigt — die Make-Ziele gibt es, Chromium wurde bewusst nicht
+> installiert, weil Playwright entfernt wurde. Punkt 7 entfällt aus demselben
+> Grund; an seine Stelle tritt der an diesem Tag live gefahrene Nachweis über
+> Anmeldung, Auftragsliste und die vollständige KI-Bildbewertung. Offen
+> bleiben 11 bis 17 sowie zwei bewusst getroffene Entscheidungen: kein
+> Offline-Schreiben und keine Postgres-Rollentrennung vor der Abgabe.
+> Einzelheiten im Nachtrag.
 
 ### Vor jeder Vorführung und vor der Abgabe
 

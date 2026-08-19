@@ -72,12 +72,24 @@ def test_activate_test_rejects_every_registered_non_test_only_workflow():
 
 def test_activate_test_accepts_exactly_the_registered_test_only_workflows():
     """The other half: `activate-test` must let the real registry's test-only
-    entry through, or the rejection guard above is proving nothing about a
+    entries through, or the rejection guard above is proving nothing about a
     mode nobody can use.
+
+    Frueher stand hier die harte Erwartung ["pwr-foundation-smoke-v2.json"] --
+    der Foundation-Smoke war der einzige test_only-Eintrag, den die Registry je
+    gefuehrt hat. Mit der v2-Qualitaetskette (Commit b0cbbc6) wurde er
+    zurueckgezogen; die Registry fuehrt heute keinen test_only-Eintrag mehr.
+    Der Test bleibt trotzdem stehen: er haelt fest, dass die Liste leer ist
+    (statt dass irgendwer unbemerkt einen test_only-Eintrag nachschiebt), und
+    laesst jeden kuenftigen Eintrag automatisch durch denselben Guard laufen.
+    Der positive Beweis, dass `activate-test` ueberhaupt jemanden durchlaesst,
+    haengt an der synthetischen Spec in
+    test_activate_test_accepts_a_valid_test_only_workflow -- der bleibt gruen,
+    egal was die Registry gerade fuehrt.
     """
     registry = load_registry(ROOT / "n8n/workflow-registry.json")
     test_only = [item for item in registry.workflows if item.test_only]
-    assert [item.file for item in test_only] == ["pwr-foundation-smoke-v2.json"]
+    assert [item.file for item in test_only] == []
     for workflow in test_only:
         assert_test_activatable(
             {

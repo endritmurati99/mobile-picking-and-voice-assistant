@@ -124,24 +124,34 @@ SIGNED_HTTP_ALTERNATE_SPELLING = "n8n-nodes-pwr.pwrSignedHttpRequest"
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-# The COMMITTED v2 workflow -- the real one the registry ships and
-# verify-workflows.py checks, not a fixture. Task 15 widened
-# POST_ACCEPTANCE_ALLOWED_TYPES by three types; the derivation guard only
-# stays a guard if those three are observed running post-acceptance in a
-# workflow that actually exists, so it is a second source graph here rather
-# than an exception carved into the assertion.
-SMOKE_WORKFLOW_PATH = REPO_ROOT / "n8n" / "workflows" / "pwr-foundation-smoke-v2.json"
+# Der COMMITTETE v2-Workflow -- der echte, den die Registry ausliefert und den
+# verify-workflows.py prueft, keine Fixture. Task 15 hatte
+# POST_ACCEPTANCE_ALLOWED_TYPES um drei Typen erweitert; der Ableitungs-Guard
+# bleibt nur ein Guard, solange diese Typen in einem tatsaechlich existierenden
+# Workflow post-acceptance beobachtet werden -- deshalb ein zweiter Quellgraph
+# statt einer in die Behauptung geschnitzten Ausnahme.
+#
+# Frueher zeigte das auf n8n/workflows/pwr-foundation-smoke-v2.json. Der
+# Foundation-Smoke wurde mit Commit b0cbbc6 zurueckgezogen und durch die
+# produktive v2-Qualitaetskette ersetzt; deren Prozess-Gate heisst ebenfalls
+# "If Process" und ihr echter Effektpfad (set / if / signierte Requests) laeuft
+# genauso hinter dem Gate. Was der Smoke zusaetzlich beobachtbar machte -- ein
+# Wait-Knoten nach der Acceptance --, faellt damit weg; siehe den Bericht zu
+# n8n-nodes-base.wait in POST_ACCEPTANCE_ALLOWED_TYPES.
+COMMITTED_V2_WORKFLOW_PATH = (
+    REPO_ROOT / "n8n" / "workflows" / "quality-assessment-v2.json"
+)
 
 # (graph document, process-gate node name, trigger node name)
 OBSERVED_GRAPHS = (
     ("task15_reference_graph.json", "Process Gate", "Webhook"),
-    ("pwr-foundation-smoke-v2.json", "If Process", "Webhook"),
+    ("quality-assessment-v2.json", "If Process", "Webhook"),
 )
 
 
 def _load_observed(name):
-    if name == SMOKE_WORKFLOW_PATH.name:
-        return json.loads(SMOKE_WORKFLOW_PATH.read_text(encoding="utf-8"))
+    if name == COMMITTED_V2_WORKFLOW_PATH.name:
+        return json.loads(COMMITTED_V2_WORKFLOW_PATH.read_text(encoding="utf-8"))
     return _load(name)
 
 
@@ -214,12 +224,13 @@ def test_the_derivation_guard_rejects_a_pre_acceptance_only_type():
     POST_ACCEPTANCE_ALLOWED_TYPES with any one of them now FAILS the guard.
 
     `n8n-nodes-base.set` and `n8n-nodes-base.if` were controls here until Task
-    15. They no longer are, and NOT because the guard was relaxed: the
-    committed smoke workflow runs both of them on its process gate's true
-    branch, so they are now observed post-acceptance and the guard is telling
-    the truth about them. The trigger and the Signature Gate remain controls --
-    no committed graph runs either after acceptance, and if one ever did, this
-    test failing is the correct outcome.
+    15. They no longer are, and NOT because the guard was relaxed: der
+    committete v2-Workflow (frueher der Foundation-Smoke, heute
+    quality-assessment-v2.json) faehrt beide auf dem true-Zweig seines
+    Prozess-Gates, sie sind also post-acceptance beobachtet und der Guard sagt
+    ueber sie die Wahrheit. The trigger and the Signature Gate remain controls
+    -- no committed graph runs either after acceptance, and if one ever did,
+    this test failing is the correct outcome.
     """
     reference = _load("task15_reference_graph.json")
     types_in_reference = {node["type"] for node in reference["nodes"]}

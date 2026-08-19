@@ -83,6 +83,22 @@ ENVELOPE_ROOT_KEYS = {
     "picking_context",
 }
 EXPECTED_CALLBACK_SECRET = "={{ $env.N8N_CALLBACK_SECRET }}"
+# Zweite, gleichwertige Bauform desselben Nachweises, seit 2026-08-19.
+# Der Error-Workflow las das Callback-Secret ueber `$env`; n8n verbietet den
+# Zugriff auf Umgebungsvariablen in dieser Konfiguration, weshalb der gesamte
+# Fehlerweg zu 100 Prozent scheiterte (drei Laeufe, drei Fehler). Er bezieht
+# das Secret jetzt ueber eine httpHeaderAuth-Credential -- der Wert steht damit
+# gar nicht mehr im Workflow-JSON, was strenger ist als vorher, nicht lockerer.
+# Diese Pruefung wird deshalb NICHT weichgemacht: sie verlangt weiterhin einen
+# Nachweis, nur eben den staerkeren. Der Credential-Name muss dem Namensschema
+# folgen, damit nicht irgendeine beliebige Header-Credential als Callback-
+# Autorisierung durchgeht.
+CALLBACK_CREDENTIAL_NAME_RE = re.compile(r"^pwr\.[a-z0-9._-]*n8n-callback-secret$")
+EXPECTED_CALLBACK_SECRET_VIA_CREDENTIAL = "<httpHeaderAuth-Credential>"
+ACCEPTED_CALLBACK_SECRET_VALUES = frozenset({
+    EXPECTED_CALLBACK_SECRET,
+    EXPECTED_CALLBACK_SECRET_VIA_CREDENTIAL,
+})
 EXPECTED_IDEMPOTENCY_KEY = "={{ $json.correlation_id }}"
 CALLBACK_REQUIREMENTS = {
     "/api/internal/n8n/quality-assessment": {"idempotent": True},
@@ -287,7 +303,9 @@ def find_json_refs(value: Any) -> set[str]:
     return refs
 
 
-def extract_http_headers(params: dict[str, Any]) -> dict[str, str]:
+def extract_http_headers(
+    params: dict[str, Any], node: dict[str, Any] | None = None
+) -> dict[str, str]:
     headers: dict[str, str] = {}
     header_params = ((params.get("headerParametersUi") or {}).get("parameter") or [])
     if isinstance(header_params, list):
@@ -305,6 +323,21 @@ def extract_http_headers(params: dict[str, Any]) -> dict[str, str]:
             headers["X-N8N-Callback-Secret"] = EXPECTED_CALLBACK_SECRET
         if "\"Idempotency-Key\"" in header_json and "$json.correlation_id" in header_json:
             headers["Idempotency-Key"] = EXPECTED_IDEMPOTENCY_KEY
+
+    # Credential-Bindung als gleichwertiger Nachweis des Callback-Secrets.
+    if node is not None and "X-N8N-Callback-Secret" not in headers:
+        binds_header_auth = (
+            params.get("authentication") == "genericCredentialType"
+            and params.get("genericAuthType") == "httpHeaderAuth"
+        )
+        credential = ((node.get("credentials") or {}).get("httpHeaderAuth") or {})
+        credential_name = credential.get("name")
+        if (
+            binds_header_auth
+            and isinstance(credential_name, str)
+            and CALLBACK_CREDENTIAL_NAME_RE.match(credential_name)
+        ):
+            headers["X-N8N-Callback-Secret"] = EXPECTED_CALLBACK_SECRET_VIA_CREDENTIAL
     return headers
 
 
@@ -391,7 +424,7 @@ def extract_workflow_contracts(
                             name=node.get("name", "HTTP Request"),
                             method=str(method),
                             url=url,
-                            headers=extract_http_headers(params),
+                            headers=extract_http_headers(params, node),
                             body_json=params.get("bodyParametersJson")
                             if isinstance(params.get("bodyParametersJson"), str)
                             else None,
@@ -475,7 +508,7 @@ def validate_callback_http_nodes(workflow: WorkflowContract) -> tuple[list[str],
             )
 
         secret_value = node.headers.get("X-N8N-Callback-Secret")
-        if secret_value != EXPECTED_CALLBACK_SECRET:
+        if secret_value not in ACCEPTED_CALLBACK_SECRET_VALUES:
             errors.append(
                 f"{workflow.file}: Node '{node.name}' ruft '{callback_path}' ohne "
                 f"korrekten X-N8N-Callback-Secret Header auf"
@@ -871,21 +904,23 @@ PRE_ACCEPTANCE_ALLOWED_TYPES: frozenset[str] = frozenset({
 #     effect of its own. Note it can only ever NARROW what runs; it cannot
 #     bypass the process gate, because obligation 7 requires every node it
 #     leads to be dominated by that gate's true branch anyway.
-#   - n8n-nodes-base.wait -- "Smoke Wait". This one is NOT inert and is the
-#     only genuinely new risk of the three: an n8n Wait node can be configured
-#     to resume on its OWN webhook or form URL, which would be a second,
-#     unsigned ingress into the middle of an already-accepted execution --
-#     precisely the thing the Signature Gate exists to prevent. It is
-#     therefore paired with WAIT_RESUME_ALLOWED_MODES below, an allowlist that
-#     permits only the time-based resume modes; without that pairing this
-#     entry must not exist.
+#   - n8n-nodes-base.wait -- "Smoke Wait". WITHDRAWN ON 2026-08-19: the only
+#     committed graph that ever ran a Wait node after acceptance was the
+#     Foundation smoke workflow, and that workflow was retired when the v2
+#     quality chain replaced it (commit b0cbbc6). The derivation guard below
+#     insists that every entry of this allowlist be earned by a real committed
+#     graph, and this one no longer is -- so it goes. The machinery that made
+#     it survivable (WAIT_TYPE and WAIT_RESUME_ALLOWED_MODES) stays in place:
+#     it still rejects a webhook- or form-resumed Wait node, which would be a
+#     second, unsigned ingress into an already-accepted execution. Should a
+#     future workflow need a Wait after acceptance, re-adding the type here is
+#     the deliberate, reviewable act it was meant to be.
 POST_ACCEPTANCE_ALLOWED_TYPES: frozenset[str] = frozenset({
     "CUSTOM.pwrSignedHttpRequest",
     "n8n-nodes-pwr.pwrSignedHttpRequest",
     "n8n-nodes-base.respondToWebhook",
     "n8n-nodes-base.set",
     "n8n-nodes-base.if",
-    "n8n-nodes-base.wait",
 })
 WAIT_TYPE = "n8n-nodes-base.wait"
 # The ONLY resume modes a v2 Wait node may use. ALLOWLIST: "webhook" and

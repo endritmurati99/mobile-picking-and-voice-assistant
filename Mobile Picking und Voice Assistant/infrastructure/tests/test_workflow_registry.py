@@ -29,23 +29,33 @@ def test_repository_registry_has_every_workflow_once():
     registry = load_registry(ROOT / "n8n/workflow-registry.json")
     disk = {path.name for path in (ROOT / "n8n/workflows").glob("*.json")}
     assert {item.file for item in registry.workflows} == disk
+    # Frueher standen hier fuenf Dateien, darunter die drei v1-Workflows
+    # (voice-exception-query, quality-alert-created, shortage-reported) und der
+    # Foundation-Smoke. Mit der v2-Qualitaetskette (Commit b0cbbc6) sind sie von
+    # der Platte und aus der Registry verschwunden; verblieben sind der
+    # Error-Trigger und die Kette selbst -- in Aktivierungsreihenfolge.
     assert registry.managed_files() == (
         "error-trigger.json",
-        "voice-exception-query.json",
-        "quality-alert-created.json",
-        "shortage-reported.json",
-        "pwr-foundation-smoke-v2.json",
+        "quality-assessment-v2.json",
     )
-    # Managed does not mean production-activatable. The Foundation smoke is
-    # managed (the importer owns it) and test-only, and must never appear in
-    # the production activation order.
-    assert "pwr-foundation-smoke-v2.json" not in registry.activation_order()
-    assert registry.test_only_files() == ("pwr-foundation-smoke-v2.json",)
+    # Managed heisst nicht produktiv aktivierbar. Beide verbliebenen Eintraege
+    # sind produktiv; der Smoke war der einzige test_only-Eintrag, den es je
+    # gab. Die Invariante (test_only taucht nie in der Aktivierungsreihe auf)
+    # wird deshalb heute leer, aber ausdruecklich festgehalten -- der Guard
+    # selbst wird in test_quality_assessment_v2_workflow.py an einem
+    # synthetischen Eintrag geprueft.
+    assert registry.test_only_files() == ()
+    assert not set(registry.test_only_files()) & set(registry.activation_order())
 
 
 def test_duplicate_webhook_path_fails(tmp_path):
+    # Frueher wurde workflows[0] auf workflows[1] kopiert. Seit die Registry
+    # nur noch zwei Eintraege fuehrt, ist workflows[0] der Error-Trigger -- und
+    # der hat gar keinen Webhook-Pfad, die Kopie erzeugte also eine leere Liste
+    # und damit kein Duplikat. Die Richtung ist umgedreht: der Pfad des echten
+    # Webhook-Workflows wird auf den zweiten Eintrag kopiert.
     source = json.loads((ROOT / "n8n/workflow-registry.json").read_text())
-    source["workflows"][1]["webhook_paths"] = source["workflows"][0]["webhook_paths"]
+    source["workflows"][0]["webhook_paths"] = source["workflows"][1]["webhook_paths"]
     path = tmp_path / "registry.json"
     path.write_text(json.dumps(source), encoding="utf-8")
     with pytest.raises(ValueError, match="duplicate webhook path"):
