@@ -78,3 +78,54 @@ test('der Scanner sucht ausschliesslich im Rahmen', async () => {
         'beide Erkennungswege muessen denselben Rahmenausschnitt benutzen',
     );
 });
+
+test('bei zwei Codes im Rahmen gewinnt der naeher an der Mitte', async () => {
+    const { naechsterZurMitte } = await import('../scanner.js');
+    const region = { sx: 0, sy: 0, sw: 1000, sh: 400 };
+    const funde = [
+        { rawValue: 'CLUSTER-B1/WH/OUT/00047', boundingBox: { x: 100, y: 20, width: 300, height: 60 } },
+        { rawValue: 'CLUSTER-B2/WH/OUT/00051', boundingBox: { x: 380, y: 170, width: 300, height: 60 } },
+    ];
+
+    const wahl = naechsterZurMitte(funde, region, (f) => f.boundingBox);
+
+    assert.equal(wahl.wert, 'CLUSTER-B2/WH/OUT/00051');
+    assert.equal(wahl.mehrdeutig, false);
+});
+
+test('zwei gleich weit entfernte Codes werden nicht gebucht', async () => {
+    const { naechsterZurMitte } = await import('../scanner.js');
+    const region = { sx: 0, sy: 0, sw: 1000, sh: 400 };
+    const funde = [
+        { rawValue: '343701', boundingBox: { x: 200, y: 170, width: 100, height: 60 } },
+        { rawValue: '343721', boundingBox: { x: 700, y: 170, width: 100, height: 60 } },
+    ];
+
+    const wahl = naechsterZurMitte(funde, region, (f) => f.boundingBox);
+
+    assert.equal(wahl.wert, '');
+    assert.equal(wahl.mehrdeutig, true, 'ein Kommissioniersystem darf hier nicht raten');
+});
+
+test('ein einzelner Fund braucht keine Mitte', async () => {
+    const { naechsterZurMitte } = await import('../scanner.js');
+
+    const wahl = naechsterZurMitte(
+        [{ text: '6096680' }], null, () => null,
+    );
+
+    assert.equal(wahl.wert, '6096680');
+    assert.equal(wahl.mehrdeutig, false);
+});
+
+test('boundsAus formt die vier Eckpunkte zu einem Rechteck', async () => {
+    const { boundsAus } = await import('../scanner.js');
+
+    const box = boundsAus({
+        topLeft: { x: 10, y: 20 }, topRight: { x: 110, y: 22 },
+        bottomLeft: { x: 12, y: 60 }, bottomRight: { x: 112, y: 62 },
+    });
+
+    assert.deepEqual(box, { x: 10, y: 20, width: 102, height: 42 });
+    assert.equal(boundsAus(null), null);
+});

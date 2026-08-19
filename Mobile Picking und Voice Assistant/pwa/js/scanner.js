@@ -167,6 +167,67 @@ export function loadZXing() {
 }
 
 
+
+/**
+ * Rechteck aus den vier Eckpunkten, die zxing je Fund liefert.
+ * @param {{topLeft?: {x: number, y: number}, topRight?: object, bottomLeft?: object, bottomRight?: object}} position
+ */
+export function boundsAus(position) {
+    if (!position) return null;
+    const punkte = [position.topLeft, position.topRight, position.bottomLeft, position.bottomRight]
+        .filter((punkt) => punkt && Number.isFinite(punkt.x) && Number.isFinite(punkt.y));
+    if (punkte.length === 0) return null;
+    const xs = punkte.map((punkt) => punkt.x);
+    const ys = punkte.map((punkt) => punkt.y);
+    const x = Math.min(...xs);
+    const y = Math.min(...ys);
+    return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
+}
+
+/**
+ * Waehlt aus mehreren Funden den, dessen Mitte der Rahmenmitte am naechsten
+ * liegt. Gezielt wird mit der Mitte des Suchers, also entscheidet auch sie.
+ *
+ * Liegen zwei Funde praktisch gleich weit von der Mitte entfernt (weniger als
+ * 15 Prozent Unterschied), wird nichts gewaehlt: dann ist nicht erkennbar,
+ * welcher gemeint war, und ein Kommissioniersystem darf in dem Fall nicht
+ * raten.
+ *
+ * @param {Array<object>} funde
+ * @param {{sx: number, sy: number, sw: number, sh: number}|null} region
+ * @param {(fund: object) => ({x: number, y: number, width: number, height: number}|null)} boxVon
+ * @returns {{wert: string, mehrdeutig: boolean}}
+ */
+export function naechsterZurMitte(funde, region, boxVon) {
+    const werte = [];
+    for (const fund of funde || []) {
+        const wert = fund.rawValue ?? fund.text;
+        if (!wert) continue;
+        werte.push({ wert, box: boxVon(fund) });
+    }
+    const eindeutige = [...new Set(werte.map((eintrag) => eintrag.wert))];
+    if (eindeutige.length === 0) return { wert: '', mehrdeutig: false };
+    if (eindeutige.length === 1) return { wert: eindeutige[0], mehrdeutig: false };
+    if (!region) return { wert: '', mehrdeutig: true };
+
+    const mx = region.sx + region.sw / 2;
+    const my = region.sy + region.sh / 2;
+    const bewertet = werte
+        .filter((eintrag) => eintrag.box)
+        .map((eintrag) => {
+            const cx = eintrag.box.x + eintrag.box.width / 2;
+            const cy = eintrag.box.y + eintrag.box.height / 2;
+            return { wert: eintrag.wert, abstand: Math.hypot(cx - mx, cy - my) };
+        })
+        .sort((a, b) => a.abstand - b.abstand);
+
+    if (bewertet.length === 0) return { wert: '', mehrdeutig: true };
+    if (bewertet.length === 1) return { wert: bewertet[0].wert, mehrdeutig: false };
+    const [erster, zweiter] = bewertet;
+    if (zweiter.abstand <= erster.abstand * 1.15) return { wert: '', mehrdeutig: true };
+    return { wert: erster.wert, mehrdeutig: false };
+}
+
 /**
  * Torwaechter fuer Treffer: Sperrfrist nach dem Oeffnen plus Bestaetigung durch
  * Wiederholung.
@@ -457,12 +518,17 @@ export async function openCameraScanner(onScan) {
                             return cx >= region.sx && cx <= region.sx + region.sw
                                 && cy >= region.sy && cy <= region.sy + region.sh;
                         });
-                        const werte = [...new Set(inFrame.map(r => r.rawValue).filter(Boolean))];
-                        if (werte.length > 1) {
-                            setStatus('Mehrere Codes im Rahmen. Naeher heran oder einzeln zeigen.');
+                        // Liegen mehrere Codes im Rahmen, gewinnt der, dessen
+                        // Mitte der Rahmenmitte am naechsten ist -- gezielt wird
+                        // mit der Mitte. Nur wenn zwei praktisch gleich weit weg
+                        // sind, wird nichts gebucht: dann ist nicht erkennbar,
+                        // was gemeint war.
+                        const gewaehlt = naechsterZurMitte(inFrame, currentRegion(), (r) => r.boundingBox);
+                        if (gewaehlt.mehrdeutig) {
+                            setStatus('Zwei Codes gleich weit in der Mitte. Etwas naeher heran.');
                             missed();
-                        } else if (werte.length === 1) {
-                            if (succeed(werte[0])) return;
+                        } else if (gewaehlt.wert) {
+                            if (succeed(gewaehlt.wert)) return;
                         } else {
                             missed();
                         }
@@ -494,12 +560,13 @@ export async function openCameraScanner(onScan) {
                                     // einen davon zu buchen.
                                     maxNumberOfSymbols: 2,
                                 });
-                                const werte = [...new Set(results.map(r => r.text).filter(Boolean))];
-                                if (werte.length > 1) {
-                                    setStatus('Mehrere Codes im Rahmen. Naeher heran oder einzeln zeigen.');
+                                const region = { sx: 0, sy: 0, sw: imageData.width, sh: imageData.height };
+                                const gewaehlt = naechsterZurMitte(results, region, (r) => boundsAus(r.position));
+                                if (gewaehlt.mehrdeutig) {
+                                    setStatus('Zwei Codes gleich weit in der Mitte. Etwas naeher heran.');
                                     missed();
-                                } else if (werte.length === 1) {
-                                    if (succeed(werte[0])) return;
+                                } else if (gewaehlt.wert) {
+                                    if (succeed(gewaehlt.wert)) return;
                                 } else {
                                     missed();
                                 }

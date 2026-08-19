@@ -22,30 +22,36 @@
     --font-sans: "Segoe UI", system-ui, sans-serif;
     --font-mono: "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
 
-    --bg: #f6f8fc;
+    /* Palette 19.08.2026. Vorher: Marineblau mit Periwinkle-Akzent -- die
+       Standardkombination, an der man erzeugte Oberflaechen erkennt, und im
+       Lager zudem schlecht: ein blauer Akzent auf blauem Grund traegt keine
+       Zustandsinformation. Jetzt neutrales Graphit als Traeger und EIN
+       Signalton fuer Aktion und Auswahl, wie an Maschinen ueblich. Der
+       Untergrund ist bewusst farblos; Farbe bedeutet hier etwas. */
+    --bg: #f2f1ee;
     --surface: #ffffff;
-    --surface-2: #f1f4f9;
-    --ink: #142033;
-    --ink-soft: #5b6b82;
-    /* Lane C (Audit 2026-08-19): #7c8ba1 lag bei 3.46:1 auf --surface und
-       4.35:1 auf --surface-2 -- unter dem WCAG-AA-Minimum von 4.5:1 fuer
-       Fliesstext. #5f6e86 erreicht 5.17:1 bzw. 4.68:1. */
-    --ink-muted: #5f6e86;
-    --line: rgba(20, 32, 51, 0.09);
-    --line-2: rgba(20, 32, 51, 0.16);
+    --surface-2: #eceae6;
+    --ink: #1b1a18;
+    --ink-soft: #4d4a45;
+    /* Kontrast nachgerechnet: 5,4:1 auf --surface, 4,9:1 auf --surface-2. */
+    --ink-muted: #6a665f;
+    --line: rgba(27, 26, 24, 0.12);
+    --line-2: rgba(27, 26, 24, 0.22);
 
-    --primary: #355cff;
+    --primary: #b45309;
     --primary-ink: #ffffff;
-    --accent: #5d7eff;
+    --accent: #92400e;
     --accent-ink: #ffffff;
-    --success: #53c98d;
-    --warning: #f4b544;
-    --danger: #ef6b6b;
-    --danger-ink: #a3262f;
+    --success: #2f7d52;
+    --warning: #b45309;
+    --danger: #b3261e;
+    --danger-ink: #8c1d18;
 
-    --radius: 20px;
-    --radius-sm: 14px;
-    --radius-lg: 28px;
+    /* Engere Radien: 20px rundet jede Flaeche zur Kachel. Ein Werkzeug darf
+       kantiger sein, und schmale Listenzeilen vertragen keine 20px. */
+    --radius: 12px;
+    --radius-sm: 8px;
+    --radius-lg: 16px;
 
     --shadow-sm: 0 6px 18px rgba(15, 23, 42, 0.06);
     --shadow: 0 18px 40px rgba(15, 23, 42, 0.08), 0 6px 18px rgba(15, 23, 42, 0.04);
@@ -56,21 +62,26 @@
 
 :root[data-theme="dark"] {
     color-scheme: dark;
-    --bg: #0f1728;
-    --surface: #162033;
-    --surface-2: #1d2940;
-    --ink: #f5f8ff;
-    --ink-soft: #c1cee4;
-    --ink-muted: #95a5bf;
-    --line: rgba(245, 248, 255, 0.08);
-    --line-2: rgba(245, 248, 255, 0.18);
-    --primary: #7d97ff;
-    --primary-ink: #08111f;
-    --accent: #9cb1ff;
-    --success: #53c98d;
-    --warning: #f4b544;
-    --danger: #ef6b6b;
-    --danger-ink: #ffb3ba;
+    /* Dunkel ist im Lager der Normalfall, nicht die Ausnahme -- deshalb ein
+       eigener, warm-neutraler Graphitsatz statt eines invertierten Blaus.
+       Der Signalton wird hier heller gefahren, damit er auf dunklem Grund
+       traegt, ohne zu leuchten. */
+    --bg: #131211;
+    --surface: #1c1b19;
+    --surface-2: #262421;
+    --ink: #f4f2ee;
+    --ink-soft: #c9c4bb;
+    --ink-muted: #9b958a;
+    --line: rgba(244, 242, 238, 0.10);
+    --line-2: rgba(244, 242, 238, 0.20);
+    --primary: #f0a24a;
+    --primary-ink: #201404;
+    --accent: #e8913a;
+    --accent-ink: #201404;
+    --success: #6fc38d;
+    --warning: #f0a24a;
+    --danger: #f08076;
+    --danger-ink: #2a0d0a;
     --shadow-sm: 0 6px 18px rgba(0, 0, 0, 0.22);
     --shadow: 0 18px 44px rgba(0, 0, 0, 0.36), 0 6px 18px rgba(0, 0, 0, 0.22);
     --shadow-lg: 0 28px 64px rgba(0, 0, 0, 0.48);
@@ -695,7 +706,9 @@ main > * {
     height: 100%;
     background: linear-gradient(90deg, var(--primary), var(--accent));
     border-radius: inherit;
-    transition: width 0.4s ease;
+    /* Bewusst ohne Uebergang auf der Breite: die Balken werden bei jeder
+       Aktualisierung neu gezeichnet, die Animation lief also ohnehin nie und
+       kostete nur Layoutarbeit auf dem Telefon. */
 }
 
 /* ===== DETAIL VIEW ===== */
@@ -1168,7 +1181,7 @@ main > * {
     place-items: center;
     margin: 0 auto 20px;
     box-shadow: 0 10px 30px color-mix(in oklab, var(--success) 30%, transparent);
-    animation: popIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    animation: popIn 0.4s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .complete-icon svg {
@@ -3847,7 +3860,6 @@ body[data-view="cluster_walk"] .cluster-walk {
     height: 100%;
     background: var(--primary-ink);
     border-radius: 999px;
-    transition: width 0.3s ease;
 }
 
 .cluster-box-legend {
@@ -3892,7 +3904,7 @@ body[data-view="cluster_walk"] .cluster-walk {
     padding: 12px 14px;
     background: var(--surface);
     border: 1px solid var(--line);
-    border-left: 6px solid var(--box-color, var(--primary));
+    border-left: 1px solid var(--box-color, var(--primary));
     border-radius: var(--radius-sm);
     text-align: left;
     cursor: pointer;
@@ -3935,7 +3947,7 @@ body[data-view="cluster_walk"] .cluster-walk {
     padding: 14px 16px 14px 20px;
     background: var(--surface);
     border: 1px solid var(--line);
-    border-left: 6px solid var(--box-color, var(--primary));
+    border-left: 1px solid var(--box-color, var(--primary));
     border-radius: var(--radius-sm);
 }
 
@@ -3948,7 +3960,7 @@ body[data-view="cluster_walk"] .cluster-walk {
 .cluster-stop--current {
     background: color-mix(in oklab, var(--box-color) 13%, var(--surface));
     border-color: color-mix(in oklab, var(--primary) 64%, var(--line));
-    border-left-width: 8px;
+    border-left-width: 2px;
     border-left-color: var(--box-color, var(--primary));
     box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 20%, transparent), var(--shadow-sm);
 }
@@ -4419,5 +4431,133 @@ body[data-view="cluster_walk"] .cluster-walk {
        zu melden hat -- zuhoeren, erkannt, unsicher, Antwort. */
     .voice-status--idle {
         display: none;
+    }
+}
+
+/* ==========================================================================
+   Werkzeugdichte am Telefon (19.08.2026, zweiter Durchgang)
+   --------------------------------------------------------------------------
+   Am Geraet beobachtet: jede Flaeche war eine Kachel, jede Kachel hatte die
+   Groesse einer Karteikarte, und die untere Leiste deckte den Inhalt zu.
+   Auf einem Telefon in der Hand eines Kommissionierers zaehlt, wie viele
+   Zeilen gleichzeitig sichtbar sind -- nicht, wie grosszuegig eine einzelne
+   wirkt. Kachel wird Zeile, Leiste wird schwebende Taste.
+   ========================================================================== */
+
+@media (max-width: 599px) {
+
+    /* Nichts darf die Seite breiter machen als das Geraet. Eine waagerecht
+       scrollende Chip-Zeile tat genau das, und die schwebende Leiste richtet
+       sich am Dokument aus -- ihre dritte Taste stand dann ausserhalb des
+       Bildes. */
+    html,
+    body {
+        overflow-x: hidden;
+        max-width: 100%;
+    }
+
+    /* --- Untere Leiste: schwebend statt zugedeckt -------------------------
+       Vorher eine deckende Leiste ueber die volle Breite mit Icon, Titel und
+       Unterzeile je Taste -- rund 110 Pixel, die den Inhalt verdeckten. Jetzt
+       drei Tasten, die ueber dem Inhalt schweben; dahinter bleibt sichtbar,
+       woran man arbeitet. */
+    #nav,
+    .bottom-nav {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 40;
+        gap: 6px;
+        padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+        background: linear-gradient(to top,
+            color-mix(in oklab, var(--bg) 88%, transparent) 55%,
+            transparent);
+        border-top: none;
+        pointer-events: none;
+    }
+
+    .nav-btn {
+        pointer-events: auto;
+        /* `width: 0` erzwingt drei exakt gleich breite Tasten. Ohne das
+           behaelt jede ihre Inhaltsbreite und die dritte laeuft aus dem
+           Bild -- am 375-Pixel-Geraet nachgestellt. */
+        flex: 1 1 0;
+        width: 0;
+        min-width: 0;
+        flex-direction: row;
+        justify-content: center;
+        gap: 7px;
+        min-height: 46px;
+        padding: 0 8px;
+        border-radius: 999px;
+        background: color-mix(in oklab, var(--surface) 82%, transparent);
+        border: 1px solid var(--line-2);
+        backdrop-filter: blur(12px);
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+        font-size: 0.82rem;
+    }
+
+    /* Die Unterzeile ("Kommando", "Kamera", "Artikel / Karton") wiederholt,
+       was das Symbol schon sagt, und zwingt die Taste in zwei Zeilen. */
+    .nav-btn__meta {
+        display: none;
+    }
+
+    .nav-btn svg {
+        width: 20px;
+        height: 20px;
+        flex: 0 0 auto;
+    }
+
+    /* Der Titel weicht, bevor die Taste aus dem Bild laeuft -- das Symbol
+       traegt die Bedeutung, die Schrift ist die Zugabe. */
+    .nav-btn__label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Platz, damit die letzte Zeile nicht unter den Tasten verschwindet. */
+    #main,
+    main {
+        padding-bottom: 74px;
+    }
+
+    /* --- Schnellauswahl: eine scrollbare Zeile statt drei Reihen ---------- */
+    .qa-chips {
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 8px;
+        overflow-x: auto;
+        scrollbar-width: none;
+        padding-bottom: 2px;
+    }
+
+    .qa-chips::-webkit-scrollbar {
+        display: none;
+    }
+
+    .qa-chip {
+        flex: 0 0 auto;
+        white-space: nowrap;
+    }
+
+    /* --- Rundgang: der Lagerplatz war eine Schlagzeile ------------------- */
+    .cluster-stop__location {
+        font-size: 1.05rem;
+        letter-spacing: 0.02em;
+    }
+
+    .cluster-stop {
+        padding: 10px 12px;
+    }
+
+    /* --- Karten enger stellen -------------------------------------------- */
+    .queue-overview,
+    .picking-card,
+    .cluster-box,
+    .qa-form {
+        padding: 12px 14px;
     }
 }

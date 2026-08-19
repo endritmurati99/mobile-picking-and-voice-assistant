@@ -319,7 +319,12 @@ h2.section.warn { color: #a8442a; }
 .bc { flex: 0 0 auto; text-align: center; }
 .bc img.code { display: block; }
 .bc .plain { font-family: "Consolas", monospace; font-size: 11pt; font-weight: 700; margin-top: 1.5mm; letter-spacing: .5pt; }
-.label { border: 1.2px solid #c2643f; border-radius: 2.5mm; padding: 4mm 5mm 3mm; margin-bottom: 5mm;
+/* 14 mm Abstand, nicht 5: am Geraet lagen zwei Etiketten gleichzeitig im
+   Sucherrahmen, sobald das Telefon zwischen ihnen stand -- der Scanner
+   verweigerte dann zu Recht die Buchung. Im Betrieb klebt ein Etikett auf
+   einem Karton; das Problem entsteht erst dadurch, dass hier vier
+   untereinander auf einem Blatt stehen. */
+.label { border: 1.2px solid #c2643f; border-radius: 2.5mm; padding: 4mm 5mm 3mm; margin-bottom: 14mm;
          text-align: center; page-break-inside: avoid; }
 .label .eyebrow { font-size: 9.5pt; font-weight: 700; color: #a8442a; margin-bottom: 2.5mm; text-align: left; }
 .label img.code { display: block; margin: 0 auto; }
