@@ -40,44 +40,161 @@ from pathlib import Path
 
 TITLE = "Kommissionierbogen"
 WAREHOUSE = "Lager 1"
-ORDERS = ["WH/OUT/00047", "WH/OUT/00051", "WH/OUT/00053", "WH/OUT/00054"]
 SHEET_DATE = "19.08.2026"
 
 PWA_URL = "https://172.22.147.158/"
 LOGIN_USER = "lena.lager"
 LOGIN_PASSWORD = "admin"
+LOGIN_INSTANCE = "local"
+DEVICE_ID = "3f9a1c22-0000-4000-8000-0000000000ff"
 
-STOPS = [
-    {"location": "Regal B-01", "barcode": "4166960",
-     "product": "Brick 2x2 blau", "split": "2 Stück in Karton 3"},
-    {"location": "Regal B-02", "barcode": "6269088",
-     "product": "Brick 2x2 dot blau Propeller", "split": "je 1 Stück in Karton 1, 2 und 4"},
-    {"location": "Regal C-01", "barcode": "6294208",
-     "product": "Flower hellblau", "split": "1 Stück in Karton 3"},
-    {"location": "Regal C-02", "barcode": "343701",
-     "product": "Brick 2x2 weiß", "split": "je 1 Stück in Karton 1, 2 und 4"},
-    {"location": "Regal C-02", "barcode": "6096680",
-     "product": "Brick Round 2x2x2 weiß", "split": "je 2 Stück in Karton 1, 2 und 4"},
-]
+# Gegen diese Adresse fragt das Skript den Sammelauftrag ab. Es ist derselbe
+# Weg, den die PWA nimmt -- deshalb steht auf dem Bogen zwangslaeufig das, was
+# in der App steht. Am 19.08.2026 war das anders: der Bogen wurde aus zwei
+# verschiedenen Vorschlaegen zusammengesetzt, und der Benutzer fand den
+# gedruckten Sammelauftrag in der App nicht wieder.
+API_BASE = "https://localhost/api"
 
-CARTONS = [
-    {"label": "Karton 1", "order": "WH/OUT/00047", "value": "CLUSTER-B1/WH/OUT/00047"},
-    {"label": "Karton 2", "order": "WH/OUT/00051", "value": "CLUSTER-B2/WH/OUT/00051"},
-    {"label": "Karton 3", "order": "WH/OUT/00053", "value": "CLUSTER-B3/WH/OUT/00053"},
-    {"label": "Karton 4", "order": "WH/OUT/00054", "value": "CLUSTER-B4/WH/OUT/00054"},
-]
-
-DECOYS = [
-    {"barcode": "343721", "product": "Brick 2x2 rot"},
-    {"barcode": "343724", "product": "Brick 2x2 gelb"},
-]
-
-CHECKS = [
-    "11 Positionen gebucht.",
-    "Vier Aufträge abgeschlossen: WH/OUT/00047, 00051, 00053, 00054.",
+CHECKS_TEMPLATE = [
+    "{positions} Positionen gebucht.",
+    "{count} Auftraege abgeschlossen: {orders}.",
     "Beide Kontrollcodes wurden abgewiesen.",
     "Kein Fehlschlag beim Kartonwechsel.",
 ]
+
+
+
+# --------------------------------------------------------------------------
+# Daten aus dem laufenden System holen
+# --------------------------------------------------------------------------
+
+def _curl(args: list[str]) -> str:
+    """curl statt urllib: das Edge-Zertifikat ist selbst ausgestellt, und -k
+    ist hier vertretbar, weil die Anfrage den Rechner nicht verlaesst."""
+    result = subprocess.run(["curl", "-sk", *args], capture_output=True, text=True, timeout=120)
+    if result.returncode != 0:
+        raise SystemExit(f"FEHLER: curl {' '.join(args[:2])} fehlgeschlagen: {result.stderr[-300:]}")
+    return result.stdout
+
+
+def api_session(jar: Path) -> None:
+    body = json.dumps({
+        "login": LOGIN_USER, "password": LOGIN_PASSWORD,
+        "device_id": DEVICE_ID, "odoo_instance": LOGIN_INSTANCE,
+    })
+    raw = _curl(["-c", str(jar), "-X", "POST", f"{API_BASE}/auth/picker-session",
+                 "-H", "Content-Type: application/json", "-H", "Origin: https://localhost",
+                 "-d", body])
+    if "principal" not in raw:
+        raise SystemExit(f"FEHLER: Anmeldung fehlgeschlagen: {raw[:200]}")
+
+
+def fetch_batch(batch_id: int, jar: Path) -> dict:
+    raw = _curl(["-b", str(jar), f"{API_BASE}/cluster/batches/{batch_id}"])
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        raise SystemExit(f"FEHLER: Sammelauftrag {batch_id} nicht lesbar: {raw[:200]}")
+
+
+def list_suggestions(jar: Path) -> list[dict]:
+    return json.loads(_curl(["-b", str(jar), f"{API_BASE}/cluster/suggestions"]))
+
+
+def _quantity(value: float) -> str:
+    return str(int(value)) if float(value).is_integer() else f"{value:.2f}".replace(".", ",")
+
+
+def stops_from_batch(batch: dict) -> list[dict]:
+    """Fasst die Zeilen zu Halten zusammen -- ein Halt je Lagerplatz und Artikel.
+
+    Die App sortiert die Halte nach Lagerplatzname; genau diese Reihenfolge
+    bildet der Bogen ab, damit Papier und Bildschirm nicht auseinanderlaufen.
+    """
+    gruppen: dict[tuple, dict] = {}
+    for line in batch.get("lines", []):
+        key = (line.get("location_src_short") or "", line.get("product_barcode") or "")
+        eintrag = gruppen.setdefault(key, {
+            "location": line.get("location_src_short") or "",
+            "barcode": line.get("product_barcode") or "",
+            "product": line.get("product_name") or "",
+            "anteile": [],
+        })
+        eintrag["anteile"].append((line.get("box_index"), float(line.get("quantity_demand") or 0)))
+
+    stops = []
+    for eintrag in sorted(gruppen.values(), key=lambda e: (e["location"], e["barcode"])):
+        anteile = sorted(eintrag["anteile"], key=lambda a: a[0] or 0)
+        mengen = {menge for _, menge in anteile}
+        kartons = [str(box) for box, _ in anteile]
+        if len(anteile) == 1:
+            split = f"{_quantity(anteile[0][1])} Stück in Karton {kartons[0]}"
+        elif len(mengen) == 1:
+            split = f"je {_quantity(anteile[0][1])} Stück in Karton " + _aufzaehlung(kartons)
+        else:
+            split = ", ".join(f"{_quantity(menge)} in Karton {box}" for box, menge in anteile)
+        eintrag["split"] = split
+        stops.append(eintrag)
+    return stops
+
+
+def _aufzaehlung(werte: list[str]) -> str:
+    if len(werte) == 1:
+        return werte[0]
+    return ", ".join(werte[:-1]) + " und " + werte[-1]
+
+
+def cartons_from_batch(batch: dict) -> list[dict]:
+    kartons = []
+    for box in sorted(batch.get("boxes", []), key=lambda b: b.get("box_index") or 0):
+        if not box.get("package_name"):
+            raise SystemExit(
+                f"FEHLER: Auftrag {box.get('picking_name')} hat noch kein Ziel-Paket. "
+                "Der Sammelauftrag muss in der App gestartet sein, bevor der Bogen entsteht."
+            )
+        kartons.append({
+            "label": f"Karton {box['box_index']}",
+            "order": box.get("picking_name") or "",
+            "value": box["package_name"],
+        })
+    return kartons
+
+
+DECOY_SQL = """
+select p.barcode, coalesce(t.name->>'en_US', t.name->>'de_DE')
+from product_product p join product_template t on t.id = p.product_tmpl_id
+where p.active and t.active and p.barcode is not null and p.barcode <> ''
+  and p.barcode not in ({belegt})
+order by case when coalesce(t.name->>'en_US', t.name->>'de_DE') like 'Brick 2x2%' then 0 else 1 end,
+         p.id
+limit 2
+"""
+
+
+def decoys_from_db(belegte_barcodes: list[str]) -> list[dict]:
+    """Zwei echte Artikel, die NICHT zu diesem Sammelauftrag gehoeren.
+
+    Bevorzugt aus derselben Bauform-Familie: gleiche Form, falsche Farbe ist
+    die Verwechslung, die im Betrieb wirklich passiert -- ein voellig anderer
+    Artikel waere ein zu leichter Test.
+    """
+    belegt = ", ".join("'" + b.replace("'", "") + "'" for b in belegte_barcodes) or "''"
+    sql = DECOY_SQL.format(belegt=belegt).replace("\n", " ")
+    result = subprocess.run(
+        [DOCKER, "exec", "mobilepickingundvoiceassistant-db-1",
+         "psql", "-U", "odoo", "-d", "masterfischer_o19", "-tAF|", "-c", sql],
+        capture_output=True, text=True, timeout=120,
+    )
+    koeder = []
+    for zeile in result.stdout.strip().splitlines():
+        if "|" not in zeile:
+            continue
+        barcode, name = zeile.split("|", 1)
+        koeder.append({"barcode": barcode.strip(), "product": name.strip()})
+    if len(koeder) < 2:
+        raise SystemExit("FEHLER: keine zwei geeigneten Kontrollcodes gefunden.")
+    return koeder
+
 
 # --------------------------------------------------------------------------
 # Technik
@@ -268,31 +385,42 @@ def build_start_html(qr_png: str) -> str:
 </body></html>"""
 
 
-def build_html(barcodes: dict) -> str:
-    orders = " &middot; ".join(ORDERS)
-    stops = "".join(card(s, i + 1, barcodes) for i, s in enumerate(STOPS))
-    labels = "".join(
+def build_html(batch: dict, stops: list[dict], cartons: list[dict],
+               decoys: list[dict], barcodes: dict) -> str:
+    orders = [c["order"] for c in cartons]
+    orders_text = " &middot; ".join(orders)
+    positions = len(batch.get("lines", []))
+    checks = [
+        CHECKS_TEMPLATE[0].format(positions=positions),
+        CHECKS_TEMPLATE[1].format(count=len(orders), orders=", ".join(orders)),
+        CHECKS_TEMPLATE[2],
+        CHECKS_TEMPLATE[3],
+    ]
+
+    stop_cards = "".join(card(s, i + 1, barcodes) for i, s in enumerate(stops))
+    label_blocks = "".join(
         f"""
     <div class="label">
       <div class="eyebrow">{html.escape(c['label'])} &nbsp;|&nbsp; Auftrag {html.escape(c['order'])}</div>
       {barcodes[c['value']][0]}
       <div class="plain">{html.escape(c['value'])}</div>
     </div>"""
-        for c in CARTONS
+        for c in cartons
     )
-    decoys = "".join(
+    decoy_blocks = "".join(
         f"""
     <div class="card warn">
       <div class="info">
         <div class="eyebrow">MUSS ABGEWIESEN WERDEN</div>
         <div class="name">{html.escape(d['product'])}</div>
-        <div class="split"><span>Gehört zu keinem der vier Aufträge</span>Die App muss &bdquo;falscher Artikel&ldquo; melden</div>
+        <div class="split"><span>Gehört zu keinem Auftrag dieses Sammelauftrags</span>Die App muss &bdquo;falscher Artikel&ldquo; melden</div>
       </div>
       <div class="bc">{barcodes[d['barcode']][0]}<div class="plain">{html.escape(d['barcode'])}</div></div>
     </div>"""
-        for d in DECOYS
+        for d in decoys
     )
-    checks = "".join(f"<li>{html.escape(c)}</li>" for c in CHECKS)
+    check_items = "".join(f"<li>{html.escape(c)}</li>" for c in checks)
+    batch_name = html.escape(batch.get("name") or "")
 
     def head(subtitle: str) -> str:
         return (f'<div class="head"><h1>{html.escape(TITLE)} &ndash; {html.escape(WAREHOUSE)}</h1>'
@@ -306,7 +434,7 @@ def build_html(barcodes: dict) -> str:
 <title>{html.escape(TITLE)} {html.escape(WAREHOUSE)}</title><style>{CSS}</style></head><body>
 
 <div class="sheet">
-  {head(f'Sammelauftrag {orders} &nbsp;|&nbsp; Stand {SHEET_DATE}')}
+  {head(f'{batch_name} &nbsp;|&nbsp; {orders_text} &nbsp;|&nbsp; Stand {SHEET_DATE}')}
   <div class="note">
     <h2>So arbeiten Sie den Rundgang ab</h2>
     <p>Die Halte stehen in der Reihenfolge, in der die App sie anzeigt. An jedem Halt zuerst den
@@ -314,7 +442,7 @@ def build_html(barcodes: dict) -> str:
        genannt, wiederholt sich der Kartonschritt je Karton &ndash; der Artikel bleibt geprüft.</p>
   </div>
   <h2 class="section">1 &nbsp; Artikel in Rundgangsreihenfolge</h2>
-  {stops}
+  {stop_cards}
   {foot(1)}
 </div>
 
@@ -322,12 +450,11 @@ def build_html(barcodes: dict) -> str:
   {head('Kartonetiketten')}
   <div class="note">
     <h2>2 &nbsp; Kartonetiketten</h2>
-    <p>Diese Namen vergibt das System selbst, sobald der Sammelauftrag gestartet wird
-       (Muster CLUSTER-B{{Nummer}}/{{Auftrag}}, Nummer nach aufsteigender Auftrags-ID).
-       Sie gelten nur für genau diesen Sammelauftrag. Wird ein anderer gestartet, ändern sich
-       die Namen und dieser Bogen muss neu erzeugt werden.</p>
+    <p>Diese Namen hat das System beim Start von {batch_name} selbst vergeben. Sie gelten nur für
+       genau diesen Sammelauftrag; wird ein anderer gestartet, ändern sich die Namen und dieser
+       Bogen muss neu erzeugt werden.</p>
   </div>
-  {labels}
+  {label_blocks}
   {foot(2)}
 </div>
 
@@ -338,9 +465,9 @@ def build_html(barcodes: dict) -> str:
     <p>Beide Artikel gibt es wirklich im Lager, sie gehören aber nicht zu diesem Sammelauftrag:
        gleiche Bauform, falsche Farbe. Genau diese Verwechslung passiert im Betrieb.</p>
   </div>
-  {decoys}
+  {decoy_blocks}
   <h2 class="section" style="margin-top:8mm">4 &nbsp; Nach dem Rundgang prüfen</h2>
-  <ul class="checks">{checks}</ul>
+  <ul class="checks">{check_items}</ul>
   {foot(3)}
 </div>
 
@@ -373,11 +500,37 @@ def print_pdf(document: str, target: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Startblatt und Kommissionierbogen erzeugen.")
+    parser = argparse.ArgumentParser(
+        description="Startblatt und Kommissionierbogen aus dem LAUFENDEN Sammelauftrag erzeugen.")
+    parser.add_argument("--batch", type=int,
+                        help="ID des Sammelauftrags, wie ihn die App zeigt. Ohne Angabe werden "
+                             "die aktuellen Vorschlaege aufgelistet und nichts erzeugt.")
     parser.add_argument("--sheet", choices=("start", "picking", "both"), default="both")
     parser.add_argument("--output-dir", type=Path, default=Path("docs/testing"))
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
+
+    jar = args.output_dir / ".session.cookies"
+    try:
+        api_session(jar)
+
+        if not args.batch:
+            print("Kein --batch angegeben. Aktuelle Vorschlaege der App:\n")
+            for vorschlag in list_suggestions(jar):
+                print(f"  {', '.join(vorschlag['picking_names']):<48} "
+                      f"{vorschlag['line_count']:>3} Positionen   Score {vorschlag['score']}")
+            print("\nErst in der App starten, dann mit --batch <ID> den Bogen erzeugen.")
+            return
+
+        batch = fetch_batch(args.batch, jar)
+        stops = stops_from_batch(batch)
+        cartons = cartons_from_batch(batch)
+        decoys = decoys_from_db([s["barcode"] for s in stops])
+    finally:
+        jar.unlink(missing_ok=True)
+
+    print(f"{batch.get('name')}: {len(batch.get('lines', []))} Positionen, "
+          f"{len(stops)} Halte, {len(cartons)} Kartons")
 
     if args.sheet in ("start", "both"):
         target = args.output_dir / "handy-start.pdf"
@@ -385,13 +538,11 @@ def main() -> None:
         print(f"OK  {target}  ({target.stat().st_size // 1024} KB)")
 
     if args.sheet in ("picking", "both"):
-        values = [s["barcode"] for s in STOPS] + [c["value"] for c in CARTONS] \
-            + [d["barcode"] for d in DECOYS]
+        values = [s["barcode"] for s in stops] + [c["value"] for c in cartons] \
+            + [d["barcode"] for d in decoys]
         barcodes = build_barcodes(values)
-        for value, (_, width_mm) in sorted(barcodes.items(), key=lambda kv: -kv[1][1]):
-            print(f"  {value:<26} {width_mm:6.1f} mm breit")
         target = args.output_dir / "kommissionierbogen-lager1.pdf"
-        print_pdf(build_html(barcodes), target)
+        print_pdf(build_html(batch, stops, cartons, decoys, barcodes), target)
         print(f"OK  {target}  ({target.stat().st_size // 1024} KB)")
 
 
