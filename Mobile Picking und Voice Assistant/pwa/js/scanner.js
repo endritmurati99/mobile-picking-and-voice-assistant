@@ -36,6 +36,13 @@ const ZXING_FORMATS = ['EAN-13', 'EAN-8', 'Code128', 'Code39', 'QRCode', 'DataMa
 
 /** Erkennung hoechstens alle 120 ms -- 8 Versuche/s reichen und schonen den Akku. */
 const SCAN_INTERVAL_MS = 120;
+// Sperrfrist nach dem Oeffnen. Ohne sie nimmt der Scanner den Code, der beim
+// Aufklappen zufaellig im Bild liegt, bevor der Benutzer ueberhaupt zielen kann.
+const ARM_DELAY_MS = 500;
+// Ein Treffer zaehlt erst, wenn zwei aufeinanderfolgende Durchlaeufe denselben
+// Wert liefern. Kostet rund 120 ms und verhindert den Zufallsgriff auf einen
+// Nachbarcode, der nur kurz durchs Bild wandert.
+const CONFIRM_HITS = 2;
 /** Nach so vielen ms ohne Treffer bekommt der Benutzer einen Hinweis statt Stille. */
 const HINT_AFTER_MS = 6000;
 const HINT2_AFTER_MS = 14000;
@@ -157,6 +164,51 @@ export function loadZXing() {
         throw err;
     });
     return zxingPromise;
+}
+
+
+/**
+ * Torwaechter fuer Treffer: Sperrfrist nach dem Oeffnen plus Bestaetigung durch
+ * Wiederholung.
+ *
+ * Am Geraet beobachtet (19.08.2026): auf einem A4-Blatt mit mehreren Codes
+ * nebeneinander buchte der Scanner sofort irgendeinen, waehrend der Benutzer
+ * noch zielte. Beides hier ist die Antwort darauf -- als eigene Funktion,
+ * damit es pruefbar ist und nicht im Kamera-Code versteckt liegt.
+ *
+ * @param {{armDelayMs?: number, confirmHits?: number, now?: () => number}} options
+ */
+export function createHitGate({
+    armDelayMs = ARM_DELAY_MS,
+    confirmHits = CONFIRM_HITS,
+    now = () => Date.now(),
+} = {}) {
+    const openedAt = now();
+    let pending = '';
+    let hits = 0;
+
+    return {
+        /** @returns {boolean} true, wenn der Wert jetzt gilt. */
+        offer(value) {
+            if (!value) {
+                this.reset();
+                return false;
+            }
+            if (now() - openedAt < armDelayMs) return false;
+            if (value === pending) {
+                hits += 1;
+            } else {
+                pending = value;
+                hits = 1;
+            }
+            return hits >= confirmHits;
+        },
+        /** Kandidat aus dem Bild verschwunden -- Bestaetigung faengt von vorn an. */
+        reset() {
+            pending = '';
+            hits = 0;
+        },
+    };
 }
 
 /**
@@ -309,28 +361,40 @@ export async function openCameraScanner(onScan) {
         let hintLevel = 0;
         let canvas = null;
         let ctx = null;
-        // Wechselt zwischen Rahmenausschnitt und Vollbild: der Ausschnitt ist
-        // schneller und praeziser, das Vollbild faengt Codes knapp neben dem Rahmen.
         let tick = 0;
+
+        // Der Bildausschnitt, den der Rahmen auf dem Schirm markiert -- in
+        // Videopixeln. Beide Erkennungswege brauchen ihn: der eine, um nur
+        // diesen Teil zu dekodieren, der andere, um Treffer ausserhalb zu
+        // verwerfen.
+        const currentRegion = () => {
+            const vw = videoEl.videoWidth;
+            const vh = videoEl.videoHeight;
+            if (!vw || !vh) return null;
+            if (!frameEl) return { sx: 0, sy: 0, sw: vw, sh: vh };
+            const boxRect = frameEl.getBoundingClientRect();
+            return computeRoi({
+                videoWidth: vw,
+                videoHeight: vh,
+                displayWidth: videoEl.clientWidth,
+                displayHeight: videoEl.clientHeight,
+                boxWidth: boxRect.width,
+                boxHeight: boxRect.height,
+            });
+        };
 
         const grabFrame = () => {
             const vw = videoEl.videoWidth;
             const vh = videoEl.videoHeight;
             if (!vw || !vh) return null;
 
-            const useRoi = (tick % 4) !== 3;
-            let region = { sx: 0, sy: 0, sw: vw, sh: vh };
-            if (useRoi && frameEl) {
-                const boxRect = frameEl.getBoundingClientRect();
-                region = computeRoi({
-                    videoWidth: vw,
-                    videoHeight: vh,
-                    displayWidth: videoEl.clientWidth,
-                    displayHeight: videoEl.clientHeight,
-                    boxWidth: boxRect.width,
-                    boxHeight: boxRect.height,
-                });
-            }
+            // NUR der Rahmenausschnitt. Frueher lief jeder vierte Durchlauf ueber
+            // das Vollbild, um Codes knapp neben dem Rahmen mitzunehmen -- auf
+            // einem A4-Blatt mit mehreren Codes nebeneinander griff der Scanner
+            // damit den Nachbarn, bevor der Benutzer zielen konnte. Am Geraet
+            // beobachtet. Der Rahmen ist die Zielhilfe; was ausserhalb liegt,
+            // ist nicht gemeint.
+            const region = currentRegion() || { sx: 0, sy: 0, sw: vw, sh: vh };
 
             if (!canvas) {
                 canvas = document.createElement('canvas');
@@ -348,12 +412,17 @@ export async function openCameraScanner(onScan) {
             return ctx.getImageData(0, 0, region.sw, region.sh);
         };
 
+        const gate = createHitGate();
+
         const succeed = (value) => {
             if (!value || closed) return false;
+            if (!gate.offer(value)) return false;
             close();
             onScan(value);
             return true;
         };
+
+        const missed = () => gate.reset();
 
         const updateHint = () => {
             const elapsed = Date.now() - startedAt;
@@ -375,7 +444,28 @@ export async function openCameraScanner(onScan) {
                 if (videoEl.readyState >= 2) {
                     try {
                         const results = await detector.detect(videoEl);
-                        if (results.length > 0 && succeed(results[0].rawValue)) return;
+                        // Der native Erkenner sieht immer das ganze Videobild. Damit
+                        // er sich auf einem Blatt mit mehreren Codes nicht den
+                        // Nachbarn greift, zaehlt nur, was mit seiner Mitte im
+                        // angezeigten Rahmen liegt.
+                        const inFrame = results.filter((result) => {
+                            const box = result.boundingBox;
+                            const region = currentRegion();
+                            if (!box || !region) return true;
+                            const cx = box.x + box.width / 2;
+                            const cy = box.y + box.height / 2;
+                            return cx >= region.sx && cx <= region.sx + region.sw
+                                && cy >= region.sy && cy <= region.sy + region.sh;
+                        });
+                        const werte = [...new Set(inFrame.map(r => r.rawValue).filter(Boolean))];
+                        if (werte.length > 1) {
+                            setStatus('Mehrere Codes im Rahmen. Naeher heran oder einzeln zeigen.');
+                            missed();
+                        } else if (werte.length === 1) {
+                            if (succeed(werte[0])) return;
+                        } else {
+                            missed();
+                        }
                     } catch { /* ignorieren */ }
                 }
                 tick++;
@@ -399,10 +489,22 @@ export async function openCameraScanner(onScan) {
                                     tryHarder: true,
                                     tryRotate: true,
                                     tryInvert: true,
-                                    maxNumberOfSymbols: 1,
+                                    // Bewusst mehr als eins: liegen zwei Codes im
+                                    // Rahmen, soll das auffallen statt willkuerlich
+                                    // einen davon zu buchen.
+                                    maxNumberOfSymbols: 2,
                                 });
-                                const hit = results.find(r => r.text);
-                                if (hit && succeed(hit.text)) return;
+                                const werte = [...new Set(results.map(r => r.text).filter(Boolean))];
+                                if (werte.length > 1) {
+                                    setStatus('Mehrere Codes im Rahmen. Naeher heran oder einzeln zeigen.');
+                                    missed();
+                                } else if (werte.length === 1) {
+                                    if (succeed(werte[0])) return;
+                                } else {
+                                    missed();
+                                }
+                            } else {
+                                missed();
                             }
                         } catch { /* ignorieren, naechster Versuch */ }
                     }
