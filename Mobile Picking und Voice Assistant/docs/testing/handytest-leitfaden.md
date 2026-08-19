@@ -40,11 +40,12 @@ Software, nicht die Existenz eines Regals.
 > schreibt.
 
 
-> **Nicht mehr benutzen:** `cluster-pwa-mobile-start.pdf`, `cluster-pwa-lan-qr.png`
-> und `cluster-scan-testbogen.pdf` stammen aus dem Testlauf vom 14./16. August.
-> Ihr QR zeigt auf `https://172.31.18.88/` — diese Adresse gibt es nicht mehr —
-> und der Scanbogen trägt Artikelnummern aus Lager 1. Sie bleiben nur als
-> Nachweis jenes Laufs liegen.
+> **Ältere Bogen gibt es nicht mehr.** `cluster-pwa-mobile-start.pdf`,
+> `cluster-pwa-lan-qr.png` und `cluster-scan-testbogen.pdf` stammten aus dem
+> Lauf vom 14./16. August; ihr QR zeigte auf `https://172.31.18.88/`, eine
+> Adresse, die es nicht mehr gibt, und der Scanbogen trug Artikelnummern aus
+> Lager 1. Sie sind am 19. August entfernt worden, damit niemand versehentlich
+> nach ihnen greift. Wer sie braucht, findet sie in der Versionsgeschichte.
 
 ---
 
