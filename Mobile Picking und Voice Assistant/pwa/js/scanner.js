@@ -1,12 +1,27 @@
 /**
  * Barcode-Scanner-Integration.
- * 
- * Strategie (Priorität):
+ *
+ * Strategie (Prioritaet):
  * 1. Bluetooth-HID-Scanner (onScan.js Pattern)
- * 2. BarcodeDetector API (nur Chrome Android)
+ * 2. Kamera:
+ *    2a. BarcodeDetector API   -- Chrome/Android, im Lager erprobt, nativ und gratis
+ *    2b. zxing-wasm (Fallback) -- iOS/Safari und jeder Browser ohne BarcodeDetector
  * 3. Touch-Fallback (manuelle Eingabe)
- * 
- * KEIN Kamera-Scanning im MVP — HID-Scanner + Touch reicht.
+ *
+ * Warum ueberhaupt ein Fallback:
+ * Unter iOS benutzt JEDER Browser (Safari, Chrome, Firefox, Edge) die WebKit-Engine,
+ * und WebKit liefert `BarcodeDetector` nicht aus. Auf dem iPhone lief deshalb bisher
+ * nur die Kameravorschau ohne jede Erkennung -- die manuelle Eingabe war der einzige Weg.
+ *
+ * Fremdbibliothek (eingebettet, siehe pwa/vendor/zxing/):
+ *   zxing-wasm 3.1.3 -- WebAssembly-Build von zxing-cpp
+ *   MIT (Wrapper) + Apache-2.0 (zxing-cpp Kern), https://github.com/Sec-ant/zxing-wasm
+ *   Wird ausschliesslich LOKAL geladen (/vendor/zxing/...), nie von einem CDN:
+ *   das Lager-WLAN hat keinen Internetzugang. Die Voreinstellung der Bibliothek
+ *   zieht die .wasm-Datei von jsDelivr -- genau das wird unten per `locateFile`
+ *   ueberschrieben.
+ *   Geladen wird sie per dynamischem `import()`, also erst wenn `BarcodeDetector`
+ *   wirklich fehlt. Geraete mit BarcodeDetector holen die 1,1 MB nie.
  */
 
 let scanCallback = null;
@@ -14,6 +29,16 @@ let scanBuffer = '';
 let scanTimeout = null;
 const SCAN_THRESHOLD_MS = 50;  // HID-Scanner tippen schneller als Menschen
 const MIN_BARCODE_LENGTH = 4;
+
+/** Formate, die im Lager vorkommen. Fuer beide Erkenner dieselbe Liste. */
+const DETECTOR_FORMATS = ['ean_13', 'ean_8', 'code_128', 'code_39', 'qr_code', 'data_matrix'];
+const ZXING_FORMATS = ['EAN-13', 'EAN-8', 'Code128', 'Code39', 'QRCode', 'DataMatrix'];
+
+/** Erkennung hoechstens alle 120 ms -- 8 Versuche/s reichen und schonen den Akku. */
+const SCAN_INTERVAL_MS = 120;
+/** Nach so vielen ms ohne Treffer bekommt der Benutzer einen Hinweis statt Stille. */
+const HINT_AFTER_MS = 6000;
+const HINT2_AFTER_MS = 14000;
 
 /**
  * HID-Scanner-Listener initialisieren.
@@ -55,17 +80,90 @@ export function initHIDScanner(onScan) {
 }
 
 /**
- * BarcodeDetector API (Chrome Android ≥83).
- * Gibt null zurück wenn nicht verfügbar.
+ * BarcodeDetector API (Chrome Android >= 83).
+ * Gibt false zurueck wenn nicht verfuegbar (u. a. auf JEDEM iOS-Browser).
  */
 export function isBarcodeDetectorAvailable() {
     return typeof BarcodeDetector !== 'undefined';
 }
 
 /**
- * Kamera-Barcode-Scanner-Overlay öffnen.
- * - Nutzt BarcodeDetector API wenn verfügbar (automatische Erkennung)
- * - Fallback: Kamera-Vorschau + manuelle Eingabe
+ * Auswahl des Erkenners -- als reine Funktion, damit sie ohne Browser testbar ist.
+ *
+ * @param {object} [scope] Objekt, in dem nach `BarcodeDetector` gesucht wird
+ *                         (im Betrieb `globalThis`, im Test ein Attrappen-Objekt).
+ * @returns {'barcode-detector'|'zxing-wasm'}
+ */
+export function selectScanEngine(scope = globalThis) {
+    const ctor = scope?.BarcodeDetector;
+    return typeof ctor === 'function' ? 'barcode-detector' : 'zxing-wasm';
+}
+
+/**
+ * Bildausschnitt im angezeigten Rahmen auf Videopixel umrechnen.
+ *
+ * Das Video haengt mit `object-fit: cover` im Overlay: es wird so skaliert, dass es
+ * den Kasten fuellt, der Ueberstand wird links/rechts bzw. oben/unten abgeschnitten.
+ * Ohne diese Umrechnung wuerde der Rahmen auf dem Bildschirm etwas ganz anderes
+ * einrahmen als der Ausschnitt, den wir dekodieren.
+ *
+ * Reine Funktion, damit sie ohne Browser pruefbar ist.
+ *
+ * @returns {{sx:number, sy:number, sw:number, sh:number}} Quellrechteck im Videobild
+ */
+export function computeRoi({
+    videoWidth, videoHeight, displayWidth, displayHeight,
+    boxWidth, boxHeight, padding = 0.18,
+}) {
+    if (!videoWidth || !videoHeight || !displayWidth || !displayHeight) {
+        return { sx: 0, sy: 0, sw: videoWidth || 0, sh: videoHeight || 0 };
+    }
+    // object-fit: cover -> der groessere der beiden Massstaebe gewinnt
+    const scale = Math.max(displayWidth / videoWidth, displayHeight / videoHeight);
+    // Rahmen ist im Overlay zentriert; Groesse in CSS-Pixeln -> Videopixel
+    let sw = (boxWidth / scale) * (1 + padding * 2);
+    let sh = (boxHeight / scale) * (1 + padding * 2);
+    sw = Math.min(videoWidth, Math.max(1, Math.round(sw)));
+    sh = Math.min(videoHeight, Math.max(1, Math.round(sh)));
+    const sx = Math.max(0, Math.round((videoWidth - sw) / 2));
+    const sy = Math.max(0, Math.round((videoHeight - sh) / 2));
+    return { sx, sy, sw, sh };
+}
+
+/**
+ * zxing-wasm nachladen -- lokal, einmalig, und erst wenn wirklich gebraucht.
+ * Der Promise wird gemerkt, damit ein zweites Oeffnen des Scanners sofort startet.
+ */
+let zxingPromise = null;
+export function loadZXing() {
+    if (zxingPromise) return zxingPromise;
+    zxingPromise = (async () => {
+        const moduleUrl = new URL('../vendor/zxing/reader/index.js', import.meta.url).href;
+        const wasmUrl = new URL('../vendor/zxing/zxing_reader.wasm', import.meta.url).href;
+        const zxing = await import(/* @vite-ignore */ moduleUrl);
+        // Ohne diesen Override zieht zxing-wasm die .wasm-Datei von jsDelivr --
+        // im Lager-WLAN ohne Internet waere das ein stiller Totalausfall.
+        await zxing.prepareZXingModule({
+            overrides: {
+                locateFile: (path, prefix) => (
+                    path.endsWith('.wasm') ? wasmUrl : `${prefix}${path}`
+                ),
+            },
+            fireImmediately: true,
+        });
+        return zxing;
+    })().catch((err) => {
+        zxingPromise = null;   // beim naechsten Oeffnen erneut versuchen
+        throw err;
+    });
+    return zxingPromise;
+}
+
+/**
+ * Kamera-Barcode-Scanner-Overlay oeffnen.
+ * - BarcodeDetector API wenn verfuegbar (Android/Chrome)
+ * - sonst zxing-wasm (iOS und alles andere)
+ * - immer zusaetzlich: manuelle Eingabe
  * onScan(barcode) wird aufgerufen sobald ein Barcode erkannt wurde.
  */
 export async function openCameraScanner(onScan) {
@@ -81,18 +179,20 @@ export async function openCameraScanner(onScan) {
         'background:#000', 'display:flex', 'flex-direction:column',
     ].join(';');
 
-    const hasDetector = typeof BarcodeDetector !== 'undefined';
+    const engine = selectScanEngine();
+    const hasDetector = engine === 'barcode-detector';
 
     overlay.innerHTML = `
         <div style="position:relative;flex:1;overflow:hidden;background:#000;">
-            <video id="scanner-video" autoplay playsinline muted
+            <video id="scanner-video" autoplay playsinline webkit-playsinline muted
                    style="width:100%;height:100%;object-fit:cover;"></video>
             <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;">
-                <div style="width:260px;height:130px;border:3px solid var(--primary);border-radius:10px;box-shadow:0 0 0 9999px rgba(0,0,0,0.45);"></div>
+                <div id="scanner-frame" style="width:260px;height:130px;border:3px solid var(--primary);border-radius:10px;box-shadow:0 0 0 9999px rgba(0,0,0,0.45);"></div>
             </div>
-            <div style="position:absolute;top:16px;left:0;right:0;text-align:center;">
-                <span style="background:rgba(0,0,0,0.6);color:#fff;padding:6px 14px;border-radius:20px;font-size:0.85rem;">
-                    ${hasDetector ? 'Barcode in den Rahmen halten' : 'Barcode scannen'}
+            <div style="position:absolute;top:16px;left:0;right:0;text-align:center;padding:0 12px;">
+                <span id="scanner-status" role="status" aria-live="polite"
+                      style="display:inline-block;background:rgba(0,0,0,0.6);color:#fff;padding:6px 14px;border-radius:20px;font-size:0.85rem;line-height:1.35;max-width:100%;">
+                    Barcode in den Rahmen halten
                 </span>
             </div>
         </div>
@@ -114,18 +214,54 @@ export async function openCameraScanner(onScan) {
     document.body.appendChild(overlay);
 
     let videoStream = null;
-    let rafHandle = null;
+    let loopHandle = null;
     let closed = false;
 
     const videoEl = document.getElementById('scanner-video');
+    const frameEl = document.getElementById('scanner-frame');
+    const statusEl = document.getElementById('scanner-status');
 
-    // Kamera starten
-    try {
-        videoStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'environment', width: { ideal: 1280 } },
-        });
+    const setStatus = (text) => { if (statusEl && !closed) statusEl.textContent = text; };
+
+    // iOS: `muted` und `playsinline` muessen auch als Property gesetzt sein, sonst
+    // verweigert WebKit die Inline-Wiedergabe und geht in den Vollbild-Player.
+    videoEl.muted = true;
+    videoEl.playsInline = true;
+    videoEl.setAttribute('playsinline', '');
+
+    // Kamera starten. iOS wirft bei zu strengen Constraints OverconstrainedError,
+    // deshalb absteigende Kette statt einer einzigen Anforderung.
+    const constraintCandidates = [
+        // Scharfe Bilder helfen 1D-Codes am meisten: erst 1920 versuchen.
+        { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } },
+        { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
+        { video: { facingMode: 'environment' } },
+        { video: true },
+    ];
+
+    for (const constraints of constraintCandidates) {
+        try {
+            videoStream = await navigator.mediaDevices.getUserMedia(constraints);
+            break;
+        } catch { /* naechste Stufe versuchen */ }
+    }
+
+    if (videoStream) {
         videoEl.srcObject = videoStream;
-    } catch {
+        // Safari startet nicht immer von selbst, obwohl `autoplay` gesetzt ist.
+        // Ohne dieses explizite play() bleibt das Bild auf dem iPhone schwarz.
+        try { await videoEl.play(); } catch { /* Autoplay-Politik, Bild kommt trotzdem */ }
+        // Dauer-Autofokus, wo der Browser ihn anbietet (Android). iOS ignoriert das
+        // stillschweigend und fokussiert selbst -- deshalb nur best effort.
+        try {
+            const [track] = videoStream.getVideoTracks();
+            const caps = track?.getCapabilities?.() ?? {};
+            const advanced = [];
+            if (caps.focusMode?.includes('continuous')) advanced.push({ focusMode: 'continuous' });
+            if (caps.exposureMode?.includes('continuous')) advanced.push({ exposureMode: 'continuous' });
+            if (advanced.length) await track.applyConstraints({ advanced });
+        } catch { /* optional */ }
+    } else {
         videoEl.parentElement.style.display = 'none';
         overlay.style.background = 'var(--bg)';
         overlay.lastElementChild.style.margin = 'auto 0';
@@ -134,7 +270,7 @@ export async function openCameraScanner(onScan) {
     function close() {
         if (closed) return;
         closed = true;
-        if (rafHandle) cancelAnimationFrame(rafHandle);
+        if (loopHandle) clearTimeout(loopHandle);
         if (videoStream) videoStream.getTracks().forEach(t => t.stop());
         document.removeEventListener('keydown', handleDialogKeydown);
         overlay.remove();
@@ -164,34 +300,132 @@ export async function openCameraScanner(onScan) {
 
     document.getElementById('scanner-close').addEventListener('click', close);
 
-    // BarcodeDetector-Loop (automatische Erkennung)
-    if (hasDetector && videoStream) {
-        const detector = new BarcodeDetector({
-            formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'qr_code', 'data_matrix'],
-        });
+    // ---- Erkennungsschleife -------------------------------------------------
+    // Bewusst `setTimeout` statt `requestAnimationFrame`: rAF steht still, sobald
+    // die Seite in den Hintergrund geht, und feuert sonst 60x/s -- viel oefter als
+    // noetig. Die feste Taktung ist sparsamer und auf jedem Geraet gleich.
+    if (videoStream) {
+        const startedAt = Date.now();
+        let hintLevel = 0;
+        let canvas = null;
+        let ctx = null;
+        // Wechselt zwischen Rahmenausschnitt und Vollbild: der Ausschnitt ist
+        // schneller und praeziser, das Vollbild faengt Codes knapp neben dem Rahmen.
+        let tick = 0;
 
-        async function detectLoop() {
-            if (videoEl.readyState >= 2) {
-                try {
-                    const results = await detector.detect(videoEl);
-                    if (results.length > 0) {
-                        close();
-                        onScan(results[0].rawValue);
-                        return;
-                    }
-                } catch { /* ignorieren */ }
+        const grabFrame = () => {
+            const vw = videoEl.videoWidth;
+            const vh = videoEl.videoHeight;
+            if (!vw || !vh) return null;
+
+            const useRoi = (tick % 4) !== 3;
+            let region = { sx: 0, sy: 0, sw: vw, sh: vh };
+            if (useRoi && frameEl) {
+                const boxRect = frameEl.getBoundingClientRect();
+                region = computeRoi({
+                    videoWidth: vw,
+                    videoHeight: vh,
+                    displayWidth: videoEl.clientWidth,
+                    displayHeight: videoEl.clientHeight,
+                    boxWidth: boxRect.width,
+                    boxHeight: boxRect.height,
+                });
             }
-            rafHandle = requestAnimationFrame(detectLoop);
+
+            if (!canvas) {
+                canvas = document.createElement('canvas');
+                ctx = canvas.getContext('2d', { willReadFrequently: true });
+            }
+            if (canvas.width !== region.sw || canvas.height !== region.sh) {
+                canvas.width = region.sw;
+                canvas.height = region.sh;
+            }
+            ctx.drawImage(
+                videoEl,
+                region.sx, region.sy, region.sw, region.sh,
+                0, 0, region.sw, region.sh,
+            );
+            return ctx.getImageData(0, 0, region.sw, region.sh);
+        };
+
+        const succeed = (value) => {
+            if (!value || closed) return false;
+            close();
+            onScan(value);
+            return true;
+        };
+
+        const updateHint = () => {
+            const elapsed = Date.now() - startedAt;
+            if (hintLevel < 2 && elapsed > HINT2_AFTER_MS) {
+                hintLevel = 2;
+                setStatus('Immer noch nichts erkannt. Bitte den Code unten von Hand eintippen.');
+            } else if (hintLevel < 1 && elapsed > HINT_AFTER_MS) {
+                hintLevel = 1;
+                setStatus('Noch nichts erkannt: Abstand ca. 15 cm, Code ganz in den Rahmen, ruhig halten.');
+            }
+        };
+
+        const schedule = (fn) => { loopHandle = setTimeout(fn, SCAN_INTERVAL_MS); };
+
+        if (hasDetector) {
+            const detector = new BarcodeDetector({ formats: DETECTOR_FORMATS });
+            const loop = async () => {
+                if (closed) return;
+                if (videoEl.readyState >= 2) {
+                    try {
+                        const results = await detector.detect(videoEl);
+                        if (results.length > 0 && succeed(results[0].rawValue)) return;
+                    } catch { /* ignorieren */ }
+                }
+                tick++;
+                updateHint();
+                schedule(loop);
+            };
+            schedule(loop);
+        } else {
+            setStatus('Scanner wird vorbereitet ...');
+            loadZXing().then((zxing) => {
+                if (closed) return;
+                setStatus('Barcode in den Rahmen halten');
+                const loop = async () => {
+                    if (closed) return;
+                    if (videoEl.readyState >= 2) {
+                        try {
+                            const imageData = grabFrame();
+                            if (imageData) {
+                                const results = await zxing.readBarcodes(imageData, {
+                                    formats: ZXING_FORMATS,
+                                    tryHarder: true,
+                                    tryRotate: true,
+                                    tryInvert: true,
+                                    maxNumberOfSymbols: 1,
+                                });
+                                const hit = results.find(r => r.text);
+                                if (hit && succeed(hit.text)) return;
+                            }
+                        } catch { /* ignorieren, naechster Versuch */ }
+                    }
+                    tick++;
+                    updateHint();
+                    schedule(loop);
+                };
+                schedule(loop);
+            }).catch(() => {
+                setStatus('Automatische Erkennung nicht verfuegbar -- bitte unten eintippen.');
+            });
         }
-        videoEl.addEventListener('playing', () => {
-            rafHandle = requestAnimationFrame(detectLoop);
-        });
     }
 
-    // Manuelle Eingabe (immer als Fallback verfügbar)
+    // Manuelle Eingabe (immer als Fallback verfuegbar)
     const manualInput = document.getElementById('scanner-manual-input');
     const manualSubmit = document.getElementById('scanner-manual-submit');
-    manualInput.focus();
+
+    // Nur wenn KEINE Kamera laeuft, bekommt das Eingabefeld sofort den Fokus.
+    // Sonst schiebt die Bildschirmtastatur des iPhones die Kameravorschau aus dem
+    // Bild und der Benutzer scannt gegen eine verdeckte Ansicht. Der Fokus liegt
+    // dann auf dem Overlay -- Fokusfalle, Tab und Escape bleiben unveraendert.
+    if (videoStream) overlay.focus(); else manualInput.focus();
 
     const submitManual = () => {
         const val = manualInput.value.trim();

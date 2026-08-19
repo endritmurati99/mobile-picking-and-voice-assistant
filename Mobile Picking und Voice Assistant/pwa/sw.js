@@ -1,3 +1,7 @@
+// v26: Kamera-Barcode-Fallback fuer iOS (scanner.js + /vendor/zxing/*). Unter iOS
+// gibt es in KEINEM Browser einen BarcodeDetector -- ohne Bump behaelt jedes iPhone
+// die alte scanner.js, die nur eine Vorschau ohne jede Erkennung zeigt, und der
+// neue /vendor/zxing/-Pfad liegt in keinem Cache.
 // v24: Lagerwechsel tauscht die Sitzung (`/auth/switch-instance`), statt nur
 // den localStorage zu setzen (app.js, api.js). Ohne Bump behaelt jedes Geraet
 // den alten Umschalter, der still im ersten Lager bleibt.
@@ -14,7 +18,7 @@
 // no login screen, legacy identity headers that the backend no longer honours,
 // and a health probe against a route that does not exist. The symptom is an app
 // that looks merely broken, which is the worst kind of stale cache.
-const CACHE_NAME = 'picking-v25';
+const CACHE_NAME = 'picking-v26';
 const PRECACHE = [
     '/',
     '/index.html',
@@ -34,6 +38,12 @@ const PRECACHE = [
     '/js/voice.js',
     '/js/voice-helpers.mjs',
     '/js/voice-runtime.mjs',
+    // Kamera-Fallback fuer iOS/WebKit. Muss offline im Lager-WLAN verfuegbar sein,
+    // deshalb vorgeladen -- geholt wird er per dynamischem import() nur dort, wo
+    // BarcodeDetector fehlt.
+    '/vendor/zxing/reader/index.js',
+    '/vendor/zxing/share.js',
+    '/vendor/zxing/zxing_reader.wasm',
 ];
 
 function isSameOrigin(url) {
