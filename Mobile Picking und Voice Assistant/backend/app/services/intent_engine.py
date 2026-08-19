@@ -6,10 +6,13 @@ to safe application intents.
 """
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
 from dataclasses import dataclass
 from enum import Enum
+
+logger = logging.getLogger(__name__)
 
 
 class PickingContext(Enum):
@@ -835,27 +838,42 @@ def finalize_external_intent(
     """Run an externally produced (LLM) label through the same safeguards as a
     deterministic match: reject unknown labels, clamp write confidence so writes
     always read-back downstream, apply the negation guard, then surface gating.
+
+    Der LLM-Zweig ist ein nachgelagerter Fallback: sein Ergebnis wird nur
+    uebernommen, wenn es besser ist als der deterministische Treffer. Ein Fehler
+    hier (kaputte confidence, unerwarteter Wert aus dem Modell) darf deshalb den
+    Hauptpfad nicht mitreissen -- er wird protokolliert und als `unknown`
+    gemeldet, womit der Aufrufer beim deterministischen Ergebnis bleibt.
     """
     if action not in EXTERNAL_INTENT_LABELS:
         return _unknown_intent(raw_text, normalized_text)
-    conf = max(0.0, min(1.0, float(confidence)))
-    if action in WRITE_ACTIONS:
-        conf = min(conf, LLM_WRITE_CONFIDENCE_CAP)
-    intent = Intent(
-        action=action,
-        value=None,
-        confidence=conf,
-        raw_text=raw_text,
-        normalized_text=normalized_text,
-        match_strategy="llm",
-    )
-    intent = _apply_negation_guard(intent, normalized_text)
-    return _resolve_with_context(
-        intent,
-        surface=surface,
-        remaining_line_count=remaining_line_count,
-        active_line_present=active_line_present,
-    )
+    try:
+        conf = max(0.0, min(1.0, float(confidence)))
+        if action in WRITE_ACTIONS:
+            conf = min(conf, LLM_WRITE_CONFIDENCE_CAP)
+        intent = Intent(
+            action=action,
+            value=None,
+            confidence=conf,
+            raw_text=raw_text,
+            normalized_text=normalized_text,
+            match_strategy="llm",
+        )
+        intent = _apply_negation_guard(intent, normalized_text)
+        return _resolve_with_context(
+            intent,
+            surface=surface,
+            remaining_line_count=remaining_line_count,
+            active_line_present=active_line_present,
+        )
+    except Exception as exc:
+        logger.warning(
+            "LLM-Intent '%s' konnte nicht abgesichert werden, deterministisches "
+            "Ergebnis bleibt bestehen: %s",
+            action,
+            exc,
+        )
+        return _unknown_intent(raw_text, normalized_text)
 
 
 def _extract_number(text: str) -> int | None:

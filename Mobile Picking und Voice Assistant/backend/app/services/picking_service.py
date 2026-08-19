@@ -883,13 +883,33 @@ class PickingService:
         # instead of two separate round-trips for the same record.
         await self._odoo.write("stock.move.line", [move_line_id], line_values)
 
+        # Ab hier ist die Buchung in Odoo geschrieben -- alles Weitere ist
+        # Nachlauf. Fliegt hier eine Ausnahme heraus, bricht der Router die
+        # Idempotenz-Reservierung ab (`abort_idempotent_request`), obwohl die
+        # Position bereits gebucht ist: der Wiederholungsversuch mit demselben
+        # Idempotency-Key laeuft dann erneut durch und bucht ein zweites Mal.
+        # Genau diese halbfertige Buchung darf nicht entstehen, deshalb wird der
+        # Fehler protokolliert und als degradierte Antwort gemeldet, nicht
+        # geworfen. Der urspruengliche Grund bleibt im Log sichtbar.
         # Single search_read instead of search + read (saves one Odoo round-trip).
-        move_lines = await self._odoo.execute_kw(
-            "stock.move.line",
-            "search_read",
-            [[("picking_id", "=", picking_id)]],
-            {"fields": ["id", "picked"]},
-        )
+        move_lines: list[dict[str, Any]] = []
+        followup_error = ""
+        try:
+            move_lines = await self._odoo.execute_kw(
+                "stock.move.line",
+                "search_read",
+                [[("picking_id", "=", picking_id)]],
+                {"fields": ["id", "picked"]},
+            )
+        except Exception as exc:
+            followup_error = str(exc)
+            logger.warning(
+                "Folgeabfrage nach gebuchter Position fehlgeschlagen (picking %s, "
+                "move_line %s): %s",
+                picking_id,
+                move_line_id,
+                followup_error,
+            )
         all_done = bool(move_lines) and all(line.get("picked") for line in move_lines)
 
         picking_complete = False
@@ -918,6 +938,17 @@ class PickingService:
                     picking_id,
                     validate_error,
                 )
+            except Exception as exc:
+                # Gleiche Begruendung wie oben: die Position ist gebucht, also
+                # darf auch ein untypischer Fehler den Abbruchpfad nicht mehr
+                # ausloesen.
+                picking_complete = False
+                validate_error = str(exc)
+                logger.warning(
+                    "button_validate fuer picking %s unerwartet fehlgeschlagen: %s",
+                    picking_id,
+                    validate_error,
+                )
 
             # Bei `picking_complete` feuerte hier der v1-Workflow
             # `pick-confirmed`, den es nicht mehr gibt. Die Buchung passiert in
@@ -926,7 +957,7 @@ class PickingService:
         _emit_serial_confirm(True, picking_id, move_line_id, product_id, bool(recorded_serial), _t0)
         if picking_complete:
             message = "Auftrag abgeschlossen."
-        elif validate_error:
+        elif validate_error or followup_error:
             # Der Picker muss den Unterschied hoeren: die Position ist gebucht,
             # der AUFTRAG aber nicht -- sonst legt er das Geraet weg und der
             # Auftrag bleibt offen liegen. Odoos Begruendung steht im Log, nicht

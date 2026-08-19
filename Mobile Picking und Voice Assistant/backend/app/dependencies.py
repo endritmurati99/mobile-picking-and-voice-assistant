@@ -573,6 +573,58 @@ def require_roles(*required: str) -> Callable:
     return dependency
 
 
+# Die eine Rolle, die JEDE Browser-Route dieser Anwendung voraussetzt.
+# Quelle der Wahrheit ist Odoo: `res.users.api_get_picker_principal`
+# (odoo/addons/picking_assistant_integration/models/api_security.py) vergibt
+# genau zwei Bezeichner, "picker" und "supervisor", und laesst eine Anmeldung
+# ohne beide gar nicht erst zu (`allowed: bool(roles)`) -- das ist der Grund,
+# warum sich `admin` nicht anmelden kann. `group_supervisor` impliziert
+# `group_picker` (security/integration_security.xml), ein Supervisor traegt
+# also immer auch "picker". Deshalb ist "picker" die richtige und einzige
+# Anforderung fuer alle fuenf Browser-Router: sie sperrt niemanden aus, der
+# heute arbeiten darf, und sie ist trotzdem eine echte Autorisierung, sobald
+# es Sitzungen ohne diese Rolle geben kann (z. B. Portal-/Share-Nutzer oder
+# eine kuenftige, nur lesende Rolle).
+PICKER_ROLE = "picker"
+
+
+def require_browser_roles(*required: str) -> Callable:
+    """Rollen-Gate fuer den ROUTER-EINSCHLUSS der Browser-Router.
+
+    Warum nicht direkt `require_roles(...)`: dieses Gate haengt -- wie
+    `require_browser_session` -- an JEDER Route dieser Router, also auch an
+    denen, die im Grace-Mode ueber Legacy-Header identifiziert werden duerfen.
+    `require_roles` deklariert `Depends(get_current_principal)` und wuerde
+    einen solchen Request mit 401 abweisen, bevor die Route ueberhaupt ihre
+    eigene Legacy-Identitaet pruefen kann -- es wuerde also den Grace-Pfad
+    schliessen, den `require_browser_session` bewusst offen laesst. Genau die
+    Art abweichender Auth-Semantik im selben Prozess, aus der Umgehungen
+    entstehen; deshalb benutzt dieses Gate denselben Resolver wie das
+    Session-Gate.
+
+    Der Test-Seam bleibt derselbe: `_resolve_principal_or_none_for_grace`
+    ehrt einen Override auf `get_current_principal` (siehe dort). Ein Test,
+    der einen Principal setzt, gilt hier also mit genau dessen Rollen.
+
+    Ohne Principal wird hier NICHT abgewiesen: dieser Fall ist bereits
+    entschieden -- ohne Grace-Mode hat `require_browser_session` schon 401
+    geworfen, mit Grace-Mode (in production per `validate_runtime_security`
+    verboten) gibt es keine Rollen, die man pruefen koennte. Ein Gate, das
+    dort 403 wirft, wuerde eine Systemgrenze als Autorisierungsentscheidung
+    ausgeben.
+    """
+    required_roles = frozenset(required)
+
+    async def dependency(request: Request) -> None:
+        principal = await _resolve_principal_or_none_for_grace(request)
+        if principal is None:
+            return
+        if not required_roles.issubset(principal.roles):
+            raise HTTPException(status_code=403, detail="Rolle nicht erlaubt.")
+
+    return dependency
+
+
 def require_n8n_callback_secret(
     request: Request,
     provided_secret: str | None = Header(default=None, alias="X-N8N-Callback-Secret"),

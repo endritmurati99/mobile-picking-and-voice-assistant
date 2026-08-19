@@ -87,3 +87,6 @@ docs/SESSION_*.md
 CLAUDE.md
 AGENTS.md
 infrastructure/bildkorpus/messwerte/**/*.log
+
+# Lokale .env-Sicherungen (enthalten Klartext-Secrets)
+.env.bak-*

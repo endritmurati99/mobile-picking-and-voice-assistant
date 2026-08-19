@@ -27,7 +27,10 @@
     --surface-2: #f1f4f9;
     --ink: #142033;
     --ink-soft: #5b6b82;
-    --ink-muted: #7c8ba1;
+    /* Lane C (Audit 2026-08-19): #7c8ba1 lag bei 3.46:1 auf --surface und
+       4.35:1 auf --surface-2 -- unter dem WCAG-AA-Minimum von 4.5:1 fuer
+       Fliesstext. #5f6e86 erreicht 5.17:1 bzw. 4.68:1. */
+    --ink-muted: #5f6e86;
     --line: rgba(20, 32, 51, 0.09);
     --line-2: rgba(20, 32, 51, 0.16);
 
@@ -157,6 +160,9 @@ body {
 
 /* Picker chip (header left) */
 .picker-chip {
+    /* Lane C: Hoehe war ~40px (Avatar 28px + 2x6px Padding), unter dem
+       44px-Handschuh-Mindestmass. */
+    min-height: 44px;
     display: inline-flex;
     align-items: center;
     gap: 10px;
@@ -203,8 +209,9 @@ body {
 }
 
 .instance-switch {
+    /* Lane C: 40px -> 44px Handschuh-Mindestmass. */
     width: clamp(5.5rem, 18vw, 6.8rem);
-    min-height: 40px;
+    min-height: 44px;
     padding: 0 28px 0 10px;
     border: 1px solid var(--line);
     border-radius: 12px;
@@ -227,8 +234,9 @@ body {
 }
 
 .demo-mode-switch {
+    /* Lane C: 40px -> 44px Handschuh-Mindestmass. */
     width: clamp(6.4rem, 24vw, 8.6rem);
-    min-height: 40px;
+    min-height: 44px;
     padding: 0 28px 0 10px;
     border: 1px solid var(--line);
     border-radius: 12px;
@@ -285,6 +293,45 @@ body {
 .status-dot.offline {
     background: var(--danger);
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--danger) 20%, transparent);
+}
+
+/* Audit 2026-08-19: #voice-status-indicator trug in index.html ein inline
+   style="display:none" und wurde von keinem Codepfad je sichtbar geschaltet --
+   die Statusanzeige fuer den Sprachzustand (bereit/zuhoeren/erkannt/unsicher)
+   war dauerhaft unsichtbar. Das inline-Attribut ist entfernt, die Anzeige
+   haengt jetzt allein an dieser Regel. Text bleibt immer var(--ink) auf
+   var(--surface-2) (>=4.5:1, siehe --ink-muted oben); der Zustand wird nur
+   ueber die Rahmenfarbe unterschieden, damit kein Farbwert je einzeln auf
+   Kontrast geprueft werden muss. */
+.voice-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    margin-top: 6px;
+    padding: 0 14px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--ink);
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.voice-status--listening {
+    border-color: var(--primary);
+}
+
+.voice-status--speaking {
+    border-color: var(--warning);
+}
+
+.voice-status--recognized {
+    border-color: var(--success);
+}
+
+.voice-status--uncertain {
+    border-color: var(--danger);
 }
 
 /* Header content */
@@ -672,8 +719,9 @@ main > * {
 }
 
 .back-btn {
-    width: 40px;
-    height: 40px;
+    /* Lane C: 40x40 -> 44x44 (WCAG 2.5.5 / 44px Handschuh-Mindestmass). */
+    width: 44px;
+    height: 44px;
     border-radius: 12px;
     border: 1px solid var(--line);
     background: var(--surface);
@@ -1829,7 +1877,8 @@ main > * {
 }
 
 .detail-back {
-    min-height: 40px;
+    /* Lane C: 40px -> 44px Handschuh-Mindestmass. */
+    min-height: 44px;
     padding: 0 14px;
     border-radius: 12px;
     border: 1px solid var(--line);
@@ -2442,7 +2491,8 @@ main > * {
 }
 
 .qa-chip {
-    min-height: 36px;
+    /* Lane C: 36px -> 44px Handschuh-Mindestmass. */
+    min-height: 44px;
     padding: 0 12px;
     border-radius: 999px;
     border: 1px solid var(--line);
@@ -2535,11 +2585,13 @@ main > * {
 }
 
 .qa-photo-remove {
+    /* Lane C: 28x28 -> 44x44 (Handschuh-Mindestmass); Position beibehalten,
+       nur Groesse geaendert. */
     position: absolute;
-    top: 8px;
-    right: 8px;
-    width: 28px;
-    height: 28px;
+    top: 4px;
+    right: 4px;
+    width: 44px;
+    height: 44px;
     border: none;
     border-radius: 999px;
     background: rgba(0, 0, 0, 0.72);
@@ -2944,8 +2996,9 @@ main::-webkit-scrollbar-thumb {
     }
 
     .instance-switch {
+        /* Lane C: 38px -> 44px Handschuh-Mindestmass. */
         max-width: 5.7rem;
-        min-height: 38px;
+        min-height: 44px;
         padding-right: 22px;
         padding-left: 8px;
         font-size: 0.76rem;
@@ -2965,7 +3018,8 @@ main::-webkit-scrollbar-thumb {
     }
 
     .filter-chip {
-        min-height: 38px;
+        /* Lane C: 38px -> 44px Handschuh-Mindestmass. */
+        min-height: 44px;
         padding: 0 12px;
     }
 
@@ -3020,7 +3074,9 @@ main::-webkit-scrollbar-thumb {
     }
 
     .qa-chip {
-        min-height: 34px;
+        /* Lane C: 34px -> 44px Handschuh-Mindestmass (gilt gerade im
+           schmalen Viewport, wo Handschuhbedienung am wichtigsten ist). */
+        min-height: 44px;
         padding: 0 10px;
         font-size: 0.8rem;
     }
@@ -3038,7 +3094,8 @@ main::-webkit-scrollbar-thumb {
     }
 
     .qa-photo-button {
-        min-height: 40px;
+        /* Lane C: 40px -> 44px Handschuh-Mindestmass. */
+        min-height: 44px;
     }
 
     .qa-actions {

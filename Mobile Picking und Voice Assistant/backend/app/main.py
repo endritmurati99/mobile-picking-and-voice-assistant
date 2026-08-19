@@ -21,8 +21,10 @@ from contextlib import asynccontextmanager  # noqa: E402
 from app.config import Settings, get_instance_registry  # noqa: E402
 from app.services.voice_intent_classifier import get_classifier  # noqa: E402
 from app.dependencies import (  # noqa: E402
+    PICKER_ROLE,
     get_integration_watchdog,
     get_outbox_dispatcher,
+    require_browser_roles,
     require_browser_session,
     require_csrf_on_browser_mutation,
     require_domain_idempotency,
@@ -272,8 +274,15 @@ def create_app(candidate_settings: Settings = settings) -> FastAPI:
     # Router-Einschluss, nicht an einzelnen Handlern -- damit gibt es keine
     # Route auf diesen Routern, die es vergessen kann, und der Voice-/Cluster-
     # Track kann Routen hinzufuegen, ohne die Sicherheitshaltung zu kennen.
+    # Befund 2026-08-19: das Rollen-Gate war implementiert, aber nirgends
+    # verdrahtet -- wer angemeldet war, durfte alles. Es kommt aus demselben
+    # Grund hierher wie die drei anderen: EIN Gate ueber alle fuenf Router,
+    # nicht fuenf feingranulare an einzelnen Handlern. Verlangt wird genau
+    # `picker`, die Rolle, die Odoo jedem anmeldefaehigen Benutzer gibt und
+    # die `supervisor` implizit mittraegt (siehe PICKER_ROLE in dependencies.py).
     browser_dependencies = [
         Depends(require_browser_session),
+        Depends(require_browser_roles(PICKER_ROLE)),
         Depends(require_csrf_on_browser_mutation),
         Depends(require_domain_idempotency),
     ]

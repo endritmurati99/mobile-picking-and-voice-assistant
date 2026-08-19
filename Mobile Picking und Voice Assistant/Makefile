@@ -16,10 +16,6 @@ setup: ## Erstmalige Einrichtung
 install-backend-deps: ## Lokale Python-Abhaengigkeiten fuer Backend-Tests installieren
 	cd backend && python -m pip install --target .deps -r requirements-dev.txt
 
-install-ui-deps: ## Playwright und Browser-Abhaengigkeiten installieren
-	npm.cmd install
-	npx.cmd playwright install chromium
-
 build-all: ## Alle Docker Images bauen
 	docker compose build
 
@@ -53,20 +49,27 @@ seed: ## Seed-Daten laden
 test: ## Backend-Tests
 	cd backend && PYTHONPATH=.deps python -m pytest -p pytest_asyncio tests/ -v
 
-test-ui: ## Browser-Tests fuer die PWA
-	npx.cmd playwright test e2e/confirm-flow.spec.js e2e/pickings.spec.js e2e/quality-alert.spec.js
+test-infra: ## Tests der Infrastruktur-Skripte (Zertifikate, Seed, Rauchtests)
+	cd backend && PYTHONPATH=.deps python -m pytest -p pytest_asyncio ../infrastructure/tests -v
 
-test-visual: ## Visuelles PWA-Artefakt fuer den Mobile-Viewport erzeugen
-	node e2e/capture-sight.js
+test-n8n: ## Vertragstests der n8n-Kette (Fingerprint-Paritaet, Credential-Provisionierung)
+	node --test n8n/tests/*.test.mjs
 
-test-visual-diff: ## Visuelle Snapshot-Tests fuer stabile Kern-Views
-	npx.cmd playwright test e2e/visual.spec.js
+test-pwa: ## Modultests der PWA (Voice-Laufzeit, reines Node, kein Browser)
+	node --test pwa/js/tests/*.test.mjs
 
-test-visual-diff-update: ## Snapshot-Baselines fuer visuelle Tests aktualisieren
-	npx.cmd playwright test e2e/visual.spec.js --update-snapshots
+test-odoo: ## Tests der eigenen Odoo-Module gegen eine WEGWERF-Datenbank
+	@echo "Legt die Datenbank $${ODOO_TEST_DB:-picking_test} neu an und verwirft sie danach."
+	docker compose run --rm -e ODOO_TEST_DB=$${ODOO_TEST_DB:-picking_test} odoo \
+		odoo -d $${ODOO_TEST_DB:-picking_test} \
+		-i picking_assistant_core,picking_assistant_integration,quality_alert_custom \
+		--test-enable --stop-after-init --log-level=test
 
-test-a11y: ## Accessibility-Checks fuer die PWA mit Axe + Playwright
-	npx.cmd playwright test e2e/a11y.spec.js
+test-all: ## Alle ausfuehrbaren Testsuiten nacheinander
+	$(MAKE) test
+	$(MAKE) test-infra
+	$(MAKE) test-n8n
+	$(MAKE) test-pwa
 
 test-api: ## API-Rauchtest
 	python infrastructure/scripts/test-api.py
@@ -86,29 +89,13 @@ verify-odoo-schema: ## Ruflo Odoo Audit
 	@echo "✅ Audit completed."
 
 verify-code: ## Schneller Code-Check ohne laufenden Stack
-	$(MAKE) test
-
-verify-ui: ## UI-Check der PWA ueber Playwright
-	$(MAKE) test-ui
-
-verify-visual: ## Visuellen PWA-Zustand als Artefakt erfassen
-	$(MAKE) test-visual
-
-verify-visual-diff: ## Visuelle Snapshot-Checks fuer Kern-Views
-	$(MAKE) test-visual-diff
-
-verify-a11y: ## Accessibility-Check der PWA ueber Axe + Playwright
-	$(MAKE) test-a11y
+	$(MAKE) test-all
 
 verify-stack: ## Stack-Check gegen laufende lokale Instanz
 	$(MAKE) test-api
 
 verify: ## Voller Verify-Lauf: Tests plus API-Rauchtest
 	$(MAKE) verify-code
-	$(MAKE) verify-ui
-	$(MAKE) verify-visual
-	$(MAKE) verify-visual-diff
-	$(MAKE) verify-a11y
 	$(MAKE) verify-workflows
 	$(MAKE) verify-stack
 

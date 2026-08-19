@@ -46,45 +46,68 @@
       "parameters": {
         "requestMethod": "POST",
         "url": "http://backend:8000/api/internal/n8n/manual-review-activity",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "jsonParameters": true,
         "options": {},
-        "headerParametersJson": "={{ JSON.stringify({ \"X-N8N-Callback-Secret\": $env.N8N_CALLBACK_SECRET, \"Idempotency-Key\": $json.correlation_id }) }}",
+        "headerParametersJson": "={{ JSON.stringify({ \"Idempotency-Key\": $json.correlation_id }) }}",
         "bodyParametersJson": "={{ JSON.stringify({ picking_id: $json.picking_id, correlation_id: $json.correlation_id, reason: $json.error_message, execution_url: $json.execution_url, schema_version: $json.schema_version, execution_id: $json.execution_id, latency_tracking: $json.latency_tracking }) }}"
       },
       "name": "Notify Shortage Failure",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 2,
       "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "98c549da-f6e1-4dc0-8d7c-d0764d7e0728",
+          "name": "pwr.error-trigger.n8n-callback-secret"
+        }
+      },
       "position": [960, 140]
     },
     {
       "parameters": {
         "requestMethod": "POST",
         "url": "http://backend:8000/api/internal/n8n/quality-assessment-failed",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "jsonParameters": true,
         "options": {},
-        "headerParametersJson": "={{ JSON.stringify({ \"X-N8N-Callback-Secret\": $env.N8N_CALLBACK_SECRET, \"Idempotency-Key\": $json.correlation_id }) }}",
+        "headerParametersJson": "={{ JSON.stringify({ \"Idempotency-Key\": $json.correlation_id }) }}",
         "bodyParametersJson": "={{ JSON.stringify({ alert_id: $json.alert_id, correlation_id: $json.correlation_id, failure_reason: $json.error_message, schema_version: $json.schema_version, execution_id: $json.execution_id, latency_tracking: $json.latency_tracking }) }}"
       },
       "name": "Notify Quality Failure",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 2,
       "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "98c549da-f6e1-4dc0-8d7c-d0764d7e0728",
+          "name": "pwr.error-trigger.n8n-callback-secret"
+        }
+      },
       "position": [960, 280]
     },
     {
       "parameters": {
         "requestMethod": "POST",
         "url": "http://backend:8000/api/integration/log",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "jsonParameters": true,
         "options": {},
-        "headerParametersJson": "={{ JSON.stringify({ \"X-N8N-Callback-Secret\": $env.N8N_CALLBACK_SECRET }) }}",
         "bodyParametersJson": "={{ JSON.stringify({ message: 'INCIDENT: ' + $json.workflow_name + ' ' + $json.error_message + ' (correlation: ' + $json.correlation_id + ')', category: 'INCIDENT' }) }}"
       },
       "name": "Log to Integration",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 2,
       "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "98c549da-f6e1-4dc0-8d7c-d0764d7e0728",
+          "name": "pwr.error-trigger.n8n-callback-secret"
+        }
+      },
       "position": [1200, 280]
     }
   ],

@@ -314,13 +314,32 @@ async def recognize_speech(
 
     # Recovery-dialog: backend signals PWA to ask user for confirmation when
     # confidence is in the fuzzy range [FUZZY_PHRASE_THRESHOLD, FUZZY_SINGLE_THRESHOLD).
+    # Vollstaendige Aktions-Vokabular: PRIORITY_ORDER + abort/check_digit/quantity
+    # aus services/intent_engine.py (nur gelesen, dort nicht veraendert). Ohne
+    # Eintrag faellt Zeile ~334 auf den rohen englischen Bezeichner zurueck --
+    # das soll praktisch nie mehr passieren.
     _ACTION_DE = {
-        "confirm": "bestätigen",
-        "next": "weiter",
         "problem": "Problem melden",
-        "repeat": "wiederholen",
-        "pause": "pausieren",
+        "confirm_all": "alles bestätigen",
+        "confirm": "bestätigen",
+        "next_order": "nächster Auftrag",
+        "next": "weiter",
+        "previous": "zurück",
+        "photo": "Foto aufnehmen",
         "done": "fertig",
+        "pause": "pausieren",
+        "stock_query": "Bestand abfragen",
+        "filter_high": "nach hoher Dringlichkeit filtern",
+        "filter_normal": "nach normaler Dringlichkeit filtern",
+        "how_many_left": "wie viele noch offen sind",
+        "whats_next": "was als Nächstes ansteht",
+        "where": "wo die Position ist",
+        "status": "Status abfragen",
+        "repeat": "wiederholen",
+        "help": "Hilfe anzeigen",
+        "abort": "abbrechen",
+        "check_digit": "Prüfziffer bestätigen",
+        "quantity": "Menge bestätigen",
     }
     requires_confirmation = (
         intent.action != "unknown"
