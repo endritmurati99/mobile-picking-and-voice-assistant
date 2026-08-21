@@ -9,7 +9,7 @@ Lager 1. Stand 19. August 2026.
 Ohne dieses Zertifikat gibt der Browser die Kamera nicht frei, und ohne Kamera
 kein Scannen.
 
-1. Am Handy `https://172.22.147.158/rootCA.crt` öffnen.
+1. Am Handy `https://172.22.147.243/rootCA.crt` öffnen.
 2. Die Sicherheitsabfrage bestätigen (**Erweitert → Trotzdem fortfahren**).
 3. Die geladene Datei als Zertifizierungsstelle installieren:
    - **Android:** Einstellungen → Sicherheit → Verschlüsselung und Anmeldedaten
@@ -19,14 +19,22 @@ kein Scannen.
      den Eintrag aktivieren. **Der zweite Schritt wird oft vergessen und ist
      zwingend.**
 
-Fertig, wenn `https://172.22.147.158/` ohne Warnung öffnet.
+Fertig, wenn `https://172.22.147.243/` ohne Warnung öffnet.
+
+---
+
+## Aktuelle Telefon-App wiederherstellen
+
+1. Open https://172.22.147.243/ in the browser, not an installed app pointing at an older IP.
+2. Confirm the selector shows “Lager 1”, not the internal name “local”.
+3. Remove the old installed PWA only when it still shows “local”, then open the current URL again.
 
 ---
 
 ## 2. Anmelden
 
 1. Den QR-Code auf dem Startblatt scannen — er öffnet die App.
-2. Benutzer `lena.lager`, Passwort `admin`.
+2. Benutzer und Passwort aus dem bereitgestellten Lagerzugang eingeben.
 3. Lager: **Lager 1**.
 
 Wer die App dauerhaft nutzt, fügt sie über das Browsermenü zum Startbildschirm
@@ -122,7 +130,7 @@ Auftragsübersicht.
 
 | Beobachtung | Abhilfe |
 |---|---|
-| Seite lädt nicht | Handy im selben WLAN? Adresse `https://172.22.147.158/` genau so eingegeben? |
+| Seite lädt nicht | Handy im selben WLAN? Adresse `https://172.22.147.243/` genau so eingegeben? |
 | Zertifikatswarnung bleibt | Schritt 1 wiederholen; beim iPhone den Vertrauensschalter nicht vergessen |
 | Kamera startet nicht | Im Browser unter Website-Einstellungen die Kamera freigeben |
 | Code wird nicht erkannt | Abstand ändern, Blendung vermeiden — oder den Code im Scanner-Fenster von Hand eingeben |

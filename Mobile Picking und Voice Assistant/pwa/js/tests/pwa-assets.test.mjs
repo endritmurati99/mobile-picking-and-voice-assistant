@@ -27,6 +27,11 @@ function assertPng(relativePath, expectedSize) {
     assert.equal(height, expectedSize.height, `${relativePath} height`);
 }
 
+test('service worker cache is bumped for the phone reliability release', () => {
+    const sw = readFileSync(path.join(pwaRoot, 'sw.js'), 'utf8');
+    assert.match(sw, /const CACHE_NAME = 'picking-v29';/);
+});
+
 test('CSS font URLs point to valid bundled WOFF2 files', () => {
     const css = readFileSync(path.join(pwaRoot, 'css', 'app.css'), 'utf8');
     const fontPaths = [...css.matchAll(/url\(["']?\/?(fonts\/[^"')]+\.woff2)["']?\)/g)]
