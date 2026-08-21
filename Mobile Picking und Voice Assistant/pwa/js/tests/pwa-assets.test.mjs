@@ -36,6 +36,8 @@ test('active voice button has a filled high-contrast state', () => {
     const css = readFileSync(path.join(pwaRoot, 'css', 'app.css'), 'utf8');
     assert.match(css, /\.nav-btn--active\s*\{[^}]*background:\s*var\(--primary\)/s);
     assert.match(css, /\.nav-btn--active\s*\{[^}]*color:\s*var\(--primary-ink\)/s);
+    assert.match(css, /\.nav-btn--voice\.nav-btn--active:hover\s*\{[^}]*background:\s*var\(--primary\)/s);
+    assert.match(css, /\.nav-btn--voice\.nav-btn--active:hover\s*\{[^}]*color:\s*var\(--primary-ink\)/s);
 });
 
 test('CSS font URLs point to valid bundled WOFF2 files', () => {

@@ -969,7 +969,7 @@ def _get_surface_actions(
     if surface == VoiceSurface.LIST:
         return ["next_order", "filter_high", "filter_normal", "status", "help", "pause"]
     if surface == VoiceSurface.QUALITY_ALERT:
-        return ["pause", "repeat"]
+        return ["confirm", "pause", "repeat"]
     if surface == VoiceSurface.COMPLETE:
         return ["next_order", "pause", "help"]
     # DETAIL (default)
@@ -1043,13 +1043,18 @@ def recognize_intent_from_segments(
     if applied_conf < min_confidence or best_action == "unknown":
         return _unknown_intent(text, normalized)
 
-    return Intent(
-        action=best_action,
-        value=None,
-        raw_text=text,
-        normalized_text=normalized,
-        confidence=applied_conf,
-        match_strategy=f"segment_partial({best_alias})",
+    return _resolve_with_context(
+        Intent(
+            action=best_action,
+            value=None,
+            raw_text=text,
+            normalized_text=normalized,
+            confidence=applied_conf,
+            match_strategy=f"segment_partial({best_alias})",
+        ),
+        surface=surface,
+        remaining_line_count=remaining_line_count,
+        active_line_present=active_line_present,
     )
 
 

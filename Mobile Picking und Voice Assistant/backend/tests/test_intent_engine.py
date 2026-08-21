@@ -7,6 +7,7 @@ from app.services.intent_engine import (
     finalize_external_intent,
     normalize_text,
     recognize_intent,
+    recognize_intent_from_segments,
 )
 
 
@@ -250,6 +251,21 @@ class TestIntentRecognition:
             active_line_present=False,
         )
         assert repeat_intent.action == "repeat"
+
+    def test_quality_alert_segment_confirm_becomes_submit_alert(self):
+        quality_intent = recognize_intent_from_segments(
+            "bestatige",
+            surface=VoiceSurface.QUALITY_ALERT,
+            active_line_present=True,
+        )
+        detail_intent = recognize_intent_from_segments(
+            "bestatige",
+            surface=VoiceSurface.DETAIL,
+            active_line_present=True,
+        )
+
+        assert quality_intent.action == "submit_alert"
+        assert detail_intent.action == "confirm"
 
     def test_number_contexts_still_work(self):
         check_intent = recognize_intent(

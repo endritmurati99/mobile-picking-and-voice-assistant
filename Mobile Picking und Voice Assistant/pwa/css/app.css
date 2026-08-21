@@ -1036,6 +1036,11 @@ main > * {
     opacity: 0.9;
 }
 
+.nav-btn--voice.nav-btn--active:hover {
+    background: var(--primary);
+    color: var(--primary-ink);
+}
+
 .nav-btn__label,
 .nav-btn__meta {
     display: block;
