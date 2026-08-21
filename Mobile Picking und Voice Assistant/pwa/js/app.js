@@ -2811,7 +2811,9 @@ async function handleVoiceIntent(result) {
             const toRun = pendingWriteConfirm.intent;
             pendingWriteConfirm = null;
             updateVoiceStatusIndicator('recognized', { temporary: true });
-            if (toRun === 'confirm_all') {
+            if (toRun === 'submit_alert') {
+                document.getElementById('qa-submit')?.click();
+            } else if (toRun === 'confirm_all') {
                 await triggerConfirmAll();
             } else if (line) {
                 await handleScan(line.product_barcode || '');
@@ -2877,6 +2879,9 @@ async function handleVoiceIntent(result) {
     if (await maybeHandleVoiceAssist(result, currentPicking, currentLineIndex)) return;
 
     switch (result.intent) {
+        case 'submit_alert':
+            document.getElementById('qa-submit')?.click();
+            break;
         case 'confirm_all':
             await triggerConfirmAll();
             break;

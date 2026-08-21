@@ -6,7 +6,7 @@
 export const VOICE_ACT_THRESHOLD = 0.73;
 export const VOICE_CONFIRM_DIRECT_THRESHOLD = 0.90;
 export const VOICE_UNCERTAIN_THRESHOLD = 0.55;
-export const WRITE_INTENTS = new Set(['confirm', 'confirm_all']);
+export const WRITE_INTENTS = new Set(['confirm', 'confirm_all', 'submit_alert']);
 
 export function buildVoiceRequestContext({ view, currentPicking, currentLineIndex }) {
     const lines = currentPicking?.move_lines || [];
@@ -92,6 +92,9 @@ export function buildSpeechPrompt(line) {
 }
 
 export function buildReadbackPrompt(intent, { line, remainingCount } = {}) {
+    if (intent === 'submit_alert') {
+        return 'Qualitätsmeldung absenden?';
+    }
     if (intent === 'confirm_all') {
         return `${remainingCount ?? 0} Positionen buchen?`;
     }
@@ -123,7 +126,7 @@ export function classifyVoiceResult(result) {
     // and a single confirm below the direct threshold. A misrecognition can
     // therefore never silently write to Odoo.
     if (intent === 'confirm_all'
-        || (intent === 'confirm' && confidence < VOICE_CONFIRM_DIRECT_THRESHOLD)) {
+        || (WRITE_INTENTS.has(intent) && confidence < VOICE_CONFIRM_DIRECT_THRESHOLD)) {
         return { kind: 'readback', canHandle: false, promptText: null };
     }
 

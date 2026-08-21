@@ -121,6 +121,11 @@ test('single confirm in mid band needs read-back', () => {
     assert.equal(c.canHandle, false);
 });
 
+test('quality submit needs the same confidence gate as other writes', () => {
+    assert.equal(classifyVoiceResult({ intent: 'submit_alert', confidence: 0.80 }).kind, 'readback');
+    assert.equal(classifyVoiceResult({ intent: 'submit_alert', confidence: 0.95 }).kind, 'recognized');
+});
+
 test('non-write intent acts from the act threshold (no dead band)', () => {
     const c = classifyVoiceResult({ intent: 'next', confidence: VOICE_ACT_THRESHOLD });
     assert.equal(c.kind, 'recognized');
@@ -158,6 +163,10 @@ test('single confirm read-back names the product', () => {
 test('confirm_all read-back names the count', () => {
     const p = buildReadbackPrompt('confirm_all', { line: null, remainingCount: 12 });
     assert.equal(p, '12 Positionen buchen?');
+});
+
+test('quality submit read-back names the alert action', () => {
+    assert.equal(buildReadbackPrompt('submit_alert'), 'Qualitätsmeldung absenden?');
 });
 
 test('getVoiceStatusPresentation exposes the intended labels', () => {

@@ -322,6 +322,7 @@ async def recognize_speech(
         "problem": "Problem melden",
         "confirm_all": "alles bestätigen",
         "confirm": "bestätigen",
+        "submit_alert": "Qualitätsmeldung absenden",
         "next_order": "nächster Auftrag",
         "next": "weiter",
         "previous": "zurück",

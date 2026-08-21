@@ -673,6 +673,15 @@ def _resolve_with_context(
     active_line_present: bool,
 ) -> Intent:
     if surface == VoiceSurface.QUALITY_ALERT:
+        if intent.action == "confirm":
+            return Intent(
+                action="submit_alert",
+                value=intent.value,
+                confidence=intent.confidence,
+                raw_text=intent.raw_text,
+                normalized_text=intent.normalized_text,
+                match_strategy=intent.match_strategy,
+            )
         if intent.action in {"pause", "repeat"}:
             return intent
         return _unknown_intent(intent.raw_text, intent.normalized_text)

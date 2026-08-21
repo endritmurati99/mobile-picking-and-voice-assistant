@@ -214,6 +214,26 @@ class TestIntentRecognition:
 
         assert intent.action == "next_order"
 
+    def test_quality_alert_confirm_becomes_submit_alert(self):
+        intent = recognize_intent(
+            "bestätigen",
+            PickingContext.AWAITING_COMMAND,
+            surface=VoiceSurface.QUALITY_ALERT,
+            active_line_present=True,
+        )
+
+        assert intent.action == "submit_alert"
+
+    def test_detail_confirm_stays_a_pick_confirmation(self):
+        intent = recognize_intent(
+            "bestätigen",
+            PickingContext.AWAITING_COMMAND,
+            surface=VoiceSurface.DETAIL,
+            active_line_present=True,
+        )
+
+        assert intent.action == "confirm"
+
     def test_quality_alert_surface_only_allows_repeat_or_pause(self):
         intent = recognize_intent(
             "problem",
