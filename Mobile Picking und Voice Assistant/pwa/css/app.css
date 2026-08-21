@@ -330,6 +330,7 @@ body {
 }
 
 .voice-status--listening {
+    background: color-mix(in oklab, var(--primary) 16%, var(--surface-2));
     border-color: var(--primary);
 }
 
@@ -1266,8 +1267,9 @@ main > * {
 }
 
 .nav-btn--active {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent);
+    background: var(--primary);
+    color: var(--primary-ink);
+    border-color: var(--primary);
 }
 
 .nav-btn--ptt {
