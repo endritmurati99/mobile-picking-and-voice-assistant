@@ -65,11 +65,13 @@ import {
     setVoiceStatusListener,
 } from './voice.js';
 import {
+    SCAN_OUTCOME,
     buildReadbackPrompt,
     buildSpeechPrompt,
     buildVoiceAssistPayload,
     buildVoiceRequestContext,
     classifyVoiceResult,
+    describeScanOutcome,
     formatLocationForSpeech,
     getVoiceStatusPresentation,
 } from './voice-runtime.mjs';
@@ -2367,32 +2369,50 @@ function askCartonConfirm(line, boxes) {
     });
 }
 
+// Sagt nach einer Buchung nur das, was handleScan nicht schon gesagt hat.
+// Frueher stand hier ein festes "Gebucht." hinter jedem Aufruf. Das war in
+// elf von vierzehn Faellen falsch, und weil speak() die laufende Ansage
+// abbricht, loeschte dieses Wort auch noch die wahre Meldung -- der Picker
+// hoerte "Gebucht", wo "Falscher Artikel" gesprochen worden war.
+function announceScanOutcome(outcome) {
+    const sentence = describeScanOutcome(outcome);
+    if (!sentence) return;
+    // Einen Satz gibt es nur, wenn nicht gebucht wurde -- der Erfolg meldet
+    // sich in handleScan selbst, mit der naechsten Position oder "Fertig.".
+    speak(sentence);
+    showToast(sentence, 'warning');
+}
+
+// Meldet ueber den Rueckgabewert, was mit der Position geschehen ist. Der
+// Aufrufer darf niemals aus dem blossen Zuruecklaufen auf eine Buchung
+// schliessen -- nur SCAN_OUTCOME.BOOKED heisst gebucht. Siehe
+// describeScanOutcome in voice-runtime.mjs fuer die Ansage danach.
 async function handleScan(barcode) {
     stopSpeaking();
     const { currentPicking, currentLineIndex, currentPicker } = getState();
-    if (!currentPicking) return;
+    if (!currentPicking) return SCAN_OUTCOME.NO_LINE;
 
     const lines = currentPicking.move_lines || [];
-    if (currentLineIndex >= lines.length) return;
+    if (currentLineIndex >= lines.length) return SCAN_OUTCOME.NO_LINE;
 
     const line = lines[currentLineIndex];
     const stockState = lineStockCache.get(line.id);
 
     if (stockState?.status === 'checking') {
         showToast('Bestand wird noch geprueft.', 'warning');
-        return;
+        return SCAN_OUTCOME.STOCK_CHECKING;
     }
 
     if (stockState?.status === 'out_of_stock') {
         showOutOfStockModal({ picking: currentPicking, line, stockState });
-        return;
+        return SCAN_OUTCOME.OUT_OF_STOCK;
     }
 
     if (barcode && line.product_barcode && barcode !== line.product_barcode) {
         feedbackError();
         speak(`Falscher Artikel. ${getLineDisplayName(line)}.`);
         showToast('Falscher Barcode', 'error');
-        return;
+        return SCAN_OUTCOME.WRONG_BARCODE;
     }
 
     // For tracked products, ask for the lot/serial number before confirming.
@@ -2403,7 +2423,7 @@ async function handleScan(barcode) {
             required: true,
             tracking: line.tracking,
         });
-        if (!serialNumber) return;
+        if (!serialNumber) return SCAN_OUTCOME.SERIAL_CANCELLED;
     }
 
     try {
@@ -2436,11 +2456,11 @@ async function handleScan(barcode) {
                 lineStockCache.set(line.id, blockingState);
                 renderResponsiveCurrentLine();
                 showOutOfStockModal({ picking: currentPicking, line, stockState: blockingState });
-                return;
+                return SCAN_OUTCOME.OUT_OF_STOCK;
             }
             speak(result.message || 'Fehler beim Bestätigen.');
             showToast(result.message || 'Fehler', 'error');
-            return;
+            return SCAN_OUTCOME.REJECTED;
         }
 
         feedbackSuccess();
@@ -2451,6 +2471,7 @@ async function handleScan(barcode) {
             speak('Fertig.');
             setState({ currentLineIndex: lines.length });
             renderResponsiveCurrentLine();
+            return SCAN_OUTCOME.BOOKED;
         } else {
             const nextIdx = currentLineIndex + 1;
 
@@ -2473,13 +2494,14 @@ async function handleScan(barcode) {
                 // Index zusaetzlich auf die letzte gueltige Zeile, der
                 // Abschluss-Screen kann also gar nicht erscheinen.
                 await refreshActivePickingDetail();
-                return;
+                return SCAN_OUTCOME.BOOKED;
             }
 
             showToast(result.message, 'success');
             setState({ currentLineIndex: nextIdx });
             renderResponsiveCurrentLine();
             speak(getLineSpeechPrompt(lines[nextIdx]));
+            return SCAN_OUTCOME.BOOKED;
         }
     } catch (error) {
         if (error instanceof ApiError && error.status === 409 && typeof error.detail === 'object') {
@@ -2487,12 +2509,13 @@ async function handleScan(barcode) {
             stopClaimHeartbeat();
             renderClaimConflict(error.detail, currentPicking.id);
             speak('Schon vergeben.');
-            return;
+            return SCAN_OUTCOME.CONFLICT;
         }
-        if (isAbortError(error)) return;
+        if (isAbortError(error)) return SCAN_OUTCOME.ABORTED;
 
         showToast(error.message || 'Verbindungsfehler', 'error');
         speak('Verbindungsfehler.');
+        return SCAN_OUTCOME.NETWORK_ERROR;
     }
 }
 
@@ -2816,8 +2839,7 @@ async function handleVoiceIntent(result) {
             } else if (toRun === 'confirm_all') {
                 await triggerConfirmAll();
             } else if (line) {
-                await handleScan(line.product_barcode || '');
-                speak('Gebucht.');
+                announceScanOutcome(await handleScan(line.product_barcode || ''));
             }
             return;
         }
@@ -2887,8 +2909,7 @@ async function handleVoiceIntent(result) {
             break;
         case 'confirm':
             if (line) {
-                await handleScan(line.product_barcode || '');
-                speak('Gebucht.');
+                announceScanOutcome(await handleScan(line.product_barcode || ''));
             } else {
                 speak(NO_OPEN_LINE);
                 showToast(NO_OPEN_LINE, 'warning');

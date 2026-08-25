@@ -152,3 +152,50 @@ export function getVoiceStatusPresentation(kind) {
             return { label: 'Bereit', tone: 'idle' };
     }
 }
+
+// Ergebnis einer Buchung ueber handleScan. Der Aufrufer darf nie aus dem
+// blossen Zuruecklaufen der Funktion auf Erfolg schliessen: handleScan endet
+// an vierzehn Stellen, und nur drei davon haben tatsaechlich gebucht.
+export const SCAN_OUTCOME = {
+    NO_LINE: 'no_line',
+    STOCK_CHECKING: 'stock_checking',
+    OUT_OF_STOCK: 'out_of_stock',
+    WRONG_BARCODE: 'wrong_barcode',
+    SERIAL_CANCELLED: 'serial_cancelled',
+    REJECTED: 'rejected',
+    BOOKED: 'booked',
+    ABORTED: 'aborted',
+    CONFLICT: 'conflict',
+    NETWORK_ERROR: 'network_error',
+};
+
+// Was der Sprachpfad nach einer Buchung noch sagen muss.
+//
+// Ein leerer String heisst: nichts sagen. Entweder hat handleScan die Lage
+// bereits angesagt -- dann wuerde ein weiterer Satz die wahre Meldung
+// abschneiden, denn speak() bricht die laufende Ansage ab -- oder der
+// Benutzer hat selbst abgebrochen und braucht keine Erklaerung dafuer.
+//
+// Ein unbekanntes Ergebnis faellt bewusst auf eine Verneinung, nicht auf
+// Schweigen und erst recht nicht auf eine Erfolgsmeldung.
+export function describeScanOutcome(status) {
+    switch (status) {
+        case SCAN_OUTCOME.WRONG_BARCODE:
+        case SCAN_OUTCOME.REJECTED:
+        case SCAN_OUTCOME.BOOKED:
+        case SCAN_OUTCOME.CONFLICT:
+        case SCAN_OUTCOME.NETWORK_ERROR:
+        case SCAN_OUTCOME.ABORTED:
+            return '';
+        case SCAN_OUTCOME.NO_LINE:
+            return 'Keine Position offen.';
+        case SCAN_OUTCOME.STOCK_CHECKING:
+            return 'Bestand wird noch geprüft.';
+        case SCAN_OUTCOME.OUT_OF_STOCK:
+            return 'Kein Bestand.';
+        case SCAN_OUTCOME.SERIAL_CANCELLED:
+            return 'Abgebrochen.';
+        default:
+            return 'Nicht gebucht.';
+    }
+}
