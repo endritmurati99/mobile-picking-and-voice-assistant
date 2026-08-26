@@ -1,4 +1,8 @@
-# n8n Contract Freeze V1
+# Historisch: n8n Contract Freeze V1
+
+> Abgelöst durch `n8n/workflow-registry.json` und
+> `n8n/workflows/quality-assessment-v2.json`. Dieses Dokument ist nur ein
+> Nachweis des früheren v1-Stands und keine Rollout-Anleitung.
 
 Dieses Dokument friert die produktiven n8n-Vertraege fuer Stufe 1 ein. Ziel ist
 Regressionsvermeidung im bestehenden `FastAPI + PWA + Odoo + n8n`-Stand.

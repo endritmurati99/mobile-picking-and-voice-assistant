@@ -1,4 +1,4 @@
-.PHONY: help setup install-backend-deps install-ui-deps build-all build-backend build-odoo up down logs seed test test-ui test-visual test-visual-diff test-visual-diff-update test-a11y test-api test-n8n-api load-test verify-code verify-ui verify-visual verify-visual-diff verify-a11y verify-workflows verify-odoo-schema verify-stack verify clean
+.PHONY: help setup install-backend-deps build-all build-backend build-odoo up down logs logs-backend logs-odoo seed test test-infra test-n8n test-pwa test-odoo test-all test-api test-n8n-api load-test verify-code verify-workflows verify-odoo-schema verify-stack verify clean shell-odoo shell-db
 
 SHELL := /bin/bash
 -include .env
@@ -53,6 +53,7 @@ test-infra: ## Tests der Infrastruktur-Skripte (Zertifikate, Seed, Rauchtests)
 	cd backend && PYTHONPATH=.deps python -m pytest -p pytest_asyncio ../infrastructure/tests -v
 
 test-n8n: ## Vertragstests der n8n-Kette (Fingerprint-Paritaet, Credential-Provisionierung)
+	cd n8n/custom-nodes/n8n-nodes-pwr && npm ci && npm test
 	node --test n8n/tests/*.test.mjs
 
 test-pwa: ## Modultests der PWA (Voice-Laufzeit, reines Node, kein Browser)

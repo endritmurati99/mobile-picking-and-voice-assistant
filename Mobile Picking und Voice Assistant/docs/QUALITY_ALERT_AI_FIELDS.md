@@ -64,7 +64,7 @@ Detailed reasoning does not belong in the main card:
 - `ai_photo_analysis`
 - technical provider/model metadata
 
-If the async handoff to `quality-alert-created` fails before analysis starts:
+If the asynchronous v2 quality handoff fails before analysis starts:
 
 - the alert remains created in Odoo
 - `ai_evaluation_status` is set to `failed`

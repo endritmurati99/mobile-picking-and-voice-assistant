@@ -458,25 +458,11 @@ services:
     networks:
       - edge-net
 
-# ── OFFEN: `secrets:`-Block (Foundation Task 15 / R3) ─────────────────────
-# Der Odoo-19-Cutover hat diesen Block BEWUSST NICHT gesetzt. Grund, gemessen
-# und nicht vermutet:
-#   * Das Backend liest KEINE Secret-Dateien. backend/app/config.py kennt nur
-#     direkte Env-Variablen (PWR_*_SECRET_B64, SESSION_THROTTLE_HMAC_SECRET_B64,
-#     N8N_*_SECRET); es gibt weder `read_secret()` noch eine `*_FILE`-Variante,
-#     und `extra="ignore"` wuerde `*_FILE`-Variablen still verschlucken. Die
-#     direkten Variablen durch Datei-Varianten zu ersetzen — wie der Cutover-Plan
-#     Task 5 Step 4 vorsah — haette das Backend startunfaehig gemacht.
-#   * Nur infrastructure/scripts/provision-n8n-credentials.sh liest /run/secrets
-#     (pwr_n8n_native_header, pwr_backend_to_n8n_active_hmac,
-#     pwr_n8n_to_backend_active_hmac; optional pwr_backend_to_n8n_previous_hmac,
-#     pwr_n8n_callback_legacy). Das ist ein manuelles Skript, kein
-#     Container-Start — der laufende Stack ist davon nicht betroffen.
-# Wer den Block nachruestet, MUSS `uid`, `gid` und `mode` explizit setzen
-# (Docker-Default ist root-eigenes 0444, was die Pruefung beider Haelften
-# ablehnt), und muss zusaetzlich ./n8n/scripts nach
-# /home/node/scripts read-only in den n8n-Container mounten — das verlangt
-# provision-n8n-credentials.sh ausdruecklich und heute fehlt der Mount.
+# ── Secret delivery ───────────────────────────────────────────────────────
+# The default backend uses the required direct environment values above. Its
+# configuration code also supports `*_FILE`, but this Compose profile does not
+# mount those files; do not set a file path here without adding the matching
+# backend secret mount. `n8n-credentials` below mounts its provisioning files.
 volumes:
   pg_data:
   odoo_data:

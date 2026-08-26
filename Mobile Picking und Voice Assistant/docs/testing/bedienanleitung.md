@@ -9,7 +9,8 @@ Lager 1. Stand 19. August 2026.
 Ohne dieses Zertifikat gibt der Browser die Kamera nicht frei, und ohne Kamera
 kein Scannen.
 
-1. Am Handy `https://172.22.147.243/rootCA.crt` öffnen.
+1. Am Handy `https://<LAN_HOST>/rootCA.crt` öffnen; `<LAN_HOST>` ist der in
+   `.env` konfigurierte Hostname bzw. die LAN-IP.
 2. Die Sicherheitsabfrage bestätigen (**Erweitert → Trotzdem fortfahren**).
 3. Die geladene Datei als Zertifizierungsstelle installieren:
    - **Android:** Einstellungen → Sicherheit → Verschlüsselung und Anmeldedaten
@@ -19,13 +20,14 @@ kein Scannen.
      den Eintrag aktivieren. **Der zweite Schritt wird oft vergessen und ist
      zwingend.**
 
-Fertig, wenn `https://172.22.147.243/` ohne Warnung öffnet.
+Fertig, wenn `https://<LAN_HOST>/` ohne Warnung öffnet.
 
 ---
 
 ## Aktuelle Telefon-App wiederherstellen
 
-1. Open https://172.22.147.243/ in the browser, not an installed app pointing at an older IP.
+1. Öffne `https://<LAN_HOST>/` im Browser, nicht eine installierte PWA mit
+   einer alten Adresse.
 2. Confirm the selector shows “Lager 1”, not the internal name “local”.
 3. Remove the old installed PWA only when it still shows “local”, then open the current URL again.
 
@@ -121,8 +123,9 @@ Erwartet nach dem Sammelauftrag oben:
 - vier Aufträge auf erledigt: WH/OUT/00047, 00051, 00053, 00054
 - vier gefüllte Kartons, jeder einem Auftrag zugeordnet
 
-Nachsehen lässt sich das in Odoo unter `http://localhost:8069` in der
-Auftragsübersicht.
+Die gebuchten Aufträge lassen sich in der lokalen Odoo-Auftragsübersicht
+nachsehen; bei Bedarf den im Entwicklungs-Overlay konfigurierten Odoo-Port
+verwenden.
 
 ---
 
@@ -130,7 +133,7 @@ Auftragsübersicht.
 
 | Beobachtung | Abhilfe |
 |---|---|
-| Seite lädt nicht | Handy im selben WLAN? Adresse `https://172.22.147.243/` genau so eingegeben? |
+| Seite lädt nicht | Handy im selben WLAN? Die in `.env` gesetzte `LAN_HOST`-Adresse unter `https://<LAN_HOST>/` öffnen. |
 | Zertifikatswarnung bleibt | Schritt 1 wiederholen; beim iPhone den Vertrauensschalter nicht vergessen |
 | Kamera startet nicht | Im Browser unter Website-Einstellungen die Kamera freigeben |
 | Code wird nicht erkannt | Abstand ändern, Blendung vermeiden — oder den Code im Scanner-Fenster von Hand eingeben |
@@ -148,14 +151,10 @@ python infrastructure/scripts/generate-pickings.py \
   --user admin --api-key <ODOO_API_KEY aus der .env> --count 10
 ```
 
-Danach im Kopf von `infrastructure/scripts/generate-demo-sheets.py` die
-Auftragsnummern, Artikel und Kartonnamen anpassen und den Bogen neu erzeugen:
+Danach den Bogen mit dem vorhandenen Skript neu erzeugen:
 
 ```bash
-DOCKER="/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe"
-"$DOCKER" exec -i mobilepickingundvoiceassistant-odoo-1 python3 - \
-  --sheet both --output-dir /tmp/bogen \
-  < infrastructure/scripts/generate-demo-sheets.py
+python infrastructure/scripts/generate-picking-sheet.py --help
 ```
 
 Die Kartonnamen folgen dem Muster `CLUSTER-B{Nummer}/{Auftrag}`, wobei die

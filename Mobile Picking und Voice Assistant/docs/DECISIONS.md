@@ -1,6 +1,7 @@
 # Architecture Decision Records
 
-## ADR-001: Odoo 18 Community statt Enterprise
+## ADR-001 (historisch): Odoo 18 Community statt Enterprise
+- **Status**: Durch den Odoo-19-Cutover abgelöst; der aktuelle Betrieb nutzt Odoo 19 Community.
 - **Kontext**: Enterprise-Lizenz war nicht verfuegbar.
 - **Entscheidung**: Odoo 18 Community plus Custom Modules.
 - **Konsequenz**: Etwas mehr Eigenbau, dafuer volle Kontrolle ueber Datenmodell und Schnittstellen.
