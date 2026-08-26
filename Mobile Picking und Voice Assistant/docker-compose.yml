@@ -175,10 +175,6 @@ services:
       # aus dem Kaltstart heraus; Ollama KEEP_ALIVE haelt es danach 24h).
       VOICE_LLM_WARMUP: ${VOICE_LLM_WARMUP:-true}
       N8N_WEBHOOK_BASE: http://n8n:5678/webhook
-      N8N_WEBHOOK_PATH_QUALITY_ALERT_CREATED: ${N8N_WEBHOOK_PATH_QUALITY_ALERT_CREATED:-quality-alert-created}
-      N8N_WEBHOOK_PATH_VOICE_EXCEPTION_QUERY: ${N8N_WEBHOOK_PATH_VOICE_EXCEPTION_QUERY:-voice-exception-query}
-      N8N_WEBHOOK_PATH_SHORTAGE_REPORTED: ${N8N_WEBHOOK_PATH_SHORTAGE_REPORTED:-shortage-reported}
-      N8N_WEBHOOK_PATH_PICK_CONFIRMED: ${N8N_WEBHOOK_PATH_PICK_CONFIRMED:-pick-confirmed}
       SESSION_THROTTLE_HMAC_SECRET_B64: ${SESSION_THROTTLE_HMAC_SECRET_B64}
       N8N_WEBHOOK_SECRET: ${N8N_WEBHOOK_SECRET}
       N8N_SYNC_TIMEOUT_MS: ${N8N_SYNC_TIMEOUT_MS:-7000}
@@ -200,10 +196,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DEMO_TRACEABILITY_ENABLED: ${DEMO_TRACEABILITY_ENABLED:-false}
       DEMO_TRACEABILITY_ALLOWED_DBS: ${DEMO_TRACEABILITY_ALLOWED_DBS:-masterfischer_o19_trial}
-      # Der Dispatcher laedt die Ziele zur Laufzeit aus DIESEM Mount. Damit
-      # gibt es genau eine Quelle fuer Webhook-Pfade; doppelte
-      # N8N_WEBHOOK_PATH_*-Variablen sind der Weg, auf dem Registry und
-      # Compose auseinanderlaufen.
+      # Der Dispatcher laedt die Ziele zur Laufzeit aus diesem Mount.
       WORKFLOW_REGISTRY_PATH: /run/pwr/workflow-registry.json
     volumes:
       - ./backend/app:/app/app:ro

@@ -8,7 +8,6 @@ pydantic-settings==2.*
 # the same .env file Settings does) -- declare it explicitly rather than
 # relying on it riding in as pydantic-settings' transitive dependency.
 python-dotenv==1.*
-python-jose[cryptography]==3.*
 # Task 11: Parser fuer die Binaer-Validierung (Bild/PDF). Beide werden NUR
 # innerhalb von app/services/binary_validation.py benutzt -- kein anderer
 # Codepfad darf Fremdformate dekodieren.

@@ -77,28 +77,3 @@ def as_sample_principal(sample_principal):
         yield sample_principal
     finally:
         app.dependency_overrides.pop(get_current_principal, None)
-
-
-@pytest.fixture
-def sample_picking():
-    """Beispiel-Picking-Daten für Tests."""
-    return {
-        "id": 1,
-        "name": "WH/INT/00001",
-        "state": "assigned",
-        "move_ids": [1, 2, 3],
-        "location_id": [1, "WH/Stock"],
-        "location_dest_id": [2, "WH/Output"],
-    }
-
-
-@pytest.fixture
-def sample_voice_text():
-    """Beispiel-Vosk-Transkripte."""
-    return {
-        "confirm": "bestätigt",
-        "next": "nächster",
-        "number": "vier sieben",
-        "problem": "problem hier",
-        "unknown": "blablabla",
-    }
