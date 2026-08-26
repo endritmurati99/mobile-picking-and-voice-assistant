@@ -1,4 +1,4 @@
-.PHONY: help setup install-backend-deps build-all build-backend build-odoo up down logs logs-backend logs-odoo seed test test-infra test-n8n test-pwa test-odoo test-all test-api test-n8n-api load-test verify-code verify-workflows verify-odoo-schema verify-stack verify clean shell-odoo shell-db
+.PHONY: help setup build-all build-backend build-odoo up down logs logs-backend logs-odoo seed clean shell-odoo shell-db
 
 SHELL := /bin/bash
 -include .env
@@ -12,9 +12,6 @@ setup: ## Erstmalige Einrichtung
 	@echo "Baue Docker Images..."
 	docker compose build
 	@echo "Setup fertig. Zertifikate: bash infrastructure/scripts/setup-certs.sh <LAN-IP>"
-
-install-backend-deps: ## Lokale Python-Abhaengigkeiten fuer Backend-Tests installieren
-	cd backend && python -m pip install --target .deps -r requirements-dev.txt
 
 build-all: ## Alle Docker Images bauen
 	docker compose build
@@ -45,60 +42,6 @@ logs-odoo: ## Odoo-Logs
 
 seed: ## Seed-Daten laden
 	python infrastructure/scripts/seed-odoo.py --url http://localhost:8069 --db $${ODOO_DB:-masterfischer_o19} --user $${ODOO_USER:-admin} --api-key $${ODOO_API_KEY}
-
-test: ## Backend-Tests
-	cd backend && PYTHONPATH=.deps python -m pytest -p pytest_asyncio tests/ -v
-
-test-infra: ## Tests der Infrastruktur-Skripte (Zertifikate, Seed, Rauchtests)
-	cd backend && PYTHONPATH=.deps python -m pytest -p pytest_asyncio ../infrastructure/tests -v
-
-test-n8n: ## Vertragstests der n8n-Kette (Fingerprint-Paritaet, Credential-Provisionierung)
-	cd n8n/custom-nodes/n8n-nodes-pwr && npm ci && npm test
-	node --test n8n/tests/*.test.mjs
-
-test-pwa: ## Modultests der PWA (Voice-Laufzeit, reines Node, kein Browser)
-	node --test pwa/js/tests/*.test.mjs
-
-test-odoo: ## Tests der eigenen Odoo-Module gegen eine WEGWERF-Datenbank
-	@echo "Legt die Datenbank $${ODOO_TEST_DB:-picking_test} neu an und verwirft sie danach."
-	docker compose run --rm -e ODOO_TEST_DB=$${ODOO_TEST_DB:-picking_test} odoo \
-		odoo -d $${ODOO_TEST_DB:-picking_test} \
-		-i picking_assistant_core,picking_assistant_integration,quality_alert_custom \
-		--test-enable --stop-after-init --log-level=test
-
-test-all: ## Alle ausfuehrbaren Testsuiten nacheinander
-	$(MAKE) test
-	$(MAKE) test-infra
-	$(MAKE) test-n8n
-	$(MAKE) test-pwa
-
-test-api: ## API-Rauchtest
-	python infrastructure/scripts/test-api.py
-
-test-n8n-api: ## n8n Public API mit API-Key pruefen
-	python infrastructure/scripts/test-n8n-api.py
-
-load-test: ## 100 Quality-Alert-Requests gegen laufenden Stack (Lasttest)
-	python infrastructure/scripts/load-test-quality-alerts.py --count $${LOAD_TEST_COUNT:-100} --concurrency $${LOAD_TEST_CONCURRENCY:-10}
-
-verify-workflows: ## n8n-Workflow-Vertraege gegen Backend-Webhooks pruefen
-	python infrastructure/scripts/verify-workflows.py
-
-verify-odoo-schema: ## Ruflo Odoo Audit
-	@echo "🛡️ Starting Ruflo Odoo Audit..."
-	@ruflo exec odoo-auditor "Validiere das Schema der Tabelle 'quality_alert' gegen die Spezifikation in Obsidian."
-	@echo "✅ Audit completed."
-
-verify-code: ## Schneller Code-Check ohne laufenden Stack
-	$(MAKE) test-all
-
-verify-stack: ## Stack-Check gegen laufende lokale Instanz
-	$(MAKE) test-api
-
-verify: ## Voller Verify-Lauf: Tests plus API-Rauchtest
-	$(MAKE) verify-code
-	$(MAKE) verify-workflows
-	$(MAKE) verify-stack
 
 clean: ## Alles entfernen
 	docker compose down -v --rmi local

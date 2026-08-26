@@ -23,8 +23,6 @@ backend image, where `backend/app/` is the only tree that ships and nothing
 named `infrastructure/` exists. Nothing in this module may reach above
 `backend/` — `app.dependencies` imports `load_event_targets` at module scope,
 so any such import failure takes down `uvicorn app.main:app` at startup.
-`backend/tests/test_workflow_targets.py` guards that with an import performed
-in a reproduction of the container layout.
 """
 import json
 import re

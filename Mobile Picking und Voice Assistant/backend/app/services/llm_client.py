@@ -53,8 +53,8 @@ RECOMMENDED_ACTIONS = {
 # aus dem Schema statt aus der Sache (gemessen am 2026-08-05 in
 # `vision_client.DESCRIBE_PROMPT`, wiederholt am 2026-08-09 im Textvergleich).
 #
-# **Gemessen** (`infrastructure/bildkorpus/schweregradmessung.py`, 21
-# beschriftete Meldetexte, `qwen2.5:7b`): alter Prompt 11/21 richtig mit 3
+# **Gemessen** (archivierter Bildkorpus, 21 beschriftete Meldetexte,
+# `qwen2.5:7b`): alter Prompt 11/21 richtig mit 3
 # falschen `scrap`, dieser hier 19/21 mit 1. Median 10 s -> 15 s.
 #
 # **`grundlage` brauchte eine zweite Runde.** In der ersten Fassung hiess es

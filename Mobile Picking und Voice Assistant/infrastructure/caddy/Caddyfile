@@ -9,8 +9,6 @@
 # exactly that shape, `/api/docs` returned Swagger UI from uvicorn and
 # `/api/internal/...` reached the backend with a 405. Only `handle` blocks are
 # mutually exclusive and evaluated among themselves in file order.
-# `infrastructure/tests/test_production_surface.py` pins the block form.
-#
 # Removed here, deliberately, and each one was a real hole:
 #   * two editor path prefixes and two editor host matchers proxied the n8n
 #     editor to anyone on the LAN. n8n holds every workflow credential.

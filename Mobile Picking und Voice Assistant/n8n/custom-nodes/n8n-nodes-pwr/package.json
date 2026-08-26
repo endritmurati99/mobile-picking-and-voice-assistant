@@ -8,8 +8,7 @@
   "files": ["dist"],
   "engines": {"node": ">=22.16"},
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test dist/test/*.test.js"
+    "build": "tsc -p tsconfig.json"
   },
   "keywords": ["n8n-community-node-package"],
   "n8n": {

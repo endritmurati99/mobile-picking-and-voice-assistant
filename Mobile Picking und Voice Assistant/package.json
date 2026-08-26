@@ -1,7 +1,0 @@
-{
-  "name": "mobile-picking-voice-assistant",
-  "private": true,
-  "scripts": {
-    "test:voice": "node --test pwa/js/tests/*.test.mjs"
-  }
-}

@@ -18,33 +18,18 @@ DEFAULT_REGISTRY_PATH = _REPO_ROOT / "n8n" / "workflow-registry.json"
 # that exists in BOTH trees, and this side -- which always has the repo -- is
 # the one that reaches across. See backend/app/services/workflow_generations.py.
 #
-# The reach-across no longer mutates sys.path. It used to be
-# `sys.path.insert(0, <repo>/backend)` -- a process-wide side effect for a
-# single module lookup, at position 0, in front of everything including the
-# directory the process was started from. `backend/` contains a `tests/`
-# PACKAGE (it has an `__init__.py`; `infrastructure/tests/` has none), so
-# merely importing this module made the bare name `tests` resolve to
-# `backend/tests` for the rest of the process. Nothing depends on that today
-# and both suites are green, but only because pytest happens to name the two
-# trees' test modules differently -- a property of the runner, not one this
-# repository states or enforces anywhere.
+# The reach-across no longer mutates sys.path. It used to insert `backend/`
+# at position zero for a single module lookup, shadowing unrelated imports.
 #
 # Two paths, in this order, and the order is the point:
 #
-# 1. The ordinary import first, so that when `backend/` IS importable (the
-#    backend suite, the combined run, anything running backend code) both
-#    readers get the SAME module object out of sys.modules. That identity is
-#    itself a guard -- backend/tests/test_workflow_targets.py asserts
-#    `workflow_targets.KNOWN_GENERATIONS is registry_known_generations` to
-#    catch a future copy before its contents can drift -- and loading by file
-#    path unconditionally would have quietly broken it by producing a second
-#    module object.
+# 1. The ordinary import first, so that when `backend/` is importable both
+#    readers share the module object from sys.modules.
 # 2. Only if `app` is genuinely not importable (an infrastructure-only run
 #    from a bare checkout) fall back to loading the single declaration
 #    straight off disk. Still one declaration, still no path entry, so there
 #    is nothing left to shadow.
 #
-# Pinned by infrastructure/tests/test_workflow_registry_import_isolation.py.
 _GENERATIONS_MODULE = "app.services.workflow_generations"
 _GENERATIONS_PATH = (
     _REPO_ROOT / "backend" / "app" / "services" / "workflow_generations.py"
