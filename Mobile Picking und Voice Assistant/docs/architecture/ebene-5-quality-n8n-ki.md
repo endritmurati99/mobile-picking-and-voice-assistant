@@ -144,8 +144,14 @@ kein heuristisches Ersatzurteil.
 das Katalogbild aus Odoo. Die Bildbytes werden geprüft und für den
 Artikelvergleich auf maximal 512 Pixel verkleinert. Schadens- und
 Zustandsprüfung erhalten bis zu 768 Pixel, weil echte Risse bei 512 Pixeln in
-Messungen verschwanden. `qwen2.5vl:7b` beschreibt jedes Bild einzeln; das
-Textmodell vergleicht anschließend die Beschreibungen.
+Messungen verschwanden.
+
+Der primäre Artikelabgleich fragt den lokalen Einbettungsdienst: DINOv2 plus
+gewichtetes Farbhistogramm ordnen das erste Meldefoto in den bekannten
+Artikelkatalog ein. Ist der Dienst nicht verfügbar, die Artikelkennung nicht
+im Katalog oder das Ergebnis unsicher, beschreibt `gemma4:12b` beide Bilder
+einzeln und das Textmodell vergleicht die Beschreibungen. Die
+Schadensprüfung verwendet ebenfalls `gemma4:12b`.
 
 Die drei Stufen sind:
 

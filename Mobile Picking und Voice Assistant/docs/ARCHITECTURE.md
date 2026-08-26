@@ -27,22 +27,10 @@ Die weiteren Ebenen vervollständigen den Lernpfad:
 - [Ebene 12: Login, Benutzer und Geräte](./architecture/ebene-12-login-benutzer-geraete.md)
 - [Ebene 13: Clusterbildung und Lagerorte](./architecture/ebene-13-clusterbildung-und-lagerorte.md)
 
-Die editierbaren und exportierten Grafiken liegen daneben:
-
-- [Excalidraw-Quelle](./architecture/ebene-1-systemlandkarte.excalidraw)
-- [SVG-Grafik](./architecture/ebene-1-systemlandkarte.svg)
-- [Ebene-2-Excalidraw-Quelle](./architecture/ebene-2-pwa-normaler-auftrag.excalidraw)
-- [Ebene-2-SVG-Grafik](./architecture/ebene-2-pwa-normaler-auftrag.svg)
-- [Ebene-3-Excalidraw-Quelle](./architecture/ebene-3-cluster-picking.excalidraw)
-- [Ebene-3-SVG-Grafik](./architecture/ebene-3-cluster-picking.svg)
-- [Ebene-4-Excalidraw-Quelle](./architecture/ebene-4-voice.excalidraw)
-- [Ebene-4-SVG-Grafik](./architecture/ebene-4-voice.svg)
-- [Ebene-5-Excalidraw-Quelle](./architecture/ebene-5-quality-n8n-ki.excalidraw)
-- [Ebene-5-SVG-Grafik](./architecture/ebene-5-quality-n8n-ki.svg)
-- [Ebene-6-Excalidraw-Quelle](./architecture/ebene-6-docker-daten-sicherheit.excalidraw)
-- [Ebene-6-SVG-Grafik](./architecture/ebene-6-docker-daten-sicherheit.svg)
-- [Ebene-12-Excalidraw-Quelle](./architecture/ebene-12-login-benutzer-geraete.excalidraw)
-- [Ebene-12-SVG-Grafik](./architecture/ebene-12-login-benutzer-geraete.svg)
+Die editierbaren Excalidraw-Quellen und die exportierten SVG-Grafiken liegen
+jeweils neben dem Markdown-Dokument und tragen denselben Dateistamm. Ebenen 1
+bis 10 sowie 12 und 13 besitzen beide Fassungen; Ebene 11 besitzt derzeit nur
+die direkt lesbare SVG-Fassung.
 
 ## Stabile Architekturregeln
 
@@ -57,7 +45,8 @@ Die editierbaren und exportierten Grafiken liegen daneben:
 5. n8n orchestriert vor allem die asynchrone Quality-Verarbeitung. Fachliche
    Änderungen laufen kontrolliert über FastAPI zurück nach Odoo.
 6. Whisper wandelt Sprache in Text, Piper Text in Sprache und Ollama führt
-   lokale Text- und Bildmodelle aus.
+   lokale Text- und Bildmodelle aus. Der Einbettungsdienst gleicht Artikel mit
+   DINOv2 und einem Farbkanal gegen den Katalog ab.
 7. Odoo und n8n nutzen getrennte Datenbanken im gemeinsamen
    PostgreSQL-Dienst. FastAPI greift nicht direkt auf diese Datenbanken zu.
 8. Touch und Scanner bleiben die verlässlichen Bedienwege; Voice ist eine
@@ -113,10 +102,12 @@ Verdrahtung gelten weiterhin Code und Konfiguration:
 - `odoo/addons/` für die Odoo-Fachmodelle,
 - `n8n/workflow-registry.json` und `n8n/workflows/` für n8n.
 
-Historische Spezifikationen und alte Vertragsdokumente beschreiben teilweise
-frühere Ausbaustufen. Bei Widersprüchen hat der aktuelle Code Vorrang.
+Historische Spezifikationen, Scorecards und datierte Reviewabschnitte
+beschreiben teilweise frühere Ausbaustufen. Ihre damaligen Tests und Nachweise
+liegen im privaten Evidence-Archiv. Bei Widersprüchen haben aktueller Code,
+Compose und Workflow-Registry Vorrang.
 
-## Reviewcheck, aktualisiert am 13. August 2026
+## Historischer Reviewcheck vom 13. August 2026
 
 Der normale Listen-Schritt wurde gegen Graphify, aktuellen Code, vier gezielte
 Service-Tests und einen rein lesenden Abzug der lokalen Odoo-Daten geprüft:

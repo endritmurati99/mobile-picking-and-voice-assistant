@@ -33,9 +33,9 @@ begrenzten Aufgaben.
 
 ![Rollen, Rechte, Datenhoheit und Vertrauensgrenzen der Mobile-Picking-Anwendung](./ebene-11-rollen-rechte-datenhoheit.svg)
 
-Die [Excalidraw-Quelldatei](./ebene-11-rollen-rechte-datenhoheit.excalidraw) ist
-editierbar. Die [SVG-Datei](./ebene-11-rollen-rechte-datenhoheit.svg) ist die
-Exportfassung.
+Für diese Ebene ist nur die
+[SVG-Datei](./ebene-11-rollen-rechte-datenhoheit.svg) vorhanden. Eine
+editierbare Excalidraw-Quelle liegt im Runtime-Repository nicht vor.
 
 Das Bild liest sich von links nach rechts:
 

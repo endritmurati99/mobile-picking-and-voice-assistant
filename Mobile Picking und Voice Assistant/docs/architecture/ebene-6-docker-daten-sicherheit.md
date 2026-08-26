@@ -7,8 +7,9 @@ bleiben und wie Fehler eingegrenzt werden.
 ## Die Erklärung in 30 Sekunden
 
 Die Produktions-Grunddatei startet PWA, Caddy, FastAPI, Odoo, PostgreSQL, n8n,
-Whisper, Piper und Ollama. Nur Caddy veröffentlicht Ports ins LAN. Es verteilt
-`/api/*` an FastAPI und alle normalen Seitenpfade an die PWA.
+Whisper, Piper, Ollama und den Einbettungsdienst. Nur Caddy veröffentlicht
+Ports ins LAN. Es verteilt `/api/*` an FastAPI und alle normalen Seitenpfade
+an die PWA.
 
 Drei Netze trennen Eingang, Odoo-Kern und Automatisierung. In der
 Produktions-Grunddatei ist FastAPI die einzige Brücke durch alle drei Bereiche.
@@ -39,6 +40,7 @@ Exportfassung.
 | Whisper | Sprache zu Text | Automation |
 | Piper | Text zu Sprache | Automation |
 | Ollama | lokale Text- und Bildmodelle | Automation |
+| Embed | DINOv2-/Farb-Abgleich mit dem Artikelkatalog | Automation |
 
 Optional startet das Profil `second-odoo` eine zweite Odoo-Instanz. Das Profil
 `provision` enthält einen einmaligen Container für n8n-Credentials.
@@ -94,9 +96,10 @@ eigenes System of Record; Profile werden nicht still vermischt.
 ## Netz 3: `automation-net`
 
 Im ebenfalls internen Automation-Netz liegen FastAPI, PostgreSQL, n8n,
-Whisper, Piper und Ollama. So können lokale Sprach- und KI-Dienste intern
-erreicht werden, ohne eigene Browserports zu öffnen. Der n8n-Loopback-Port im
-Development-Overlay ändert daran für andere LAN-Geräte nichts.
+Whisper, Piper, Ollama und der Einbettungsdienst. So können lokale Sprach- und
+KI-Dienste intern erreicht werden, ohne eigene Browserports zu öffnen. Der
+n8n-Loopback-Port im Development-Overlay ändert daran für andere LAN-Geräte
+nichts.
 
 Nur ein optionales Egress-Overlay gibt Whisper und Ollama zeitweise einen
 Außenweg für Modell-Downloads. Das Entwicklungs-Overlay veröffentlicht einige
@@ -108,7 +111,7 @@ FastAPI ist in der Produktions-Grunddatei der kontrollierte Übergang:
 
 - Browseranfragen kommen aus dem Edge-Netz,
 - Odoo-Aufträge werden im Core-Netz gelesen und geschrieben,
-- n8n, Whisper, Piper und Ollama werden im Automation-Netz angesprochen.
+- n8n, Whisper, Piper, Ollama und Embed werden im Automation-Netz angesprochen.
 
 Es besitzt keine eigene Geschäftsdatenbank. Fachliche Wahrheit bleibt in
 Odoo, und n8n erhält nur die für seinen Workflow nötigen Daten.
@@ -163,21 +166,20 @@ Umgebungsvariable.
 - Whisper-Cache leer und kein Egress: Whisper kann sein Modell nicht laden.
 - Piper oder Whisper ausgefallen: Touch und Scanner bleiben verfügbar.
 - Ollama ausgefallen: Voice fällt auf Regeln zurück; Quality verlangt Prüfung.
+- Embed ausgefallen: der Artikelabgleich fällt auf den beschriebenen
+  Vision-/Textvergleich zurück.
 - n8n nicht erreichbar: die Quality-Outbox versucht später erneut zuzustellen.
 - Ack verloren: ein Event kann erneut kommen; Empfänger deduplizieren per Event-ID.
 
-Compose-Healthchecks existieren aktuell nur für PostgreSQL, Odoo, die optionale
-zweite Odoo-Instanz und n8n. Die übrigen Dienste besitzen keinen Compose-
-Healthcheck.
+Compose-Healthchecks existieren aktuell für PostgreSQL, Odoo, die optionale
+zweite Odoo-Instanz, n8n und Embed. Die übrigen Dienste besitzen keinen
+Compose-Healthcheck.
 
 ## Bekannte Konfigurationsgrenzen
 
 Der deklarierte und laufende Ist-Stand enthält noch Punkte für die
 Betriebsreife:
 
-- `.env.example` enthält weder die aktiven v2-Key-IDs noch die zugehörigen
-  Pflicht-Secrets; `RUNTIME_PROFILE` ist dort nur auskommentiert, obwohl Compose
-  den Wert beim Start verlangt.
 - Der `n8n-credentials`-Container ruft `provision-credentials.mjs` ohne den
   zwingenden Modus `provision`, `verify` oder `rotate` auf und würde deshalb
   sofort abbrechen.

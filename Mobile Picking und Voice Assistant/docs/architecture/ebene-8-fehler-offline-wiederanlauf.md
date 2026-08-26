@@ -39,7 +39,7 @@ die Exportfassung.
 
 ### 1. Was tatsächlich offline verfügbar ist
 
-Der Service Worker legt die PWA-Hülle in `picking-v22` ab:
+Der Service Worker legt die PWA-Hülle in `picking-v29` ab:
 
 - Startseite und Manifest,
 - CSS, Schriften und Symbole,

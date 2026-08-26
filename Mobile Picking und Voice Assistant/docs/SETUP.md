@@ -59,13 +59,15 @@ Der produktive Quality-Vertrag ist v2: FastAPI sendet
 Die verbindliche Registry ist `n8n/workflow-registry.json`. n8n wird nicht über
 eine öffentliche Basisroute, Public API oder MCP betrieben.
 
-## Prüfen
+## Konfiguration und Laufzeit prüfen
 
 ```bash
-make install-backend-deps
-make verify-code
-make verify-workflows
+docker compose --env-file .env config --quiet
+docker compose ps
+make help
 ```
 
-`make verify-stack` setzt einen laufenden lokalen Stack voraus. Die
-Testanleitung für Handys steht in `docs/testing/bedienanleitung.md`.
+Die Make-Ziele dieses Runtime-Repositories decken Setup, Build, Start/Stop,
+Logs, Seed und Shell-Zugriffe ab. Die Bedienanleitung für Handys steht in
+`docs/testing/bedienanleitung.md`; automatisierte Tests und Nachweise liegen im
+privaten Test-/Evidence-Archiv.
