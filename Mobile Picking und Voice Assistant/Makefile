@@ -8,7 +8,7 @@ help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 setup: ## Erstmalige Einrichtung
-	@test -f .env || (cp .env.example .env && echo "WARNUNG: .env erstellt - Werte ausfuellen!" && exit 1)
+	@test -f .env || (echo "FEHLER: lokale .env fehlt; mit 'install -m 600 /dev/null .env' anlegen und Werte setzen." >&2; exit 1)
 	@echo "Baue Docker Images..."
 	docker compose build
 	@echo "Setup fertig. Zertifikate: bash infrastructure/scripts/setup-certs.sh <LAN-IP>"

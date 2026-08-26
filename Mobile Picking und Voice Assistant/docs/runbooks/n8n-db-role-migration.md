@@ -8,7 +8,7 @@ automatically via `docker-entrypoint-initdb.d` and no manual migration
 is needed.
 
 **Status:** Task 13 delivers the scripts and this runbook. Wiring the
-new roles into the live `docker-compose.yml` / `.env.example` is Task
+new roles into the live `docker-compose.yml` / local `.env` contract is Task
 15's job — until that lands, do not run `apply` against the real
 production volume. `docker-compose.db-migration.yml` and
 `clone-postgres-volume.sh` let you rehearse the whole flow safely
@@ -197,7 +197,7 @@ dump, and ACL reports — treat the directory as sensitive and keep its
 
 ## Known deferred gates
 
-- `docker-compose.yml` and `.env.example` are not modified by Task 13.
+- `docker-compose.yml` and the local `.env` contract are not modified by Task 13.
   The Compose-level contract test
   (`test_no_app_uses_cluster_bootstrap_role_in_compose`) stays red
   until Task 15 wires `DB_POSTGRESDB_USER: ${N8N_DB_USER:-n8n_app}` and

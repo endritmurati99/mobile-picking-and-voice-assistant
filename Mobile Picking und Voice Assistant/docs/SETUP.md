@@ -10,8 +10,8 @@
 ## Basis-Stack
 
 ```bash
-cp .env.example .env
-# Alle Platzhalter und Secrets in .env setzen.
+install -m 600 /dev/null .env
+# Erforderliche Variablen und Secrets ausschließlich lokal in .env setzen.
 bash infrastructure/scripts/setup-certs.sh <LAN-IP>
 docker compose build
 docker compose up -d

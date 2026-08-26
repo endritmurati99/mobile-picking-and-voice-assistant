@@ -192,8 +192,8 @@ Voraussetzungen sind Docker mit Compose v2, `mkcert`, eine feste LAN-IP und
 ausgefüllte Secrets.
 
 ```bash
-cp .env.example .env
-# Platzhalter und Secrets in .env ersetzen
+install -m 600 /dev/null .env
+# Erforderliche Variablen und Secrets ausschließlich lokal in .env setzen.
 bash infrastructure/scripts/setup-certs.sh <LAN-IP>
 docker compose build
 docker compose up -d
@@ -273,7 +273,7 @@ gesichert. Das Archiv ist privat und erfordert Zugriff.
 Bewusst im Runtime-Repository geblieben sind:
 
 - Markdown, SVGs, Excalidraw-Quellen und verwendete Screenshots, weil die
-  Architektur- und Obsidian-Dokumentation sie direkt referenziert;
+  Architekturdokumentation sie direkt referenziert;
 - `verify-workflows.py`, weil der Workflow-Importer es als Laufzeit-Gate nutzt;
 - Build-Abhängigkeiten der n8n-Custom-Nodes, weil das Docker-Image sie benötigt;
 - der registrierte Legacy-Workflow `error-trigger.json`, weil seine Entfernung
