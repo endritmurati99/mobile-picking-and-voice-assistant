@@ -38,7 +38,6 @@ FastAPI
     ↓ kontrollierte Odoo-Aufrufe
 Odoo 19
 ```
-
 Odoo bleibt das **System of Record**. Die PWA spricht weder direkt mit Odoo
 noch mit PostgreSQL oder n8n. FastAPI ist der einzige fachliche Ein- und
 Ausgangspunkt der mobilen Anwendung.
@@ -491,23 +490,3 @@ Egress-Overlay einen zeitlich begrenzten Außenweg.
     ├── docker-compose.yml
     └── Makefile
 ```
-
-
-## Ehrlicher aktueller Stand
-
-- Die Compose-Grunddatei veröffentlicht nur Caddy, startet FastAPI derzeit
-  aber noch mit Uvicorn `--reload`.
-- Die Workflow-Registry verlangt die Produktionsaktivierung von „Quality
-  Assessment v2“, während die eingecheckte Workflow-Datei `active: false`
-  trägt. Import und Aktivierung sind ein kontrollierter Deployment-Schritt.
-- Quality-Bewertungen laufen auf dem aktuellen CPU-Host absichtlich seriell.
-- Die PWA cached ihre Anwendungshülle, aber keine API-Daten oder
-  Schreibaktionen.
-- Test-Suiten und Belegkorpus sind erhalten, aber nicht Teil des öffentlichen
-  Runtime-Branches.
-
-Das Ergebnis ist kein isolierter UI-Demonstrator. Es ist ein kompakter
-End-to-End-Laufzeitstand vom Smartphone über API und ERP bis zu lokaler
-Sprach-, Workflow- und Bildverarbeitung.
-
-Stand: 26. August 2026.
