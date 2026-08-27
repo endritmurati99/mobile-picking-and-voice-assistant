@@ -1,31 +1,26 @@
 # Mobile Picking und Voice Assistant
 
-Ein lokaler Lagerassistent für normales und gebündeltes Kommissionieren mit
-Odoo 19, mobiler PWA, Scanner, Sprache, Fotos und lokaler KI.
+Diese Bachelorarbeit untersucht einen lokalen Lagerassistenten für normales
+und gebündeltes Kommissionieren. Die Anwendung verbindet Odoo 19 mit einer
+mobilen Oberfläche, Scanner, Sprache, Fotos und lokaler KI.
 
-Das Projekt zeigt, wie ein bestehendes ERP um eine für Smartphones geeignete
-Arbeitsoberfläche erweitert werden kann, ohne eine zweite fachliche Wahrheit
-neben Odoo aufzubauen. Der Mitarbeiter bekommt einen klaren nächsten Schritt,
-FastAPI kontrolliert jeden Zugriff und Odoo führt Bestand, Aufträge, Benutzer
-und Qualitätsmeldungen dauerhaft weiter.
+Untersucht wird, wie ein bestehendes ERP für die Arbeit am Smartphone ergänzt
+werden kann. Odoo bleibt dabei die führende Datenquelle; die mobile Anwendung
+unterstützt Mitarbeitende mit klaren, nachvollziehbaren Arbeitsschritten.
 
 ![Systemlandkarte mit PWA, FastAPI, Odoo, Voice, Quality und lokalen KI-Diensten](<Mobile Picking und Voice Assistant/docs/architecture/ebene-1-systemlandkarte.svg>)
 
-## Was dieses Projekt löst
+## Was dieses Projekt untersucht
 
-Klassische Odoo-Masken sind für Verwaltung und Planung geeignet, aber nicht für
-einen Mitarbeiter, der mit Telefon, Scanner und Ware durch das Lager läuft.
-Genau dort setzt die PWA an:
+Klassische Odoo-Masken sind vor allem für Verwaltung und Planung ausgelegt.
+Dieses Projekt betrachtet dagegen die praktische Arbeit im Lager:
 
-- Sie reduziert einen Auftrag auf den jeweils nächsten verständlichen Schritt.
-- Sie zeigt Lagerort, Artikel, Menge, Zielkarton und Fortschritt mobil lesbar.
-- Sie akzeptiert HID-Scanner, Kamera, Touch und Sprache als Eingabewege.
-- Sie verhindert paralleles Bearbeiten desselben Auftrags durch Claims.
-- Sie verhindert doppelte Buchungen nach Netzproblemen durch Idempotenz.
-- Sie bündelt mehrere Aufträge zu einer gemeinsamen Cluster-Route.
-- Sie nimmt Qualitätsmeldungen mit Beschreibung und Fotos direkt im Ablauf auf.
-- Sie verarbeitet Sprache und Bilder lokal, ohne Betriebsdaten an einen
-  Cloud-KI-Dienst senden zu müssen.
+- Sie zeigt den nächsten Arbeitsschritt, Lagerort, Artikel und Menge gut lesbar.
+- Sie unterstützt Scanner, Kamera, Touch und Sprache als Eingabewege.
+- Sie verhindert parallele Bearbeitung und doppelte Buchungen.
+- Sie bündelt passende Aufträge zu einem gemeinsamen Rundgang.
+- Sie ermöglicht Qualitätsmeldungen mit Beschreibung und Fotos.
+- Sie verarbeitet Sprache und Bilder lokal.
 
 Das System ersetzt Odoo nicht. Es ist eine kontrollierte mobile Arbeitsschicht
 vor Odoo.
@@ -74,15 +69,10 @@ jeder Mitarbeiter nur die für ihn zulässigen Aufträge und Claims. Die
 Benutzeridentität kommt nicht aus frei gesetzten Browser-Headern.
 
 <p align="center">
-  <img src="Mobile Picking und Voice Assistant/docs/screenshots/login-und-cluster/01-login-formular.png" width="245" alt="PWA-Anmeldung auf dem Smartphone">
-  &nbsp;
-  <img src="Mobile Picking und Voice Assistant/docs/screenshots/login-und-cluster/02-lena-angemeldet.png" width="245" alt="Auftragsliste der angemeldeten Mitarbeiterin Lena">
-  &nbsp;
-  <img src="Mobile Picking und Voice Assistant/docs/screenshots/login-und-cluster/03-max-angemeldet.png" width="245" alt="Auftragsliste des angemeldeten Mitarbeiters Max">
+  <img src="Mobile Picking und Voice Assistant/docs/screenshots/aktuell/pwa-anmeldung-mobil-2026-08-27.png" width="245" alt="PWA-Anmeldung mit Lager 1 und Lager 2 auf dem Smartphone">
 </p>
 
-Von links nach rechts: Login, Lenas Arbeitsliste und Max' Arbeitsliste. Damit
-wird sichtbar, dass Sitzung, Benutzer und Auftragskontext zusammengehören.
+Die aktuelle Anmeldung zeigt die beiden Lagerorte Lager 1 und Lager 2.
 
 ### Cluster-Vorschläge und Auswahl
 
@@ -95,7 +85,6 @@ mehrere passende Vorschläge auswählen.
   &nbsp;
   <img src="Mobile Picking und Voice Assistant/docs/screenshots/cluster-verbessert/02-mehrere-ausgewaehlt.png" width="245" alt="Mehrere ausgewählte Cluster-Vorschläge">
   &nbsp;
-  <img src="Mobile Picking und Voice Assistant/docs/screenshots/login-und-cluster/05-cluster-rundgang.png" width="245" alt="Gestarteter Cluster-Rundgang mit Zielkartons">
 </p>
 
 Der Rundgang fasst gleiche Lagerstopps zusammen. Die Aufträge werden dabei
@@ -475,10 +464,6 @@ docker compose build
 docker compose up -d
 ```
 
-Die Einrichtung von Odoo 19, Addons, API-Schlüssel, Seed-Daten und lokalen
-Modellen beschreibt
-[docs/SETUP.md](<Mobile Picking und Voice Assistant/docs/SETUP.md>).
-
 Für lokale Diagnoseports:
 
 ```bash
@@ -507,56 +492,6 @@ Egress-Overlay einen zeitlich begrenzten Außenweg.
     └── Makefile
 ```
 
-## Dokumentation und Diagramme
-
-Der Architektureinstieg ist
-[docs/ARCHITECTURE.md](<Mobile Picking und Voice Assistant/docs/ARCHITECTURE.md>).
-Die 13 Ebenen erklären das System vom Gesamtbild bis zu Rollen und
-Lebenszyklen:
-
-1. Systemlandkarte
-2. PWA und normaler Auftrag
-3. Cluster-Picking
-4. Voice mit Whisper und Piper
-5. Quality, n8n und lokale KI
-6. Docker, Netzwerke, Daten und Sicherheit
-7. Intent-Erkennung und Ollama-Fallback
-8. Fehler, Offline-Verhalten und Wiederanlauf
-9. komplette Mitarbeiterreise
-10. Status und Lebenszyklen
-11. Rollen, Rechte und Datenhoheit
-12. Login, Benutzer und Geräte
-13. Clusterbildung und Lagerorte
-
-Zu den Ebenen existieren direkt lesbare SVG-Grafiken. Zwölf Ebenen besitzen
-zusätzlich editierbare Excalidraw-Quellen; Ebene 11 liegt als SVG vor.
-
-Weitere Einstiege:
-
-- [Architekturentscheidungen](<Mobile Picking und Voice Assistant/docs/DECISIONS.md>)
-- [Voice-Kommandos](<Mobile Picking und Voice Assistant/docs/VOICE_COMMANDS.md>)
-- [Quality-AI-Felder](<Mobile Picking und Voice Assistant/docs/QUALITY_ALERT_AI_FIELDS.md>)
-- [Backup und Wiederherstellung](<Mobile Picking und Voice Assistant/docs/runbooks/backup-und-wiederherstellung.md>)
-- [Bedienanleitung](<Mobile Picking und Voice Assistant/docs/testing/bedienanleitung.md>)
-
-## Warum das Repository kleiner wurde
-
-Der öffentliche Stand enthält deploybaren Runtime-Code, benötigte
-Build-Dateien und betriebsrelevante Dokumentation. Tests, E2E-Strecken,
-visuelle Baselines, Bildkorpus, Messreihen, PDFs und Live-Smokes wurden vor
-ihrer Entfernung unter den ursprünglichen relativen Pfaden im privaten
-Repository
-[`mobile-picking-test-evidence-archive`](https://github.com/endritmurati99/mobile-picking-test-evidence-archive)
-gesichert.
-
-Der große Runtime-Split entfernte 39.914 Zeilen aus 283 Dateien. Bewusst
-erhalten blieben:
-
-- verwendete Screenshots, Architektur-SVGs und Excalidraw-Quellen,
-- `verify-workflows.py`, weil der Importer es als Laufzeit-Gate nutzt,
-- Build-Abhängigkeiten der n8n-Custom-Nodes,
-- der registrierte Legacy-Workflow `error-trigger.json`, dessen Entfernung
-  einen koordinierten Verhaltensumbau benötigt.
 
 ## Ehrlicher aktueller Stand
 
