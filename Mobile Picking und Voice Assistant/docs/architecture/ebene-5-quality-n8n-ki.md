@@ -25,31 +25,12 @@ Die [Excalidraw-Quelldatei](./ebene-5-quality-n8n-ki.excalidraw) ist
 editierbar. Die [SVG-Datei](./ebene-5-quality-n8n-ki.svg) ist die
 Exportfassung.
 
-## Ein echter, vollständiger v2-Durchlauf
+## Der vollständige Ablauf
 
-Der rein lesende Review vom 8. August 2026 fand im laufenden Odoo diesen
-bereits abgeschlossenen Quality Alert:
-
-```text
-Meldung:   QA/0225
-Produkt:   [4166960] Brick 2x2 blau
-Lagerort:  WH/Stock/Regal A-01
-Problem:   Baustein gerissen, Ecke abgebrochen
-Fotos:     1
-Job:       succeeded, Generation 1, Sequenz 1
-Outbox:    delivered beim ersten Versuch
-Ergebnis:  quarantine
-Aktion:    Ware sperren und manuelle Pruefung anfordern.
-Bildbefund: Artikel stimmt; Schaden sichtbar; Soll-Ist bestätigt ihn
-```
-
-Er belegt den vollständigen Weg durch Alert, Job, Outbox, Text- und Bildanalyse
-bis zum Callback. Dabei wurde im Review nichts neu angelegt oder geschrieben.
-
-> **Aktueller Betriebsstatus:** `n8n list:workflow` führt „Quality Assessment
-> v2“ am 8. August 2026 unter den **inaktiven** Workflows. Der Ablauf ist damit
-> nachgewiesen, aber für neue Meldungen momentan nicht betriebsbereit. Vor
-> Produktion muss der verwaltete Workflow wieder aktiviert werden.
+Eine Quality-Meldung kann Beschreibung und Fotos enthalten. Sie wird in Odoo
+gespeichert und anschließend im Hintergrund weiterbearbeitet. Das Ergebnis
+bleibt an der Meldung sichtbar; bei Unsicherheit ist eine manuelle Prüfung
+erforderlich.
 
 ## Schritt 1: Problem in der PWA melden
 
@@ -201,9 +182,6 @@ sichtbar.
 - Dead-Letter: Nach zehn Fehlzustellungen bleibt der Job `queued` und der Alert
   kann `pending` bleiben. Ein Supervisor kann das Event nach Behebung manuell
   wieder auf `pending` setzen.
-- Aktueller Live-Stand: Registry fordert Produktionsaktivierung und die
-  Repository-Datei enthält `active: false`; auch der laufende n8n-Container
-  listet den Quality-Workflow derzeit als inaktiv.
 
 ## Wo der Ablauf im Projekt steckt
 
@@ -217,34 +195,3 @@ sichtbar.
 - `backend/app/services/vision_client.py`: Bildbewertung
 - `backend/app/services/assessment_reconciliation.py`: asymmetrischer Abgleich
 - `n8n/workflows/quality-assessment-v2.json`: Orchestrierung
-
-## Review-Scorecard
-
-Stand: 8. August 2026. Bewertet wurde die überarbeitete Darstellung gegen
-PWA-Upload, FastAPI-Routen, Odoo-Modelle, Outbox und Receipts, den importierten
-n8n-Workflow sowie Text-, Bild- und Abgleichslogik.
-
-| Kriterium | Punkte |
-| --- | ---: |
-| Ablaufabdeckung | 20/20 |
-| Verbindungs- und Endpunktgenauigkeit | 20/20 |
-| Übereinstimmung mit aktuellem Code und Laufzeit | 20/20 |
-| Verständlichkeit | 20/20 |
-| Angemessene Detailtiefe | 20/20 |
-| **Gesamt** | **100/100** |
-
-Belegt sind die signierten n8n-Transporttests, die aktuelle Odoo-Kette von
-`QA/0225` bis zum terminalen Callback sowie der direkt geprüfte n8n-Status.
-Die 100/100 bewerten die korrekte Architekturdarstellung, nicht die momentane
-Betriebsbereitschaft: Diese bleibt bis zur erneuten Workflow-Aktivierung rot.
-
-## Kurz zusammengefasst
-
-1. PWA und FastAPI speichern die Meldung sofort in Odoo.
-2. Odoos Outbox macht die asynchrone Zustellung wiederholbar.
-3. HMAC, Nonces und Receipts schützen beide Richtungen.
-4. Ollama bewertet Text, Artikel, Schaden und Soll-Ist-Zustand lokal, jeweils
-   nur einen Fall zur Zeit.
-5. Widersprüche und Ausfälle führen zur Prüfung statt zu einem erfundenen Urteil.
-6. Der Ablauf ist belegt; neue Durchläufe warten aktuell auf die Aktivierung
-   des Quality-Workflows in n8n.

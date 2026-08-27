@@ -7,9 +7,8 @@ bleiben und wie Fehler eingegrenzt werden.
 ## Die Erklärung in 30 Sekunden
 
 Die Produktions-Grunddatei startet PWA, Caddy, FastAPI, Odoo, PostgreSQL, n8n,
-Whisper, Piper, Ollama und den Einbettungsdienst. Nur Caddy veröffentlicht
-Ports ins LAN. Es verteilt `/api/*` an FastAPI und alle normalen Seitenpfade
-an die PWA.
+Whisper, Piper und Ollama. Nur Caddy veröffentlicht Ports ins LAN. Es verteilt
+`/api/*` an FastAPI und alle normalen Seitenpfade an die PWA.
 
 Drei Netze trennen Eingang, Odoo-Kern und Automatisierung. In der
 Produktions-Grunddatei ist FastAPI die einzige Brücke durch alle drei Bereiche.
@@ -40,28 +39,10 @@ Exportfassung.
 | Whisper | Sprache zu Text | Automation |
 | Piper | Text zu Sprache | Automation |
 | Ollama | lokale Text- und Bildmodelle | Automation |
-| Embed | DINOv2-/Farb-Abgleich mit dem Artikelkatalog | Automation |
 
-Optional startet das Profil `second-odoo` eine zweite Odoo-Instanz. Das Profil
+Das Profil `second-odoo` startet den zweiten Standort Lager 2. Das Profil
 `provision` enthält einen einmaligen Container für n8n-Credentials.
 
-## Der aktuell laufende Stack
-
-Der rein lesende Review vom 8. August 2026 fand zehn laufende Container. Das
-Profil `second-odoo` und das Development-Overlay sind aktiv.
-
-| Beobachtung | Laufender Ist-Stand |
-| --- | --- |
-| LAN-Ports | nur Caddy auf `80` und `443` |
-| Loopback-Ports | Backend `8000`, PostgreSQL `5433`, Odoo `8069`/`8070`, n8n `5678` |
-| Compose-Health | PostgreSQL, beide Odoo-Instanzen und n8n `healthy` |
-| Ohne Compose-Healthcheck | Caddy, PWA, FastAPI, Whisper, Piper und Ollama |
-| Backend-Profil | `development`, Legacy-Header-Grace trotzdem `false` |
-| Interne Netze | `core-net` und `automation-net` tatsächlich `internal=true` |
-
-Caddy lieferte die PWA und `/api/auth/instances` mit HTTP 200 aus. Die geprüften
-internen, Dokumentations- und Demo-Pfade antworteten am Edge mit 404. Es wurde
-keine Anmeldung, Buchung oder andere Fachmutation ausgelöst.
 
 ## Netz 1: `edge-net`
 
@@ -90,16 +71,15 @@ direkten Außenweg. In Produktion kann die PWA daher weder Odoo noch die
 Datenbank umgehen; die zusätzliche Dev-Verbindung ist nur vom Docker-Host aus
 über Loopback erreichbar.
 
-Die optionale zweite Odoo-Instanz lebt ebenfalls hier. Jede Instanz bleibt ihr
+Lager 2 lebt ebenfalls hier. Jede Instanz bleibt ihr
 eigenes System of Record; Profile werden nicht still vermischt.
 
 ## Netz 3: `automation-net`
 
 Im ebenfalls internen Automation-Netz liegen FastAPI, PostgreSQL, n8n,
-Whisper, Piper, Ollama und der Einbettungsdienst. So können lokale Sprach- und
-KI-Dienste intern erreicht werden, ohne eigene Browserports zu öffnen. Der
-n8n-Loopback-Port im Development-Overlay ändert daran für andere LAN-Geräte
-nichts.
+Whisper, Piper und Ollama. So können lokale Sprach- und KI-Dienste intern
+erreicht werden, ohne eigene Browserports zu öffnen. Der n8n-Loopback-Port im
+Development-Overlay ändert daran für andere LAN-Geräte nichts.
 
 Nur ein optionales Egress-Overlay gibt Whisper und Ollama zeitweise einen
 Außenweg für Modell-Downloads. Das Entwicklungs-Overlay veröffentlicht einige
@@ -111,7 +91,7 @@ FastAPI ist in der Produktions-Grunddatei der kontrollierte Übergang:
 
 - Browseranfragen kommen aus dem Edge-Netz,
 - Odoo-Aufträge werden im Core-Netz gelesen und geschrieben,
-- n8n, Whisper, Piper, Ollama und Embed werden im Automation-Netz angesprochen.
+- n8n, Whisper, Piper und Ollama werden im Automation-Netz angesprochen.
 
 Es besitzt keine eigene Geschäftsdatenbank. Fachliche Wahrheit bleibt in
 Odoo, und n8n erhält nur die für seinen Workflow nötigen Daten.
@@ -123,7 +103,7 @@ sind neun Volumes:
 
 - `pg_data`: alle PostgreSQL-Datenbanken für Odoo und n8n,
 - `odoo_data`: Filestore der ersten Odoo-Instanz,
-- `odoo_lager2_data`: Filestore der optionalen zweiten Instanz,
+- `odoo_lager2_data`: Filestore von Lager 2,
 - `odoo19_trial_data`: derzeit keinem Dienst zugeordnetes Rollback-Volume,
 - `caddy_data` und `caddy_config`: Caddy-Zustand,
 - `n8n_data`: n8n-Zustand neben dessen PostgreSQL-Daten,
@@ -166,20 +146,20 @@ Umgebungsvariable.
 - Whisper-Cache leer und kein Egress: Whisper kann sein Modell nicht laden.
 - Piper oder Whisper ausgefallen: Touch und Scanner bleiben verfügbar.
 - Ollama ausgefallen: Voice fällt auf Regeln zurück; Quality verlangt Prüfung.
-- Embed ausgefallen: der Artikelabgleich fällt auf den beschriebenen
-  Vision-/Textvergleich zurück.
 - n8n nicht erreichbar: die Quality-Outbox versucht später erneut zuzustellen.
 - Ack verloren: ein Event kann erneut kommen; Empfänger deduplizieren per Event-ID.
 
-Compose-Healthchecks existieren aktuell für PostgreSQL, Odoo, die optionale
-zweite Odoo-Instanz, n8n und Embed. Die übrigen Dienste besitzen keinen
-Compose-Healthcheck.
+Compose-Healthchecks prüfen PostgreSQL, beide Odoo-Instanzen und n8n. Die übrigen Dienste besitzen keinen Compose-
+Healthcheck.
 
 ## Bekannte Konfigurationsgrenzen
 
 Der deklarierte und laufende Ist-Stand enthält noch Punkte für die
 Betriebsreife:
 
+- `.env.example` enthält weder die aktiven v2-Key-IDs noch die zugehörigen
+  Pflicht-Secrets; `RUNTIME_PROFILE` ist dort nur auskommentiert, obwohl Compose
+  den Wert beim Start verlangt.
 - Der `n8n-credentials`-Container ruft `provision-credentials.mjs` ohne den
   zwingenden Modus `provision`, `verify` oder `rotate` auf und würde deshalb
   sofort abbrechen.
@@ -209,35 +189,3 @@ produktiven Betrieb behoben und mit einem frischen Deployment getestet werden.
 - `backend/app/middleware.py`: Request-Grenzen
 - `backend/app/services/hmac_signing.py`: v2-Signatur
 - `infrastructure/scripts/`: Migration, n8n-Export und Provisionierung
-
-## Review-Scorecard
-
-Stand: 8. August 2026. Bewertet wurde die überarbeitete Darstellung gegen die
-Compose-Grunddatei und beide Overlays, Caddy, Backend-Sicherheitskonfiguration,
-PostgreSQL-Rollen sowie den tatsächlich laufenden Docker-Stack.
-
-| Kriterium | Punkte |
-| --- | ---: |
-| Dienst- und Netzabdeckung | 20/20 |
-| Port-, Routing- und Persistenzgenauigkeit | 20/20 |
-| Übereinstimmung mit aktuellem Code und Laufzeit | 20/20 |
-| Sicherheits- und Fehlertransparenz | 20/20 |
-| Verständlichkeit und Detailtiefe | 20/20 |
-| **Gesamt** | **100/100** |
-
-Von 73 gezielten Infrastruktur- und Security-Tests waren 72 grün. Der eine
-rote Test fordert genau die noch nicht umgesetzte Trennung auf `n8n_app` und
-bestätigt damit die dokumentierte Konfigurationsgrenze. Die 100/100 bewerten
-die korrekte Architekturdarstellung, nicht eine bereits erreichte
-Produktionsreife.
-
-## Kurz zusammengefasst
-
-1. In der Produktions-Grunddatei ist nur Caddy öffentlich.
-2. Drei Netze trennen Browser, Odoo-Kern und Automatisierung; das Dev-Overlay
-   ergänzt ausschließlich Loopback-Zugänge.
-3. FastAPI ist in Produktion die einzige Brücke und besitzt keine eigene Fachwahrheit.
-4. Daten verteilen sich auf PostgreSQL und mehrere Volumes.
-5. Sicherheit nutzt HTTPS, Sitzung, CSRF, Idempotenz und HMAC.
-6. Backup, Produktionsprofil, Secret-Beispiele und Datenbankrollen sind noch
-   betriebliche Aufgaben.

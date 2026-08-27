@@ -200,19 +200,6 @@ Die neue Ebene ersetzt daher keine der vorhandenen sechs. Sie schließt die
 inhaltliche Lücke zwischen „FastAPI versteht“ in Ebene 4 und „PWA meldet“ in
 Ebene 5.
 
-## Aktueller Live-Stand und ehrliche Grenze
-
-Stand: 8. August 2026. Der laufende Stack enthält Whisper, Backend und Ollama;
-`qwen2.5:1.5b` ist installiert. Das Backend verwendet intern
-`http://ollama:11434`, vier Sekunden Timeout und aktivierten Start-Warmup.
-
-Ein direkter Live-Versuch des unsicheren Modellpfads lief während des Reviews
-jedoch in den Timeout. Ollama hielt gleichzeitig die beiden 7B-Modelle der
-Quality-Bewertung im Speicher und brach das Laden des 1,5B-Modells nach dem
-geschlossenen Client ab. Das beweist den sicheren Rückfall, aber auch: Der
-Ollama-Voice-Fallback ist aktuell nicht unter jeder Modellbelegung innerhalb
-des Zeitbudgets verfügbar. Die deterministische Erkennung und `unknown`
-bleiben deshalb die tragende Produktfunktion.
 
 ## Wo der Ablauf im Projekt steckt
 
@@ -223,34 +210,3 @@ bleiben deshalb die tragende Produktfunktion.
 - `backend/app/services/intent_engine.py`: Regeln, Prioritäten und Schutzgates
 - `backend/app/services/voice_intent_classifier.py`: lokaler Ollama-Classifier
 - `backend/app/config.py`: Modell, Timeout und Warmup-Konfiguration
-
-## Review-Scorecard
-
-Stand: 8. August 2026. Bewertet wurde die Darstellung gegen den aktuellen
-Voice-Router, Intent-Engine, Ollama-Classifier, PWA-Dispatcher, Bestands- und
-Quality-Dialog sowie den laufenden Docker-Stack.
-
-| Kriterium | Punkte |
-| --- | ---: |
-| Erkennungs- und Fallback-Reihenfolge | 20/20 |
-| Problem- und UI-Verzweigung | 20/20 |
-| Sicherheits- und Fehlertransparenz | 20/20 |
-| Abgrenzung zu Ebene 4, 5 und 6 | 20/20 |
-| Verständlichkeit und visuelle Detailtiefe | 20/20 |
-| **Gesamt** | **100/100** |
-
-Die 100/100 bewerten die belegte und ehrliche Architekturdarstellung, nicht
-eine garantierte Ollama-Antwort innerhalb von vier Sekunden. Der gemessene
-Timeout ist deshalb sichtbar dokumentiert und wird nicht als Erfolg des
-Modellpfads ausgegeben. Zusätzlich liefen 103 gezielte Backendtests für
-Intent-Engine, Korpus, Ollama-Parser und Voice-Routen sowie 38 PWA-Voice-Tests
-erfolgreich. SVG-XML und Excalidraw-JSON wurden syntaktisch validiert.
-
-## Kurz zusammengefasst
-
-1. Whisper liefert Text und die PWA liefert den sichtbaren Kontext.
-2. Regeln, Priorität, Verneinung und Surface-Gates entscheiden zuerst.
-3. Segmentvergleich und Ollama helfen nur bei Unsicherheit.
-4. Jeder Ollama-Vorschlag durchläuft dieselben Schutzregeln; Ausfall bleibt sicher.
-5. `problem` öffnet Bestands- oder Quality-Dialog, speichert aber noch nichts.
-6. Erst „Absenden“ übergibt an den Quality-Ablauf aus Ebene 5.

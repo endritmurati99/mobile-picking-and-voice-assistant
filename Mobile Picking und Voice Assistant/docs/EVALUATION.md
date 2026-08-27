@@ -5,7 +5,7 @@
 ### Phasen
 1. Problemidentifikation: Manuelle Picking-Prozesse sind fehleranfällig
 2. Zieldefinition: Mobile, sprachgesteuerte Picking-Assistenz mit Quality-Capture
-3. Design & Entwicklung: PWA + Odoo + n8n + Whisper
+3. Design & Entwicklung: PWA + Odoo 19 + n8n + Voice
 4. Demonstration: PoC-Durchführung
 5. **Evaluation**: Nutzerstudie (Within-Subjects)
 6. Kommunikation: Bachelorarbeit
