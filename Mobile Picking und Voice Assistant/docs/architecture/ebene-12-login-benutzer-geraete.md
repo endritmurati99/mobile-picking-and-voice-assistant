@@ -135,20 +135,11 @@ in diese Logs.** Eine fehlgeschlagene Anmeldung antwortet absichtlich nur mit
 | Odoo-Port nur am Entwicklungsrechner | `docker-compose.dev.yml` |
 | Öffentlicher PWA-Eingang | `infrastructure/caddy/Caddyfile` |
 
-## Live-Nachweis vom 13. August 2026
+## Aktuelle Ansicht
 
-- `odoocli auth whoami` erreicht `masterfischer_o19` als Administrator.
-- `lena.lager` meldet sich mit Passwort `admin` an der PWA an.
-- `max.picker` meldet sich mit Passwort `admin` an der PWA an.
-- Nach der Anmeldung liefern `/api/pickings` und
-  `/api/cluster/suggestions` HTTP 200.
-- Die Screenshots liegen dauerhaft unter
-  [`docs/screenshots/login-und-cluster/`](../screenshots/login-und-cluster/README.md):
-  [Loginformular](../screenshots/login-und-cluster/01-login-formular.png),
-  [Lena angemeldet](../screenshots/login-und-cluster/02-lena-angemeldet.png),
-  [Max angemeldet](../screenshots/login-und-cluster/03-max-angemeldet.png),
-  [Cluster-Vorschläge](../screenshots/login-und-cluster/04-cluster-vorschlaege.png)
-  und [Cluster-Rundgang](../screenshots/login-und-cluster/05-cluster-rundgang.png).
+Die PWA-Anmeldung zeigt die Auswahl zwischen Lager 1 und Lager 2. Aktuelle
+Screenshots sind im [Projekt-README](../../README.md#screenshots-vom-27-august-2026)
+verlinkt.
 
 ## Ebene 12 in sechs Regeln
 
@@ -156,5 +147,5 @@ in diese Logs.** Eine fehlgeschlagene Anmeldung antwortet absichtlich nur mit
 2. Die PWA führt keine zweite Passwortdatenbank.
 3. Gleiche Zugangsdaten bedeuten nicht dieselbe Browser-Sitzung.
 4. Rollen gehören Benutzern, nicht Rechnern oder Geräte-IDs.
-5. Das gemeinsame Passwort `admin` ist ausschließlich eine lokale Demo-Hilfe.
-6. Logs dürfen niemals Passwort oder Sitzungstoken enthalten.
+5. Zugangsdaten, Passwörter und Sitzungstoken gehören nicht in Dokumentation
+   oder Protokolle.

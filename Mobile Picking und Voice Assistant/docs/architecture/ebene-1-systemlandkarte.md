@@ -221,18 +221,16 @@ Docker enthält die serverseitige Laufzeit. Außerhalb bleiben unter anderem:
 - Quellcode, lokale Konfiguration, Zertifikate und Secret-Quelldateien auf dem
   Host.
 
-## Beispiel 1: Ein geprüfter normaler Auftrag
+## Beispiel: Ein normaler Auftrag
 
-Der rein lesende Review vom 7. August 2026 fand in Odoo den offenen Auftrag
-`WH/INT/00360` für das Modell „Ente Henri“ mit sechs Positionen. Ebene 1 nutzt
-nur diesen belegten Hauptweg; Artikel, Lagerplätze und Barcodes erklärt
-[Ebene 2](./ebene-2-pwa-normaler-auftrag.md) im Detail.
+Artikel, Lagerplätze und Barcodes erklärt [Ebene 2](./ebene-2-pwa-normaler-auftrag.md)
+im Detail.
 
 1. Die PWA fragt FastAPI nach offenen Aufträgen.
 2. FastAPI fragt Odoo nach den fachlich offenen Pickings.
 3. Odoo antwortet. FastAPI bereitet die Daten für die PWA auf.
-4. Der Mitarbeiter öffnet `WH/INT/00360`. FastAPI lässt den Auftrag in Odoo für
-   diesen Mitarbeiter reservieren.
+4. Der Mitarbeiter öffnet einen Auftrag. FastAPI lässt ihn in Odoo für diesen
+   Mitarbeiter reservieren.
 5. Die PWA zeigt die nächste Position und wartet auf den Scan.
 6. Der Barcode wird zunächst im Browser gelesen.
 7. Zur Bestätigung sendet die PWA die Position an FastAPI.
@@ -359,30 +357,3 @@ Ebene 1 zeigt die große Landkarte. Diese Details kommen später:
 Begriffe wie Session, CSRF, Idempotenz, HMAC, Nonce, Lease und Datenbankrollen
 sind wichtig. Sie gehören aber nicht auf die erste Landkarte, weil sie den
 Einstieg verdecken würden.
-
-## Review-Scorecard
-
-Stand: 8. August 2026. Bewertet wurde die überarbeitete Darstellung gegen
-Compose, Caddy, FastAPI-Runtime, Browserzugriffe und die beteiligten Clients.
-
-| Kriterium | Punkte |
-| --- | ---: |
-| Komponentenabdeckung | 20/20 |
-| Verbindungsgenauigkeit | 20/20 |
-| Übereinstimmung mit Code und Compose | 19/20 |
-| Verständlichkeit | 19/20 |
-| Angemessene Detailtiefe | 19/20 |
-| **Gesamt** | **97/100** |
-
-Der deklarierte Aufbau verwendet Odoo 19. Der zuletzt geprüfte Live-Stand ist
-noch kein grüner End-to-End-Nachweis: Server und Datenbankschema befinden sich
-bis zum abgeschlossenen Modul- und Schema-Upgrade nicht auf demselben Stand.
-Die Systemlandkarte bewertet deshalb die belegte Verdrahtung, nicht eine bereits
-erfolgreich abgeschlossene Live-Migration.
-
-## Drei Regeln zum Mitnehmen
-
-1. Die PWA spricht nur mit FastAPI.
-2. Odoo ist die fachliche Wahrheit.
-3. n8n unterstützt längere Quality-Abläufe; normales Picking und Cluster laufen
-   ohne n8n.

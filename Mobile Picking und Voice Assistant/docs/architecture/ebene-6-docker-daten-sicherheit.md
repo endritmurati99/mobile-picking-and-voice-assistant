@@ -40,26 +40,9 @@ Exportfassung.
 | Piper | Text zu Sprache | Automation |
 | Ollama | lokale Text- und Bildmodelle | Automation |
 
-Optional startet das Profil `second-odoo` eine zweite Odoo-Instanz. Das Profil
+Das Profil `second-odoo` startet den zweiten Standort Lager 2. Das Profil
 `provision` enthält einen einmaligen Container für n8n-Credentials.
 
-## Der aktuell laufende Stack
-
-Der rein lesende Review vom 8. August 2026 fand zehn laufende Container. Das
-Profil `second-odoo` und das Development-Overlay sind aktiv.
-
-| Beobachtung | Laufender Ist-Stand |
-| --- | --- |
-| LAN-Ports | nur Caddy auf `80` und `443` |
-| Loopback-Ports | Backend `8000`, PostgreSQL `5433`, Odoo `8069`/`8070`, n8n `5678` |
-| Compose-Health | PostgreSQL, beide Odoo-Instanzen und n8n `healthy` |
-| Ohne Compose-Healthcheck | Caddy, PWA, FastAPI, Whisper, Piper und Ollama |
-| Backend-Profil | `development`, Legacy-Header-Grace trotzdem `false` |
-| Interne Netze | `core-net` und `automation-net` tatsächlich `internal=true` |
-
-Caddy lieferte die PWA und `/api/auth/instances` mit HTTP 200 aus. Die geprüften
-internen, Dokumentations- und Demo-Pfade antworteten am Edge mit 404. Es wurde
-keine Anmeldung, Buchung oder andere Fachmutation ausgelöst.
 
 ## Netz 1: `edge-net`
 
@@ -88,7 +71,7 @@ direkten Außenweg. In Produktion kann die PWA daher weder Odoo noch die
 Datenbank umgehen; die zusätzliche Dev-Verbindung ist nur vom Docker-Host aus
 über Loopback erreichbar.
 
-Die optionale zweite Odoo-Instanz lebt ebenfalls hier. Jede Instanz bleibt ihr
+Lager 2 lebt ebenfalls hier. Jede Instanz bleibt ihr
 eigenes System of Record; Profile werden nicht still vermischt.
 
 ## Netz 3: `automation-net`
@@ -120,7 +103,7 @@ sind neun Volumes:
 
 - `pg_data`: alle PostgreSQL-Datenbanken für Odoo und n8n,
 - `odoo_data`: Filestore der ersten Odoo-Instanz,
-- `odoo_lager2_data`: Filestore der optionalen zweiten Instanz,
+- `odoo_lager2_data`: Filestore von Lager 2,
 - `odoo19_trial_data`: derzeit keinem Dienst zugeordnetes Rollback-Volume,
 - `caddy_data` und `caddy_config`: Caddy-Zustand,
 - `n8n_data`: n8n-Zustand neben dessen PostgreSQL-Daten,
@@ -166,8 +149,7 @@ Umgebungsvariable.
 - n8n nicht erreichbar: die Quality-Outbox versucht später erneut zuzustellen.
 - Ack verloren: ein Event kann erneut kommen; Empfänger deduplizieren per Event-ID.
 
-Compose-Healthchecks existieren aktuell nur für PostgreSQL, Odoo, die optionale
-zweite Odoo-Instanz und n8n. Die übrigen Dienste besitzen keinen Compose-
+Compose-Healthchecks prüfen PostgreSQL, beide Odoo-Instanzen und n8n. Die übrigen Dienste besitzen keinen Compose-
 Healthcheck.
 
 ## Bekannte Konfigurationsgrenzen
@@ -207,35 +189,3 @@ produktiven Betrieb behoben und mit einem frischen Deployment getestet werden.
 - `backend/app/middleware.py`: Request-Grenzen
 - `backend/app/services/hmac_signing.py`: v2-Signatur
 - `infrastructure/scripts/`: Migration, n8n-Export und Provisionierung
-
-## Review-Scorecard
-
-Stand: 8. August 2026. Bewertet wurde die überarbeitete Darstellung gegen die
-Compose-Grunddatei und beide Overlays, Caddy, Backend-Sicherheitskonfiguration,
-PostgreSQL-Rollen sowie den tatsächlich laufenden Docker-Stack.
-
-| Kriterium | Punkte |
-| --- | ---: |
-| Dienst- und Netzabdeckung | 20/20 |
-| Port-, Routing- und Persistenzgenauigkeit | 20/20 |
-| Übereinstimmung mit aktuellem Code und Laufzeit | 20/20 |
-| Sicherheits- und Fehlertransparenz | 20/20 |
-| Verständlichkeit und Detailtiefe | 20/20 |
-| **Gesamt** | **100/100** |
-
-Von 73 gezielten Infrastruktur- und Security-Tests waren 72 grün. Der eine
-rote Test fordert genau die noch nicht umgesetzte Trennung auf `n8n_app` und
-bestätigt damit die dokumentierte Konfigurationsgrenze. Die 100/100 bewerten
-die korrekte Architekturdarstellung, nicht eine bereits erreichte
-Produktionsreife.
-
-## Kurz zusammengefasst
-
-1. In der Produktions-Grunddatei ist nur Caddy öffentlich.
-2. Drei Netze trennen Browser, Odoo-Kern und Automatisierung; das Dev-Overlay
-   ergänzt ausschließlich Loopback-Zugänge.
-3. FastAPI ist in Produktion die einzige Brücke und besitzt keine eigene Fachwahrheit.
-4. Daten verteilen sich auf PostgreSQL und mehrere Volumes.
-5. Sicherheit nutzt HTTPS, Sitzung, CSRF, Idempotenz und HMAC.
-6. Backup, Produktionsprofil, Secret-Beispiele und Datenbankrollen sind noch
-   betriebliche Aufgaben.

@@ -213,32 +213,6 @@ Fachwahrheit.
 | Callback bleibt aus | Processing-Lease läuft ab | Watchdog erhöht Generation und requeued |
 | zehn Zustellfehler | Outbox `dead` | manuelle Supervisor-Requeue nach Behebung |
 
-## Aktueller Live-Stand
-
-Stand: 8. August 2026. Der rein lesende Review fand zehn laufende Container.
-PostgreSQL, beide Odoo-Instanzen und n8n meldeten Compose-Health; die übrigen
-Dienste liefen ohne Compose-Healthcheck.
-
-Das aktive Backend verwendete:
-
-| Einstellung | Live-Wert |
-| --- | ---: |
-| Odoo-Instanzen | `local`, `lager-2` |
-| Dispatcher | aktiv |
-| Polling | 2 Sekunden |
-| Outbox-Lease | 60 Sekunden |
-| Batchgröße | 50 |
-| Claim-TTL | 120 Sekunden |
-| Idempotenz-TTL | 86.400 Sekunden |
-
-In der primären Odoo-Datenbank waren alle 47 Outbox-Ereignisse `delivered`.
-Es gab 23 erfolgreiche und 24 auf `review_required` beendete Jobs sowie kein
-Receipt mit abgelaufener Processing-Lease. Der laufende n8n-Container führte
-„Quality Assessment v2“ unter den aktiven Workflows.
-
-Diese Momentaufnahme belegt einen aufgeräumten aktuellen Zustand. Sie
-garantiert nicht, dass zukünftige Modellbewertungen erfolgreich statt
-`review_required` enden.
 
 ## Ehrliche Grenzen
 
@@ -301,37 +275,3 @@ Ebene 6 erklärt die technische Basis darunter.
 - `backend/app/services/outbox_dispatcher.py`: Lease, Ack/Nack und Watchdog
 - `backend/app/services/signed_webhook_transport.py`: ein signierter Versuch
 - `odoo/addons/picking_assistant_integration/`: Outbox, Receipts und Recovery
-
-## Review-Scorecard
-
-Stand: 8. August 2026. Bewertet wurde die Darstellung gegen PWA-Service-
-Worker und Lifecycle, Claims und Idempotenz, Picking-Routen, Outbox-
-Dispatcher, signierten Transport, Odoo-Backoff und Watchdog sowie den laufenden
-Stack.
-
-| Kriterium | Punkte |
-| --- | ---: |
-| PWA-Offline- und Wiederanlaufgenauigkeit | 20/20 |
-| Claim-, Sitzungs- und Write-Recovery | 20/20 |
-| Outbox-, Retry- und Watchdog-Abdeckung | 20/20 |
-| Ehrlichkeit der Betriebsgrenzen | 20/20 |
-| Abgrenzung und visuelle Verständlichkeit | 20/20 |
-| **Gesamt** | **100/100** |
-
-Die 100/100 bewerten die korrekte und überprüfbare Architekturdarstellung. Sie
-bedeuten ausdrücklich nicht, dass die PWA bereits offline buchen kann oder
-dass jede externe Abhängigkeit jederzeit verfügbar ist. Belegt sind 121
-erfolgreiche Backendtests für Claims, Idempotenz, Mobile-Routen, Outbox,
-signierten Transport, Security-Gates und Runtime-Lifecycle sowie 38 erfolgreiche
-PWA-API- und Voice-Tests. SVG-XML und Excalidraw-JSON wurden syntaktisch
-validiert; die SVG-Exportfassung wurde zusätzlich im Browser gerendert und
-visuell geprüft.
-
-## Kurz zusammengefasst
-
-1. Der Browser cached die PWA-Hülle, aber keine API- oder Fachzustände.
-2. Nach Online oder Resume lädt die PWA die Wahrheit neu aus Odoo.
-3. Claims laufen ohne Heartbeat aus; Konflikte werden sichtbar statt überschrieben.
-4. Idempotenz macht den bewussten Retry verlorener Antworten sicher.
-5. Quality-Ereignisse überleben Ausfälle in Odoos Outbox und laufen mit Backoff.
-6. Watchdog und Generationen holen hängen gebliebene Verarbeitungen zurück.
