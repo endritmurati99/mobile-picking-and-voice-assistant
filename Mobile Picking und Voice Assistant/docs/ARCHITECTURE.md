@@ -27,10 +27,22 @@ Die weiteren Ebenen vervollständigen den Lernpfad:
 - [Ebene 12: Login, Benutzer und Geräte](./architecture/ebene-12-login-benutzer-geraete.md)
 - [Ebene 13: Clusterbildung und Lagerorte](./architecture/ebene-13-clusterbildung-und-lagerorte.md)
 
-Die editierbaren Excalidraw-Quellen und die exportierten SVG-Grafiken liegen
-jeweils neben dem Markdown-Dokument und tragen denselben Dateistamm. Ebenen 1
-bis 10 sowie 12 und 13 besitzen beide Fassungen; Ebene 11 besitzt derzeit nur
-die direkt lesbare SVG-Fassung.
+Die editierbaren und exportierten Grafiken liegen daneben:
+
+- [Excalidraw-Quelle](./architecture/ebene-1-systemlandkarte.excalidraw)
+- [SVG-Grafik](./architecture/ebene-1-systemlandkarte.svg)
+- [Ebene-2-Excalidraw-Quelle](./architecture/ebene-2-pwa-normaler-auftrag.excalidraw)
+- [Ebene-2-SVG-Grafik](./architecture/ebene-2-pwa-normaler-auftrag.svg)
+- [Ebene-3-Excalidraw-Quelle](./architecture/ebene-3-cluster-picking.excalidraw)
+- [Ebene-3-SVG-Grafik](./architecture/ebene-3-cluster-picking.svg)
+- [Ebene-4-Excalidraw-Quelle](./architecture/ebene-4-voice.excalidraw)
+- [Ebene-4-SVG-Grafik](./architecture/ebene-4-voice.svg)
+- [Ebene-5-Excalidraw-Quelle](./architecture/ebene-5-quality-n8n-ki.excalidraw)
+- [Ebene-5-SVG-Grafik](./architecture/ebene-5-quality-n8n-ki.svg)
+- [Ebene-6-Excalidraw-Quelle](./architecture/ebene-6-docker-daten-sicherheit.excalidraw)
+- [Ebene-6-SVG-Grafik](./architecture/ebene-6-docker-daten-sicherheit.svg)
+- [Ebene-12-Excalidraw-Quelle](./architecture/ebene-12-login-benutzer-geraete.excalidraw)
+- [Ebene-12-SVG-Grafik](./architecture/ebene-12-login-benutzer-geraete.svg)
 
 ## Stabile Architekturregeln
 
@@ -45,8 +57,7 @@ die direkt lesbare SVG-Fassung.
 5. n8n orchestriert vor allem die asynchrone Quality-Verarbeitung. Fachliche
    Änderungen laufen kontrolliert über FastAPI zurück nach Odoo.
 6. Whisper wandelt Sprache in Text, Piper Text in Sprache und Ollama führt
-   lokale Text- und Bildmodelle aus. Der Einbettungsdienst gleicht Artikel mit
-   DINOv2 und einem Farbkanal gegen den Katalog ab.
+   lokale Text- und Bildmodelle aus.
 7. Odoo und n8n nutzen getrennte Datenbanken im gemeinsamen
    PostgreSQL-Dienst. FastAPI greift nicht direkt auf diese Datenbanken zu.
 8. Touch und Scanner bleiben die verlässlichen Bedienwege; Voice ist eine
@@ -72,52 +83,7 @@ die direkt lesbare SVG-Fassung.
 | 12 | [Login, Benutzer und Geräte](./architecture/ebene-12-login-benutzer-geraete.md) | vorhanden |
 | 13 | [Clusterbildung und Lagerorte](./architecture/ebene-13-clusterbildung-und-lagerorte.md) | vorhanden |
 
-## Nächste sinnvolle Vertiefungen
+## Aktueller Bezug
 
-Die Ebenen sollen nicht dieselbe Architektur mehrfach erzählen. Deshalb werden
-vorhandene Ebenen zuerst vertieft und nur eine neue Querschnittsebene ergänzt:
-
-| Priorität | Verbesserung | Inhalt |
-| ---: | --- | --- |
-| 1 | **Ebene 3 und 13: Cluster** | Aktualisiert: Sammelentnahme am Lagerort, getrennte Kartonaufteilungen, PWA-Projektion, Odoo-JSON-RPC und Docker-Laufweg. |
-| 2 | **Ebene 2: PWA-Innenansicht ausbauen** | Seitenhülle, ES-Module, Browserzustand, Rendering, Scanner-/Kameraadapter, Service Worker und API-Grenze genauer erklären. |
-| 3 | **Ebene 6: Änderungs- und Deployment-Matrix ergänzen** | Zeigen, wann ein Browser-Reload, Uvicorn-Reload, Container-Recreate, Image-Rebuild oder Odoo-Modul-Upgrade nötig ist. |
-| 4 | **Neue Ebene 14: Vom Browser durch FastAPI bis Odoo** | Den wiederverwendbaren Anfragepfad `api.js → Caddy → Middleware → Router → Dependency → Service → RuntimeServices → OdooClient → JSON-RPC` an einem GET- und einem POST-Beispiel erklären. |
-
-Eine eigene weitere Ebene nur für „PWA“ oder nur für „Docker“ wäre derzeit
-doppelt: Ebene 2 besitzt bereits den Browserablauf und Ebene 6 die vollständige
-Container- und Netzwerkgrenze. Ebene 14 ist sinnvoll, weil der generische
-technische Anfragepfad bisher nur verteilt über mehrere Fachdokumente vorkommt.
-
-## Technische Quellen
-
-Die Dokumentation erklärt das System. Für die verbindliche technische
-Verdrahtung gelten weiterhin Code und Konfiguration:
-
-- `docker-compose.yml` für Dienste, Profile, Netze und Volumes,
-- `infrastructure/caddy/Caddyfile` für die öffentliche Eingangsschicht,
-- `pwa/js/api.js` für Browser-API-Aufrufe,
-- `backend/app/main.py` für die FastAPI-Router,
-- `backend/app/services/` für die Abläufe,
-- `odoo/addons/` für die Odoo-Fachmodelle,
-- `n8n/workflow-registry.json` und `n8n/workflows/` für n8n.
-
-Historische Spezifikationen, Scorecards und datierte Reviewabschnitte
-beschreiben teilweise frühere Ausbaustufen. Ihre damaligen Tests und Nachweise
-liegen im privaten Evidence-Archiv. Bei Widersprüchen haben aktueller Code,
-Compose und Workflow-Registry Vorrang.
-
-## Historischer Reviewcheck vom 13. August 2026
-
-Der normale Listen-Schritt wurde gegen Graphify, aktuellen Code, vier gezielte
-Service-Tests und einen rein lesenden Abzug der lokalen Odoo-Daten geprüft:
-
-- Graphify zeigt den Pfad `.get_open_pickings() → PickingService → OdooClient`.
-- Die vier Tests für `TestGetOpenPickings` sind grün.
-- Auftrag `WH/INT/00360` ergibt mit der Produktionslogik „Ente Henri“, sechs
-  offene Positionen und als ersten Stopp `Brick 2x2 pink` an `L-E1-P2`.
-- Der frühere Odoo-18/19-Migrationsfehler ist behoben. Lena und Max wurden mit
-  ihren Odoo-Zugangsdaten erfolgreich über die PWA angemeldet.
-
-Damit sind Codepfad, Projektion, Beispieldaten und der Login gegen die aktuelle
-Odoo-19-Datenbank live belegt. Claim und Buchung bleiben eigene Prüfschritte.
+Die Beschreibungen zeigen, wie das System heute arbeitet. Für Details dient der
+jeweilige Ablauf in den Ebenen; Standorte und Daten bleiben dabei getrennt.

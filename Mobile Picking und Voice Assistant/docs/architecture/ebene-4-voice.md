@@ -25,12 +25,9 @@ spricht kurze Texte im Browser und ruft für längere Texte bevorzugt Piper auf.
 Die [Excalidraw-Quelldatei](./ebene-4-voice.excalidraw) ist editierbar. Die
 [SVG-Datei](./ebene-4-voice.svg) ist die Exportfassung.
 
-## Das geprüfte LEGO-Beispiel
+## Beispiel für einen Sprachbefehl
 
-Der rein lesende Review vom 8. August 2026 fand im laufenden Odoo den offenen
-Auftrag `WH/OUT/00050` für das Modell „Ente Henri“. Die von der aktuellen
-Routenlogik zuerst angezeigte Position lautet „1 × Brick 2x2x2 R=15 gelb“ am
-Platz `Regal A-01`. Der Mitarbeiter sagt:
+Bei einer offenen Position kann der Mitarbeiter sagen:
 
 ```text
 „Position bestätigen“
@@ -184,33 +181,3 @@ als neuen Befehl versteht.
 - `backend/app/services/whisper_client.py`: Whisper-Zugriff
 - `backend/app/services/piper_client.py`: Piper-Zugriff
 - `backend/app/services/voice_intent_classifier.py`: optionaler Ollama-Fallback
-
-## Review-Scorecard
-
-Stand: 8. August 2026. Bewertet wurde die überarbeitete Darstellung gegen die
-PWA-Aufnahme- und TTS-Logik, FastAPI-Routen, Whisper-, Piper- und
-Intent-Services sowie den normalen Picking-Schreibpfad bis Odoo.
-
-| Kriterium | Punkte |
-| --- | ---: |
-| Ablaufabdeckung | 20/20 |
-| Verbindungs- und Endpunktgenauigkeit | 20/20 |
-| Übereinstimmung mit aktuellem Code und Laufzeit | 20/20 |
-| Verständlichkeit | 20/20 |
-| Angemessene Detailtiefe | 20/20 |
-| **Gesamt** | **100/100** |
-
-Belegt sind 38 erfolgreiche Voice-Frontendtests, erreichbare Whisper-, Piper-
-und Ollama-Dienste, eine erfolgreiche Piper-WAV-Erzeugung und der rein lesend
-geprüfte Odoo-Auftrag `WH/OUT/00050`. Die Scorecard bewertet die korrekte
-Architekturdarstellung. Im Review wurde bewusst keine Lagerbuchung ausgelöst.
-
-## Kurz zusammengefasst
-
-1. Die PWA nimmt Audio per Hands-free oder Push-to-Talk auf.
-2. Whisper liefert deutschen Text.
-3. FastAPI erkennt nur kontextuell erlaubte Intents.
-4. `confirm_all` und unsichere Schreibaktionen erhalten Rückfragen; jede
-   Buchung durchläuft die normalen Backend-Prüfungen.
-5. Piper oder der Browser spricht die Antwort.
-6. Touch und Scanner bleiben jederzeit verfügbar.

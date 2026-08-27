@@ -285,39 +285,4 @@ Ebene 10: Zustände und Übergänge ─────┘
 
 Ebene 10 fragte: „Welcher Zustand darf auf welchen folgen?“. Ebene 11 ergänzt:
 „Welcher Principal oder Dienst darf diesen Übergang anstoßen, welche Wache
-prüft ihn und wo wird das Ergebnis autoritativ gespeichert?“
-
-## Review-Scorecard
-
-Stand: 8. August 2026. Bewertet wurde die Darstellung gegen die aktuellen
-Odoo-Gruppen und ACLs, Browser- und Session-Dependencies, HMAC-Verträge,
-Outbox-/Callback-Pfade, Netzwerkgrenzen und die dokumentierte Datenhoheit.
-
-| Kriterium | Punkte |
-| --- | ---: |
-| Genauigkeit der real implementierten Rollen und Vererbung | 20/20 |
-| Vollständigkeit der Browser-, Service- und Netzwerkgrenzen | 20/20 |
-| Korrekte Zuordnung von Fach- und technischen Daten | 20/20 |
-| Schutzpfade für Sitzung, CSRF, Instanzbindung und HMAC | 20/20 |
-| Verständlichkeit, ehrliche Grenzen und Code-Rückverfolgbarkeit | 20/20 |
-| **Gesamt** | **100/100** |
-
-Die 100/100 bewerten diese geprüfte Architektur-Erklärung. Sie bedeuten nicht,
-dass jede theoretisch denkbare Aktion bereits ein eigenes UI oder Rollengate
-besitzt.
-
-Die zugehörigen Backend- und PWA-Prüfungen werden nach Erstellung dieser Ebene
-erneut ausgeführt. SVG-XML und Excalidraw-JSON werden syntaktisch validiert;
-die SVG-Exportfassung wird im Browser gerendert und visuell geprüft.
-
-## Ebene 11 in acht Regeln
-
-1. Menschliche Rolle, Browser-Principal und technische Identität bleiben
-   getrennte Begriffe.
-2. Der Browser besitzt keine Autorität aus Headern oder Local Storage.
-3. FastAPI vermittelt alle App-Zugriffe und bindet sie an die Serversitzung.
-4. Odoo ist pro Instanz Eigentümer des dauerhaften Fachzustands.
-5. `api_service` erreicht nur bewachte Integrationsfassaden.
-6. n8n orchestriert; HMAC und Odoo-Receipts sichern seine Übergänge.
-7. Modellservices liefern Hilfsergebnisse, keine Lagerberechtigung.
-8. Ein Rollenname verspricht nur Rechte, die der aktuelle Code wirklich prüft.
+prüft ihn und wo wird das Ergebnis autoritativ gespeichert?"

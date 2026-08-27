@@ -1,163 +1,40 @@
-# Bedienanleitung — Kommissionieren mit dem Handy
+# Kommissionieren mit dem Handy
 
-Lager 1. Stand 19. August 2026.
+## Start
 
----
+1. Die aktuelle Adresse der PWA im Browser öffnen.
+2. Mit dem bereitgestellten Odoo-Zugang anmelden.
+3. Den richtigen Standort auswählen: **Lager 1** oder **Lager 2**.
 
-## 1. Einmalig je Gerät: Zertifikat installieren
+Die Auswahl bestimmt die sichtbaren Aufträge und Bestände. Beide Standorte
+bleiben getrennt.
 
-Ohne dieses Zertifikat gibt der Browser die Kamera nicht frei, und ohne Kamera
-kein Scannen.
+## Auftrag bearbeiten
 
-1. Am Handy `https://<LAN_HOST>/rootCA.crt` öffnen; `<LAN_HOST>` ist der in
-   `.env` konfigurierte Hostname bzw. die LAN-IP.
-2. Die Sicherheitsabfrage bestätigen (**Erweitert → Trotzdem fortfahren**).
-3. Die geladene Datei als Zertifizierungsstelle installieren:
-   - **Android:** Einstellungen → Sicherheit → Verschlüsselung und Anmeldedaten
-     → Zertifikat installieren → CA-Zertifikat
-   - **iPhone:** Einstellungen → Profil geladen → Installieren, danach
-     Einstellungen → Allgemein → Info → Zertifikatsvertrauenseinstellungen →
-     den Eintrag aktivieren. **Der zweite Schritt wird oft vergessen und ist
-     zwingend.**
+1. Auftrag öffnen.
+2. Artikel, Lagerplatz und Menge prüfen.
+3. Den Artikel mit Scanner oder Kamera erfassen. Wenn kein Scan möglich ist,
+   kann die Position bewusst manuell bestätigt werden.
+4. Seriennummern eingeben, wenn die App danach fragt.
+5. Nach der letzten Position den Auftrag abschließen.
 
-Fertig, wenn `https://<LAN_HOST>/` ohne Warnung öffnet.
+Bei einer falschen Erfassung wird nichts gebucht. Den richtigen Artikel oder
+Karton wählen und erneut scannen.
 
----
+## Sammelauftrag
 
-## Aktuelle Telefon-App wiederherstellen
+In der Cluster-Ansicht werden passende Aufträge gemeinsam vorbereitet. Die App
+führt durch die Stopps und zeigt, in welchen Karton die Ware gehört. Erst nach
+der letzten Bestätigung wird der Sammelauftrag abgeschlossen.
 
-1. Öffne `https://<LAN_HOST>/` im Browser, nicht eine installierte PWA mit
-   einer alten Adresse.
-2. Confirm the selector shows “Lager 1”, not the internal name “local”.
-3. Remove the old installed PWA only when it still shows “local”, then open the current URL again.
+## Wenn etwas nicht funktioniert
 
----
+| Beobachtung | Nächster Schritt |
+| --- | --- |
+| Die App lädt nicht | Verbindung prüfen und die aktuelle PWA-Adresse erneut öffnen. |
+| Kamera bleibt zu | Kamera im Browser erlauben. |
+| Artikel oder Karton passt nicht | Nicht bestätigen; richtigen Code scannen. |
+| Verbindung bricht ab | Kurz warten und den Auftrag neu laden. Bereits bestätigte Positionen bleiben im System. |
 
-## 2. Anmelden
-
-1. Den QR-Code auf dem Startblatt scannen — er öffnet die App.
-2. Benutzer und Passwort aus dem bereitgestellten Lagerzugang eingeben.
-3. Lager: **Lager 1**.
-
-Wer die App dauerhaft nutzt, fügt sie über das Browsermenü zum Startbildschirm
-hinzu. Sie startet dann im Vollbild ohne Adressleiste.
-
----
-
-## 3. Einzelnen Auftrag abarbeiten
-
-1. In der Auftragsliste den Auftrag antippen.
-2. Die App führt Position für Position. Zu jeder Position stehen Artikel,
-   Lagerplatz und Menge auf dem Bildschirm.
-3. Zwei Wege, eine Position zu buchen:
-   - **Scannen** antippen und den Artikelcode vor die Kamera halten. Die App
-     vergleicht mit dem Sollartikel und bucht bei Übereinstimmung.
-   - **Bestätigen** antippen. Bucht ohne Prüfung.
-
-   Scannen ist der sichere Weg: es verhindert den falschen Griff. Bestätigen ist
-   der schnelle Weg, wenn der Artikel eindeutig ist.
-4. Verlangt eine Position eine **Seriennummer**, muss sie eingegeben werden.
-   Dieser Schritt lässt sich nicht überspringen.
-5. Nach der letzten Position schließt die App den Auftrag ab.
-
----
-
-## 4. Sammelauftrag: vier Aufträge in einem Rundgang
-
-Statt vier Mal durch das Lager zu laufen, wird jeder Artikel einmal geholt und
-gleich auf die vier Kartons verteilt.
-
-### Vorbereiten
-
-1. In der App auf **Cluster** wechseln.
-2. Die vier Aufträge auswählen: **WH/OUT/00047, 00051, 00053, 00054**.
-3. **Starten.** Die App vergibt jetzt die Kartonnummern — Karton 1 bis 4, in
-   dieser Reihenfolge den vier Aufträgen zugeordnet. Die Etiketten dazu stehen
-   auf Seite 2 des Kommissionierbogens.
-
-### Der Rundgang
-
-Fünf Halte, elf Positionen. Die App führt in dieser Reihenfolge:
-
-| Halt | Lagerplatz | Artikel | Menge |
-|---|---|---|---|
-| 1 | Regal B-01 | Brick 2x2 blau | 2 in Karton 3 |
-| 2 | Regal B-02 | Brick 2x2 dot blau Propeller | je 1 in Karton 1, 2 und 4 |
-| 3 | Regal C-01 | Flower hellblau | 1 in Karton 3 |
-| 4 | Regal C-02 | Brick 2x2 weiß | je 1 in Karton 1, 2 und 4 |
-| 5 | Regal C-02 | Brick Round 2x2x2 weiß | je 2 in Karton 1, 2 und 4 |
-
-An jedem Halt:
-
-1. **Artikelcode scannen.** Die App meldet „Artikel geprüft".
-2. **Zielkarton angeben** — entweder das Kartonetikett scannen oder den farbigen
-   Kartonknopf antippen.
-3. Sind mehrere Kartons genannt, wiederholt sich Schritt 2 je Karton. Der
-   Artikel bleibt dabei geprüft; er muss nicht erneut gescannt werden.
-
-Nach dem letzten Halt **Abschließen**. Alle vier Aufträge sind damit erledigt.
-
----
-
-## 5. Wenn etwas nicht stimmt
-
-| Meldung der App | Was sie bedeutet | Was zu tun ist |
-|---|---|---|
-| „Falscher Artikel. Es wurde nichts gebucht." | Der gescannte Code gehört nicht zu diesem Halt | Artikel zurücklegen, richtigen holen. Es ist nichts passiert. |
-| „Falscher Karton. Es wurde nichts gebucht." | Der Kartoncode passt nicht zur Position | Richtigen Karton scannen |
-| „Charge oder Serie bitte über Manuell bestätigen erfassen." | Die Position braucht eine Seriennummer | Über **Manuell bestätigen** die Nummer eingeben |
-| „Für diesen Artikel fehlt der Produktbarcode." | Der Artikel hat im System keinen Code | Position über **Bestätigen** buchen und dem Lagerleiter melden |
-| „Odoo ist momentan nicht erreichbar." | Verbindung zum Warenwirtschaftssystem gestört | Kurz warten, erneut versuchen. Nicht gebuchte Positionen bleiben offen. |
-
-**Wichtig:** Bricht die Verbindung mitten im Rundgang ab, gehen bereits gebuchte
-Positionen nicht verloren — sie stehen im System. Die abgebrochene Position muss
-wiederholt werden.
-
----
-
-## 6. Kontrolle nach dem Rundgang
-
-Erwartet nach dem Sammelauftrag oben:
-
-- 11 Positionen gebucht
-- vier Aufträge auf erledigt: WH/OUT/00047, 00051, 00053, 00054
-- vier gefüllte Kartons, jeder einem Auftrag zugeordnet
-
-Die gebuchten Aufträge lassen sich in der lokalen Odoo-Auftragsübersicht
-nachsehen; bei Bedarf den im Entwicklungs-Overlay konfigurierten Odoo-Port
-verwenden.
-
----
-
-## 7. Wenn das Gerät nicht mitspielt
-
-| Beobachtung | Abhilfe |
-|---|---|
-| Seite lädt nicht | Handy im selben WLAN? Die in `.env` gesetzte `LAN_HOST`-Adresse unter `https://<LAN_HOST>/` öffnen. |
-| Zertifikatswarnung bleibt | Schritt 1 wiederholen; beim iPhone den Vertrauensschalter nicht vergessen |
-| Kamera startet nicht | Im Browser unter Website-Einstellungen die Kamera freigeben |
-| Code wird nicht erkannt | Abstand ändern, Blendung vermeiden — oder den Code im Scanner-Fenster von Hand eingeben |
-| Cluster-Ansicht ist leer | Alle Aufträge stecken bereits in einem Sammelauftrag. Beim Lagerleiter melden. |
-
----
-
-## 8. Für den Lagerleiter: neue Aufträge und neuer Bogen
-
-Abgeschlossene Aufträge sind verbraucht. Für den nächsten Durchlauf:
-
-```bash
-python infrastructure/scripts/generate-pickings.py \
-  --url http://localhost:8069 --db masterfischer_o19 \
-  --user admin --api-key <ODOO_API_KEY aus der .env> --count 10
-```
-
-Danach den Bogen mit dem vorhandenen Skript neu erzeugen:
-
-```bash
-python infrastructure/scripts/generate-picking-sheet.py --help
-```
-
-Die Kartonnamen folgen dem Muster `CLUSTER-B{Nummer}/{Auftrag}`, wobei die
-Nummer der aufsteigenden Auftrags-ID folgt. Ein Bogen aus einem früheren
-Sammelauftrag führt zu „Falscher Karton" — dann ist der Bogen veraltet, nicht
-das Gerät.
+Aktuelle Ansichten der PWA und der beiden Odoo-Standorte stehen im
+[Projekt-README](../../README.md#screenshots-vom-27-august-2026).
