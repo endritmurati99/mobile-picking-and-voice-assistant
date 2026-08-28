@@ -570,6 +570,11 @@ erhalten blieben:
   Schreibaktionen.
 - Test-Suiten und Belegkorpus sind erhalten, aber nicht Teil des öffentlichen
   Runtime-Branches.
+- Einzelne historische Dokumente (unter anderem Scorecards, Härtungsberichte,
+  der N8N-Contract-Freeze und einzelne Architektur-Ebenen) verweisen noch auf
+  Test-, E2E- oder Belegpfade aus dem Stand vor dem Split. Diese Pfade liegen
+  jetzt im privaten Archiv; der jeweilige Dokumenttext wurde nicht rückwirkend
+  umgeschrieben.
 
 Das Ergebnis ist kein isolierter UI-Demonstrator. Es ist ein kompakter
 End-to-End-Laufzeitstand vom Smartphone über API und ERP bis zu lokaler

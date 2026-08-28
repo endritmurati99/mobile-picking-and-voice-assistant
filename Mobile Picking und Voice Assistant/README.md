@@ -297,6 +297,11 @@ unangetastet; die Bereinigung entstand in einem separaten Git-Worktree.
   Schreibaktionen.
 - Tests und Belegkorpus sind erhalten, aber nicht mehr Teil dieses
   Runtime-Branches oder seiner normalen Installation.
+- Einzelne historische Dokumente in `docs/` (Scorecards, Härtungsberichte,
+  der N8N-Contract-Freeze, einzelne Architektur-Ebenen) verweisen noch auf
+  Test-, E2E- oder Belegpfade aus dem Stand vor dem Split. Diese Pfade liegen
+  jetzt im privaten Archiv; der jeweilige Dokumenttext wurde nicht
+  rückwirkend umgeschrieben.
 
 Das Ergebnis ist kein minimaler Demo-Ordner, sondern ein kompakter
 Laufzeitstand: weniger Ballast, dieselben fachlichen Pfade und eine klare
