@@ -107,6 +107,24 @@ def build_demo_customers():
             "email": "laborlogistik@fh-demo.example",
             "phone": "+49 251 000004",
         },
+        {
+            "name": "Alpin Spielwaren GmbH",
+            "street": "Mariahilfer Strasse 45",
+            "zip": "1060",
+            "city": "Wien",
+            "country_code": "AT",
+            "email": "einkauf@alpin-demo.example",
+            "phone": "+43 1 0000005",
+        },
+        {
+            "name": "Zuerich Modellbau AG",
+            "street": "Bahnhofstrasse 22",
+            "zip": "8001",
+            "city": "Zuerich",
+            "country_code": "CH",
+            "email": "bestellung@zuerich-demo.example",
+            "phone": "+41 44 0000006",
+        },
     ]
 
 
@@ -154,19 +172,34 @@ def build_demo_customer_order_plan():
             "zone": "Rechts",
             "products": ["4216758", "4185178"],
         },
+        {
+            # Schwerer Demo-Auftrag: 200 x Technikrahmen (0,012 kg) = 2,4 kg,
+            # damit der Versandregel-Zweig "DHL Paket 5 kg" (> 2 kg) vorfuehrbar ist.
+            "origin": "SO-DEMO-007",
+            "customer_index": 4,
+            "delivery_date": "2026-07-10",
+            "zone": "Rechts",
+            "products": ["4216758"],
+            "quantities": {"4216758": 200},
+        },
     ]
 
 
 def build_demo_cluster_products():
+    # Gewichte in kg. Lego-Klemmbausteine wiegen nur wenige Gramm; das
+    # Odoo-Feld product.decimal_stock_weight ist per Datensatz-Override auf
+    # 3 Nachkommastellen angehoben (siehe picking_assistant_core/data/
+    # decimal_precision.xml), sonst wuerden Werte unter 0,005 kg auf 0,00
+    # gerundet und die Gewichtssumme auf dem Versandlabel bliebe leer.
     return [
-        {"name": "Demo Klemmbaustein 2x4 rot", "barcode": "301121", "default_code": "301121"},
-        {"name": "Demo Achse 4M", "barcode": "343721", "default_code": "343721"},
-        {"name": "Demo Verbinder blau", "barcode": "4166960", "default_code": "4166960"},
-        {"name": "Demo Achse 6M", "barcode": "343724", "default_code": "343724"},
-        {"name": "Demo Platte 2x6", "barcode": "343701", "default_code": "343701"},
-        {"name": "Demo Technikrahmen rechts", "barcode": "4216758", "default_code": "4216758"},
-        {"name": "Demo Zahnrad 20Z", "barcode": "4250172", "default_code": "4250172"},
-        {"name": "Demo Winkelverbinder", "barcode": "4185178", "default_code": "4185178"},
+        {"name": "Demo Klemmbaustein 2x4 rot", "barcode": "301121", "default_code": "301121", "weight": 0.003},
+        {"name": "Demo Achse 4M", "barcode": "343721", "default_code": "343721", "weight": 0.002},
+        {"name": "Demo Verbinder blau", "barcode": "4166960", "default_code": "4166960", "weight": 0.001},
+        {"name": "Demo Achse 6M", "barcode": "343724", "default_code": "343724", "weight": 0.003},
+        {"name": "Demo Platte 2x6", "barcode": "343701", "default_code": "343701", "weight": 0.004},
+        {"name": "Demo Technikrahmen rechts", "barcode": "4216758", "default_code": "4216758", "weight": 0.012},
+        {"name": "Demo Zahnrad 20Z", "barcode": "4250172", "default_code": "4250172", "weight": 0.002},
+        {"name": "Demo Winkelverbinder", "barcode": "4185178", "default_code": "4185178", "weight": 0.002},
     ]
 
 
@@ -382,13 +415,13 @@ def main():
     print("\nProdukte...")
 
     products_data = [
-        {"name": "Schraube M8x40", "barcode": "4006381333931", "default_code": "SCR-M8-40"},
-        {"name": "Mutter M8 DIN934", "barcode": "4006381333948", "default_code": "NUT-M8"},
-        {"name": "Unterlegscheibe M8", "barcode": "4006381333955", "default_code": "WSH-M8"},
-        {"name": "Winkel 40x40", "barcode": "5901234123457", "default_code": "ANG-40"},
-        {"name": "Gewindestange M8", "barcode": "7622210100528", "default_code": "ROD-M8"},
-        {"name": "Sechskantschraube M6", "barcode": "4006381334013", "default_code": "SCR-M6"},
-        {"name": "Federscheibe M10", "barcode": "4006381334020", "default_code": "SPR-M10"},
+        {"name": "Schraube M8x40", "barcode": "4006381333931", "default_code": "SCR-M8-40", "weight": 0.015},
+        {"name": "Mutter M8 DIN934", "barcode": "4006381333948", "default_code": "NUT-M8", "weight": 0.02},
+        {"name": "Unterlegscheibe M8", "barcode": "4006381333955", "default_code": "WSH-M8", "weight": 0.01},
+        {"name": "Winkel 40x40", "barcode": "5901234123457", "default_code": "ANG-40", "weight": 0.08},
+        {"name": "Gewindestange M8", "barcode": "7622210100528", "default_code": "ROD-M8", "weight": 0.12},
+        {"name": "Sechskantschraube M6", "barcode": "4006381334013", "default_code": "SCR-M6", "weight": 0.02},
+        {"name": "Federscheibe M10", "barcode": "4006381334020", "default_code": "SPR-M10", "weight": 0.03},
         *build_demo_cluster_products(),
     ]
 
@@ -403,7 +436,7 @@ def main():
             "product.product",
             "write",
             [pid],
-            {"type": "consu", "is_storable": True, "tracking": "none"},
+            {"type": "consu", "is_storable": True, "tracking": "none", "weight": prod.get("weight", 0.0)},
         )
         prod_ids[prod["barcode"]] = pid
         prod_ids[prod["default_code"]] = pid
@@ -519,11 +552,12 @@ def main():
 
         print("\nCluster-Demo-Auftraege...")
         for order in build_demo_customer_order_plan():
+            order_quantities = order.get("quantities", {})
             moves = [
                 {
                     "name": product_names[code],
                     "product_id": prod_ids[code],
-                    "qty": 4,
+                    "qty": order_quantities.get(code, 4),
                     "loc_src": loc_ids[demo_product_locations[code]],
                 }
                 for code in order["products"]

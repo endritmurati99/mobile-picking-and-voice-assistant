@@ -11,6 +11,7 @@
     ],
     "data": [
         "security/ir.model.access.csv",
+        "data/decimal_precision.xml",
         "data/ir_cron.xml",
     ],
     "installable": True,
