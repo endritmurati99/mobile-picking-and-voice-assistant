@@ -177,6 +177,22 @@ sichtbar.
   kann `pending` bleiben. Ein Supervisor kann das Event nach Behebung manuell
   wieder auf `pending` setzen.
 
+## Zweiter v2-Workflow: Versandlabel
+
+Neben der Quality-Bewertung läuft über dieselbe v2-Infrastruktur ein zweiter,
+fachlich unabhängiger Workflow: das Versandlabel nach Pick-Abschluss. Odoo
+baut nach `api_complete_and_request_label` das Ereignis
+`shipment.parcel.ready.v1`, derselbe Outbox-Dispatcher liefert es signiert an
+n8n, n8n wählt Carrier und Sendungsnummer und meldet das Ergebnis über
+denselben Callback-Weg (`/api/internal/n8n/v2/callbacks/status`) zurück.
+Odoo rendert das PDF selbst und hängt es an den Lieferschein.
+
+Beteiligte Dateien:
+
+- `odoo/addons/picking_assistant_core/models/shipping_label.py`
+- `odoo/addons/picking_assistant_core/models/shipment_event.py`
+- `n8n/workflows/shipping-label-v2.json`
+
 ## Wo der Ablauf im Projekt steckt
 
 - `pwa/js/app.js`, `camera.js`, `api.js`: Meldemaske, Fotos und Upload
