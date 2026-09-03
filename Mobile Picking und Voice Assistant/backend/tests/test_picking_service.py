@@ -494,6 +494,56 @@ class TestConfirmPickLine:
         n8n.fire_event.assert_not_called()
 
     @pytest.mark.anyio
+    async def test_last_line_completes_via_api_complete_and_request_label(
+        self, service, odoo, n8n
+    ):
+        """Der Abschluss laeuft ueber die Odoo-Methode, die Buchung und
+        Versandereignis in einer Transaktion ausfuehrt -- nicht mehr ueber
+        `button_validate` direkt."""
+        odoo.execute_kw.side_effect = [
+            [{"id": 20, "product_id": [5, "Schraube M8"], "quantity": 3}],
+            [{"id": 20, "picked": True}],
+        ]
+        odoo.search_read.return_value = [{"id": 5, "barcode": "4006381333931"}]
+        odoo.write = AsyncMock(return_value=True)
+        odoo.call_method = AsyncMock(
+            return_value={"picking_complete": True, "job_id": "abc", "picking_name": "WH/OUT/1"}
+        )
+
+        result = await service.confirm_pick_line(1, 20, "4006381333931", 3.0)
+
+        assert result["picking_complete"] is True
+        assert result["message"] == "Auftrag abgeschlossen."
+        odoo.call_method.assert_awaited_once()
+        model, method, args = odoo.call_method.await_args.args[:3]
+        assert (model, method, args) == ("stock.picking", "api_complete_and_request_label", [1])
+        n8n.fire_event.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_open_label_job_refusal_does_not_break_the_answer(
+        self, service, odoo, n8n, caplog
+    ):
+        """Odoo weist einen zweiten Aufruf ab, wenn bereits ein Label-Job
+        laeuft. Die Position ist gebucht; die Antwort bleibt degradiert, nicht
+        kaputt."""
+        odoo.execute_kw.side_effect = [
+            [{"id": 20, "product_id": [5, "Schraube M8"], "quantity": 3}],
+            [{"id": 20, "picked": True}],
+        ]
+        odoo.search_read.return_value = [{"id": 5, "barcode": "4006381333931"}]
+        odoo.write = AsyncMock(return_value=True)
+        odoo.call_method = AsyncMock(
+            side_effect=OdooAPIError("Fuer diesen Lieferschein laeuft bereits eine Label-Anforderung.")
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = await service.confirm_pick_line(1, 20, "4006381333931", 3.0)
+
+        assert result["success"] is True
+        assert result["picking_complete"] is False
+        assert "Label-Anforderung" in caplog.text
+
+    @pytest.mark.anyio
     async def test_completion_does_not_call_n8n(self, service, odoo, n8n):
         """Der Abschluss ist eine reine Odoo-Sache.
 
@@ -506,7 +556,9 @@ class TestConfirmPickLine:
         ]
         odoo.search_read.return_value = [{"id": 5, "barcode": "4006381333931"}]
         odoo.write = AsyncMock(return_value=True)
-        odoo.call_method = AsyncMock(return_value=True)
+        odoo.call_method = AsyncMock(
+            return_value={"picking_complete": True, "job_id": "abc", "picking_name": "WH/OUT/1"}
+        )
 
         result = await service.confirm_pick_line(
             1,

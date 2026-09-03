@@ -916,25 +916,31 @@ class PickingService:
         validate_error = ""
         if all_done:
             try:
-                await self._odoo.call_method(
+                # Buchung UND Versandereignis in einer Odoo-Transaktion
+                # (`stock.picking.api_complete_and_request_label`). Frueher
+                # stand hier `button_validate` direkt, und der v1-Workflow
+                # `pick-confirmed` feuerte danach aus dem Backend. Heute
+                # schreibt Odoo das Ereignis `shipment.parcel.ready.v1` in
+                # die Outbox; der Dispatcher liefert es an n8n, das Label
+                # kommt als Callback zurueck. Faellt n8n aus, bleibt die
+                # Buchung trotzdem bestehen -- der Picker merkt nichts.
+                completion = await self._odoo.call_method(
                     "stock.picking",
-                    "button_validate",
+                    "api_complete_and_request_label",
                     [picking_id],
-                    context={"skip_immediate": True, "skip_backorder": True},
                 )
-                picking_complete = True
+                picking_complete = bool(
+                    isinstance(completion, dict) and completion.get("picking_complete")
+                )
             except OdooAPIError as exc:
                 # Jede Zeile ist gepickt, und Odoo weigert sich trotzdem --
                 # typisch, wenn eine Zeile noch ein Los oder eine Seriennummer
-                # verlangt. Frueher verschwand der Grund hier spurlos: der
-                # Auftrag blieb offen, der Picker las "Bestaetigt." und ging
-                # weiter. Sichtbar falsch und unsichtbar begruendet ist die
-                # Kombination, die einen Fehler im Betrieb unauffindbar macht.
+                # verlangt, oder wenn bereits ein Label-Job laeuft. Der Grund
+                # bleibt im Log sichtbar; die Antwort benennt den Unterschied.
                 picking_complete = False
                 validate_error = str(exc)
                 logger.warning(
-                    "button_validate refused picking %s after the last line was "
-                    "confirmed: %s",
+                    "Abschluss von picking %s nach der letzten Position abgewiesen: %s",
                     picking_id,
                     validate_error,
                 )
@@ -945,15 +951,10 @@ class PickingService:
                 picking_complete = False
                 validate_error = str(exc)
                 logger.warning(
-                    "button_validate fuer picking %s unerwartet fehlgeschlagen: %s",
+                    "Abschluss von picking %s unerwartet fehlgeschlagen: %s",
                     picking_id,
                     validate_error,
                 )
-
-            # Bei `picking_complete` feuerte hier der v1-Workflow
-            # `pick-confirmed`, den es nicht mehr gibt. Die Buchung passiert in
-            # Odoo; ein n8n-Folgeprozess existiert fuer diesen Fall nicht mehr,
-            # also bleibt auch kein degradierter Zweig zu melden.
         _emit_serial_confirm(True, picking_id, move_line_id, product_id, bool(recorded_serial), _t0)
         if picking_complete:
             message = "Auftrag abgeschlossen."
