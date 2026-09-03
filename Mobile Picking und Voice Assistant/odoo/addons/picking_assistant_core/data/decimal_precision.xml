@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<odoo noupdate="0">
-    <!-- noupdate="0": Projektanforderung, die jedes Modul-Upgrade ueberleben muss - ein Admin, der die Praezision zurueckstellt, wuerde die Versandlabel-Gewichte kaputt machen. -->
+<odoo>
     <!-- Lego-Klemmbausteine wiegen wenige Gramm. Mit den Odoo-Standard-
          zwei Nachkommastellen wuerde jedes Gewicht unter 0,005 kg als 0,00
-         gespeichert und die Gewichtssumme auf dem Versandlabel bliebe leer. -->
-    <record id="product.decimal_stock_weight" model="decimal.precision">
-        <field name="digits">3</field>
-    </record>
+         gespeichert und die Gewichtssumme auf dem Versandlabel bliebe leer.
+         Als <function> statt <record>: der Datensatz gehoert dem Modul
+         product und steht dort unter noupdate; ein <record>-Override wird
+         beim Modul-Update (-u) still uebersprungen (live gemessen 2026-09-03,
+         Praezision blieb auf 2). Der write laeuft bei Installation UND Update. -->
+    <function model="decimal.precision" name="write"
+              eval="[[ref('product.decimal_stock_weight')], {'digits': 3}]"/>
 </odoo>

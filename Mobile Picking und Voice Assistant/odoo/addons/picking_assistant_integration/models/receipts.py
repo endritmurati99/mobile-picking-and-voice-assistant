@@ -626,10 +626,6 @@ class PickingAssistantCallbackReceipt(models.Model):
         getattr(record, method_name)(status, result, error)
         return True
 
-    def _project_quality_result(self, **kwargs):
-        """Alter Name, gleiche Wirkung. Bleibt fuer bestehende Aufrufer."""
-        return self._project_callback_result(**kwargs)
-
     def _store_response(self, job, callback_id, source_event_id, sequence,
                         fingerprint, response):
         """Persist the deterministic response for the no-mutation

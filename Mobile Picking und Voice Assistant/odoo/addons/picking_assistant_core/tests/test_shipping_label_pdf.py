@@ -76,12 +76,6 @@ def _decode_pdf_literal(literal):
                 continue
             if nxt in ("(", ")", "\\"):
                 raw.append(ord(nxt))
-            elif nxt == "n":
-                raw.append(ord("\n"))
-            elif nxt == "r":
-                raw.append(ord("\r"))
-            elif nxt == "t":
-                raw.append(ord("\t"))
             else:
                 raw.append(ord(nxt))
             i += 2

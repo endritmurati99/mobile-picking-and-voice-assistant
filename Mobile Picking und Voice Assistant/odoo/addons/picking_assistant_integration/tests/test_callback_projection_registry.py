@@ -36,12 +36,3 @@ class TestCallbackProjectionRegistry(TransactionCase):
             )
         )
 
-    def test_legacy_name_still_works(self):
-        # Alte Aufrufer und Tests nutzen den alten Namen weiter.
-        self.assertFalse(
-            self.receipts._project_quality_result(
-                aggregate_model="res.partner", aggregate_res_id=1,
-                callback_name="quality.assessment.status.v1", status="succeeded",
-                result={}, error=None,
-            )
-        )

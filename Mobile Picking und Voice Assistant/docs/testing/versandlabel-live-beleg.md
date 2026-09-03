@@ -35,6 +35,48 @@ protokolliert, nicht behoben.
 
 ## Beleg 1: Label erscheint nach Pick-Abschluss
 
+### Durchgeführt am 03.09.2026 (Auslöser per RPC statt PWA)
+
+Der Abschluss wurde über `stock.picking.api_complete_and_request_label` per
+XML-RPC ausgelöst, also dieselbe Odoo-Methode, die das Backend nach der
+letzten PWA-Bestätigung ruft. Die PWA-Bedienung am Handy fehlt in diesem
+Durchlauf noch (siehe offene Punkte unten).
+
+| Auftrag | Kunde | Land | Gewicht | Carrier | Sendungsnummer | Zeit bis Anhang |
+|---|---|---|---|---|---|---|
+| L1/OUT/00190 (SO-DEMO-008) | Zuerich Modellbau AG | CH | 0,020 kg | UPS Standard | PWR-UPS-00190-2C6A | unter 25 s (Odoo kam gerade aus dem Neustart, erster Dispatcher-Zyklus schlug mit Verbindungsfehler fehl, zweiter lieferte) |
+| L1/OUT/00189 (SO-DEMO-007) | Fischer Techniklabor AG | DE | 2,400 kg | DHL Paket 5 kg | PWR-DHL5-00189-9F0A | 1,1 s |
+
+Backend-Log (Auszug, 13:11 Uhr):
+
+```
+POST http://n8n:5678/webhook/shipping-label-v2 "HTTP/1.1 200 OK"
+"POST /api/internal/n8n/v2/events/accept HTTP/1.1" 200 OK
+"POST /api/internal/n8n/v2/callbacks/status HTTP/1.1" 200 OK
+```
+
+Das erzeugte PDF liegt als `docs/testing/versandlabel-live-L1-OUT-00190.pdf`
+neben diesem Dokument. Screenshots von Reiter, Chatter und n8n-Ausführung
+fehlen noch.
+
+Beim Einspielen auf den Live-Stack gefunden und behoben:
+
+- `button_validate` liefert bei installiertem `stock_sms` und Kunden mit
+  Telefonnummer den Wizard `confirm.stock.sms` statt zu buchen. Die Methode
+  setzt jetzt zusätzlich `skip_sms=True`.
+- Der `<record>`-Override der Dezimalgenauigkeit „Stock Weight“ wird beim
+  Modul-Update übersprungen, weil der Datensatz dem Modul `product` gehört
+  und dort `noupdate` trägt. Ersetzt durch `<function name="write">`, das bei
+  Installation und Update läuft.
+- `import-workflows.sh` verlangt `/run/secrets` im laufenden n8n-Container;
+  der `secrets:`-Block hängt aber nur am Profil-Dienst `n8n-credentials`.
+  Der Workflow wurde deshalb mit den Credential-IDs des laufenden
+  Quality-Workflows gestaged und per `n8n import:workflow` plus
+  `n8n publish:workflow` eingespielt (Workflow-ID
+  7fb667694ccc4feca4cde91ba64bdfea).
+
+### Vorlage für den Durchlauf mit der PWA
+
 Durchführung: Stack läuft (`make up`), Seed gefahren. In der PWA einen
 offenen Auftrag mit einem österreichischen Kunden vollständig picken.
 

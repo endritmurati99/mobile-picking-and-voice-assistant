@@ -30,7 +30,7 @@ class TestCallbackProjection(TransactionCase):
             "error": None,
         }
         values.update(overrides)
-        return self.receipts._project_quality_result(**values)
+        return self.receipts._project_callback_result(**values)
 
     def test_terminal_quality_callback_writes_the_alert(self):
         self.assertTrue(self._project())

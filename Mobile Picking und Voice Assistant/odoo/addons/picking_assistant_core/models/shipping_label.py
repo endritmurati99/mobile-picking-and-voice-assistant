@@ -107,8 +107,11 @@ class StockPickingShippingLabel(models.Model):
             )
 
         if picking.state != "done":
+            # skip_sms: mit installiertem stock_sms und Kunden mit Telefonnummer
+            # liefert button_validate sonst den Wizard confirm.stock.sms zurueck
+            # statt zu buchen (live gemessen am CH-Demokunden, 2026-09-03).
             picking.with_context(
-                skip_immediate=True, skip_backorder=True
+                skip_immediate=True, skip_backorder=True, skip_sms=True
             ).button_validate()
         if picking.state != "done":
             raise ValidationError(
