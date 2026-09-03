@@ -114,7 +114,7 @@ def build_demo_customers():
             "city": "Wien",
             "country_code": "AT",
             "email": "einkauf@alpin-demo.example",
-            "phone": "+43 1 0000005",
+            "phone": "+43 1 000005",
         },
         {
             "name": "Zuerich Modellbau AG",
@@ -123,7 +123,7 @@ def build_demo_customers():
             "city": "Zuerich",
             "country_code": "CH",
             "email": "bestellung@zuerich-demo.example",
-            "phone": "+41 44 0000006",
+            "phone": "+41 44 000006",
         },
     ]
 
@@ -415,13 +415,13 @@ def main():
     print("\nProdukte...")
 
     products_data = [
-        {"name": "Schraube M8x40", "barcode": "4006381333931", "default_code": "SCR-M8-40", "weight": 0.015},
-        {"name": "Mutter M8 DIN934", "barcode": "4006381333948", "default_code": "NUT-M8", "weight": 0.02},
-        {"name": "Unterlegscheibe M8", "barcode": "4006381333955", "default_code": "WSH-M8", "weight": 0.01},
-        {"name": "Winkel 40x40", "barcode": "5901234123457", "default_code": "ANG-40", "weight": 0.08},
+        {"name": "Schraube M8x40", "barcode": "4006381333931", "default_code": "SCR-M8-40", "weight": 0.02},
+        {"name": "Mutter M8 DIN934", "barcode": "4006381333948", "default_code": "NUT-M8", "weight": 0.005},
+        {"name": "Unterlegscheibe M8", "barcode": "4006381333955", "default_code": "WSH-M8", "weight": 0.002},
+        {"name": "Winkel 40x40", "barcode": "5901234123457", "default_code": "ANG-40", "weight": 0.05},
         {"name": "Gewindestange M8", "barcode": "7622210100528", "default_code": "ROD-M8", "weight": 0.12},
-        {"name": "Sechskantschraube M6", "barcode": "4006381334013", "default_code": "SCR-M6", "weight": 0.02},
-        {"name": "Federscheibe M10", "barcode": "4006381334020", "default_code": "SPR-M10", "weight": 0.03},
+        {"name": "Sechskantschraube M6", "barcode": "4006381334013", "default_code": "SCR-M6", "weight": 0.008},
+        {"name": "Federscheibe M10", "barcode": "4006381334020", "default_code": "SPR-M10", "weight": 0.003},
         *build_demo_cluster_products(),
     ]
 
