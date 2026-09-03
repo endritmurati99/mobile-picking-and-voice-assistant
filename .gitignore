@@ -67,6 +67,7 @@ env-backup-*.env
 **/.design/
 **/.superpowers/
 .superpowers/
+.worktrees/
 .code-review-graph/
 graphify/
 **/graphify-out/
