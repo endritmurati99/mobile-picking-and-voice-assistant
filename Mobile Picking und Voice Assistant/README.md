@@ -15,7 +15,7 @@ unterstützen dabei, ersetzen aber keine sichere Bestätigung.
 | Odoo 19 | Hält Aufträge, Bestände, Personen und Buchungen je Standort. |
 | Voice | Versteht kurze Sprachbefehle und gibt Rückmeldungen. |
 | Quality | Nimmt Auffälligkeiten mit Beschreibung und optionalen Fotos auf. |
-| n8n | Bearbeitet Quality-Fälle im Hintergrund. |
+| n8n | Bearbeitet Quality-Fälle im Hintergrund und erzeugt nach Pick-Abschluss das Versandlabel. |
 
 ## Zwei Standorte
 

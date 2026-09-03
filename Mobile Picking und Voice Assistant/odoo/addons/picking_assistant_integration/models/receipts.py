@@ -589,31 +589,46 @@ class PickingAssistantCallbackReceipt(models.Model):
     # und darf den fachlichen Datensatz nicht anfassen.
     _PROJECTED_STATUSES = ("succeeded", "review_required", "failed")
 
-    def _project_quality_result(
+    # Callback-Name -> (Aggregatmodell, Methode am Fachdatensatz).
+    # Bewusst eine WEICHE Kopplung ueber Namen statt eines Imports: dieses
+    # Modul kennt weder `quality_alert_custom` noch `picking_assistant_core`
+    # und darf es nicht -- die Abhaengigkeit laeuft andersherum. Ist das
+    # Modell nicht installiert oder der Datensatz weg, passiert nichts; der
+    # Callback selbst bleibt gueltig.
+    #
+    # Der Methodenname fuer Quality folgt dem Quality-Modul, wie es heute
+    # ist (`api_apply_assessment` ist oeffentlich und RPC-erreichbar; eine
+    # spaetere Haertung koennte sie in eine private `_apply_assessment`
+    # umbenennen -- dann aendert sich nur diese eine Zeile hier).
+    _PROJECTIONS = {
+        "quality.assessment.status.v1": ("quality.alert.custom", "api_apply_assessment"),
+        "shipping.label.status.v1": ("stock.picking", "_apply_shipping_label"),
+    }
+
+    def _project_callback_result(
         self, *, aggregate_model, aggregate_res_id, callback_name, status, result, error
     ):
-        """Traegt das Ergebnis in derselben Transaktion in den Fachdatensatz.
-
-        Bewusst eine WEICHE Kopplung ueber den Modellnamen statt eines Imports:
-        dieses Modul kennt `quality_alert_custom` nicht und darf es nicht
-        kennen -- die Abhaengigkeit laeuft andersherum. Ist das Modell nicht
-        installiert oder der Datensatz weg, passiert nichts; der Callback
-        selbst bleibt gueltig.
-        """
-        if callback_name != "quality.assessment.status.v1":
+        """Traegt das Ergebnis in derselben Transaktion in den Fachdatensatz."""
+        target = self._PROJECTIONS.get(callback_name)
+        if target is None:
             return False
+        expected_model, method_name = target
         if status not in self._PROJECTED_STATUSES:
             return False
-        if aggregate_model != "quality.alert.custom":
+        if aggregate_model != expected_model:
             return False
         model = self.env.get(aggregate_model)
-        if model is None:
+        if model is None or not hasattr(model, method_name):
             return False
-        alert = model.sudo().browse(int(aggregate_res_id)).exists()
-        if not alert:
+        record = model.sudo().browse(int(aggregate_res_id)).exists()
+        if not record:
             return False
-        alert.api_apply_assessment(status, result, error)
+        getattr(record, method_name)(status, result, error)
         return True
+
+    def _project_quality_result(self, **kwargs):
+        """Alter Name, gleiche Wirkung. Bleibt fuer bestehende Aufrufer."""
+        return self._project_callback_result(**kwargs)
 
     def _store_response(self, job, callback_id, source_event_id, sequence,
                         fingerprint, response):
@@ -805,7 +820,7 @@ class PickingAssistantCallbackReceipt(models.Model):
                     # Letzter Schritt der Kette, in DERSELBEN Transaktion wie
                     # Job- und Receipt-Zustand: entweder der Callback gilt
                     # vollstaendig, oder er gilt gar nicht.
-                    self._project_quality_result(
+                    self._project_callback_result(
                         aggregate_model=job.aggregate_model,
                         aggregate_res_id=job.aggregate_res_id,
                         callback_name=callback.get("callback_name"),

@@ -32,18 +32,21 @@ def test_repository_registry_has_every_workflow_once():
     # Frueher standen hier fuenf Dateien, darunter die drei v1-Workflows
     # (voice-exception-query, quality-alert-created, shortage-reported) und der
     # Foundation-Smoke. Mit der v2-Qualitaetskette (Commit b0cbbc6) sind sie von
-    # der Platte und aus der Registry verschwunden; verblieben sind der
-    # Error-Trigger und die Kette selbst -- in Aktivierungsreihenfolge.
+    # der Platte und aus der Registry verschwunden; verblieben waren der
+    # Error-Trigger und die Kette selbst. Mit Task 7 (Commit 2664ecc) kam die
+    # Versandlabel-Kette shipping-label-v2 hinzu -- in Aktivierungsreihenfolge.
     assert registry.managed_files() == (
         "error-trigger.json",
         "quality-assessment-v2.json",
+        "shipping-label-v2.json",
     )
-    # Managed heisst nicht produktiv aktivierbar. Beide verbliebenen Eintraege
-    # sind produktiv; der Smoke war der einzige test_only-Eintrag, den es je
-    # gab. Die Invariante (test_only taucht nie in der Aktivierungsreihe auf)
-    # wird deshalb heute leer, aber ausdruecklich festgehalten -- der Guard
-    # selbst wird in test_quality_assessment_v2_workflow.py an einem
-    # synthetischen Eintrag geprueft.
+    # Managed heisst nicht produktiv aktivierbar. Alle drei verbliebenen
+    # Eintraege sind produktiv; der Smoke war der einzige test_only-Eintrag,
+    # den es je gab. Die Invariante (test_only taucht nie in der
+    # Aktivierungsreihe auf) wird deshalb heute leer, aber ausdruecklich
+    # festgehalten -- der Guard selbst wird in
+    # test_quality_assessment_v2_workflow.py an einem synthetischen Eintrag
+    # geprueft.
     assert registry.test_only_files() == ()
     assert not set(registry.test_only_files()) & set(registry.activation_order())
 

@@ -320,13 +320,19 @@ def test_the_production_gate_actually_applies_v2_checks_to_this_workflow():
     Vor Task 15 war jeder Registry-Eintrag v1, also hat `run_v2_checks` alle
     uebersprungen und keine Fehler gemeldet -- ein gruenes Gate, das nichts
     bewiesen hatte.
+
+    Seit Task 7 (Commit 2664ecc) gibt es einen zweiten v2-Eintrag,
+    shipping-label-v2.json. Der Guard bleibt derselbe: WORKFLOW_FILE (diese
+    Datei) darf nicht im Skip landen, und die Menge der v2-Dateien muss genau
+    den v2-Eintraegen der Registry entsprechen -- weder mehr noch weniger.
     """
     errors, skipped = VERIFY_CLI.run_v2_checks(REGISTRY_PATH)
     assert errors == []
     assert not any(entry.startswith(WORKFLOW_FILE) for entry in skipped)
     registry = load_registry(REGISTRY_PATH)
     v2_files = [item.file for item in registry.workflows if item.generation == "v2"]
-    assert v2_files == [WORKFLOW_FILE]
+    assert v2_files == [WORKFLOW_FILE, "shipping-label-v2.json"]
+    assert not any(entry.startswith("shipping-label-v2.json") for entry in skipped)
     assert len(skipped) == len(registry.workflows) - len(v2_files)
 
 
