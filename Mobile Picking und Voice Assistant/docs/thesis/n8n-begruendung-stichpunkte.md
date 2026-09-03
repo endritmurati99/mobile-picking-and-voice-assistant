@@ -68,3 +68,17 @@ Stattdessen: konkreter Fall, konkrete Zahl, konkrete Datei.
   `validate_batch`) schließt über `action_done` auf `stock.picking.batch`
   ab, nicht über `api_complete_and_request_label`. Für Cluster-Abschlüsse
   entsteht kein Versandlabel-Ereignis.
+- `shipping_label_status = "failed"` entsteht nur durch einen expliziten
+  Terminal-Callback mit Status `failed` oder `review_required`. Bleibt ein
+  Job endgültig liegen, bleibt der Status auf `pending` stehen; sichtbar
+  wird das nur über den Job-Zustand
+  (`picking.assistant.integration.job`) und die INCIDENT-Zeile des
+  Watchdogs, nicht am Picking selbst.
+- Ein Empfänger ohne `country_code` läuft in der Versandregel
+  (`n8n/workflows/shipping-label-v2.json`) in den Drittland-Zweig „UPS
+  Standard“ statt in einen expliziten Fehlerzweig.
+
+Ehrliche Schwäche: Der Versand-Tab kann „hängt für immer“ (kein
+Terminal-Callback kommt je an) nicht von „endgültig fehlgeschlagen“
+unterscheiden — beides sieht auf dem Picking wie `pending` bzw. `failed`
+je nach Callback aus, nicht nach eigener Diagnose.

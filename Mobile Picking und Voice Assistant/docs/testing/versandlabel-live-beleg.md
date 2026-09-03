@@ -172,3 +172,14 @@ Screenshots:
   `stock.picking`. Für Cluster-Abschlüsse entsteht dadurch kein
   `shipment.parcel.ready.v1`-Ereignis und kein Versandlabel.
 - Kein Drucker, keine Mail, kein Gefahrgut, keine echte Sendungsnummer.
+- `shipping_label_status = "failed"` entsteht nur durch einen expliziten
+  Terminal-Callback mit Status `failed` oder `review_required`. Bleibt ein
+  Job endgültig liegen (n8n antwortet nie, `error-trigger.json` ist v1 und
+  kann keinen gültigen, signierten Callback bauen), bleibt der Status am
+  Picking auf `pending` stehen; sichtbar wird das nur über den Job-Zustand
+  (`picking.assistant.integration.job`) und die INCIDENT-Zeile des
+  Watchdogs im Log. Der Versand-Tab kann „hängt für immer“ nicht von
+  „endgültig fehlgeschlagen“ unterscheiden.
+- Ein Empfänger ohne `country_code` läuft in der Versandregel
+  (`n8n/workflows/shipping-label-v2.json`) in den Drittland-Zweig „UPS
+  Standard“.
