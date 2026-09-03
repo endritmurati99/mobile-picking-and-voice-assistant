@@ -4,8 +4,12 @@ Die shipping_*-Felder sind die Projektion eines n8n-Jobs, nicht Eingabe.
 Geschrieben werden sie ausschliesslich aus dem signierten Callback-Pfad
 (`_apply_shipping_label`, laeuft unter sudo) oder vom Integrationsdienst.
 """
+import base64
+
 from odoo import api, fields, models
 from odoo.exceptions import ValidationError
+
+from odoo.addons.picking_assistant_core.services.shipping_label_pdf import render_label
 
 # Zustaende, in denen ein Job als abgeschlossen gilt -- nur dann darf ein
 # neuer Versandlabel-Job fuer dasselbe Picking gestartet werden.
@@ -125,3 +129,61 @@ class StockPickingShippingLabel(models.Model):
             "job_id": built["job_id"],
             "picking_name": picking.name or "",
         }
+
+    _SHIPPING_STATUS_MAP = {
+        "succeeded": "labeled",
+        "review_required": "failed",
+        "failed": "failed",
+    }
+
+    def _apply_shipping_label(self, status, result, error):
+        """Wendet den Terminal-Callback der Versandkette an.
+
+        Aufgerufen aus `picking.assistant.callback.receipt`, also in DERSELBEN
+        Transaktion wie Job- und Receipt-Zustand. Privat (Unterstrich): ueber
+        RPC nicht aufrufbar; ein Label entsteht nur ueber den signierten
+        Callback-Pfad.
+        """
+        self.ensure_one()
+        mapped = self._SHIPPING_STATUS_MAP.get(status)
+        if mapped is None:
+            raise ValidationError(f"Unbekannter Versandstatus: {status!r}")
+        result = result or {}
+        error = error or {}
+        values = {
+            "shipping_label_status": mapped,
+            "shipping_failure_reason": error.get("message") or False,
+        }
+        if mapped == "labeled":
+            label_data = dict(result.get("label") or {})
+            label_data.setdefault("picking_name", self.name or "")
+            label_data["tracking_number"] = result.get("tracking_number") or ""
+            label_data["carrier_name"] = result.get("carrier_name") or ""
+            label_data["service_note"] = result.get("service_note") or ""
+            pdf_bytes = render_label(label_data)
+
+            old = self.shipping_label_attachment_id
+            attachment = self.env["ir.attachment"].sudo().create(
+                {
+                    "name": f"Versandlabel {self.name or self.id}.pdf",
+                    "type": "binary",
+                    "datas": base64.b64encode(pdf_bytes).decode("ascii"),
+                    "mimetype": "application/pdf",
+                    "res_model": self._name,
+                    "res_id": self.id,
+                }
+            )
+            if old:
+                old.unlink()
+            values.update(
+                {
+                    "shipping_carrier_code": result.get("carrier_code") or False,
+                    "shipping_carrier_name": result.get("carrier_name") or False,
+                    "shipping_tracking_number": result.get("tracking_number") or False,
+                    "shipping_weight_kg": float(label_data.get("total_weight_kg") or 0.0),
+                    "shipping_label_attachment_id": attachment.id,
+                    "shipping_labeled_at": fields.Datetime.now(),
+                }
+            )
+        self.sudo().write(values)
+        return True

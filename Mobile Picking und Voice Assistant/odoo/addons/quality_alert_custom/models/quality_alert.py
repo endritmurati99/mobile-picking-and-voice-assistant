@@ -231,6 +231,16 @@ class QualityAlert(models.Model):
         self.sudo().write(values)
         return True
 
+    def _apply_assessment(self, status, result, error):
+        """Alias fuer die generische Callback-Projektion.
+
+        `picking.assistant.callback.receipt._PROJECTIONS` ruft Fachdatensaetze
+        ueber einen einheitlichen Methodennamen auf, ohne dieses Modul zu
+        kennen. `api_apply_assessment` bleibt der eigentliche, oeffentlich
+        benannte Einstiegspunkt fuer bestehende Aufrufer und Tests.
+        """
+        return self.api_apply_assessment(status, result, error)
+
     # Mehr als drei Fotos zu pruefen kostet je Bild rund 21 Sekunden und bringt
     # selten mehr Erkenntnis. Die Gesamtzahl reist trotzdem mit, damit niemand
     # glaubt, es sei alles angesehen worden.
