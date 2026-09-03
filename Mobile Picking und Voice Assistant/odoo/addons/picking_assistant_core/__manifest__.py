@@ -13,6 +13,7 @@
         "security/ir.model.access.csv",
         "data/decimal_precision.xml",
         "data/ir_cron.xml",
+        "views/stock_picking_views.xml",
     ],
     "installable": True,
     "application": False,

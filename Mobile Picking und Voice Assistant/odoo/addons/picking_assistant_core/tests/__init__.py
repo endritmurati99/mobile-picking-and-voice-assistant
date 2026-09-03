@@ -6,3 +6,4 @@ from . import test_shipment_event
 from . import test_shipment_request
 from . import test_shipping_label_pdf
 from . import test_shipping_callback
+from . import test_shipping_view
