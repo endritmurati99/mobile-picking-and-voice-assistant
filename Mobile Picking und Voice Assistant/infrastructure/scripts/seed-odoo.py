@@ -174,15 +174,53 @@ def build_demo_customer_order_plan():
         },
         {
             # Schwerer Demo-Auftrag: 200 x Technikrahmen (0,012 kg) = 2,4 kg,
-            # damit der Versandregel-Zweig "DHL Paket 5 kg" (> 2 kg) vorfuehrbar ist.
+            # damit der Versandregel-Zweig "DHL Paket 5 kg" (> 2 kg) vorfuehrbar
+            # ist. Kunde muss DE sein (customer_index 0-3): die n8n-Versandregel
+            # prueft das Zielland vor dem Gewicht, ein AT-Kunde wuerde immer in
+            # den DPD-Classic-Zweig laufen und den Gewichtszweig nie zeigen.
             "origin": "SO-DEMO-007",
-            "customer_index": 4,
+            "customer_index": 2,
             "delivery_date": "2026-07-10",
             "zone": "Rechts",
             "products": ["4216758"],
             "quantities": {"4216758": 200},
         },
+        {
+            # Leichter CH-Demo-Auftrag, damit der Drittland-Zweig "UPS Standard"
+            # (Schweiz) ueberhaupt ein Vorfuehrbeispiel hat.
+            "origin": "SO-DEMO-008",
+            "customer_index": 5,
+            "delivery_date": "2026-07-10",
+            "zone": "Rechts",
+            "products": ["343721"],
+            "quantities": {"343721": 10},
+        },
     ]
+
+
+def build_demo_cluster_product_locations():
+    return {
+        "301121": "LOC-A01",
+        "343721": "LOC-A02",
+        "4166960": "LOC-A02",
+        "343724": "LOC-A02",
+        "343701": "LOC-A02",
+        "4216758": "LOC-B01",
+        "4250172": "LOC-B02",
+        "4185178": "LOC-B02",
+    }
+
+
+def build_demo_cluster_stock_quantities():
+    """Eingebuchte Bestandsmenge je Produktcode fuer die Cluster-Demo-Auftraege.
+
+    Standardmenge ist 80 Stk. `4216758` braucht mehr, weil SO-DEMO-007 allein
+    200 Stk. davon bestellt (Versandregel-Zweig > 2 kg) und SO-DEMO-005/006
+    zusaetzlich je 4 Stk. verbrauchen.
+    """
+    defaults = {code: 80 for code in build_demo_cluster_product_locations()}
+    defaults["4216758"] = 400
+    return defaults
 
 
 def build_demo_cluster_products():
@@ -447,16 +485,8 @@ def main():
     # ── Bestand einbuchen ────────────────────────────────────
     print("\nBestaende einbuchen...")
 
-    demo_product_locations = {
-        "301121": "LOC-A01",
-        "343721": "LOC-A02",
-        "4166960": "LOC-A02",
-        "343724": "LOC-A02",
-        "343701": "LOC-A02",
-        "4216758": "LOC-B01",
-        "4250172": "LOC-B02",
-        "4185178": "LOC-B02",
-    }
+    demo_product_locations = build_demo_cluster_product_locations()
+    demo_product_quantities = build_demo_cluster_stock_quantities()
 
     stock_quants = [
         (prod_ids["4006381333931"], loc_ids["LOC-A01"], 100),
@@ -468,7 +498,7 @@ def main():
         (prod_ids["4006381334020"], loc_ids["LOC-D01"], 60),
     ]
     stock_quants.extend(
-        (prod_ids[code], loc_ids[location_barcode], 80)
+        (prod_ids[code], loc_ids[location_barcode], demo_product_quantities[code])
         for code, location_barcode in demo_product_locations.items()
     )
 
