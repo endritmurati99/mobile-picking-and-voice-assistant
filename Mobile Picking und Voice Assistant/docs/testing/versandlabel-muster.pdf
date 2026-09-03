@@ -47,7 +47,7 @@ endobj
 endobj
 8 0 obj
 <<
-/Author (anonymous) /CreationDate (D:20260903092359+00'00') /Creator (ReportLab PDF Library - www.reportlab.com) /Keywords () /ModDate (D:20260903092359+00'00') /Producer (ReportLab PDF Library - www.reportlab.com) 
+/Author (anonymous) /CreationDate (D:20260903093338+00'00') /Creator (ReportLab PDF Library - www.reportlab.com) /Keywords () /ModDate (D:20260903093338+00'00') /Producer (ReportLab PDF Library - www.reportlab.com) 
   /Subject (unspecified) /Title (Versandlabel WH/OUT/00066) /Trapped /False
 >>
 endobj
@@ -58,7 +58,7 @@ endobj
 endobj
 10 0 obj
 <<
-/Length 11765
+/Length 11764
 >>
 stream
 1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
@@ -70,11 +70,11 @@ BT /F1 8 Tf 9.6 TL ET
 BT 1 0 0 1 17.00787 342.9921 Tm (Standard, bis 2 kg) Tj T* ET
 BT /F2 10 Tf 12 TL ET
 BT 1 0 0 1 17.00787 306.1417 Tm (Empfaenger) Tj T* ET
-BT /F1 10 Tf 12 TL ET
+BT /F1 9 Tf 10.8 TL ET
 BT 1 0 0 1 17.00787 289.1339 Tm (Alpen Bau GmbH) Tj T* ET
-BT 1 0 0 1 17.00787 274.9606 Tm (Ringstrasse 5) Tj T* ET
-BT 1 0 0 1 17.00787 260.7874 Tm (1010 Wien) Tj T* ET
-BT 1 0 0 1 17.00787 246.6142 Tm (AT) Tj T* ET
+BT 1 0 0 1 17.00787 276.378 Tm (Ringstrasse 5) Tj T* ET
+BT 1 0 0 1 17.00787 263.622 Tm (1010 Wien) Tj T* ET
+BT 1 0 0 1 17.00787 250.8661 Tm (AT) Tj T* ET
 BT /F1 8 Tf 9.6 TL ET
 BT 1 0 0 1 17.00787 198.4252 Tm (Gewicht: 0.012 kg) Tj T* ET
 BT 1 0 0 1 17.00787 184.252 Tm (Lieferschein: WH/OUT/00066) Tj T* ET
@@ -1149,11 +1149,11 @@ xref
 0000000928 00000 n 
 0000001241 00000 n 
 0000001306 00000 n 
-0000013124 00000 n 
+0000013123 00000 n 
 trailer
 <<
 /ID 
-[<b806d4bf4b6caf17b9072039716b2d87><b806d4bf4b6caf17b9072039716b2d87>]
+[<341cb51e44616303afebbf5bcc844a9f><341cb51e44616303afebbf5bcc844a9f>]
 % ReportLab generated PDF document -- digest (http://www.reportlab.com)
 
 /Info 8 0 R
@@ -1161,5 +1161,5 @@ trailer
 /Size 12
 >>
 startxref
-13990
+13989
 %%EOF
