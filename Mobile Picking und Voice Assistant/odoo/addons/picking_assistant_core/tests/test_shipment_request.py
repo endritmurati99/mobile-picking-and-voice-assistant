@@ -83,6 +83,11 @@ class TestCompleteAndRequestLabel(TransactionCase):
         # (siehe picking.assistant.integration.job._enqueue_job_event).
         self.assertEqual(rows.event_name, "shipment.parcel.ready.v1")
         self.assertEqual(job.job_id, result["job_id"])
+        # `integration_revision` startet bei 1 und wird VOR dem Envelope-Bau
+        # erhoeht (siehe api_complete_and_request_label), damit der erste
+        # Aufruf bereits Revision 2 in aggregate.revision traegt.
+        self.assertEqual(self.picking.integration_revision, 2)
+        self.assertEqual(job.aggregate_revision, 2)
 
     def test_second_call_is_refused_while_job_is_open(self):
         self.Picking.api_complete_and_request_label(self.picking.id)
@@ -95,6 +100,30 @@ class TestCompleteAndRequestLabel(TransactionCase):
             self.env["stock.picking"].with_user(
                 self.internal_user
             ).api_complete_and_request_label(self.picking.id)
+
+    def test_second_call_after_terminal_state_is_accepted(self):
+        """Nach einem terminalen Job-Zustand ist ein zweiter Aufruf erlaubt
+        und legt einen zweiten Outbox-Eintrag an: die Sperre in
+        `api_complete_and_request_label` zieht nur, waehrend ein Job noch
+        laeuft (state not in TERMINAL_JOB_STATES), nicht danach."""
+        self.Picking.api_complete_and_request_label(self.picking.id)
+        first_job = self._outbox_rows().job_record_id
+        # Job direkt auf einen Terminalzustand setzen (keine Schreibsperre
+        # auf `state` in picking.assistant.integration.job vorhanden).
+        first_job.sudo().write({"state": "succeeded"})
+
+        # `button_validate` wuerde auf einem bereits gebuchten Picking einen
+        # Fehler werfen -- die Methode prueft deshalb `state != "done"` und
+        # ueberspringt die Buchung, bevor sie das zweite Ereignis baut.
+        self.assertEqual(self.picking.state, "done")
+        result = self.Picking.api_complete_and_request_label(self.picking.id)
+        self.assertTrue(result["picking_complete"])
+
+        rows = self._outbox_rows()
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(self.picking.integration_revision, 3)
+        second_job = rows.job_record_id - first_job
+        self.assertEqual(second_job.aggregate_revision, 3)
 
     def test_validate_failure_leaves_no_event_behind(self):
         # Ohne gepickte Menge weigert sich Odoo -- dann darf auch kein

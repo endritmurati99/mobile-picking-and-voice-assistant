@@ -159,6 +159,22 @@ class TestRenderLabel(BaseCase):
                 usable_width,
                 f"Zeile {line!r} ist breiter als die nutzbare Aufkleberbreite")
 
+    def test_none_numeric_values_do_not_raise(self):
+        """JSON-`null` landet im Callback-Payload als Python `None`. `0.0`
+        als Default in `data.get(key, 0.0)` greift dabei NICHT, weil der
+        Schluessel vorhanden ist (nur mit Wert None) -- ohne `or 0.0` in
+        `shipping_label_pdf.py` wuerde das f-String-Format (`:.3f`/`:g`)
+        mit TypeError abbrechen.
+        """
+        sample = _sample(items=[
+            {"default_code": "301121", "name": "Demo Klemmbaustein 2x4 rot",
+             "qty": None, "weight_kg": 0.003},
+        ])
+        sample["total_weight_kg"] = None
+        pdf = render_label(sample)
+        self.assertTrue(pdf.startswith(b"%PDF"))
+        self.assertEqual(len(_page_texts(pdf)), 2)
+
     def test_umlauts_in_recipient_are_decoded_correctly(self):
         texts = _page_texts(render_label(_sample(recipient_overrides={
             "name": "Müller & Söhne",

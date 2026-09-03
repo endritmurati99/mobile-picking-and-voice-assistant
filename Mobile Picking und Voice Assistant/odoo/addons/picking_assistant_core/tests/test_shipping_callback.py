@@ -62,11 +62,25 @@ class TestShippingCallbackProjection(TransactionCase):
         self.assertTrue(self.picking.shipping_labeled_at)
 
     def test_failed_sets_reason_and_no_attachment(self):
+        # Erst ein Erfolg, dann ein Fehlschlag: ein alter, gueltiger
+        # Tracking-Code neben "Fehlgeschlagen" waere irrefuehrend -- alle
+        # Versandfelder eines frueheren Erfolgs muessen mit dem Fehlschlag
+        # verschwinden, inkl. Anhang.
+        self.assertTrue(self._project())
+        stale_attachment = self.picking.shipping_label_attachment_id
+        self.assertTrue(stale_attachment)
+
         self.assertTrue(self._project(status="failed", result={},
                                       error={"message": "Carrier-Regel ohne Treffer"}))
         self.assertEqual(self.picking.shipping_label_status, "failed")
         self.assertEqual(self.picking.shipping_failure_reason, "Carrier-Regel ohne Treffer")
         self.assertFalse(self.picking.shipping_label_attachment_id)
+        self.assertFalse(self.picking.shipping_carrier_code)
+        self.assertFalse(self.picking.shipping_carrier_name)
+        self.assertFalse(self.picking.shipping_tracking_number)
+        self.assertEqual(self.picking.shipping_weight_kg, 0.0)
+        self.assertFalse(self.picking.shipping_labeled_at)
+        self.assertFalse(stale_attachment.exists())
 
     def test_second_success_replaces_attachment_instead_of_stacking(self):
         self._project()

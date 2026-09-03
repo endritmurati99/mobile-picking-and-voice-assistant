@@ -13,3 +13,4 @@ class TestShippingView(TransactionCase):
         arch = view["arch"]
         self.assertIn('name="shipping_label"', arch)
         self.assertIn("shipping_tracking_number", arch)
+        self.assertIn("shipping_carrier_code", arch)

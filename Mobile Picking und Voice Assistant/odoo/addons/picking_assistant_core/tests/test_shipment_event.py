@@ -22,9 +22,11 @@ class TestShipmentEventBuilder(TransactionCase):
                 "country_id": country.id,
             }
         )
-        # Gewicht > 0.01 kg, weil die Dezimalgenauigkeit "Stock Weight" in
-        # dieser Odoo-Instanz auf 2 Nachkommastellen steht (siehe
-        # decimal_precision) und 0.003 sonst auf 0.0 gerundet wuerde.
+        # Gewicht > 0.01 kg als Sicherheitsabstand: die Dezimalgenauigkeit
+        # "Stock Weight" steht seit data/decimal_precision.xml zwar auf 3
+        # Nachkommastellen in dieser Instanz, aber ein Wert deutlich ueber
+        # der Rundungsgrenze macht den Test robust gegen die Standardgenauig-
+        # keit (2 Nachkommastellen), falls decimal_precision.xml fehlt.
         self.product = self.env["product.product"].create(
             {"name": "Demo Klemmbaustein 2x4 rot", "default_code": "301121",
              "type": "consu", "is_storable": True, "weight": 0.05}

@@ -34,6 +34,8 @@ PACKLIST_NAME_FONT_SIZE = 9
 PACKLIST_NAME_COLUMN_X = 55 * mm
 PACKLIST_QTY_COLUMN_X = 150 * mm
 PACKLIST_NAME_MAX_WIDTH = PACKLIST_QTY_COLUMN_X - PACKLIST_NAME_COLUMN_X - 5 * mm
+PACKLIST_ARTICLE_COLUMN_X = 20 * mm
+PACKLIST_ARTICLE_MAX_WIDTH = PACKLIST_NAME_COLUMN_X - PACKLIST_ARTICLE_COLUMN_X - 3 * mm
 
 
 def _wrap_recipient_lines(raw_lines, max_width):
@@ -83,7 +85,7 @@ def _draw_label_page(c, data):
 
     c.setFont("Helvetica", 8)
     c.drawString(LABEL_MARGIN, height - 78 * mm,
-                 f"Gewicht: {data.get('total_weight_kg', 0.0):.3f} kg")
+                 f"Gewicht: {data.get('total_weight_kg') or 0.0:.3f} kg")
     c.drawString(LABEL_MARGIN, height - 83 * mm, f"Lieferschein: {data.get('picking_name', '')}")
 
     barcode = code128.Code128(data.get("picking_name", ""), barHeight=10 * mm,
@@ -130,12 +132,16 @@ def _draw_packlist_pages(c, data):
         y -= 6 * mm
         c.setFont("Helvetica", 9)
         for item in chunk:
-            c.drawString(20 * mm, y, str(item.get("default_code", "")))
+            default_code = _truncate_to_width(
+                str(item.get("default_code", "")), PACKLIST_NAME_FONT,
+                PACKLIST_NAME_FONT_SIZE, PACKLIST_ARTICLE_MAX_WIDTH,
+            )
+            c.drawString(PACKLIST_ARTICLE_COLUMN_X, y, default_code)
             name = _truncate_to_width(str(item.get("name", "")), PACKLIST_NAME_FONT,
                                        PACKLIST_NAME_FONT_SIZE, PACKLIST_NAME_MAX_WIDTH)
             c.drawString(PACKLIST_NAME_COLUMN_X, y, name)
-            c.drawRightString(162 * mm, y, f"{item.get('qty', 0.0):g}")
-            c.drawRightString(185 * mm, y, f"{item.get('weight_kg', 0.0):.3f}")
+            c.drawRightString(162 * mm, y, f"{item.get('qty') or 0.0:g}")
+            c.drawRightString(185 * mm, y, f"{item.get('weight_kg') or 0.0:.3f}")
             y -= 5.5 * mm
         c.setFont("Helvetica-Bold", 8)
         c.setFillGray(0.4)
