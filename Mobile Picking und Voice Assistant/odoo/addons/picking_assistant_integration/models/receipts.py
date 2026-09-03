@@ -595,8 +595,13 @@ class PickingAssistantCallbackReceipt(models.Model):
     # und darf es nicht -- die Abhaengigkeit laeuft andersherum. Ist das
     # Modell nicht installiert oder der Datensatz weg, passiert nichts; der
     # Callback selbst bleibt gueltig.
+    #
+    # Der Methodenname fuer Quality folgt dem Quality-Modul, wie es heute
+    # ist (`api_apply_assessment` ist oeffentlich und RPC-erreichbar; eine
+    # spaetere Haertung koennte sie in eine private `_apply_assessment`
+    # umbenennen -- dann aendert sich nur diese eine Zeile hier).
     _PROJECTIONS = {
-        "quality.assessment.status.v1": ("quality.alert.custom", "_apply_assessment"),
+        "quality.assessment.status.v1": ("quality.alert.custom", "api_apply_assessment"),
         "shipping.label.status.v1": ("stock.picking", "_apply_shipping_label"),
     }
 

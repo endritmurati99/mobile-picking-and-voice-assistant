@@ -13,7 +13,7 @@ class TestCallbackProjectionRegistry(TransactionCase):
         self.assertEqual(
             self.receipts._PROJECTIONS,
             {
-                "quality.assessment.status.v1": ("quality.alert.custom", "_apply_assessment"),
+                "quality.assessment.status.v1": ("quality.alert.custom", "api_apply_assessment"),
                 "shipping.label.status.v1": ("stock.picking", "_apply_shipping_label"),
             },
         )
