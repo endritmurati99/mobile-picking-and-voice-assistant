@@ -2,6 +2,12 @@
   "name": "mobile-picking-voice-assistant",
   "private": true,
   "scripts": {
-    "test:voice": "node --test pwa/js/tests/*.test.mjs"
+    "test:voice": "node --test pwa/js/tests/*.test.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:update": "playwright test --update-snapshots"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.1",
+    "@playwright/test": "^1.48.0"
   }
 }

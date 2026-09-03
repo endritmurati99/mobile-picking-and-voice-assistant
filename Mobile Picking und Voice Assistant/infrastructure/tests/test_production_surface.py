@@ -62,7 +62,9 @@ def test_dev_admin_ports_bind_only_loopback():
     for binding in (
         "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000",
         "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432",
-        "127.0.0.1:${ODOO_HOST_PORT:-8069}:8069",
+        # Odoo hat als einziger Dienst einen dokumentierten Ausweg fuer
+        # Handytests (ODOO_BIND_HOST); der Default bleibt Loopback.
+        "${ODOO_BIND_HOST:-127.0.0.1}:${ODOO_HOST_PORT:-8069}:8069",
         "127.0.0.1:${ODOO_LAGER2_HOST_PORT:-8070}:8069",
         "127.0.0.1:${N8N_HOST_PORT:-5678}:5678",
     ):

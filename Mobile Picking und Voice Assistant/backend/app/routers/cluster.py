@@ -56,6 +56,18 @@ async def create_cluster_batch(
     return result
 
 
+@router.get("/cluster/batches/active")
+async def get_active_cluster_batch(
+    identity: PickerIdentity = Depends(get_required_picker_identity),
+    service=Depends(get_cluster_service),
+):
+    """Laufenden eigenen Batch nach Reload oder Geratewechsel fortsetzen."""
+    result = await service.get_active_batch(picker_identity=identity)
+    if result and result.get("forbidden"):
+        raise HTTPException(status_code=403, detail=result["error"])
+    return result
+
+
 @router.get("/cluster/batches/{batch_id}")
 async def get_cluster_batch(
     batch_id: int,

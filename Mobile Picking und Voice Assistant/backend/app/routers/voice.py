@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
-from app.dependencies import get_odoo_client, get_picking_service, get_request_odoo_client_or_grace, get_write_request_context
+from app.dependencies import get_picking_service, get_request_odoo_client_or_grace, get_write_request_context
 from app.models.n8n import VoiceAssistRequest, VoiceAssistResponse
 from app.models.voice import TTSRequest
 from app.services.obsidian_context import format_obsidian_hits, search_obsidian_notes

@@ -1,11 +1,11 @@
 const { test, expect } = require('@playwright/test');
 const { mockPwaApi } = require('./helpers/pwa-api');
+const { login } = require('./helpers/login');
 
 async function bootDesktopList(page, viewport) {
   await mockPwaApi(page);
   await page.setViewportSize(viewport);
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Lena Lager' }).click();
+  await login(page);
   await expect(page.locator('.list-workspace')).toBeVisible();
 }
 

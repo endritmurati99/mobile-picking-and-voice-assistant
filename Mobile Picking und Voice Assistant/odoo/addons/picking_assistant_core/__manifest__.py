@@ -6,7 +6,6 @@
     "summary": "Mobile claim and scoped idempotency support",
     "depends": [
         "stock",
-        "stock_picking_batch",
         "picking_assistant_integration",
     ],
     "data": [

@@ -12,7 +12,7 @@ auseinanderhalten, die Odoo dabei anlegt.
 from unittest.mock import patch
 
 from odoo.exceptions import ValidationError
-from odoo.tests.common import TransactionCase
+from .common import QualityApiCase
 
 # 1x1 PNG. Kleinstmoegliches gueltiges Bild -- der Inhalt ist gleichgueltig,
 # der Typ nicht: er ist bewusst NICHT JPEG, weil `api_create_alert` jedem
@@ -24,7 +24,7 @@ PNG_B64 = (
 )
 
 
-class TestAssessmentMedia(TransactionCase):
+class TestAssessmentMedia(QualityApiCase):
     def setUp(self):
         super().setUp()
         self.env["ir.config_parameter"].sudo().set_param(
@@ -37,7 +37,7 @@ class TestAssessmentMedia(TransactionCase):
         self.product.product_tmpl_id.image_1920 = PNG_B64
 
     def _create_alert(self, photos=1):
-        result = self.env["quality.alert.custom"].api_create_alert({
+        result = self.api_env["quality.alert.custom"].api_create_alert({
             "description": "Testmeldung",
             "priority": "1",
             "product_id": self.product.id,
@@ -61,13 +61,13 @@ class TestAssessmentMedia(TransactionCase):
         die den Zugriff eng haelt.
         """
         with patch.object(type(job), "_require_current_generation", return_value=None):
-            return self.env["quality.alert.custom"].api_get_assessment_media(
+            return self.api_env["quality.alert.custom"].api_get_assessment_media(
                 job.job_id, 1, "x" * 43
             )
 
     def test_unknown_job_is_refused(self):
         with self.assertRaises(ValidationError):
-            self.env["quality.alert.custom"].api_get_assessment_media(
+            self.api_env["quality.alert.custom"].api_get_assessment_media(
                 "00000000-0000-4000-8000-000000000000", 1, "x" * 43
             )
 

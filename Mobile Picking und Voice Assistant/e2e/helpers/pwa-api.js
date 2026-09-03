@@ -292,6 +292,24 @@ async function mockPwaApi(page, options = {}) {
       });
     }
 
+    if (path === '/api/auth/switch-instance' && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() || '{}');
+      const targetInstance = instances.find((item) => item.name === body.odoo_instance);
+      if (!principal || !targetInstance) {
+        return jsonResponse(route, 401, { detail: 'Kein Zugriff auf dieses Lager.' });
+      }
+      principal = { ...principal, odoo_instance: targetInstance.name };
+      return jsonResponse(route, 200, {
+        principal,
+        csrf_token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      });
+    }
+
+    if (path === '/api/auth/logout' && request.method() === 'POST') {
+      principal = null;
+      return jsonResponse(route, 200, { success: true });
+    }
+
     if ((path === '/api/health' || path === '/api/health/live') && request.method() === 'GET') {
       return jsonResponse(route, 200, { status: 'ok' });
     }

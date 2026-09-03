@@ -17,6 +17,9 @@ from app.services.intent_engine import EXTERNAL_INTENT_LABELS
 
 logger = logging.getLogger(__name__)
 
+# Sekunden, die der Warmup auf das Laden des Modells warten darf.
+WARMUP_READ_TIMEOUT_S = 180.0
+
 _SYSTEM_PROMPT = (
     "Du ordnest eine deutsche Sprachaeusserung eines Lager-Kommissionierers genau "
     "einem Befehl zu. Erlaubte Befehle: "
@@ -51,6 +54,12 @@ class VoiceIntentClassifier:
         self._model = model
         seconds = max(1.0, timeout_ms / 1000.0)
         self._timeout = httpx.Timeout(connect=3.0, read=seconds, write=5.0, pool=3.0)
+        # Kaltes Laden von qwen2.5:1.5b auf der CPU dauert laenger als jede
+        # Aeusserung warten darf. Der Warmup bekommt deshalb sein eigenes,
+        # weites Fenster -- siehe warmup().
+        self._warmup_timeout = httpx.Timeout(
+            connect=3.0, read=WARMUP_READ_TIMEOUT_S, write=5.0, pool=3.0
+        )
         self._transport = transport
         self._client: httpx.AsyncClient | None = None
 
@@ -66,7 +75,9 @@ class VoiceIntentClassifier:
             )
         return self._client
 
-    async def classify(self, text: str) -> VoiceIntentResult:
+    async def classify(
+        self, text: str, *, timeout: httpx.Timeout | None = None
+    ) -> VoiceIntentResult:
         payload = {
             "model": self._model,
             "stream": False,
@@ -82,7 +93,9 @@ class VoiceIntentClassifier:
         }
         try:
             client = self._get_client()
-            resp = await client.post(f"{self._endpoint}/api/chat", json=payload)
+            resp = await client.post(
+                f"{self._endpoint}/api/chat", json=payload, timeout=timeout or self._timeout
+            )
             resp.raise_for_status()
             content = resp.json().get("message", {}).get("content")
             return self._parse(content)
@@ -95,9 +108,18 @@ class VoiceIntentClassifier:
     async def warmup(self) -> bool:
         """Laedt das Modell beim Start in den Ollama-Speicher (KEEP_ALIVE haelt es
         dann). Ohne Warmup bezahlt die ERSTE unsichere Aeusserung des Nutzers den
-        Kaltstart (bis ~13s). Fehler werden geschluckt — Warmup ist best-effort."""
+        Kaltstart (bis ~13s). Fehler werden geschluckt — Warmup ist best-effort.
+
+        Eigenes, grosszuegiges Timeout: mit dem Timeout einer echten Aeusserung
+        (4 s) brach der Warmup die Verbindung ab, WAEHREND Ollama das Modell noch
+        lud. Ollama bricht daraufhin das Laden ab -- protokolliert als "client
+        connection closed before llama-server finished loading, aborting load".
+        Gemessen am 25.08.2026: das Modell wurde deshalb nie warm, und jede
+        unsichere Aeusserung kostete erneut 4,19 s, ohne je ein Ergebnis zu
+        liefern. Der Warmup laeuft im Hintergrund; niemand wartet auf ihn.
+        """
         try:
-            result = await self.classify("bestaetigen")
+            result = await self.classify("bestaetigen", timeout=self._warmup_timeout)
             return result.ok
         except Exception:  # noqa: BLE001 - Warmup nie fatal
             return False

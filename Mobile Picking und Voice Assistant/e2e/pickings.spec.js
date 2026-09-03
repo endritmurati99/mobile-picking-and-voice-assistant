@@ -1,13 +1,12 @@
 const { test, expect } = require('@playwright/test');
 const { mockPwaApi } = require('./helpers/pwa-api');
+const { login } = require('./helpers/login');
 
-async function choosePicker(page, name = 'Lena Lager') {
+async function choosePicker(page, name = 'lena.lager') {
   const searchInput = page.locator('#search-input');
   if (await searchInput.isEnabled().catch(() => false)) return;
 
-  const pickerOption = page.locator('.picker-option').filter({ hasText: name }).first();
-  await expect(pickerOption).toBeVisible();
-  await pickerOption.click();
+  await login(page, name, { goto: false });
   await expect(page.locator('#picker-indicator')).toBeVisible();
   await expect(searchInput).toBeEnabled();
 }

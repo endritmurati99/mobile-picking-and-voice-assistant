@@ -68,12 +68,12 @@ def _mit_texturteil(
     hatte `sellable` mit Konfidenz 1.0 geurteilt, der Artikelabgleich meldete
     faelschlich einen anderen Artikel -- und danach war das Urteil nirgends
     mehr nachlesbar. Der Widerspruchszweig in n8n schickt nur `photo_analysis`
-    mit, und `quality_alert.api_apply_assessment` leert bei `review_required`
+    mit, und `quality_alert._apply_assessment` leert bei `review_required`
     Einstufung, Konfidenz, Begruendung, Provider und Modell.
 
     Warum als Text und nicht in `ai_disposition`: dort stuende eine Einstufung
     neben "Manuelle Pruefung noetig", die niemand angewendet hat -- genau der
-    Zustand, den `api_apply_assessment` mit dem Leeren verhindern will. Ein
+    Zustand, den `_apply_assessment` mit dem Leeren verhindern will. Ein
     Mensch, der die Meldung ohnehin in die Hand nimmt, soll lesen koennen, was
     das Textmodell gesehen hat, ohne dass es wie eine geltende Entscheidung
     aussieht. Daher der Zusatz "nicht wirksam".

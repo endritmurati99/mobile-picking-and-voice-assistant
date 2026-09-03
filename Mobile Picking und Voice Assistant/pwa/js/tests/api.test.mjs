@@ -4,21 +4,19 @@ import assert from 'node:assert/strict';
 import {
     assistVoice,
     clearActivePicker,
+    confirmClusterLine,
     confirmLine,
     getActiveInstance,
     getAuthInstances,
-    getCachedPickers,
+    getCurrentSession,
     getDeviceId,
-    getInstances,
     getPickings,
     getTraceabilityDemo,
-    healthCheck,
     loginPickerSession,
     logoutPickerSession,
     recognizeVoice,
     setActivePicker,
     setActiveInstance,
-    setCachedPickers,
     setTraceabilityDemoMode,
 } from '../api.js';
 
@@ -172,23 +170,6 @@ test('logout sends the CSRF token, or the server keeps the session alive', async
     assert.equal(captured.options.headers['X-CSRF-Token'], 'csrf-logout');
 });
 
-test('healthCheck calls the route that exists', async () => {
-    // `health.py` defines `/health/live` only, and that is the path on the
-    // pre-auth allowlist. `/api/health` was a 404 read as "backend down".
-    const originalFetch = global.fetch;
-    let capturedUrl = null;
-    global.fetch = async (url) => {
-        capturedUrl = url;
-        return { ok: true, status: 200, json: async () => ({ status: 'ok' }) };
-    };
-    try {
-        await healthCheck();
-    } finally {
-        global.fetch = originalFetch;
-    }
-    assert.equal(capturedUrl, '/api/health/live');
-});
-
 test('assistVoice sends a JSON payload without authority headers', async () => {
     const originalFetch = global.fetch;
     let capturedHeaders = null;
@@ -330,27 +311,60 @@ test('login sends device and selected instance then stores csrf in sessionStorag
     }
 });
 
-test('picker catalog cache round-trips through localStorage', () => {
+test('restored cookie session refreshes csrf before a cluster write', async () => {
+    const originalFetch = global.fetch;
+    const originalSessionStorage = global.sessionStorage;
     const store = new Map();
-    const originalStorage = global.localStorage;
-    global.localStorage = {
-        getItem(key) { return store.has(key) ? store.get(key) : null; },
-        setItem(key, value) { store.set(key, value); },
-        removeItem(key) { store.delete(key); },
+    global.sessionStorage = {
+        getItem: key => store.get(key) ?? null,
+        setItem: (key, value) => store.set(key, value),
+        removeItem: key => store.delete(key),
+    };
+    const calls = [];
+    global.fetch = async (url, options) => {
+        calls.push({ url, options });
+        if (url === '/api/auth/me') {
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    picker_user_id: 5,
+                    picker_name: 'Lena Lager',
+                    device_id: '3f9a1c22-0000-4000-8000-0000000000ff',
+                    odoo_instance: 'local',
+                    roles: ['picker'],
+                    session_id: '4ddb2442-e58a-47fe-9a6f-1ec1d779ef88',
+                    expires_at: '2026-08-22T20:00:00Z',
+                }),
+            };
+        }
+        if (url === '/api/auth/csrf') {
+            return { ok: true, status: 200, json: async () => ({ csrf_token: 'csrf-restored' }) };
+        }
+        return { ok: true, status: 200, json: async () => ({ success: true }) };
     };
 
     try {
-        setCachedPickers([
-            { id: 17, name: 'Administrator' },
-            { id: 18, name: 'Lena Lager' },
-        ]);
-        assert.deepEqual(getCachedPickers(), [
-            { id: 17, name: 'Administrator' },
-            { id: 18, name: 'Lena Lager' },
-        ]);
+        await getCurrentSession();
+        await confirmClusterLine(14, {
+            picking_id: 71,
+            move_line_id: 485,
+            scanned_barcode: '6023350',
+            scanned_package: 'CLUSTER-B1/L1/OUT/00071',
+            quantity: 2,
+        }, { idempotencyKey: 'cluster-confirm-restored-session' });
     } finally {
-        global.localStorage = originalStorage;
+        clearActivePicker();
+        global.fetch = originalFetch;
+        global.sessionStorage = originalSessionStorage;
     }
+
+    assert.deepEqual(calls.map(call => call.url), [
+        '/api/auth/me',
+        '/api/auth/csrf',
+        '/api/cluster/batches/14/confirm-line',
+    ]);
+    assert.equal(calls[2].options.headers['X-CSRF-Token'], 'csrf-restored');
 });
 
 test('getActiveInstance/setActiveInstance remain a pre-login selection preference only', async () => {
@@ -390,27 +404,6 @@ test('getActiveInstance/setActiveInstance remain a pre-login selection preferenc
     } finally {
         global.fetch = originalFetch;
         global.localStorage = originalStorage;
-    }
-});
-
-test('getInstances requests GET /instances', async () => {
-    const originalFetch = global.fetch;
-    let capturedUrl = null;
-    global.fetch = async (url) => {
-        capturedUrl = url;
-        return {
-            ok: true,
-            status: 200,
-            json: async () => ([{ name: 'local', display_name: 'Lokal' }]),
-        };
-    };
-
-    try {
-        const list = await getInstances();
-        assert.equal(capturedUrl, '/api/instances');
-        assert.deepEqual(list, [{ name: 'local', display_name: 'Lokal' }]);
-    } finally {
-        global.fetch = originalFetch;
     }
 });
 

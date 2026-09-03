@@ -130,7 +130,7 @@ def test_wrong_article_beats_everything_else():
 def test_a_contradicted_text_verdict_stays_readable():
     """Gemessen am 2026-08-09 (Ausfuehrung 46 zu QA/0227): das Textmodell hatte
     `sellable` mit Konfidenz 1.0 geurteilt, der Artikelabgleich meldete
-    faelschlich `mismatch` -- und weil `quality_alert.api_apply_assessment` bei
+    faelschlich `mismatch` -- und weil `quality_alert._apply_assessment` bei
     `review_required` Einstufung, Konfidenz, Begruendung, Provider und Modell
     leert, war das Urteil danach nirgends mehr nachlesbar.
 

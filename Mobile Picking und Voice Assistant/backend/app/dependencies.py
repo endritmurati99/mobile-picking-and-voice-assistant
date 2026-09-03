@@ -770,7 +770,6 @@ def get_callback_odoo_client(runtime: RuntimeServices, odoo_instance: str) -> Od
 # ---------------------------------------------------------------------------
 from pathlib import Path  # noqa: E402
 
-from app.config import Settings  # noqa: E402
 from app.services.outbox_dispatcher import (  # noqa: E402
     IntegrationWatchdog,
     OutboxDispatcher,

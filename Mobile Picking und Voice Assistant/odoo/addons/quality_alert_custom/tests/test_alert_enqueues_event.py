@@ -1,10 +1,10 @@
 import hashlib
 import json
 
-from odoo.tests.common import TransactionCase
+from .common import QualityApiCase
 
 
-class TestAlertEnqueuesEvent(TransactionCase):
+class TestAlertEnqueuesEvent(QualityApiCase):
     def setUp(self):
         super().setUp()
         self.env["ir.config_parameter"].sudo().set_param(
@@ -20,7 +20,7 @@ class TestAlertEnqueuesEvent(TransactionCase):
         )
 
     def _create(self, description="Karton zerdrueckt"):
-        return self.env["quality.alert.custom"].api_create_alert(
+        return self.api_env["quality.alert.custom"].api_create_alert(
             {"description": description, "priority": "1"}
         )
 

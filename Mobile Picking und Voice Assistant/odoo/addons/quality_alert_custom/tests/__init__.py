@@ -5,3 +5,4 @@ from . import test_assessment_projection
 from . import test_callback_projection
 from . import test_assessment_media
 from . import test_reference_description
+from . import test_api_guard

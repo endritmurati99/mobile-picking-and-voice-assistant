@@ -156,60 +156,6 @@ export function renderProductVisual({ productId, label, className = '', loading 
     `;
 }
 
-function renderOperationalPickCard({ move, productLabel, locationLabel, zoneLabel, quantityLabel }) {
-    const productSku = move.product_sku || move.product_barcode || 'Keine SKU';
-
-    return `
-        <section class="pick-card" aria-label="Aktueller Pick">
-            ${renderProductVisual({
-                productId: move.product_id,
-                label: productLabel,
-                className: 'pick-card__media product-visual product-visual--card',
-                size: 512,
-            })}
-            <div class="pick-card__content">
-                <div class="pick-card__eyebrow">${zoneLabel}</div>
-                <div class="pick-card__product">${productLabel}</div>
-                <div class="pick-card__meta">
-                    <span class="pick-card__sku">${productSku}</span>
-                    <span class="pick-card__barcode">Barcode: ${move.product_barcode || '-'}</span>
-                </div>
-                <div class="pick-card__quantity">${quantityLabel} Stück</div>
-            </div>
-            <div class="pick-card__location-box">
-                <div class="pick-card__location-label">Platz</div>
-                <div class="pick-card__location">${locationLabel}</div>
-            </div>
-            <div class="pick-card__actions">
-                <button class="btn-confirm" data-line-id="${move.id}">
-                    Bestätigen
-                </button>
-                <button class="btn-short-pick" data-line-id="${move.id}">
-                    Fehlbestand
-                </button>
-            </div>
-        </section>
-    `;
-}
-
-export function renderPickCard(move) {
-    const productLabel = move.ui_display || move.product_short_name || move.product_name || 'Produkt';
-    const locationLabel = move.location_src_short || move.location_src || 'Lagerort';
-    const zoneLabel = move.location_src_zone || 'Nächster Platz';
-    const quantity = Number(move.quantity_demand ?? 0);
-    const quantityLabel = Number.isInteger(quantity)
-        ? String(quantity)
-        : quantity.toFixed(2).replace(/\.?0+$/, '');
-
-    return renderOperationalPickCard({
-        move,
-        productLabel,
-        locationLabel,
-        zoneLabel,
-        quantityLabel,
-    });
-}
-
 export function renderLoading() {
     return `
         <div class="state-panel state-panel--loading" role="status" aria-live="polite">

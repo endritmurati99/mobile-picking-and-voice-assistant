@@ -612,7 +612,7 @@ class PickingAssistantCallbackReceipt(models.Model):
         alert = model.sudo().browse(int(aggregate_res_id)).exists()
         if not alert:
             return False
-        alert.api_apply_assessment(status, result, error)
+        alert._apply_assessment(status, result, error)
         return True
 
     def _store_response(self, job, callback_id, source_event_id, sequence,

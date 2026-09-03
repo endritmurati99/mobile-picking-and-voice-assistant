@@ -14,12 +14,12 @@ import {
     assistVoice,
     claimPicking,
     clearActivePicker,
-    clearStoredPicker,
     confirmLine,
     confirmClusterLine,
     createBatch,
     createIdempotencyKey,
     createQualityAlert,
+    getActiveBatch,
     getBatch,
     getClusterSuggestions,
     validateBatch,
@@ -28,7 +28,6 @@ import {
     getAuthInstances,
     getCurrentSession,
     getDeviceId,
-    getInstances,
     getLineStock,
     getPickingDetail,
     getPickings,
@@ -308,12 +307,12 @@ function renderRouteHint(picking, currentLineIndex) {
     return `
         <section class="route-hint" aria-label="Naechster Halt auf der Route">
             <div class="route-hint__eyebrow">Danach auf der Route</div>
-            <div class="route-hint__title">Nächster Halt: ${nextLocation}</div>
+            <div class="route-hint__title">Nächster Halt: ${escapeHtml(nextLocation)}</div>
             <div class="route-hint__meta">
                 ${remainingLines.length} Stopps offen - Laufweg-Score ${remainingTravelScore}
             </div>
             <div class="route-hint__chips">
-                ${zonePreview.map((zone) => `<span class="route-hint__chip">${zone}</span>`).join('')}
+                ${zonePreview.map((zone) => `<span class="route-hint__chip">${escapeHtml(zone)}</span>`).join('')}
             </div>
         </section>
     `;
@@ -464,9 +463,8 @@ async function withManagedRequest(task, { handleExpiry = true } = {}) {
 function handleSessionExpired() {
     if (sessionExpiryPending || sessionState === 'profile_required') return;
     sessionExpiryPending = true;
-    // `api.js` has already dropped the CSRF token and the active picker on the
-    // 401 itself; this clears the view state that mirrors them.
-    clearStoredPicker();
+    // `api.js` has already dropped the CSRF token on the 401 itself; this
+    // clears the view state that mirrors it.
     setState({
         currentPicker: null,
         currentPicking: null,
@@ -627,7 +625,7 @@ async function initInstanceSwitch() {
 
     let instances = [];
     try {
-        instances = await withManagedRequest((signal) => getInstances({ signal }));
+        instances = await withManagedRequest((signal) => getAuthInstances({ signal }));
     } catch (error) {
         if (!isAbortError(error)) {
             console.warn('Odoo-Instanzen konnten nicht geladen werden:', error);
@@ -1860,7 +1858,6 @@ async function switchProfile() {
     // by pressing reload -- the profile switch would be cosmetic.
     await logoutPickerSession();
     clearActivePicker();
-    clearStoredPicker();
     setState({
         currentPicker: null,
         currentPicking: null,
@@ -3359,7 +3356,6 @@ async function init() {
         onUpdateReady: handleServiceWorkerUpdateReady,
         onControllerRefresh: handleServiceWorkerControllerRefresh,
     });
-    clearStoredPicker();
     clearActivePicker();
     resetOperatorUiState();
     setState({ deviceId: getDeviceId() });
@@ -3704,6 +3700,20 @@ async function enterClusterMode() {
     if (!pickerReady) return;
     updateToolbar('cluster_select');
     setMainContent(renderLoading());
+    try {
+        const activeBatch = await withManagedRequest((signal) => getActiveBatch({ signal }));
+        if (activeBatch?.batch_id) {
+            resetClusterScanState();
+            setState({ batch: activeBatch });
+            renderClusterWalk(activeBatch);
+            updateToolbar('cluster_walk');
+            return;
+        }
+    } catch (error) {
+        if (isAbortError(error)) return;
+        setMainContent(renderError(`Laufender Cluster konnte nicht geladen werden: ${error.message}`));
+        return;
+    }
     let suggestions;
     try {
         suggestions = await withManagedRequest((signal) => getClusterSuggestions({ signal }));

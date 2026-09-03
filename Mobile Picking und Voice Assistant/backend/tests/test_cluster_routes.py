@@ -94,6 +94,15 @@ def test_create_batch_maps_unavailable_error_to_503(client, cluster_service):
     assert resp.status_code == 503
 
 
+def test_get_active_batch_for_current_picker(client, cluster_service):
+    cluster_service.get_active_batch.return_value = {"batch_id": 12, "name": "BATCH/OUT/00012"}
+    resp = client.get("/api/cluster/batches/active", headers={"X-Picker-User-Id": "7"})
+    assert resp.status_code == 200
+    assert resp.json()["batch_id"] == 12
+    _, kwargs = cluster_service.get_active_batch.call_args
+    assert kwargs["picker_identity"].user_id == 7
+
+
 def test_get_batch_404(client, cluster_service):
     cluster_service.get_batch.return_value = {"error": "Batch nicht gefunden"}
     resp = client.get("/api/cluster/batches/123", headers={"X-Picker-User-Id": "7"})

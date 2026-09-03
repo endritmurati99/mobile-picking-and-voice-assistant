@@ -1,5 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { mockPwaApi } = require('./helpers/pwa-api');
+const { login } = require('./helpers/login');
 
 // Stateful Cluster-API-Mock: getBatch spiegelt die picked-Flags wider, die
 // confirm-line setzt, damit der Fortschritt im Rundgang real hochzaehlt.
@@ -104,6 +105,10 @@ async function mockClusterApi(page, options = {}) {
       validated = true;
       return json(200, { success: true, batch_complete: true, message: 'Batch abgeschlossen.' });
     }
+    if (path === '/api/cluster/batches/active' && method === 'GET') {
+      // Kein laufender Batch beim Betreten des Cluster-Modus -> Auswahl anzeigen.
+      return json(200, null);
+    }
     return json(404, { detail: `${method} ${path} nicht gemockt` });
   });
 
@@ -111,12 +116,31 @@ async function mockClusterApi(page, options = {}) {
 }
 
 async function enterCluster(page) {
-  await page.goto('/');
-  await page.locator('#login-user').fill('lena.lager');
-  await page.locator('#login-password').fill('admin');
-  await page.locator('#login-submit').click();
+  await login(page);
   await page.locator('[data-cluster-start]').first().click();
   await expect(page.getByText('Cluster zusammenstellen')).toBeVisible();
+}
+
+// Simuliert einen HID-Barcode-Scanner (pwa/js/scanner.js initHIDScanner):
+// Zeichen als schnelle keydown-Events, abgeschlossen mit Enter. Der Listener
+// haengt am `document` und ignoriert Tastatureingaben, solange ein
+// input/textarea/select fokussiert ist -- deshalb hier erst den Fokus loesen.
+async function scanBarcode(page, barcode) {
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  });
+  await page.keyboard.type(barcode, { delay: 0 });
+  await page.keyboard.press('Enter');
+}
+
+// Fuer ungetrackte Positionen (tracking:'none') ist der Confirm-Button erst
+// bedienbar, nachdem der Artikel-Barcode verifiziert wurde (pwa/js/app.js
+// syncClusterScanState()/handleClusterScan()) -- entweder per Scan oder per
+// "Ohne Scan manuell" (`data-stop-manual`). Ohne das bleibt der Button
+// disabled und zeigt "Gesperrt".
+async function verifyClusterStopByScan(page, lineId, productBarcode) {
+  await scanBarcode(page, productBarcode);
+  await expect(page.locator(`[data-stop-confirm="${lineId}"]`)).toBeEnabled();
 }
 
 // #8: Wizard / pending_action: validate returns pending_action -> error toast, button re-enabled.
@@ -143,6 +167,7 @@ test('Cluster-Validate: pending_action wizard zeigt Fehler-Toast und entsperrt B
   await page.locator('[data-cluster-confirm]').click();
 
   // Mark all lines as done so the validate button is enabled.
+  await verifyClusterStopByScan(page, 5001, '4006381333931');
   await page.locator('[data-stop-confirm="5001"]').click();
   await page.locator('[data-carton-pick="1001"]').click();
   await page.locator('[data-stop-confirm="5002"]').click();
@@ -178,7 +203,8 @@ test('Cluster-Flow: Auswahl -> Rundgang -> Serial -> Abschluss', async ({ page }
   await expect(page.locator('.cluster-box-chip').first()).toBeVisible();
   await expect(page.getByText('CLUSTER-B1/WH/INT/00007').first()).toBeVisible();
 
-  // Erste (nicht-serielle) Position: zuerst Empfaengerkarton bestaetigen
+  // Erste (nicht-serielle) Position: erst Artikel scannen, dann Empfaengerkarton bestaetigen
+  await verifyClusterStopByScan(page, 5001, '4006381333931');
   await page.locator('[data-stop-confirm="5001"]').click();
   await expect(page.locator('#carton-title')).toBeVisible();
   await page.locator('[data-carton-pick="1001"]').click();
@@ -216,6 +242,7 @@ test('Cluster-Karton: falscher Karton warnt und blockiert, richtiger geht durch'
   await page.locator('[data-cluster-confirm]').click();
 
   // Position 5001 (Auftrag 1001) bestaetigen, aber FALSCHEN Karton (Auftrag 1002) tippen
+  await verifyClusterStopByScan(page, 5001, '4006381333931');
   await page.locator('[data-stop-confirm="5001"]').click();
   await expect(page.locator('#carton-title')).toBeVisible();
   await page.locator('[data-carton-pick="1002"]').click();
@@ -282,7 +309,57 @@ test('Cluster-Karton: fehlender Zielkarton blockiert Confirm', async ({ page }) 
   await page.getByRole('button', { name: 'Vorschlag wählen' }).first().click();
   await page.locator('[data-cluster-confirm]').click();
 
+  await verifyClusterStopByScan(page, 5001, '4006381333931');
   await page.locator('[data-stop-confirm="5001"]').click();
   await expect(page.getByText(/Zielkarton fehlt/i)).toBeVisible();
   expect(cluster.getConfirmRequests()).toHaveLength(0);
+});
+
+// Neu (siehe Coordinator-Auftrag): beweist genau das Feature, das die
+// obigen Tests jetzt beruecksichtigen -- ohne Scan/manuelle Freigabe bleibt
+// der Confirm-Button einer ungetrackten Position gesperrt, ein falscher Scan
+// bucht nichts, und erst der richtige Barcode schaltet frei.
+test('Cluster-Stop bleibt ohne Scan oder manuelle Freigabe gesperrt', async ({ page }) => {
+  await mockPwaApi(page);
+  await mockClusterApi(page);
+
+  await enterCluster(page);
+  await page.getByRole('button', { name: 'Vorschlag wählen' }).first().click();
+  await page.locator('[data-cluster-confirm]').click();
+
+  const confirmBtn = page.locator('[data-stop-confirm="5001"]');
+  await expect(confirmBtn).toBeDisabled();
+  await expect(confirmBtn).toHaveText('Gesperrt');
+
+  // Falscher Scan bucht nichts und laesst die Position gesperrt.
+  await scanBarcode(page, 'FALSCHER-BARCODE-0000');
+  await expect(page.getByText('Falscher Artikel. Es wurde nichts gebucht.')).toBeVisible();
+  await expect(confirmBtn).toBeDisabled();
+  await expect(confirmBtn).toHaveText('Gesperrt');
+
+  // Richtiger Scan verifiziert den Artikel und schaltet den Confirm-Button frei.
+  await scanBarcode(page, '4006381333931');
+  await expect(page.getByText('Artikel geprüft. Jetzt den Zielkarton scannen.')).toBeVisible();
+  await expect(confirmBtn).toBeEnabled();
+  await expect(confirmBtn).toHaveText('Manuell');
+});
+
+// Alternative Freigabe zum Scan: der explizite "Ohne Scan manuell"-Button
+// (data-stop-manual) umgeht die Scan-Pflicht und oeffnet direkt den
+// Kartonwaehler -- der dokumentierte Ausweg, wenn der Barcode fehlt/kaputt ist.
+test('Cluster-Stop: "Ohne Scan manuell" oeffnet den Kartonwaehler ohne vorherigen Scan', async ({ page }) => {
+  await mockPwaApi(page);
+  const cluster = await mockClusterApi(page);
+
+  await enterCluster(page);
+  await page.getByRole('button', { name: 'Vorschlag wählen' }).first().click();
+  await page.locator('[data-cluster-confirm]').click();
+
+  await expect(page.locator('[data-stop-confirm="5001"]')).toBeDisabled();
+  await page.locator('[data-stop-manual="5001"]').click();
+  await expect(page.locator('#carton-title')).toBeVisible();
+  await page.locator('[data-carton-pick="1001"]').click();
+
+  await expect(page.locator('.cluster-progress__count')).toHaveText('1 / 2');
+  expect(cluster.getConfirmRequests()).toHaveLength(1);
 });

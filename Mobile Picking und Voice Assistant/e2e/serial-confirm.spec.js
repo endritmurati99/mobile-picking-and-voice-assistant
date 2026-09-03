@@ -1,9 +1,9 @@
 const { test, expect } = require('@playwright/test');
 const { mockPwaApi, createPickingDetail } = require('./helpers/pwa-api');
+const { login } = require('./helpers/login');
 
 async function openPicking(page) {
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Lena Lager' }).click();
+  await login(page);
   await page.getByText('4x Brick 2x2 orange').click();
   await expect(page.locator('#main .btn-confirm')).toBeVisible();
 }

@@ -102,7 +102,11 @@ class ProductTemplate(models.Model):
         Beschreibung dauerhaft gueltig erscheinen lassen, die zu keinem Bild
         gehoert. Eine leere Beschreibung loescht das Feld samt Summe -- damit
         ist die Zuruecknahme genauso einfach wie das Setzen.
+
+        Erste Wache wie bei jeder `api_*`-Methode: die SOLL-Beschreibung ist
+        der Massstab der Bewertung, sie setzt nur der Integrationsdienst.
         """
+        self.env["picking.assistant.api.mixin"]._require_api_service()
         template = self.sudo().browse(int(product_tmpl_id)).exists()
         if not template:
             return False

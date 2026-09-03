@@ -1,10 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { mockPwaApi } = require('./helpers/pwa-api');
-
-async function choosePicker(page, name = 'Lena Lager') {
-  await expect(page.getByRole('heading', { name: 'Profil auswählen' })).toBeVisible();
-  await page.getByRole('button', { name }).click();
-}
+const { login } = require('./helpers/login');
 
 async function triggerResume(page) {
   await page.evaluate(() => {
@@ -41,8 +37,7 @@ test.describe('small mobile layout', () => {
 
   test('keeps list, detail, and quality alert usable at 320px width', async ({ page }) => {
     await mockPwaApi(page);
-    await page.goto('/');
-    await choosePicker(page);
+    await login(page);
 
     await expect(page.getByText('4x Brick 2x2 orange')).toBeVisible();
 
@@ -82,8 +77,7 @@ test.describe('lifecycle refresh', () => {
   test('refreshes the list on resume and online events', async ({ page }) => {
     const api = await mockPwaApi(page);
 
-    await page.goto('/');
-    await choosePicker(page);
+    await login(page);
     await expect(page.getByText('4x Brick 2x2 orange')).toBeVisible();
 
     api.setPickings((pickings) => pickings.map((picking) => (
@@ -112,8 +106,7 @@ test.describe('lifecycle refresh', () => {
   test('keeps the active detail line when refreshing the current picking', async ({ page }) => {
     const api = await mockPwaApi(page);
 
-    await page.goto('/');
-    await choosePicker(page);
+    await login(page);
     await page.getByText('4x Brick 2x2 orange').click();
     await page.locator('.btn-confirm').click();
 
@@ -142,8 +135,7 @@ test.describe('lifecycle refresh', () => {
   test('does not auto-refresh while the quality alert form is open', async ({ page }) => {
     const api = await mockPwaApi(page);
 
-    await page.goto('/');
-    await choosePicker(page);
+    await login(page);
     await page.getByText('4x Brick 2x2 orange').click();
     await page.locator('#btn-alert').click();
 

@@ -5,6 +5,11 @@
 # 127.0.0.1 -- a bare "8069:8069" is reachable from the whole LAN, which is
 # exactly the surface the production file removes.
 #
+# Einzige Ausnahme, und nur auf Zuruf: `ODOO_BIND_HOST` (Default 127.0.0.1).
+# Fuer Handytests im WLAN wird Odoo damit direkt erreichbar -- inklusive
+# Admin-Login ohne Caddy davor. Nur setzen, solange der Test laeuft, und im
+# `.env` nicht stehen lassen.
+#
 # Use it explicitly:
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 # or set it once for this machine in .env:
@@ -42,7 +47,7 @@ services:
 
   odoo:
     ports:
-      - "127.0.0.1:${ODOO_HOST_PORT:-8069}:8069"
+      - "${ODOO_BIND_HOST:-127.0.0.1}:${ODOO_HOST_PORT:-8069}:8069"
     networks:
       - core-net
       - edge-net

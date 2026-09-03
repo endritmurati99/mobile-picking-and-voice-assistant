@@ -1,11 +1,11 @@
 const { test, expect } = require('@playwright/test');
 const { mockPwaApi } = require('./helpers/pwa-api');
+const { login } = require('./helpers/login');
 
 test('confirms both move lines and reaches the completion view', async ({ page }) => {
   const api = await mockPwaApi(page);
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Lena Lager' }).click();
+  await login(page);
   await page.getByText('4x Brick 2x2 orange').click();
 
   await page.locator('.btn-confirm').click();

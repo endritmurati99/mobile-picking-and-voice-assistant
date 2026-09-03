@@ -61,8 +61,7 @@
 # docker compose directly:
 #   clone-postgres-volume.sh compose-up MANIFEST_DIR REQUESTED_VOLUME PROJECT_NAME [-- extra args]
 #
-# Intentionally no ODOO_DB_NAME dependency: unlike init-db-roles.sh and
-# migrate-n8n-db-role.sh, this tool never opens a database connection or
+# Intentionally no ODOO_DB_NAME dependency: this tool never opens a database connection or
 # reads database/table names — it only ever operates on whole Docker
 # volumes by name/ID (docker volume inspect/create/rm) and on their raw
 # bytes (tar, sha256sum, PG_VERSION file contents). It has no code path

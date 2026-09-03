@@ -28,7 +28,17 @@ ODOO_NONCE_RETENTION_SECONDS = 900
 # Settings that were removed rather than renamed. `extra="ignore"` would let a
 # stale value sit in .env looking effective while doing nothing, so refuse to
 # start instead of silently ignoring it.
-_REMOVED_ENV_VARS = ("CORS_ORIGINS",)
+# MOBILE_CLAIM_HEARTBEAT_SECONDS: der Claim-Heartbeat lief immer ueber
+# MOBILE_CLAIM_TTL_SECONDS, das Feld wurde nie gelesen. LOGIN_*: die
+# Login-Drosselung liegt vollstaendig in Odoo (`picking.assistant.auth.throttle`),
+# die Backend-Felder taeuschten eine Konfigurierbarkeit vor, die nicht existierte.
+_REMOVED_ENV_VARS = (
+    "CORS_ORIGINS",
+    "MOBILE_CLAIM_HEARTBEAT_SECONDS",
+    "LOGIN_FAILURE_LIMIT",
+    "LOGIN_WINDOW_SECONDS",
+    "LOGIN_THROTTLE_RETENTION_SECONDS",
+)
 
 
 def reject_removed_env_vars(environ: Mapping[str, str], *, env_file: str | None = _ENV_FILE) -> None:
@@ -55,10 +65,13 @@ def reject_removed_env_vars(environ: Mapping[str, str], *, env_file: str | None 
     folded_keys = {key.casefold() for key in combined}
     for name in _REMOVED_ENV_VARS:
         if name.casefold() in folded_keys:
-            raise ValueError(
-                f"{name} was removed. Configure PWA_ORIGINS instead; it is the "
-                "single origin list and it is validated in production."
+            hint = (
+                " Configure PWA_ORIGINS instead; it is the single origin list "
+                "and it is validated in production."
+                if name == "CORS_ORIGINS"
+                else " It has no effect any more; delete it from the environment."
             )
+            raise ValueError(f"{name} was removed.{hint}")
 
 
 def reject_wildcard_origins_with_credentials(
@@ -253,7 +266,6 @@ class Settings(BaseSettings):
 
     log_level: str = "info"
     mobile_claim_ttl_seconds: int = 120
-    mobile_claim_heartbeat_seconds: int = 30
     mobile_idempotency_ttl_seconds: int = 86400
     mobile_header_grace_mode: bool = False
     demo_traceability_enabled: bool = False
@@ -269,9 +281,6 @@ class Settings(BaseSettings):
     session_max_age_seconds: int = 28800
     session_role_revalidate_seconds: int = Field(default=300, ge=1, le=300)
     session_throttle_hmac_secret_b64: str = ""
-    login_failure_limit: int = 5
-    login_window_seconds: int = 900
-    login_throttle_retention_seconds: int = 86400
     pwr_hmac_max_skew_seconds: int = Field(default=300, ge=1, le=300)
     pwr_nonce_ttl_seconds: int = 900
     pwr_backend_to_n8n_active_key_id: str = ""

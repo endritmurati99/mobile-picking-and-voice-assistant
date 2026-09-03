@@ -29,7 +29,7 @@ function assertPng(relativePath, expectedSize) {
 
 test('service worker cache is bumped for the phone reliability release', () => {
     const sw = readFileSync(path.join(pwaRoot, 'sw.js'), 'utf8');
-    assert.match(sw, /const CACHE_NAME = 'picking-v29';/);
+    assert.match(sw, /const CACHE_NAME = 'picking-v31';/);
 });
 
 test('active voice button has a filled high-contrast state', () => {

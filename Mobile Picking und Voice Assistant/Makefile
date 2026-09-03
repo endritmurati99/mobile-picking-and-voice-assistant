@@ -1,4 +1,4 @@
-.PHONY: help setup install-backend-deps install-ui-deps build-all build-backend build-odoo up down logs seed test test-ui test-visual test-visual-diff test-visual-diff-update test-a11y test-api test-n8n-api load-test verify-code verify-ui verify-visual verify-visual-diff verify-a11y verify-workflows verify-odoo-schema verify-stack verify clean
+.PHONY: help setup install-backend-deps install-ui-deps build-all build-backend build-odoo up down logs logs-backend logs-odoo seed test test-infra test-n8n test-pwa test-odoo test-all test-ui test-visual-diff-update test-a11y test-api test-n8n-api load-test verify-workflows verify-code verify-stack verify clean shell-odoo shell-db
 
 SHELL := /bin/bash
 -include .env
@@ -15,6 +15,10 @@ setup: ## Erstmalige Einrichtung
 
 install-backend-deps: ## Lokale Python-Abhaengigkeiten fuer Backend-Tests installieren
 	cd backend && python -m pip install --target .deps -r requirements-dev.txt
+
+install-ui-deps: ## Node-Abhaengigkeiten fuer die e2e-Suite installieren (Playwright)
+	npm ci
+	npx playwright install chromium
 
 build-all: ## Alle Docker Images bauen
 	docker compose build
@@ -71,6 +75,15 @@ test-all: ## Alle ausfuehrbaren Testsuiten nacheinander
 	$(MAKE) test-n8n
 	$(MAKE) test-pwa
 
+test-ui: ## e2e-Suite (Playwright, braucht Browser via install-ui-deps)
+	npx playwright test
+
+test-visual-diff-update: ## Visuelle Baselines der e2e-Suite neu erzeugen
+	npx playwright test --update-snapshots
+
+test-a11y: ## Nur die Accessibility-Suite (axe-core)
+	npx playwright test e2e/a11y.spec.js
+
 test-api: ## API-Rauchtest
 	python infrastructure/scripts/test-api.py
 
@@ -82,11 +95,6 @@ load-test: ## 100 Quality-Alert-Requests gegen laufenden Stack (Lasttest)
 
 verify-workflows: ## n8n-Workflow-Vertraege gegen Backend-Webhooks pruefen
 	python infrastructure/scripts/verify-workflows.py
-
-verify-odoo-schema: ## Ruflo Odoo Audit
-	@echo "🛡️ Starting Ruflo Odoo Audit..."
-	@ruflo exec odoo-auditor "Validiere das Schema der Tabelle 'quality_alert' gegen die Spezifikation in Obsidian."
-	@echo "✅ Audit completed."
 
 verify-code: ## Schneller Code-Check ohne laufenden Stack
 	$(MAKE) test-all

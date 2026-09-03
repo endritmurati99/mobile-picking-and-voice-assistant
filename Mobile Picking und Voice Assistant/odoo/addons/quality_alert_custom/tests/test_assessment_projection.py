@@ -18,7 +18,7 @@ class TestAssessmentProjection(TransactionCase):
 
     def test_success_writes_the_verdict(self):
         alert = self._alert()
-        alert.api_apply_assessment("succeeded", RESULT, None)
+        alert._apply_assessment("succeeded", RESULT, None)
         self.assertEqual(alert.ai_evaluation_status, "completed")
         self.assertEqual(alert.ai_disposition, "scrap")
         self.assertEqual(alert.ai_confidence, 0.95)
@@ -28,7 +28,7 @@ class TestAssessmentProjection(TransactionCase):
 
     def test_review_required_writes_no_verdict(self):
         alert = self._alert()
-        alert.api_apply_assessment(
+        alert._apply_assessment(
             "review_required", {}, {"code": "llm_unavailable", "message": "Timeout"}
         )
         self.assertEqual(alert.ai_evaluation_status, "review_required")
@@ -38,14 +38,14 @@ class TestAssessmentProjection(TransactionCase):
 
     def test_failed_writes_no_verdict(self):
         alert = self._alert()
-        alert.api_apply_assessment("failed", {}, {"message": "Odoo weg"})
+        alert._apply_assessment("failed", {}, {"message": "Odoo weg"})
         self.assertEqual(alert.ai_evaluation_status, "failed")
         self.assertFalse(alert.ai_disposition)
 
     def test_projection_does_not_raise_the_revision(self):
         alert = self._alert()
         before = alert.integration_revision
-        alert.api_apply_assessment("succeeded", RESULT, None)
+        alert._apply_assessment("succeeded", RESULT, None)
         self.assertEqual(alert.integration_revision, before)
 
     def test_unknown_status_is_refused(self):
@@ -53,11 +53,11 @@ class TestAssessmentProjection(TransactionCase):
 
         alert = self._alert()
         with self.assertRaises(ValidationError):
-            alert.api_apply_assessment("erfunden", RESULT, None)
+            alert._apply_assessment("erfunden", RESULT, None)
 
     def test_photo_analysis_is_stored_on_success(self):
         alert = self._alert()
-        alert.api_apply_assessment(
+        alert._apply_assessment(
             "succeeded",
             dict(RESULT, photo_analysis="Schadenspruefung: aufgerissene Zone."),
             None,
@@ -70,7 +70,7 @@ class TestAssessmentProjection(TransactionCase):
         `succeeded` darf schreiben -- schuetzt davor, dass ein URTEIL ohne
         Modell entsteht. Eine Beobachtung ist kein Urteil."""
         alert = self._alert()
-        alert.api_apply_assessment(
+        alert._apply_assessment(
             "review_required",
             {"photo_analysis": "Foto zeigt nicht den gemeldeten Artikel."},
             {"message": "Widerspruch"},
@@ -84,8 +84,8 @@ class TestAssessmentProjection(TransactionCase):
         "quarantine", der naechste fand den Hund und ging an einen Menschen --
         und die alte Einstufung stand weiter im Formular."""
         alert = self._alert()
-        alert.api_apply_assessment("succeeded", dict(RESULT, disposition="quarantine"), None)
-        alert.api_apply_assessment(
+        alert._apply_assessment("succeeded", dict(RESULT, disposition="quarantine"), None)
+        alert._apply_assessment(
             "review_required",
             {"photo_analysis": "Foto zeigt nicht den gemeldeten Artikel."},
             {"message": "Foto widerspricht der Meldung, siehe Fotoanalyse."},
@@ -100,8 +100,8 @@ class TestAssessmentProjection(TransactionCase):
 
     def test_failed_clears_the_verdict_of_the_previous_run(self):
         alert = self._alert()
-        alert.api_apply_assessment("succeeded", RESULT, None)
-        alert.api_apply_assessment("failed", {}, {"message": "Odoo weg"})
+        alert._apply_assessment("succeeded", RESULT, None)
+        alert._apply_assessment("failed", {}, {"message": "Odoo weg"})
         self.assertFalse(alert.ai_disposition)
         self.assertFalse(alert.ai_summary)
 
@@ -109,8 +109,8 @@ class TestAssessmentProjection(TransactionCase):
         """Kein Rest vom vorigen Durchlauf: eine Wiederholung ohne Bildbefund
         darf nicht den alten stehen lassen."""
         alert = self._alert()
-        alert.api_apply_assessment(
+        alert._apply_assessment(
             "succeeded", dict(RESULT, photo_analysis="alter Befund"), None
         )
-        alert.api_apply_assessment("succeeded", RESULT, None)
+        alert._apply_assessment("succeeded", RESULT, None)
         self.assertFalse(alert.ai_photo_analysis)

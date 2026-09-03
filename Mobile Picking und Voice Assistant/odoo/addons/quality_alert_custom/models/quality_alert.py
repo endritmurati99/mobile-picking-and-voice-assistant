@@ -91,7 +91,7 @@ class QualityAlert(models.Model):
             # Vierter Wert: das Modell hat NICHT geantwortet, und niemand hat
             # ersatzweise geraten. Ohne diesen Zustand muesste ein Ausfall als
             # "fehlgeschlagen" oder -- schlimmer -- als Bewertung erscheinen.
-            ("review_required", "Manuelle Pruefung noetig"),
+            ("review_required", "Manuelle Prüfung nötig"),
             ("failed", "Fehlgeschlagen"),
         ],
         string="Analyse-Status",
@@ -170,12 +170,16 @@ class QualityAlert(models.Model):
         "failed": "failed",
     }
 
-    def api_apply_assessment(self, status, result, error):
+    def _apply_assessment(self, status, result, error):
         """Traegt das Ergebnis der Kette in die ai_*-Felder.
 
         Aufgerufen aus `picking.assistant.callback.receipt.api_apply_callback`,
         also in DERSELBEN Transaktion wie Job- und Receipt-Zustand: entweder
         der Callback gilt vollstaendig, oder er gilt gar nicht.
+
+        Bewusst privat (fuehrender Unterstrich): Odoo lehnt solche Methoden
+        ueber RPC ab. Ein Urteil erreicht diesen Datensatz nur ueber den
+        signierten Callback-Pfad, nie durch einen direkten JSON-RPC-Aufruf.
         """
         self.ensure_one()
         mapped = self._ASSESSMENT_STATUS_MAP.get(status)
@@ -240,6 +244,10 @@ class QualityAlert(models.Model):
     def api_get_assessment_media(self, job_id, delivery_generation, processing_lease_token):
         """Liefert dem Bewertungsschritt Meldefoto und Katalogbild.
 
+        Erste Wache wie bei jeder `api_*`-Methode des Projekts: nur der
+        Integrationsdienst darf diese Fassade rufen. Ohne sie kaeme jeder
+        interne Odoo-Nutzer mit Job-Kennung und Lease an fremde Fotos.
+
         Der Zugriff haengt am JOB, nicht an einer mitgeschickten Alert-Kennung:
         wer den Alert frei waehlen koennte, kaeme mit einer einzigen gueltigen
         Signatur an jedes Foto im System. Dieselbe Lease- und
@@ -257,6 +265,7 @@ class QualityAlert(models.Model):
         dem auf den signierten Routen ein deklarierter Content-Type nie als
         Beweis gilt.
         """
+        self.env["picking.assistant.api.mixin"]._require_api_service()
         job = self.env["picking.assistant.integration.job"].sudo().search(
             [("job_id", "=", job_id), ("aggregate_model", "=", self._name)],
             limit=1,
@@ -327,7 +336,30 @@ class QualityAlert(models.Model):
             ),
         }
 
+    def _require_ai_fields_writable(self, vals):
+        """Die ai_*-Felder sind das Urteil der Bewertungskette.
+
+        `group_quality_user` haengt an `base.group_user`, also hat jeder
+        interne Nutzer Schreibrecht auf den Datensatz. Ohne diese Sperre
+        koennte er per ORM eine Einstufung eintragen, die kein Modell je
+        getroffen hat -- genau das, was `_apply_assessment` mit "nur
+        `succeeded` schreibt ein Urteil" verhindern soll. Superuser (die
+        Projektion laeuft unter sudo) und der Integrationsdienst duerfen.
+        """
+        if not any(field.startswith("ai_") for field in vals):
+            return
+        if self.env.su:
+            return
+        self.env["picking.assistant.api.mixin"]._require_api_service()
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            self._require_ai_fields_writable(vals)
+        return super().create(vals_list)
+
     def write(self, vals):
+        self._require_ai_fields_writable(vals)
         bumps = any(field in vals for field in self._REVISION_TRIGGER_FIELDS)
         if not bumps or "integration_revision" in vals:
             return super().write(vals)
@@ -360,8 +392,12 @@ class QualityAlert(models.Model):
         """
         Atomare Methode für externe Alert-Erstellung.
         Akzeptiert photos als Liste von {data_b64, filename}.
-        sudo() wird verwendet, da die Rechteprüfung auf API-Ebene (FastAPI) erfolgt.
+        sudo() wird verwendet, weil die fachliche Pruefung (MIME, Groesse,
+        Rate-Limit) im Backend liegt -- deshalb darf NUR der Integrationsdienst
+        hier hinein. Ohne die Wache umginge jeder interne Nutzer per JSON-RPC
+        genau diese Pruefung.
         """
+        self.env["picking.assistant.api.mixin"]._require_api_service()
         photos = vals.pop("photos", [])
         single_b64 = vals.pop("photo_base64", None)
         single_name = vals.pop("photo_filename", None)

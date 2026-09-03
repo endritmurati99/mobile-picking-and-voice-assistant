@@ -4,7 +4,6 @@
   "description": "Private signed transport nodes for Picking Warehouse Runtime",
   "license": "UNLICENSED",
   "private": true,
-  "main": "dist/src/index.js",
   "files": ["dist"],
   "engines": {"node": ">=22.16"},
   "scripts": {

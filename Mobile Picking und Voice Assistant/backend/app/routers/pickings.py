@@ -6,10 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from app.config import settings
 from app.dependencies import (
     get_mobile_workflow_service,
-    get_odoo_client,
     get_picking_service,
     get_request_odoo_client_or_grace,
     get_required_picker_identity,

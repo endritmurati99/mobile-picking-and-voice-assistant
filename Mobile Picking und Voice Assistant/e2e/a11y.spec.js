@@ -1,6 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const AxeBuilder = require('@axe-core/playwright').default;
 const { mockPwaApi } = require('./helpers/pwa-api');
+const { login } = require('./helpers/login');
 
 function createBuilder(page, includeSelector) {
   const builder = new AxeBuilder({ page }).withTags([
@@ -28,16 +29,14 @@ async function expectNoViolations(page, testInfo, includeSelector) {
 
 test('picking list has no automatically detectable accessibility violations', async ({ page }, testInfo) => {
   await mockPwaApi(page);
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Lena Lager' }).click();
+  await login(page);
   await expect(page.getByText('4x Brick 2x2 orange')).toBeVisible();
   await expectNoViolations(page, testInfo, '#app');
 });
 
 test('picking detail has no automatically detectable accessibility violations', async ({ page }, testInfo) => {
   await mockPwaApi(page);
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Lena Lager' }).click();
+  await login(page);
   await page.getByText('4x Brick 2x2 orange').click();
   await expect(page.locator('#main')).toContainText('Brick 2x2 orange');
   await expectNoViolations(page, testInfo, '#main');
@@ -45,8 +44,7 @@ test('picking detail has no automatically detectable accessibility violations', 
 
 test('quality alert form has no automatically detectable accessibility violations', async ({ page }, testInfo) => {
   await mockPwaApi(page);
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Lena Lager' }).click();
+  await login(page);
   await page.getByText('4x Brick 2x2 orange').click();
   await page.locator('#btn-alert').click();
   await expect(page.getByRole('heading', { name: 'Problem melden' })).toBeVisible();

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1100" viewBox="0 0 1600 1100" role="img" aria-labelledby="title desc">
   <title id="title">Ebene 1: Systemlandkarte des Mobile Picking Assistant</title>
-  <desc id="desc">Die PWA läuft im Browser außerhalb von Docker. Caddy ist der einzige öffentliche Eingang und leitet Webseitenaufrufe an den PWA-Dateiserver sowie API-Aufrufe an FastAPI. FastAPI spricht mit Odoo, n8n, Whisper, Piper und Ollama. Der Quality-Weg besteht aus Outbox-Zustellung und signiertem Callback. Odoo und n8n speichern getrennte Daten im selben PostgreSQL-Dienst.</desc>
+  <desc id="desc">Die PWA läuft im Browser außerhalb von Docker. Caddy ist der einzige öffentliche Eingang und leitet Webseitenaufrufe an den PWA-Dateiserver sowie API-Aufrufe an FastAPI. FastAPI spricht mit Odoo, n8n, Whisper, Piper, Ollama und DINOv2. Der Quality-Weg besteht aus Odoo-Outbox, FastAPI-Dispatcher und signiertem Callback. Odoo und n8n speichern getrennte Daten im selben PostgreSQL-Dienst.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
@@ -72,25 +72,19 @@
   <g aria-label="FastAPI Backend">
     <rect x="885" y="160" width="270" height="190" rx="20" fill="#dcfce7" stroke="#16a34a" stroke-width="4"/>
     <text x="1020" y="207" text-anchor="middle" class="box-title">FastAPI</text>
-    <text x="1020" y="238" text-anchor="middle" class="box-copy">zentrale Drehscheibe</text>
-    <text x="1020" y="271" text-anchor="middle" class="small">prüft Anfragen</text>
-    <text x="1020" y="294" text-anchor="middle" class="small">entscheidet, welcher Dienst nötig ist</text>
-    <text x="1020" y="317" text-anchor="middle" class="small">liefert die Antwort zurück</text>
+    <text x="1020" y="238" text-anchor="middle" class="box-copy">Application Gateway</text>
+    <text x="1020" y="271" text-anchor="middle" class="small">Sicherheit · Orchestrierung</text>
+    <text x="1020" y="294" text-anchor="middle" class="small">Dispatcher für Odoo-Outbox</text>
+    <text x="1020" y="317" text-anchor="middle" class="small">koordiniert interne Dienste</text>
   </g>
 
   <g aria-label="Odoo">
     <rect x="1220" y="125" width="280" height="175" rx="20" fill="#fee2e2" stroke="#dc2626" stroke-width="3"/>
     <text x="1360" y="166" text-anchor="middle" class="box-title">Odoo 19</text>
-    <text x="1360" y="196" text-anchor="middle" class="box-copy">fachliche Wahrheit</text>
+    <text x="1360" y="196" text-anchor="middle" class="box-copy">ERP · System of Record</text>
     <text x="1360" y="225" text-anchor="middle" class="small">Aufträge · Bestand · Benutzer</text>
     <text x="1360" y="249" text-anchor="middle" class="small">Quality Alerts · Outbox</text>
-    <text x="1360" y="273" text-anchor="middle" class="small">Cluster-Batches</text>
-  </g>
-
-  <g aria-label="Odoo-Migrationshinweis">
-    <rect x="1220" y="314" width="280" height="48" rx="12" fill="#fff7ed" stroke="#fb923c" stroke-width="2"/>
-    <text x="1360" y="334" text-anchor="middle" class="note">Deklarierter Aufbau: Odoo 19</text>
-    <text x="1360" y="352" text-anchor="middle" class="note">Live-Migration noch nicht E2E bestätigt</text>
+    <text x="1360" y="273" text-anchor="middle" class="small">ERP-Geschäftslogik · Cluster-Batches</text>
   </g>
 
   <g aria-label="n8n">
@@ -105,6 +99,15 @@
     <text x="910" y="611" text-anchor="middle" class="box-title">Whisper</text>
     <text x="910" y="642" text-anchor="middle" class="box-copy">Sprache → Text</text>
     <text x="910" y="667" text-anchor="middle" class="small">hört zu</text>
+  </g>
+
+  <g aria-label="Embedding DINOv2">
+    <rect x="570" y="567" width="220" height="150" rx="18" fill="#ecfccb" stroke="#65a30d" stroke-width="3"/>
+    <text x="680" y="603" text-anchor="middle" class="box-title" font-size="18">Embedding / DINOv2</text>
+    <text x="680" y="632" text-anchor="middle" class="small">Quality: Artikelbild-Vergleich</text>
+    <text x="680" y="657" text-anchor="middle" class="small">Bild → Merkmalsvektor</text>
+    <text x="680" y="682" text-anchor="middle" class="small">Form + Farbe · keine Buchung</text>
+    <text x="680" y="704" text-anchor="middle" class="note" font-size="11">kein Barcode- oder Schadensscanner</text>
   </g>
 
   <g aria-label="Piper">
@@ -136,16 +139,16 @@
   </g>
 
   <path d="M 488 215 L 588 215" class="flow"/>
-  <text x="538" y="185" text-anchor="middle" class="arrow-label">HTTPS</text>
-  <text x="538" y="202" text-anchor="middle" class="note">einziger öffentlicher Zugang</text>
-  <path d="M 590 259 L 490 286" class="flow"/>
-  <text x="535" y="293" text-anchor="middle" class="arrow-label">PWA-Dateien / Antwort</text>
+  <text x="538" y="202" text-anchor="middle" class="arrow-label">HTTPS</text>
+  <path d="M 590 285 L 488 285" class="flow"/>
+  <text x="539" y="307" text-anchor="middle" class="arrow-label">Web-Dateien</text>
   <path d="M 695 314 L 695 388" class="both"/>
   <text x="710" y="356" class="arrow-label">Webseite</text>
   <path d="M 801 215 L 883 215" class="both"/>
   <text x="842" y="201" text-anchor="middle" class="arrow-label">/api/*</text>
   <path d="M 1157 218 L 1218 218" class="both"/>
   <text x="1188" y="202" text-anchor="middle" class="arrow-label">JSON-RPC</text>
+  <path d="M 1218 282 L 1185 282 L 1185 310 L 1157 310" class="async"/>
   <path d="M 1157 294 L 1192 294 L 1192 410 L 1238 410" class="async"/>
   <text x="1206" y="352" text-anchor="middle" class="quality-label">Outbox-</text>
   <text x="1206" y="367" text-anchor="middle" class="quality-label">Zustellung</text>
@@ -155,6 +158,8 @@
   <path d="M 1005 352 L 1005 520 L 910 520 L 910 565" class="both"/>
   <path d="M 1034 352 L 1034 530 L 1125 530 L 1125 565" class="both"/>
   <path d="M 1062 352 L 1062 515 L 1362 515 L 1362 565" class="both"/>
+  <path d="M 976 352 L 976 540 L 680 540 L 680 565" class="both"/>
+  <text x="755" y="531" text-anchor="middle" class="arrow-label">Quality: Artikelbild-Ähnlichkeit</text>
   <text x="913" y="507" text-anchor="middle" class="arrow-label">Audio</text>
   <text x="1125" y="517" text-anchor="middle" class="arrow-label">Audio</text>
   <text x="1362" y="552" text-anchor="middle" class="arrow-label">Text / Bild</text>

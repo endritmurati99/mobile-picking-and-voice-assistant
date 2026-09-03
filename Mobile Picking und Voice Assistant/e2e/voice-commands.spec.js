@@ -1,5 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { mockPwaApi, createPickingDetail, createPickingList } = require('./helpers/pwa-api');
+const { login } = require('./helpers/login');
 
 test('voice next_order opens the next available picking from completion view', async ({ page }) => {
   const nextDetail = createPickingDetail();
@@ -27,8 +28,7 @@ test('voice next_order opens the next available picking from completion view', a
 
   const api = await mockPwaApi(page, { pickings: createPickingList().slice(0, 2) });
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Lena Lager' }).click();
+  await login(page);
   await page.getByText('4x Brick 2x2 orange').click();
 
   await page.locator('.btn-confirm').click();

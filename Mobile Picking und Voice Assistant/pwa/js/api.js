@@ -4,8 +4,6 @@
  */
 const API_BASE = '/api';
 const STORAGE_KEYS = {
-    picker: 'picking-assistant-picker',
-    pickerCatalog: 'picking-assistant-picker-catalog',
     deviceId: 'picking-assistant-device-id',
     preferredZone: 'picking-assistant-preferred-zone',
     darkModeEnabled: 'picking-assistant-dark-mode',
@@ -113,29 +111,6 @@ export function setActivePicker(picker) {
 
 export function clearActivePicker() {
     activePicker = null;
-}
-
-export function clearStoredPicker() {
-    safeStorageRemove(STORAGE_KEYS.picker);
-}
-
-export function getCachedPickers() {
-    const raw = safeStorageGet(STORAGE_KEYS.pickerCatalog);
-    if (!raw) return [];
-    try {
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed)) return [];
-        return parsed.map(normalizePicker).filter(Boolean);
-    } catch {
-        return [];
-    }
-}
-
-export function setCachedPickers(pickers) {
-    const normalized = Array.isArray(pickers)
-        ? pickers.map(normalizePicker).filter(Boolean)
-        : [];
-    safeStorageSet(STORAGE_KEYS.pickerCatalog, JSON.stringify(normalized));
 }
 
 export function getStoredPreferredZone() {
@@ -314,8 +289,8 @@ export async function switchPickerInstance(odooInstance, options = {}) {
     // nicht. Antwortet es 401, ist der Weg ueber den Login-Schirm noetig.
     // Der CSRF-Token liegt im `sessionStorage` und ueberlebt keinen neuen Tab;
     // das Sitzungs-Cookie schon. Ohne Token waere der Wechsel dort ein 403 --
-    // also erst einen holen. (Dieselbe Luecke trifft jeden anderen
-    // schreibenden Aufruf, siehe `rotateCsrfToken`, das sonst niemand ruft.)
+    // also erst einen holen. Wiederhergestellte Sitzungen erledigen dasselbe
+    // zentral in `getCurrentSession()`.
     if (!getCsrfToken()) await rotateCsrfToken({ signal: options.signal });
     const result = await request('POST', '/auth/switch-instance', {
         odoo_instance: normalizeInstanceName(odooInstance),
@@ -333,6 +308,7 @@ export async function getCurrentSession(options = {}) {
     const principal = await request('GET', '/auth/me', null, {
         signal: options.signal,
     });
+    if (!getCsrfToken()) await rotateCsrfToken({ signal: options.signal });
     setActivePicker({
         id: principal.picker_user_id,
         name: principal.picker_name,
@@ -361,20 +337,12 @@ export async function logoutPickerSession(options = {}) {
     }
 }
 
-export async function getPickers(options = {}) {
-    return request('GET', '/pickers', null, { signal: options.signal });
-}
-
 export async function getAuthInstances(options = {}) {
     // `/api/auth/instances` is on the pre-auth allowlist; `/api/instances` is a
     // development-only router that `create_app` does not even include in
     // production. The login screen must use this one -- it is the only instance
     // list a client without a session can read.
     return request('GET', '/auth/instances', null, { signal: options.signal });
-}
-
-export async function getInstances(options = {}) {
-    return request('GET', '/instances', null, { signal: options.signal });
 }
 
 export async function getTraceabilityDemo(options = {}) {
@@ -502,8 +470,13 @@ export async function getClusterSuggestions(options = {}) {
 }
 
 export async function createBatch(pickingIds, options = {}) {
-    return request('POST', '/cluster/batches', { picking_ids: pickingIds }, {
-        headers: getWriteHeaders(options.idempotencyKey), signal: options.signal });
+return request('POST', '/cluster/batches', { picking_ids: pickingIds }, {
+headers: getWriteHeaders(options.idempotencyKey), signal: options.signal });
+}
+
+export async function getActiveBatch(options = {}) {
+return request('GET', '/cluster/batches/active', null, {
+headers: getReadHeaders(), signal: options.signal });
 }
 
 export async function getBatch(batchId, options = {}) {
@@ -521,9 +494,3 @@ export async function validateBatch(batchId, options = {}) {
         headers: getWriteHeaders(options.idempotencyKey), signal: options.signal });
 }
 
-export async function healthCheck() {
-    // `/api/health` does not exist -- `health.py` defines `/health/live` only,
-    // and that is the path on the pre-auth allowlist. `/api/health` was a 404
-    // that every caller read as "backend down".
-    return request('GET', '/health/live');
-}

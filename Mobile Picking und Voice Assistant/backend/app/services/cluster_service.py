@@ -607,6 +607,21 @@ class ClusterService:
             return False
         return owner_id == requester_id
 
+    async def get_active_batch(self, picker_identity=None) -> dict[str, Any] | None:
+        """Den laufenden Batch des angemeldeten Pickers zum Fortsetzen liefern."""
+        picker_id = getattr(picker_identity, "user_id", None) if picker_identity else None
+        if picker_id is None:
+            return None
+        batches = await self._odoo.search_read(
+            "stock.picking.batch",
+            [("user_id", "=", picker_id), ("state", "=", "in_progress")],
+            ["id"],
+            limit=20,
+        )
+        if not batches:
+            return None
+        return await self.get_batch(max(batch["id"] for batch in batches), picker_identity=picker_identity)
+
     async def get_batch(self, batch_id: int, picker_identity=None) -> dict[str, Any]:
         """Batch mit gemergter, route-sortierter Sammelliste + Box-Tags + Fortschritt."""
         batches = await self._odoo.search_read(

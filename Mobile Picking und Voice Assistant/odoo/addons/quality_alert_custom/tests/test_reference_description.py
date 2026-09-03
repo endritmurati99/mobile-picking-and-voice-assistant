@@ -13,7 +13,7 @@ schlimmer als gar keiner.
 """
 from unittest.mock import patch
 
-from odoo.tests.common import TransactionCase
+from .common import QualityApiCase
 
 # 1x1 PNG, und weiter unten ein zweites, anderes Bild -- der Bildwechsel ist
 # der Fall, den die Pruefsumme abfangen muss.
@@ -29,7 +29,7 @@ PNG_ROT_B64 = (
 SOLL = "toy building brick, yellow, 2x2 studs with rounded top"
 
 
-class TestReferenceDescription(TransactionCase):
+class TestReferenceDescription(QualityApiCase):
     def setUp(self):
         super().setUp()
         self.env["ir.config_parameter"].sudo().set_param(
@@ -45,7 +45,7 @@ class TestReferenceDescription(TransactionCase):
     # -- Setzen und Zuruecknehmen ------------------------------------------
 
     def test_setting_a_description_stamps_the_current_image(self):
-        self.env["product.template"].api_set_reference_description(
+        self.api_env["product.template"].api_set_reference_description(
             self.template.id, SOLL
         )
         self.assertEqual(self.template.ai_reference_description, SOLL)
@@ -56,7 +56,7 @@ class TestReferenceDescription(TransactionCase):
         self.assertFalse(self.template.ai_reference_reviewed)
 
     def test_a_description_can_be_marked_as_reviewed(self):
-        self.env["product.template"].api_set_reference_description(
+        self.api_env["product.template"].api_set_reference_description(
             self.template.id, SOLL, reviewed=True
         )
         self.assertTrue(self.template.ai_reference_reviewed)
@@ -64,10 +64,10 @@ class TestReferenceDescription(TransactionCase):
     def test_an_empty_description_clears_everything(self):
         """Zuruecknehmen muss so einfach sein wie Setzen -- sonst bleibt eine
         falsche Beschreibung stehen, weil das Loeschen umstaendlich ist."""
-        self.env["product.template"].api_set_reference_description(
+        self.api_env["product.template"].api_set_reference_description(
             self.template.id, SOLL, reviewed=True
         )
-        self.env["product.template"].api_set_reference_description(
+        self.api_env["product.template"].api_set_reference_description(
             self.template.id, "  "
         )
         self.assertFalse(self.template.ai_reference_description)
@@ -77,7 +77,7 @@ class TestReferenceDescription(TransactionCase):
     # -- Die Pruefsumme ----------------------------------------------------
 
     def test_the_description_is_delivered_while_the_image_is_unchanged(self):
-        self.env["product.template"].api_set_reference_description(
+        self.api_env["product.template"].api_set_reference_description(
             self.template.id, SOLL
         )
         self.assertEqual(self.template.ai_reference_description_if_current(), SOLL)
@@ -86,7 +86,7 @@ class TestReferenceDescription(TransactionCase):
         """Der Fall, gegen den die Pruefsumme steht: jemand tauscht das
         Katalogbild, der alte Satz beschriebe ein Bild, das es nicht mehr
         gibt."""
-        self.env["product.template"].api_set_reference_description(
+        self.api_env["product.template"].api_set_reference_description(
             self.template.id, SOLL, reviewed=True
         )
         self.template.image_1920 = PNG_ROT_B64
@@ -100,7 +100,7 @@ class TestReferenceDescription(TransactionCase):
         Abgleich bisher still aus. Ohne Bild ist die Pruefsumme leer, und leer
         gegen leer ist ein gueltiger Vergleich."""
         self.template.image_1920 = False
-        self.env["product.template"].api_set_reference_description(
+        self.api_env["product.template"].api_set_reference_description(
             self.template.id, SOLL, reviewed=True
         )
         self.assertFalse(self.template.ai_reference_image_sha1)
@@ -115,7 +115,7 @@ class TestReferenceDescription(TransactionCase):
     # -- Der Weg zur Bewertungskette ---------------------------------------
 
     def _media_for_alert(self):
-        result = self.env["quality.alert.custom"].api_create_alert({
+        result = self.api_env["quality.alert.custom"].api_create_alert({
             "description": "Testmeldung",
             "priority": "1",
             "product_id": self.product.id,
@@ -127,12 +127,12 @@ class TestReferenceDescription(TransactionCase):
             ("aggregate_res_id", "=", alert.id),
         ], limit=1)
         with patch.object(type(job), "_require_current_generation", return_value=None):
-            return self.env["quality.alert.custom"].api_get_assessment_media(
+            return self.api_env["quality.alert.custom"].api_get_assessment_media(
                 job.job_id, 1, "x" * 43
             )
 
     def test_the_media_facade_hands_the_description_to_the_chain(self):
-        self.env["product.template"].api_set_reference_description(
+        self.api_env["product.template"].api_set_reference_description(
             self.template.id, SOLL, reviewed=True
         )
         media = self._media_for_alert()

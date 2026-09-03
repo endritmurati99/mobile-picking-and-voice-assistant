@@ -163,13 +163,17 @@ Betriebsreife:
 - Der `n8n-credentials`-Container ruft `provision-credentials.mjs` ohne den
   zwingenden Modus `provision`, `verify` oder `rotate` auf und würde deshalb
   sofort abbrechen.
-- Von den vorgesehenen App-Rollen existiert im laufenden PostgreSQL nur `odoo`;
-  sie ist Superuser und Eigentümer sowohl von `masterfischer_o19` als auch von
-  `n8n`. Die Zielarchitektur mit `odoo_app` und `n8n_app` ist noch nicht
-  verdrahtet.
-- Ein frisches `pg_data` scheitert: `init-n8n-db.sql` setzt `n8n_app` voraus,
-  aber `init-db-roles.sh`, das diese Rolle erzeugt, ist nicht in Compose
-  gemountet.
+- Im PostgreSQL existiert nur die Bootstrap-Rolle `odoo`; sie ist Superuser
+  und Eigentümer sowohl von `masterfischer_o19` als auch von `n8n`. Eine
+  Trennung in `odoo_app` und `n8n_app` (Remediation R4) wurde erarbeitet und
+  bewusst nicht ausgerollt; die zugehörigen Skripte und Tests wurden am
+  2026-09-02 entfernt, damit der Baum den laufenden Stand beschreibt. Folge:
+  ein kompromittierter n8n-Code-Node erreicht die Odoo-Datenbank. Wer das
+  schließen will, muss `DB_POSTGRESDB_USER` in Compose auf eine eigene Rolle
+  stellen und die bestehende `n8n`-Datenbank umhängen.
+- Ein frisches `pg_data` legt `n8n` über `init-n8n-db.sql` an (Eigentümer:
+  Bootstrap-Rolle); die Odoo-Datenbank entsteht per Wiederherstellung aus dem
+  Backup-Runbook.
 - Das Backend verwendet effektiv `TRUSTED_CADDY_PEERS=127.0.0.1`, Caddy hat im
   Edge-Netz aber `172.28.10.2`. Deshalb sieht die Login-Drosselung dort die
   Caddy-IP statt der eigentlichen Client-IP.

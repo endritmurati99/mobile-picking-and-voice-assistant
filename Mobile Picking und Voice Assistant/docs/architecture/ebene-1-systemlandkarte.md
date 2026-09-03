@@ -18,13 +18,14 @@ die Anfrage und spricht danach mit dem passenden internen Dienst:
 - **Whisper** wandelt gesprochene Sprache in Text um.
 - **Piper** wandelt Text in gesprochene Sprache um.
 - **Ollama** führt die lokale Text- und Bild-KI aus.
+- **DINOv2** vergleicht Artikelbilder über Merkmalsvektoren.
 
 > **Wichtigster Merksatz:** Die PWA spricht mit FastAPI. FastAPI spricht mit
 > den internen Diensten.
 
 ## Das ganze System als Bild
 
-![Systemlandkarte mit PWA, Caddy, FastAPI, Odoo, n8n, Sprachdiensten, lokaler KI und PostgreSQL](./ebene-1-systemlandkarte.svg)
+![Systemlandkarte mit PWA, Caddy, FastAPI, Odoo, n8n, Sprachdiensten, Ollama, DINOv2 und PostgreSQL](./ebene-1-systemlandkarte.svg)
 
 Die [Excalidraw-Quelldatei](./ebene-1-systemlandkarte.excalidraw) ist die
 editierbare Fassung der Grafik. Die
@@ -62,6 +63,7 @@ Stell dir das System wie ein Lagergebäude vor:
 - **n8n** ist ein Ablaufplan für Arbeiten mit mehreren Stationen.
 - **Whisper** ist ein Zuhörer und **Piper** ein Sprecher.
 - **Ollama** ist ein lokaler Assistent für Text- und Bildbewertung.
+- **DINOv2** ist der Spezialist für die Ähnlichkeit von Artikelbildern.
 - **PostgreSQL** ist der Aktenschrank, in dem Odoo und n8n getrennte Fächer
   besitzen.
 - **Docker** ist das Gebäude, in dem diese Serverdienste in getrennten Räumen
@@ -176,6 +178,16 @@ verwendet.
 Ollama entscheidet nicht über Lagerbestand und schließt keinen Auftrag ab.
 Fachliche Ergebnisse werden kontrolliert über FastAPI nach Odoo geschrieben.
 
+### Embedding / DINOv2: Artikelbilder vergleichen
+
+Der interne `embed`-Dienst verwendet `facebook/dinov2-base`. Er wandelt ein
+Artikelbild in einen Merkmalsvektor um, damit FastAPI Form und Farbe mit einem
+Referenzbild vergleichen kann.
+
+DINOv2 scannt keine Barcodes, erkennt nicht allein Schäden und schreibt keine
+Lagerdaten. Nur FastAPI ruft den Dienst auf und bewertet das Ergebnis im
+Quality-Ablauf.
+
 ### PostgreSQL: getrennte Datenfächer
 
 PostgreSQL ist der Datenbankdienst. Im Projekt läuft ein PostgreSQL-Server mit
@@ -193,25 +205,11 @@ Docker startet die Serverprogramme in getrennten **Containern**. Ein Container
 ist ein abgegrenzter Laufraum für einen Dienst. Er ist leichter und gezielter
 als ein eigener vollständiger Computer.
 
-Die Hauptkonfiguration definiert neun normale Dienste:
-
-1. `caddy`
-2. `db`
-3. `odoo`
-4. `backend`
-5. `whisper`
-6. `piper`
-7. `ollama`
-8. `n8n`
-9. `pwa`
-
-Zwei zusätzliche Profildienste werden nur bei Bedarf gestartet:
-
-- `odoo-lager-2` für eine zweite Odoo-Instanz,
-- `n8n-credentials` als einmaliger Einrichtungshelfer.
-
-Damit sind **elf Dienste konfiguriert**, aber nicht zwingend alle gleichzeitig
-aktiv. Die Anzahl laufender Container hängt von den gewählten Profilen ab.
+Welche Dienste gestartet werden, steht in `docker-compose.yml`. Neben den
+Kerndiensten gehören dazu der PWA-Dateiserver, die lokalen KI- und
+Sprachdienste sowie `embed` für DINOv2. Zusätzliche Profildienste können nur bei
+Bedarf dazukommen. Deshalb nennt diese Einführung bewusst keine feste Anzahl:
+Sie würde bei Änderungen an der Compose-Struktur schnell veralten.
 
 Docker enthält die serverseitige Laufzeit. Außerhalb bleiben unter anderem:
 
@@ -280,13 +278,14 @@ kommt hier n8n ins Spiel.
 2. FastAPI legt den Quality Alert in Odoo an.
 3. Ein Odoo-Outbox-Ereignis wird von FastAPI signiert an n8n übergeben.
 4. n8n ruft für die Bewertung wieder interne FastAPI-Routen auf.
-5. FastAPI kann Text und Bilder lokal durch Ollama untersuchen lassen.
+5. FastAPI kann Text und Bilder lokal durch Ollama untersuchen und Artikelbilder
+   durch DINOv2 vergleichen lassen.
 6. Das Ergebnis läuft über FastAPI zurück nach Odoo.
 7. Die PWA kann später den gespeicherten Status aus Odoo anzeigen.
 
 ```text
 PWA → FastAPI → Odoo-Outbox → FastAPI → n8n
-                                      ↔ FastAPI ↔ Ollama
+                                      ↔ FastAPI ↔ Ollama / DINOv2
                                       → FastAPI → Odoo
 ```
 
@@ -300,7 +299,8 @@ direkten freien Schreibzugriff auf Odoo.
 - **API**: eine Schnittstelle, über die Programme sprechen.
 - **KI**: ein Modell, das beispielsweise Text oder Bilder bewertet.
 
-FastAPI ist ein API-Framework. Ollama führt die lokalen KI-Modelle aus.
+FastAPI ist ein API-Framework. Ollama führt lokale KI-Modelle aus; DINOv2
+erzeugt Merkmalsvektoren für den Artikelbildvergleich.
 
 ### PWA ist nicht nur der PWA-Container
 
@@ -335,7 +335,7 @@ Für Ebene 1 reichen diese Einstiegspunkte:
 | Wo sendet die PWA API-Aufrufe? | `pwa/js/api.js` |
 | Wo werden FastAPI-Routen zusammengebaut? | `backend/app/main.py` |
 | Wo liegen normale Picking- und Cluster-Abläufe? | `backend/app/services/picking_service.py` und `backend/app/services/cluster_service.py` |
-| Wo liegen Voice, Text-KI und Bild-KI? | `backend/app/routers/voice.py`, `backend/app/services/llm_client.py` und `backend/app/services/vision_client.py` |
+| Wo liegen Voice, Text-KI und Bild-KI? | `backend/app/routers/voice.py`, `backend/app/services/llm_client.py`, `backend/app/services/vision_client.py` und der Dienst `embed` in `docker-compose.yml` |
 | Wo liegt der aktive Quality-Workflow? | `n8n/workflows/quality-assessment-v2.json` |
 | Wo liegen die Odoo-Erweiterungen? | `odoo/addons/` |
 
