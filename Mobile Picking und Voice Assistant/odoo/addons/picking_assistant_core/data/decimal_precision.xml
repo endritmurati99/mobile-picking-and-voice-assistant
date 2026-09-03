@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo noupdate="0">
-    <!-- noupdate="0": Projektanforderung, die jedes Modul-Upgrade ueberleben muss -- ein Admin, der die Praezision zurueckstellt, wuerde die Versandlabel-Gewichte kaputt machen. -->
+    <!-- noupdate="0": Projektanforderung, die jedes Modul-Upgrade ueberleben muss - ein Admin, der die Praezision zurueckstellt, wuerde die Versandlabel-Gewichte kaputt machen. -->
     <!-- Lego-Klemmbausteine wiegen wenige Gramm. Mit den Odoo-Standard-
          zwei Nachkommastellen wuerde jedes Gewicht unter 0,005 kg als 0,00
          gespeichert und die Gewichtssumme auf dem Versandlabel bliebe leer. -->
