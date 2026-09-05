@@ -1,3 +1,10 @@
+// v34: Telefon -- Kopfzeile zeigt Lagerumschalter vollstaendig, Platzangabe
+// als Zeile statt Block, Ueberfaellig-Hinweis nur noch einmal je Karte.
+// v33: Cluster-Einstieg als eigene Kachel mit Symbol und Erklaerzeile statt
+// gestricheltem Platzhalter-Rahmen.
+// v32: Auftragskarte -- offene Positionen als grosse Zahl, Termin im Klartext
+// (Heute/Morgen/ueberfaellig), Badge "Delivery Orders" entfernt, leerer
+// Fortschrittsbalken ausgeblendet.
 // v31: Auftragskarte nennt nur noch den Bausatz -- Bezeichnung und Nummer
 // der ersten Position lasen sich wie der Auftragsinhalt.
 // v30: Lagerumschalter liest `/auth/instances` (der Entwicklungs-Router
@@ -23,7 +30,7 @@
 // no login screen, legacy identity headers that the backend no longer honours,
 // and a health probe against a route that does not exist. The symptom is an app
 // that looks merely broken, which is the worst kind of stale cache.
-const CACHE_NAME = 'picking-v31';
+const CACHE_NAME = 'picking-v34';
 const PRECACHE = [
     '/',
     '/index.html',

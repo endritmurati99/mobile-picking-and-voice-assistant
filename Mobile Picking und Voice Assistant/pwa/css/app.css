@@ -1687,6 +1687,12 @@ main > * {
     color: #1A1530;
 }
 
+.pick-list-card__badge--overdue {
+    background: color-mix(in oklab, var(--danger, #B3261E) 14%, transparent);
+    color: var(--danger, #B3261E);
+    border: 1px solid color-mix(in oklab, var(--danger, #B3261E) 32%, transparent);
+}
+
 .pick-list-card__body {
     display: grid;
     grid-template-columns: 88px minmax(0, 1fr) auto;
@@ -1816,6 +1822,36 @@ main > * {
     font-size: 0.78rem;
     color: var(--ink-soft);
     font-weight: 600;
+}
+
+.pick-list-card__date--overdue {
+    color: var(--danger, #B3261E);
+    font-weight: 800;
+}
+
+/* Die Zahl der offenen Positionen ist die Angabe, nach der der Picker die
+   Karte ueberhaupt aussucht. Sie stand vorher als Fliesstext in Schriftgroesse
+   0.92rem zwischen Kundenname und Lagerplatz. */
+.pick-list-card__count {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.pick-list-card__count-number {
+    font-size: 1.9rem;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.04em;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+}
+
+.pick-list-card__count-label {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--ink-muted);
 }
 
 .pick-list-card__footer,
@@ -3494,25 +3530,81 @@ main::-webkit-scrollbar-thumb {
 
 /* === Cluster-/Batch-Picking ============================================ */
 
+/* Der Einstieg ins Cluster-Picking trug einen gestrichelten Rahmen und las
+   sich dadurch wie ein Platzhalter, nicht wie der zweite Arbeitsmodus des
+   Systems. Jetzt eine eigene Kachel mit Symbol, Titel und Erklaerzeile. */
 .cluster-entry-btn {
     width: 100%;
-    margin-top: 12px;
-    min-height: 52px;
-    padding: 0 18px;
-    border: 1px dashed var(--line-2);
+    margin-top: 14px;
+    min-height: 64px;
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    text-align: left;
+    border: 1px solid color-mix(in oklab, var(--primary) 30%, transparent);
     border-radius: var(--radius);
-    background: color-mix(in oklab, var(--primary) 6%, var(--surface));
+    background: color-mix(in oklab, var(--primary) 8%, var(--surface));
     color: var(--ink);
     font-family: inherit;
-    font-size: 1rem;
-    font-weight: 700;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+
+.cluster-entry-btn__icon {
+    flex: 0 0 auto;
+    width: 40px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    background: var(--primary);
+    color: var(--surface);
+}
+
+.cluster-entry-btn__icon svg {
+    width: 22px;
+    height: 22px;
+}
+
+.cluster-entry-btn__text {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.cluster-entry-btn__title {
+    font-size: 1rem;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+}
+
+.cluster-entry-btn__hint {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--ink-muted);
+}
+
+.cluster-entry-btn__chevron {
+    flex: 0 0 auto;
+    color: var(--primary);
+}
+
+.cluster-entry-btn__chevron svg {
+    width: 18px;
+    height: 18px;
+    display: block;
 }
 
 .cluster-entry-btn:hover {
+    background: color-mix(in oklab, var(--primary) 14%, var(--surface));
     border-color: var(--primary);
-    color: var(--primary);
+}
+
+.cluster-entry-btn:active {
+    transform: scale(0.99);
 }
 
 .cluster-select,
@@ -4401,14 +4493,14 @@ body[data-view="cluster_walk"] .cluster-walk {
         margin-bottom: 10px;
     }
 
-    /* Die drei Kennzahlen standen auf `min-width: 120px` und passten damit
-       nie nebeneinander auf ein Telefon -- sie liefen ueber den Kartenrand
-       hinaus. Zusaetzlich sind Beschriftung und Wert <span>, also inline:
-       das `margin-top` am Wert lief ins Leere und es stand "DRINGEND2"
-       ohne Trennung. Beides hier korrigiert. */
+    /* Die drei Kennzahlen sagen dasselbe wie die Filterzeile direkt darueber:
+       "Dringend 20" steht als Chip "Dringend (20)", "Bereich Alle Bereiche"
+       als "Mein Bereich (0)", "Suche Aus" als Lupe im Kopf. Am Pixel 7
+       gemessen begann die erste Auftragskarte deshalb erst bei 514 von
+       839 Pixeln -- knapp zwei Drittel Rahmen vor dem ersten Inhalt. Auf
+       breiten Anzeigen ist der Platz vorhanden, dort bleiben sie. */
     .queue-overview__stats {
-        gap: 8px;
-        margin-top: 10px;
+        display: none;
     }
 
     .queue-stat {
@@ -4438,6 +4530,83 @@ body[data-view="cluster_walk"] .cluster-walk {
        zu melden hat -- zuhoeren, erkannt, unsicher, Antwort. */
     .voice-status--idle {
         display: none;
+    }
+
+    /* --- Kopfzeile: Platz fuer den Lagerumschalter -----------------------
+       Der Umschalter war monatelang unsichtbar (er las eine Route, die es
+       im Produktionsprofil nicht gibt), deshalb ist nie aufgefallen, dass
+       er zusammen mit dem Picker-Chip nicht in eine Telefonzeile passt.
+       Am Pixel 7 (412 px) gemessen: der Chip zeigte "Administrato", der
+       Umschalter "Lag". Der Name darf schrumpfen -- welches Lager gilt,
+       muss dagegen vollstaendig lesbar bleiben. */
+    .picker-chip {
+        flex: 0 1 auto;
+        min-width: 0;
+        overflow: hidden;
+    }
+
+    #picker-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .instance-switch {
+        max-width: none;
+        width: auto;
+        flex: 0 0 auto;
+        padding-right: 26px;
+    }
+
+    /* Fuenf Bedienelemente auf 412 px: Profil, Lager, Verbindung, Thema,
+       Suche. Sie muessen in EINE Zeile, sonst schiebt der Kopf die
+       Auftragsliste nach unten -- und genau die ist der Inhalt. Der
+       Profil-Chip ist das einzige Element, das schrumpfen darf. */
+    .header-row--top {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: nowrap;
+    }
+
+    .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex: 0 0 auto;
+        flex-wrap: nowrap;
+    }
+
+    .picker-chip {
+        flex: 1 1 auto;
+        max-width: 42vw;
+    }
+
+    /* --- Auftragskarte: Platzangabe als Zeile ----------------------------
+       Die Platzkachel stand am Telefon als eigener Block ueber die volle
+       Breite unter dem Bild. Gemessen: 323 px Kartenhoehe, also gut zwei
+       Auftraege je Bildschirm. Als Zeile mit Beschriftung links und Platz
+       rechts bleibt dieselbe Angabe, kostet aber eine Zeile statt drei. */
+    .pick-list-card__location-box {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 8px 12px;
+        min-width: 0;
+        margin-top: 10px;
+    }
+
+    .pick-list-card__location-label {
+        margin: 0;
+    }
+
+    .pick-list-card__location {
+        font-size: 1rem;
+    }
+
+    .pick-list-card__date {
+        margin-top: 0;
     }
 }
 

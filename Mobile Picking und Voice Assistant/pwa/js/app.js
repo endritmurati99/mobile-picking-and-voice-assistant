@@ -112,11 +112,6 @@ function getPickingKitName(picking) {
     return String(picking?.kit_name || '').trim();
 }
 
-function getPickingTypeLabel(picking) {
-    const rawLabel = picking?.picking_type_id?.[1] || '';
-    return rawLabel.split(':').pop().trim();
-}
-
 function getPickingPrimaryLabel(picking) {
     return picking?.primary_item_display || getPickingReference(picking);
 }
@@ -130,6 +125,35 @@ function getPickingOpeningPrompt(picking) {
     if (intro) return intro;
     const firstLine = picking?.move_lines?.[0];
     return getLineSpeechPrompt(firstLine);
+}
+
+// "04.09." zwingt zum Kopfrechnen: der Picker muss selbst wissen, welches
+// Datum heute ist, um zu erkennen, dass der Auftrag ueberfaellig ist. Die
+// Karte sagt es jetzt selbst. `overdue` steuert zusaetzlich die rote Marke.
+function formatScheduleLabel(scheduledDate) {
+    if (!scheduledDate) return { text: 'Ohne Termin', overdue: false };
+
+    const termin = new Date(scheduledDate);
+    if (Number.isNaN(termin.getTime())) return { text: 'Ohne Termin', overdue: false };
+
+    // Nur der Kalendertag zaehlt: ein Auftrag fuer heute 08:00 ist um 14 Uhr
+    // nicht "ueberfaellig", er ist heute faellig.
+    const heute = new Date();
+    heute.setHours(0, 0, 0, 0);
+    const terminTag = new Date(termin.getFullYear(), termin.getMonth(), termin.getDate());
+    const tage = Math.round((terminTag - heute) / 86400000);
+
+    if (tage < 0) {
+        const anzahl = Math.abs(tage);
+        return { text: anzahl === 1 ? '1 Tag überfällig' : `${anzahl} Tage überfällig`, overdue: true };
+    }
+    if (tage === 0) return { text: 'Heute', overdue: false };
+    if (tage === 1) return { text: 'Morgen', overdue: false };
+    if (tage <= 6) return { text: `In ${tage} Tagen`, overdue: false };
+    return {
+        text: termin.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }),
+        overdue: false,
+    };
 }
 
 function getOpenLineLabel(count) {
@@ -1173,7 +1197,23 @@ function renderWorkspaceQueueOverview(visiblePickings, { variant = 'main' } = {}
             <div class="queue-overview__helper">${helperCopy}</div>
             ${ctaHtml}
             <button type="button" class="cluster-entry-btn" data-cluster-start>
-                Mehrere Aufträge bündeln (Cluster-Picking)
+                <span class="cluster-entry-btn__icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="4" width="7" height="7" rx="1.5"></rect>
+                        <rect x="14" y="4" width="7" height="7" rx="1.5"></rect>
+                        <rect x="3" y="14" width="7" height="7" rx="1.5"></rect>
+                        <path d="M17.5 14.5v6M14.5 17.5h6"></path>
+                    </svg>
+                </span>
+                <span class="cluster-entry-btn__text">
+                    <span class="cluster-entry-btn__title">Cluster-Picking</span>
+                    <span class="cluster-entry-btn__hint">Mehrere Aufträge in einem Rundgang</span>
+                </span>
+                <span class="cluster-entry-btn__chevron" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M9 6l6 6-6 6"></path>
+                    </svg>
+                </span>
             </button>
         </section>
     `;
@@ -1187,7 +1227,6 @@ function bindQueueCtaButtons() {
 
 function renderPickingListCard(picking) {
     const reference = getPickingReference(picking);
-    const typeName = getPickingTypeLabel(picking);
     const primaryLabel = getPickingHeadline(picking);
     // Artikelbezeichnung und Artikelnummer der ERSTEN Position standen frueher
     // unter der Ueberschrift. Sie lasen sich wie der Inhalt des Auftrags, waren
@@ -1195,20 +1234,25 @@ function renderPickingListCard(picking) {
     // 2x2 blau", obwohl der Auftrag zwei Positionen hat. Die Karte nennt jetzt
     // nur noch den Bausatz; die Positionen zeigt die Detailansicht.
     const partner = picking.partner_id ? picking.partner_id[1] : 'Ohne Partner';
-    const scheduledDate = picking.scheduled_date
-        ? new Date(picking.scheduled_date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
-        : 'Ohne Termin';
+    const termin = formatScheduleLabel(picking.scheduled_date);
     const progressPercent = Math.round(getProgressRatio(picking) * 100);
     const progressLabel = getProgressLabel(picking);
     const zoneLabel = getPrimaryZoneLabel(picking);
+    const openLineCount = Number(picking.open_line_count || 0);
+    // Ein leerer Balken auf jeder Karte ist Dekoration. Er erscheint erst, wenn
+    // wirklich etwas gepickt wurde -- dann traegt er auch eine Aussage.
+    const showProgress = getCompletedLineCount(picking) > 0;
 
     return `
         <article class="pick-list-card ${claimedPickingId === picking.id ? 'pick-list-card--active' : ''} ${picking.priority === '1' ? 'pick-list-card--urgent' : ''}" data-id="${picking.id}" aria-label="${escapeHtml(primaryLabel)}">
             <div class="pick-list-card__header">
                 <span class="pick-list-card__reference">${escapeHtml(reference)}</span>
                 <div class="pick-list-card__badges">
-                    ${typeName ? `<span class="pick-list-card__badge">${escapeHtml(typeName)}</span>` : ''}
                     ${picking.priority === '1' ? '<span class="pick-list-card__badge pick-list-card__badge--warning">Dringend</span>' : ''}
+                    ${/* Ueberfaellig steht nur HIER, nicht zusaetzlich in der
+                          Platzkachel: am Telefon las man "71 Tage ueberfaellig"
+                          sonst zweimal auf derselben Karte. */ ''}
+                    ${termin.overdue ? `<span class="pick-list-card__badge pick-list-card__badge--overdue">${escapeHtml(termin.text)}</span>` : ''}
                 </div>
             </div>
             <div class="pick-list-card__body">
@@ -1225,20 +1269,24 @@ function renderPickingListCard(picking) {
                         <span>${escapeHtml(partner)}</span>
                         <span>${escapeHtml(zoneLabel)}</span>
                     </div>
-                    <div class="pick-list-card__quantity">${escapeHtml(getOpenLineLabel(picking.open_line_count))}</div>
+                    <div class="pick-list-card__count">
+                        <span class="pick-list-card__count-number">${openLineCount}</span>
+                        <span class="pick-list-card__count-label">${openLineCount === 1 ? 'Position offen' : 'Positionen offen'}</span>
+                    </div>
                 </div>
                 <div class="pick-list-card__location-box">
                     <div class="pick-list-card__location-label">Nächster Platz</div>
                     <div class="pick-list-card__location">${escapeHtml(picking.next_location_short || 'Offen')}</div>
-                    <div class="pick-list-card__date">${escapeHtml(scheduledDate)}</div>
+                    ${termin.overdue ? '' : `<div class="pick-list-card__date">${escapeHtml(termin.text)}</div>`}
                 </div>
             </div>
+            ${showProgress ? `
             <div class="pick-list-card__footer">
                 <div class="pick-list-card__progress-copy">${escapeHtml(progressLabel)}</div>
                 <div class="pick-list-card__progress-track" aria-hidden="true">
                     <span class="pick-list-card__progress-bar" style="width:${progressPercent}%"></span>
                 </div>
-            </div>
+            </div>` : ''}
         </article>
     `;
 }
