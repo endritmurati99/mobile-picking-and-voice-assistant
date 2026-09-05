@@ -28,7 +28,6 @@ import {
     getAuthInstances,
     getCurrentSession,
     getDeviceId,
-    getInstances,
     getLineStock,
     getPickingDetail,
     getPickings,
@@ -124,11 +123,6 @@ function getPickingPrimaryLabel(picking) {
 
 function getPickingHeadline(picking) {
     return getPickingKitName(picking) || getPickingPrimaryLabel(picking);
-}
-
-function getPickingSupportingLabel(picking) {
-    if (!getPickingKitName(picking)) return '';
-    return getPickingPrimaryLabel(picking);
 }
 
 function getPickingOpeningPrompt(picking) {
@@ -627,7 +621,14 @@ async function initInstanceSwitch() {
 
     let instances = [];
     try {
-        instances = await withManagedRequest((signal) => getInstances({ signal }));
+        // `/instances` haengt am Entwicklungs-Router: `create_app` schliesst
+        // ihn unter RUNTIME_PROFILE=production gar nicht ein, die Anfrage
+        // endet dort mit 404. Der Umschalter fiel deshalb auf die
+        // Ein-Lager-Liste zurueck und blendete sich aus -- am 2026-09-05 im
+        // Produktionsprofil gemessen. `/auth/instances` liefert dieselben
+        // Felder (Name, Anzeigename, keine Secrets) und existiert in beiden
+        // Profilen; der Loginscreen liest schon von dort.
+        instances = await withManagedRequest((signal) => getAuthInstances({ signal }));
     } catch (error) {
         if (!isAbortError(error)) {
             console.warn('Odoo-Instanzen konnten nicht geladen werden:', error);
@@ -1188,14 +1189,17 @@ function renderPickingListCard(picking) {
     const reference = getPickingReference(picking);
     const typeName = getPickingTypeLabel(picking);
     const primaryLabel = getPickingHeadline(picking);
-    const supportingLabel = getPickingSupportingLabel(picking);
+    // Artikelbezeichnung und Artikelnummer der ERSTEN Position standen frueher
+    // unter der Ueberschrift. Sie lasen sich wie der Inhalt des Auftrags, waren
+    // aber nur eine von mehreren Positionen -- bei "Erwin" stand dort "8x Brick
+    // 2x2 blau", obwohl der Auftrag zwei Positionen hat. Die Karte nennt jetzt
+    // nur noch den Bausatz; die Positionen zeigt die Detailansicht.
     const partner = picking.partner_id ? picking.partner_id[1] : 'Ohne Partner';
     const scheduledDate = picking.scheduled_date
         ? new Date(picking.scheduled_date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
         : 'Ohne Termin';
     const progressPercent = Math.round(getProgressRatio(picking) * 100);
     const progressLabel = getProgressLabel(picking);
-    const sku = getPrimaryItemSku(picking);
     const zoneLabel = getPrimaryZoneLabel(picking);
 
     return `
@@ -1217,9 +1221,7 @@ function renderPickingListCard(picking) {
                 })}
                 <div class="pick-list-card__content">
                     <div class="pick-list-card__product">${escapeHtml(primaryLabel)}</div>
-                    ${supportingLabel ? `<div class="pick-list-card__context">${escapeHtml(supportingLabel)}</div>` : ''}
                     <div class="pick-list-card__meta">
-                        ${sku ? `<span>${escapeHtml(sku)}</span>` : ''}
                         <span>${escapeHtml(partner)}</span>
                         <span>${escapeHtml(zoneLabel)}</span>
                     </div>
