@@ -1239,6 +1239,14 @@ function renderPickingListCard(picking) {
     const progressLabel = getProgressLabel(picking);
     const zoneLabel = getPrimaryZoneLabel(picking);
     const openLineCount = Number(picking.open_line_count || 0);
+    // Gehoert der Auftrag zu einem Cluster, sah man das in der Liste nicht --
+    // er stand als gewoehnlicher Einzelauftrag da, obwohl er Teil eines
+    // gemeinsamen Rundgangs ist. Odoo liefert batch_id als [id, name].
+    // Odoo nennt den Cluster "BATCH/OUT/00008". Ausgeschrieben sprengt das
+    // die Marke; die laufende Nummer genuegt zum Wiedererkennen.
+    const batchName = Array.isArray(picking.batch_id)
+        ? String(picking.batch_id[1] || '').split('/').pop().replace(/^0+(?=\d)/, '')
+        : '';
     // Ein leerer Balken auf jeder Karte ist Dekoration. Er erscheint erst, wenn
     // wirklich etwas gepickt wurde -- dann traegt er auch eine Aussage.
     const showProgress = getCompletedLineCount(picking) > 0;
@@ -1253,6 +1261,7 @@ function renderPickingListCard(picking) {
                           Platzkachel: am Telefon las man "71 Tage ueberfaellig"
                           sonst zweimal auf derselben Karte. */ ''}
                     ${termin.overdue ? `<span class="pick-list-card__badge pick-list-card__badge--overdue">${escapeHtml(termin.text)}</span>` : ''}
+                    ${batchName ? `<span class="pick-list-card__badge pick-list-card__badge--cluster">Cluster ${escapeHtml(batchName)}</span>` : ''}
                 </div>
             </div>
             <div class="pick-list-card__body">

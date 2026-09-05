@@ -370,21 +370,52 @@ class PickingService:
 
     async def get_open_pickings(self) -> list[dict]:
         """Load open pickings enriched with operational preview data."""
-        pickings = await self._odoo.search_read(
-            "stock.picking",
-            [("state", "=", "assigned")],
-            [
-                "name",
-                "origin",
-                "partner_id",
-                "scheduled_date",
-                "date_deadline",
-                "state",
-                "picking_type_id",
-                "priority",
-            ],
-            limit=100,
-        )
+        basis_felder = [
+            "name",
+            "origin",
+            "partner_id",
+            "scheduled_date",
+            "date_deadline",
+            "state",
+            "picking_type_id",
+            "priority",
+        ]
+        # Dringend zuerst, danach der fruehste Termin -- ueberfaellige
+        # Auftraege stehen damit oben. Ohne diese Angabe entschied `_order`
+        # von stock.picking, also eine Odoo-Voreinstellung, darueber.
+        reihenfolge = "priority desc, scheduled_date asc, id desc"
+        # Das Limit lag auf 100, und Lager 2 fuehrt genau 100 offene
+        # Auftraege: die Liste stand exakt auf der Kante, der 101. waere
+        # ohne jeden Hinweis verschwunden.
+        obergrenze = 250
+
+        try:
+            # `batch_id` zeigt, ob der Auftrag schon zu einem Cluster gehoert.
+            pickings = await self._odoo.search_read(
+                "stock.picking",
+                [("state", "=", "assigned")],
+                basis_felder + ["batch_id"],
+                order=reihenfolge,
+                limit=obergrenze,
+            )
+        except OdooAPIError as exc:
+            # Das Feld stammt aus stock_picking_batch. Ohne dieses Modul
+            # kennt stock.picking es nicht -- dann faellt die
+            # Cluster-Kennzeichnung weg, aber nicht die ganze Auftragsliste.
+            if "batch_id" not in str(exc):
+                raise
+            logger.warning(
+                "get_open_pickings: stock.picking.batch_id nicht verfuegbar, "
+                "Auftragsliste ohne Cluster-Kennzeichnung: %s",
+                exc,
+            )
+            pickings = await self._odoo.search_read(
+                "stock.picking",
+                [("state", "=", "assigned")],
+                basis_felder,
+                order=reihenfolge,
+                limit=obergrenze,
+            )
         if not pickings:
             return []
 

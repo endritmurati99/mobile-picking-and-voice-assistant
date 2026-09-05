@@ -91,8 +91,17 @@ class OdooClient:
             [self._db, self._uid, self._secret or "", model, method, args, kwargs or {}]
         )
 
-    async def search_read(self, model: str, domain: list, fields: list, limit: int = 100) -> list[dict]:
-        return await self.execute_kw(model, "search_read", [domain], {"fields": fields, "limit": limit})
+    async def search_read(
+        self, model: str, domain: list, fields: list, limit: int = 100, order: str | None = None
+    ) -> list[dict]:
+        # `order` durchreichen statt sich auf `_order` des Modells zu
+        # verlassen: welche Reihenfolge der Picker sieht, ist eine Entscheidung
+        # dieser Anwendung und gehoert an die Aufrufstelle, nicht in eine
+        # Odoo-Modelldefinition, die jederzeit jemand anders aendert.
+        kwargs: dict = {"fields": fields, "limit": limit}
+        if order:
+            kwargs["order"] = order
+        return await self.execute_kw(model, "search_read", [domain], kwargs)
 
     async def create(self, model: str, vals: dict) -> int:
         return await self.execute_kw(model, "create", [vals])

@@ -1687,6 +1687,12 @@ main > * {
     color: #1A1530;
 }
 
+.pick-list-card__badge--cluster {
+    background: color-mix(in oklab, var(--primary) 12%, transparent);
+    color: var(--primary);
+    border: 1px solid color-mix(in oklab, var(--primary) 30%, transparent);
+}
+
 .pick-list-card__badge--overdue {
     background: color-mix(in oklab, var(--danger, #B3261E) 14%, transparent);
     color: var(--danger, #B3261E);
