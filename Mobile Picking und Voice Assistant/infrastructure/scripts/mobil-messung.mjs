@@ -13,6 +13,10 @@
 import { chromium, devices } from 'playwright';
 
 const ZIEL = process.env.ZIEL || 'https://localhost/';
+// Zugangsdaten kommen aus der Umgebung, nicht aus der Datei -- dieselbe
+// Regel wie in e2e/cluster.live.js. Die Vorgabe passt zum Demo-Bestand.
+const BENUTZER = process.env.PWA_LOGIN || 'admin';
+const PASSWORT = process.env.PWA_PASSWORD || 'admin';
 const browser = await chromium.launch();
 const context = await browser.newContext({
     ...devices['Pixel 7'],
@@ -27,8 +31,8 @@ await page.goto(ZIEL, { waitUntil: 'networkidle' });
 await page.waitForTimeout(1200);
 const hatLogin = await page.locator('#login-password, input[type="password"]').count();
 if (hatLogin) {
-    await page.fill('#login-name, input[name="login"], input[type="text"]', 'admin').catch(() => {});
-    await page.fill('#login-password, input[type="password"]', 'admin');
+    await page.fill('#login-name, input[name="login"], input[type="text"]', BENUTZER).catch(() => {});
+    await page.fill('#login-password, input[type="password"]', PASSWORT);
     await page.click('button[type="submit"]');
     await page.waitForTimeout(3500);
 }
