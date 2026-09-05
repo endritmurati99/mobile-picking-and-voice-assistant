@@ -2,7 +2,7 @@
  * LIVE end-to-end cluster click-through against the REAL running stack.
  *
  * Unlike e2e/cluster.spec.js (mocked API), this drives the actual PWA at
- * https://localhost (Caddy -> FastAPI backend -> Odoo masterfischer_o19) with NO
+ * https://localhost (Caddy -> FastAPI backend -> Odoo lager1) with NO
  * route mocking. It logs in as a picker, builds a multi-order cluster batch,
  * walks + confirms every line, validates the whole batch, and asserts the
  * completion screen. Screenshots + video are written to .claude/artifacts.
@@ -21,7 +21,7 @@ const HEADED = process.env.HEADED !== '0';
 const LOGIN = process.env.PWA_LOGIN || 'lena.lager';
 const PASSWORD = process.env.PWA_PASSWORD || 'admin';
 const ODOO_URL = (process.env.ODOO_URL || 'http://127.0.0.1:8069').replace(/\/$/, '');
-const ODOO_DB = process.env.ODOO_DB || 'masterfischer_o19';
+const ODOO_DB = process.env.ODOO_DB || 'lager1';
 const ODOO_LOGIN = process.env.ODOO_LOGIN || LOGIN;
 const ODOO_PASSWORD = process.env.ODOO_PASSWORD || PASSWORD;
 const OUT = path.join(__dirname, '..', '.claude', 'artifacts', 'cluster-live');

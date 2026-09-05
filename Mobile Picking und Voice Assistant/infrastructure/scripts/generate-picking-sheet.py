@@ -35,7 +35,7 @@ from pathlib import Path
 
 # --------------------------------------------------------------------------
 # Stammdaten -- nur hier anpassen, wenn ein anderer Sammelauftrag abgedeckt
-# werden soll. Alle Werte stammen aus `masterfischer_o19` (Instanz "Lager 1").
+# werden soll. Alle Werte stammen aus `lager1` (Instanz "Lager 1").
 # --------------------------------------------------------------------------
 
 TITLE = "Kommissionierbogen"
@@ -182,7 +182,7 @@ def decoys_from_db(belegte_barcodes: list[str]) -> list[dict]:
     sql = DECOY_SQL.format(belegt=belegt).replace("\n", " ")
     result = subprocess.run(
         [DOCKER, "exec", "mobilepickingundvoiceassistant-db-1",
-         "psql", "-U", "odoo", "-d", "masterfischer_o19", "-tAF|", "-c", sql],
+         "psql", "-U", "odoo", "-d", "lager1", "-tAF|", "-c", sql],
         capture_output=True, text=True, timeout=120,
     )
     koeder = []

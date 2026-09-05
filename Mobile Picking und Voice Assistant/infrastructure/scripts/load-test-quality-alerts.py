@@ -301,7 +301,7 @@ def main():
     parser.add_argument("--product-id", type=int, default=144, help="Product ID (default: 144)")
     parser.add_argument("--location-id", type=int, default=301, help="Location ID (default: 301)")
     parser.add_argument("--db-container", default="mobilepickingundvoiceassistant-db-1", help="DB-Container")
-    parser.add_argument("--db-name", default="masterfischer", help="Odoo DB-Name")
+    parser.add_argument("--db-name", default="lager1", help="Odoo DB-Name")
     parser.add_argument("--output", default=None, help="JSON-Output-Datei")
     args = parser.parse_args()
 

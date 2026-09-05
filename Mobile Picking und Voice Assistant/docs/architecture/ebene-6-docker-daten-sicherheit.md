@@ -164,7 +164,7 @@ Betriebsreife:
   zwingenden Modus `provision`, `verify` oder `rotate` auf und würde deshalb
   sofort abbrechen.
 - Von den vorgesehenen App-Rollen existiert im laufenden PostgreSQL nur `odoo`;
-  sie ist Superuser und Eigentümer sowohl von `masterfischer_o19` als auch von
+  sie ist Superuser und Eigentümer sowohl von `lager1` als auch von
   `n8n`. Die Zielarchitektur mit `odoo_app` und `n8n_app` ist noch nicht
   verdrahtet.
 - Ein frisches `pg_data` scheitert: `init-n8n-db.sql` setzt `n8n_app` voraus,

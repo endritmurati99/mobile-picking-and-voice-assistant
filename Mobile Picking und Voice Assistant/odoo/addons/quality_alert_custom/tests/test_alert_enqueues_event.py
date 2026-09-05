@@ -12,7 +12,7 @@ class TestAlertEnqueuesEvent(TransactionCase):
         )
         # Die Zeilen, die VOR diesem Test schon da waren. Ohne diese Abgrenzung
         # behaupten die Tests unten eine leere Outbox -- das gilt in einer
-        # frischen Testdatenbank und sonst nie. Gegen `masterfischer_o19` mit
+        # frischen Testdatenbank und sonst nie. Gegen `lager1` mit
         # echten Zeilen liefen sie deshalb immer rot, und rote Tests, die man
         # gewohnheitsmaessig uebergeht, sind schlimmer als gar keine.
         self._preexisting = set(

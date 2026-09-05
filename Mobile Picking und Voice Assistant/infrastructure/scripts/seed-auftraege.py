@@ -38,7 +38,7 @@ REZEPTE = {
 }
 
 LAGER = {
-    "masterfischer_o19": {
+    "lager1": {
         "anzahl": 80,
         "kunden": [
             "Meyer Spielwaren KG",
@@ -51,7 +51,7 @@ LAGER = {
         "startwert": 20260905,
         "bestand_je_platz": 400,
     },
-    "lager2_o19": {
+    "lager2": {
         "anzahl": 100,
         "kunden": [
             "Fischer Techniklabor AG",

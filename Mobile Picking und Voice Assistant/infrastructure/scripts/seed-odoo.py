@@ -7,13 +7,13 @@ Erstellt Mindest-Testdaten für den Picking-PoC:
 - Test-Pickings mit verschiedenen Prioritäten, Terminen und Zuständen
 
 Verwendung (generische Testdaten):
-    python seed-odoo.py --url http://localhost:8069 --db masterfischer_o19 --user admin --api-key admin
+    python seed-odoo.py --url http://localhost:8069 --db lager1 --user admin --api-key admin
 
 Zweite Lagerinstanz (Compose-Profil `second-odoo`, Port 8070):
-    python seed-odoo.py --url http://localhost:8070 --db lager2_o19 --user admin --api-key admin
+    python seed-odoo.py --url http://localhost:8070 --db lager2 --user admin --api-key admin
 
 Verwendung (BOM-basierte Pickings aus echten Produkten, benoetigt `mrp`):
-    python seed-odoo.py --url http://localhost:8069 --db masterfischer_o19 --user admin --api-key admin --bom-mode
+    python seed-odoo.py --url http://localhost:8069 --db lager1 --user admin --api-key admin --bom-mode
 
 Odoo-19-Hinweise:
 - `stock.move.name` gibt es nicht mehr; die Bewegungsbezeichnung wird aus dem
@@ -244,7 +244,7 @@ def build_demo_cluster_products():
 def main():
     parser = argparse.ArgumentParser(description="Odoo Seed-Daten")
     parser.add_argument("--url", default="http://localhost:8069")
-    parser.add_argument("--db", default="masterfischer_o19")
+    parser.add_argument("--db", default="lager1")
     parser.add_argument("--user", default="admin")
     parser.add_argument("--api-key", required=True)
     parser.add_argument("--users-only", action="store_true",
