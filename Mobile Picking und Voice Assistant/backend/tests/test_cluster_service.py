@@ -76,7 +76,7 @@ def service(odoo, n8n):
 class TestSuggestBatches:
     @pytest.mark.anyio
     async def test_groups_assigned_pickings_without_batch_by_zone(self, service, odoo):
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.picking":
                 return [
                     {"id": 1, "name": "WH/OUT/001", "batch_id": False},
@@ -107,7 +107,7 @@ class TestSuggestBatches:
 
     @pytest.mark.anyio
     async def test_suggest_batches_returns_reasons_and_score(self, service, odoo):
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.picking":
                 return [
                     {"id": 1, "name": "OUT/1", "batch_id": False, "company_id": [1, "A"],
@@ -135,7 +135,7 @@ class TestSuggestBatches:
 
     @pytest.mark.anyio
     async def test_suggests_distinct_groups_without_repeating_an_order(self, service, odoo):
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.picking":
                 return [
                     {"id": 1, "name": "OUT/1", "company_id": [1, "A"], "scheduled_date": "2026-07-09"},
@@ -163,7 +163,7 @@ class TestSuggestBatches:
 
         calls = []
 
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             calls.append((model, domain, fields))
             if model == "stock.picking" and ("batch_id", "=", False) in domain:
                 raise OdooAPIError(
@@ -207,7 +207,7 @@ class TestCreateBatch:
     async def test_creates_batch_with_six_zero_command_and_confirms(self, service, odoo):
         odoo.create.return_value = 99
 
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.picking.batch":
                 return [{"id": 99, "name": "BATCH/0099", "state": "in_progress",
                          "picking_ids": [1, 2], "user_id": [7, "Max Picker"]}]
@@ -312,7 +312,7 @@ class TestCreateBatch:
         # #3: search_read scopt auf assigned + ohne Batch; vals nutzt nur erlaubte IDs.
         odoo.create.return_value = 99
 
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.picking" and ("state", "=", "assigned") in domain:
                 # Nur Picking 1 und 3 sind erlaubt; 2 ist fremd/gebatcht und faellt raus.
                 return [{"id": 1, "company_id": [1, "MyCo"]},
@@ -356,7 +356,7 @@ class TestCreateBatch:
         # #2: action_confirm scheitert nach create -> kompensierendes action_cancel.
         odoo.create.return_value = 99
 
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.picking":
                 return [{"id": 1, "company_id": [1, "MyCo"]},
                         {"id": 2, "company_id": [1, "MyCo"]}]
@@ -399,7 +399,7 @@ class TestCreateBatch:
 
         odoo.create.side_effect = fake_create
 
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.picking" and ("state", "=", "assigned") in domain:
                 return [{"id": 1, "name": "WH/OUT/001", "company_id": [1, "MyCo"]},
                         {"id": 2, "name": "WH/OUT/002", "company_id": [1, "MyCo"]}]
@@ -472,7 +472,7 @@ class TestCreateBatch:
 
         odoo.create.side_effect = fake_create
 
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.picking" and ("state", "=", "assigned") in domain:
                 return [{"id": 1, "name": "WH/OUT/001", "company_id": [1, "MyCo"]},
                         {"id": 2, "name": "WH/OUT/002", "company_id": [1, "MyCo"]}]
@@ -527,7 +527,7 @@ class TestCreateBatch:
         monkeypatch.setattr(service, "_assign_packages", fail_assign)
         odoo.create.return_value = 99
 
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.picking" and ("state", "=", "assigned") in domain:
                 return [{"id": 1, "name": "WH/OUT/001", "company_id": [1, "MyCo"]},
                         {"id": 2, "name": "WH/OUT/002", "company_id": [1, "MyCo"]}]
@@ -587,7 +587,7 @@ class TestGetBatch:
 
     @pytest.mark.anyio
     async def test_returns_route_sorted_lines_with_box_tags_and_progress(self, service, odoo):
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.picking.batch":
                 return [{"id": 99, "name": "BATCH/0099", "state": "in_progress",
                          "picking_ids": [1, 2], "user_id": [7, "Max Picker"]}]
@@ -627,7 +627,7 @@ class TestGetBatch:
     @pytest.mark.anyio
     async def test_surfaces_result_package_per_box_and_line(self, service, odoo):
         # get_batch liefert package_name je Box und je Line aus result_package_id.
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.picking.batch":
                 return [{"id": 99, "name": "B", "state": "in_progress",
                          "picking_ids": [1, 2], "user_id": [7, "Max"]}]
@@ -690,7 +690,7 @@ class TestGetBatch:
     @pytest.mark.anyio
     async def test_package_name_none_when_no_result_package(self, service, odoo):
         # Backward compatible: aeltere Batches ohne result_package_id -> package_name None.
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.picking.batch":
                 return [{"id": 99, "name": "B", "state": "in_progress",
                          "picking_ids": [1], "user_id": [7, "Max"]}]
@@ -751,7 +751,7 @@ class TestConfirmClusterLine:
         if with_package:
             payload.setdefault("result_package_id", [700, "PKG-1"])
 
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.move.line":
                 return [payload]
             return []
@@ -802,7 +802,7 @@ class TestConfirmClusterLine:
                 "result_package_id": [700, "PKG-1"]}
         calls = {"n": 0}
 
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.move.line" and calls["n"] == 0:
                 calls["n"] += 1
                 return [line]
@@ -825,7 +825,7 @@ class TestConfirmClusterLine:
                 "move_id": [50, "m"], "location_id": [9, "L"],
                 "result_package_id": [700, "PKG-1"]}
 
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.move.line":
                 return [line]
             if model == "product.product":
@@ -886,7 +886,7 @@ class TestConfirmClusterLine:
                 "move_id": [50, "m"], "location_id": [9, "L"],
                 "result_package_id": [700, "PKG-1"]}
 
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.move.line":
                 return [line]
             if model == "product.product":
@@ -914,7 +914,7 @@ class TestConfirmClusterLine:
                 "move_id": [50, "m"], "location_id": [9, "L"],
                 "result_package_id": [700, "PKG-1"]}
 
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.move.line":
                 return [line]
             if model == "product.product":
@@ -938,7 +938,7 @@ class TestConfirmClusterLine:
                 "move_id": [50, "m"], "location_id": [9, "L"],
                 "result_package_id": [700, "PKG-1"]}
 
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.move.line":
                 return [line]
             if model == "product.product":

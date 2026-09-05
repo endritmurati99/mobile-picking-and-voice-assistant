@@ -35,7 +35,7 @@ def service(odoo, n8n):
 class TestGetOpenPickings:
     @pytest.mark.anyio
     async def test_returns_assigned_pickings_with_operational_preview(self, service, odoo):
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.picking":
                 return [
                     {
@@ -114,7 +114,7 @@ class TestGetOpenPickings:
 
     @pytest.mark.anyio
     async def test_falls_back_to_picking_type_when_no_open_lines_exist(self, service, odoo):
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.picking":
                 return [
                     {
@@ -151,7 +151,7 @@ class TestGetOpenPickings:
 
     @pytest.mark.anyio
     async def test_uses_plain_source_document_as_human_context(self, service, odoo):
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.picking":
                 return [
                     {
@@ -197,7 +197,7 @@ class TestGetPickingDetail:
 
     @pytest.mark.anyio
     async def test_enriches_with_move_lines_and_operational_fields(self, service, odoo):
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.picking":
                 return [
                     {
@@ -280,7 +280,7 @@ class TestGetPickingDetail:
 
     @pytest.mark.anyio
     async def test_filters_picked_lines_out_of_active_route(self, service, odoo):
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.picking":
                 return [
                     {
@@ -345,7 +345,7 @@ class TestGetPickingDetail:
 
     @pytest.mark.anyio
     async def test_detail_without_source_document_has_no_human_context(self, service, odoo):
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "stock.picking":
                 return [
                     {
@@ -470,12 +470,10 @@ class TestConfirmPickLine:
         odoo.execute_kw.side_effect = [
             [{"id": 20, "product_id": [5, "Schraube M8"], "quantity": 3}],
             [{"id": 20, "picked": True}, {"id": 21, "picked": True}],
+            OdooAPIError("Sie müssen ein Los für das Produkt angeben."),
         ]
         odoo.search_read.return_value = [{"id": 5, "barcode": "4006381333931"}]
         odoo.write = AsyncMock(return_value=True)
-        odoo.call_method = AsyncMock(
-            side_effect=OdooAPIError("Sie müssen ein Los für das Produkt angeben.")
-        )
 
         with caplog.at_level(logging.WARNING):
             result = await service.confirm_pick_line(1, 20, "4006381333931", 3.0)
@@ -503,19 +501,28 @@ class TestConfirmPickLine:
         odoo.execute_kw.side_effect = [
             [{"id": 20, "product_id": [5, "Schraube M8"], "quantity": 3}],
             [{"id": 20, "picked": True}],
+            {"picking_complete": True, "job_id": "abc", "picking_name": "WH/OUT/1"},
         ]
         odoo.search_read.return_value = [{"id": 5, "barcode": "4006381333931"}]
         odoo.write = AsyncMock(return_value=True)
-        odoo.call_method = AsyncMock(
-            return_value={"picking_complete": True, "job_id": "abc", "picking_name": "WH/OUT/1"}
-        )
 
         result = await service.confirm_pick_line(1, 20, "4006381333931", 3.0)
 
         assert result["picking_complete"] is True
         assert result["message"] == "Auftrag abgeschlossen."
-        odoo.call_method.assert_awaited_once()
-        model, method, args = odoo.call_method.await_args.args[:3]
+        # Auf execute_kw geprueft, nicht auf call_method: die Voraussetzung
+        # prueft der Test sonst an der Stelle, an der der Fehler entsteht,
+        # vorbei. `call_method` stellt die Id-Liste voran (`[ids] + args`),
+        # und die Odoo-Methode ist `@api.model` mit EINER Id -- der frueher
+        # hier erwartete Aufruf kam als `[[1]]` an und scheiterte an
+        # `int([1])`. Der Test war gruen, die Live-Kommissionierung nicht.
+        abschluss = [
+            aufruf
+            for aufruf in odoo.execute_kw.await_args_list
+            if aufruf.args[1] == "api_complete_and_request_label"
+        ]
+        assert len(abschluss) == 1, "Abschluss muss genau einmal gerufen werden"
+        model, method, args = abschluss[0].args[:3]
         assert (model, method, args) == ("stock.picking", "api_complete_and_request_label", [1])
         n8n.fire_event.assert_not_called()
 
@@ -529,12 +536,10 @@ class TestConfirmPickLine:
         odoo.execute_kw.side_effect = [
             [{"id": 20, "product_id": [5, "Schraube M8"], "quantity": 3}],
             [{"id": 20, "picked": True}],
+            OdooAPIError("Fuer diesen Lieferschein laeuft bereits eine Label-Anforderung."),
         ]
         odoo.search_read.return_value = [{"id": 5, "barcode": "4006381333931"}]
         odoo.write = AsyncMock(return_value=True)
-        odoo.call_method = AsyncMock(
-            side_effect=OdooAPIError("Fuer diesen Lieferschein laeuft bereits eine Label-Anforderung.")
-        )
 
         with caplog.at_level(logging.WARNING):
             result = await service.confirm_pick_line(1, 20, "4006381333931", 3.0)
@@ -553,12 +558,10 @@ class TestConfirmPickLine:
         odoo.execute_kw.side_effect = [
             [{"id": 20, "product_id": [5, "Schraube M8"], "quantity": 3}],
             [{"id": 20, "picked": True}],
+            {"picking_complete": True, "job_id": "abc", "picking_name": "WH/OUT/1"},
         ]
         odoo.search_read.return_value = [{"id": 5, "barcode": "4006381333931"}]
         odoo.write = AsyncMock(return_value=True)
-        odoo.call_method = AsyncMock(
-            return_value={"picking_complete": True, "job_id": "abc", "picking_name": "WH/OUT/1"}
-        )
 
         result = await service.confirm_pick_line(
             1,
@@ -605,7 +608,7 @@ class TestConfirmPickLineSerial:
                 return [{"id": 10, "picked": True}]
             raise AssertionError(f"unexpected execute_kw {model}.{method}")
 
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "product.product" and "barcode" in fields:
                 return [{"barcode": "CPU-XEON-1"}]
             if model == "product.product" and "tracking" in fields:
@@ -661,7 +664,7 @@ class TestConfirmPickLineSerial:
                 return [{"id": 10, "picked": True}]
             raise AssertionError(f"unexpected execute_kw {model}.{method}")
 
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "product.product" and "barcode" in fields:
                 return [{"barcode": "BRICK-1"}]
             if model == "product.product" and "tracking" in fields:
@@ -699,7 +702,7 @@ class TestConfirmPickLineSerial:
                 return [{"id": 10, "picked": True}]
             raise AssertionError(f"unexpected execute_kw {model}.{method}")
 
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "product.product" and "barcode" in fields:
                 return [{"barcode": "CPU-XEON-1"}]
             if model == "product.product" and "tracking" in fields:
@@ -733,7 +736,7 @@ class TestConfirmPickLineSerial:
                          "lot_id": False}]
             raise AssertionError(f"unexpected execute_kw {model}.{method}")
 
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             if model == "product.product" and "barcode" in fields:
                 return [{"barcode": "CPU-XEON-1"}]
             if model == "product.product" and "tracking" in fields:
@@ -770,7 +773,7 @@ class TestReturnSerialReconcile:
                 {"id": 503, "product_id": [6, "[BULK] Bulk Teil"], "lot_id": False, "lot_name": False},
             ]
 
-        async def fake_search_read(model, domain, fields, limit=100):
+        async def fake_search_read(model, domain, fields, limit=100, order=None):
             assert model == "product.product"
             assert domain == [("id", "in", [5, 6])]
             return [

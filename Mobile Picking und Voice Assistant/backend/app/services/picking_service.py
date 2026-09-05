@@ -955,7 +955,15 @@ class PickingService:
                 # die Outbox; der Dispatcher liefert es an n8n, das Label
                 # kommt als Callback zurueck. Faellt n8n aus, bleibt die
                 # Buchung trotzdem bestehen -- der Picker merkt nichts.
-                completion = await self._odoo.call_method(
+                # `execute_kw` und nicht `call_method`: `call_method` ist fuer
+                # Record-Methoden gebaut und schiebt die Id-Liste als erstes
+                # Argument davor (`[ids] + args`). Die Odoo-Seite ist aber mit
+                # `@api.model` deklariert und erwartet EINE Id, bekam so aber
+                # `[239]` und starb an `int([239])`. Am 2026-09-05 live
+                # gemessen: jede Kommissionierung endete nach der letzten
+                # Position mit "Auftrag konnte nicht abgeschlossen werden",
+                # kein einziges Versandlabel wurde je ueber die PWA angefordert.
+                completion = await self._odoo.execute_kw(
                     "stock.picking",
                     "api_complete_and_request_label",
                     [picking_id],

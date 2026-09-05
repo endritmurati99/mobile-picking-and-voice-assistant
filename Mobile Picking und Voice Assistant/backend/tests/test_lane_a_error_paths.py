@@ -58,7 +58,6 @@ class TestConfirmPickLineAfterWrite:
         ]
         odoo.search_read.return_value = [{"id": 5, "barcode": "4006381333931"}]
         odoo.write = AsyncMock(return_value=True)
-        odoo.call_method = AsyncMock(return_value=True)
 
         with caplog.at_level(logging.WARNING):
             result = await service.confirm_pick_line(1, 20, "4006381333931", 3.0)
@@ -75,8 +74,16 @@ class TestConfirmPickLineAfterWrite:
         assert "nicht erreichbar" in caplog.text, (
             f"der Grund muss im Log stehen. Log war: {caplog.text!r}"
         )
-        # Kein Abschluss ohne bekannten Zeilenstand.
-        odoo.call_method.assert_not_called()
+        # Kein Abschluss ohne bekannten Zeilenstand. Geprueft wird auf
+        # execute_kw, weil der Abschluss seit dem 2026-09-05 darueber laeuft:
+        # call_method stellte die Id-Liste voran und die Odoo-Methode
+        # (`@api.model`) starb an `int([id])`.
+        abschluesse = [
+            aufruf
+            for aufruf in odoo.execute_kw.await_args_list
+            if aufruf.args[1] == "api_complete_and_request_label"
+        ]
+        assert abschluesse == []
 
     @pytest.mark.anyio
     async def test_unexpected_validate_failure_does_not_escape_either(
@@ -90,10 +97,10 @@ class TestConfirmPickLineAfterWrite:
         odoo.execute_kw.side_effect = [
             [{"id": 20, "product_id": [5, "Schraube M8"], "quantity": 3}],
             [{"id": 20, "picked": True}],
+            RuntimeError("Verbindung abgerissen"),
         ]
         odoo.search_read.return_value = [{"id": 5, "barcode": "4006381333931"}]
         odoo.write = AsyncMock(return_value=True)
-        odoo.call_method = AsyncMock(side_effect=RuntimeError("Verbindung abgerissen"))
 
         with caplog.at_level(logging.WARNING):
             result = await service.confirm_pick_line(1, 20, "4006381333931", 3.0)
