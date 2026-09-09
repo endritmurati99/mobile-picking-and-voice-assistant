@@ -433,57 +433,34 @@ class ClusterService:
                 "eligibility": report,
             }
 
-        company_id = None
-        for picking in allowed:
-            if picking.get("company_id"):
-                company_id = picking["company_id"][0]
-                break
-
-        # 'name' bewusst weglassen -> Odoo-Sequenz 'picking.batch' fuellt es.
-        vals: dict[str, Any] = {"picking_ids": [(6, 0, allowed_ids)]}
-        if company_id is not None:
-            vals["company_id"] = company_id
-        if picker_identity and getattr(picker_identity, "user_id", None):
-            vals["user_id"] = picker_identity.user_id
-
         try:
-            batch_id = await self._odoo.create("stock.picking.batch", vals)
+            # Der Scope-Read oben dient der fachlichen Rueckmeldung. Das
+            # entscheidende Pruefen und Anlegen passiert aber atomar in Odoo:
+            # dort werden die Pickings gesperrt, bevor batch_id geprueft und
+            # geschrieben wird. So koennen zwei Worker mit verschiedenen
+            # Idempotency-Keys keinen zweiten Batch fuer dieselben Auftraege
+            # anlegen.
+            batch_id = await self._odoo.execute_kw(
+                "stock.picking.batch",
+                "api_create_mobile_batch",
+                [allowed_ids, getattr(picker_identity, "user_id", None) or False],
+            )
         except OdooAPIError as exc:
             logger.error("create_batch: Anlegen fehlgeschlagen: %s", exc)
             return {"error": f"Batch-Anlage fehlgeschlagen: {exc}"}
 
         try:
-            await self._assign_packages(allowed_ids)
-        except Exception as exc:
-            logger.error("create_batch: Package-Zuweisung fehlgeschlagen (batch %s): %s",
-                         batch_id, exc)
-            try:
-                await self._odoo.call_method("stock.picking.batch", "action_cancel", [batch_id])
-            except OdooAPIError as cancel_exc:
-                logger.error("create_batch: action_cancel nach Package-Fehler fehlgeschlagen "
-                             "(batch %s): %s", batch_id, cancel_exc)
-            return {
-                "success": False,
-                "error": "Zielkartons konnten nicht angelegt werden.",
-                "message": "Zielkartons konnten nicht angelegt werden.",
-                "code": "package_assignment_failed",
-            }
-
-        try:
-            await self._odoo.call_method("stock.picking.batch", "action_confirm", [batch_id])
-        except OdooAPIError as exc:
-            logger.error("create_batch: action_confirm fehlgeschlagen (batch %s): %s",
-                         batch_id, exc)
-            # Kompensieren: keinen verwaisten Draft-Batch hinterlassen.
-            try:
-                await self._odoo.call_method(
-                    "stock.picking.batch", "action_cancel", [batch_id])
-            except OdooAPIError as cancel_exc:
-                logger.error("create_batch: kompensierendes action_cancel fehlgeschlagen "
-                             "(batch %s): %s", batch_id, cancel_exc)
-            return {"error": f"Batch-Bestaetigung fehlgeschlagen: {exc}"}
-
-        return await self.get_batch(batch_id, picker_identity=picker_identity)
+            created_batch = await self.get_batch(batch_id, picker_identity=picker_identity)
+            if created_batch.get("batch_id") == batch_id:
+                return created_batch
+        except Exception:
+            logger.exception("create_batch: Batch %s angelegt, aber nicht geladen", batch_id)
+        else:
+            logger.error("create_batch: Batch %s angelegt, aber nicht lesbar", batch_id)
+        # Die Anlage ist bereits in Odoo committed. Eine nachgelagerte
+        # Anzeige-Abfrage darf den Batch nicht unauffindbar machen; der
+        # Client kann ihn mit dieser stabilen ID erneut laden.
+        return {"batch_id": batch_id, "recovery_required": True}
 
     async def _assign_packages(self, allowed_ids: list[int]) -> None:
         """Je Picking ein Ziel-Package anlegen und als result_package_id schreiben.
@@ -905,13 +882,11 @@ class ClusterService:
                     "message": "Batch bereits abgeschlossen."}
 
         try:
-            result = await self._odoo.call_method(
-                "stock.picking.batch", "action_done", [batch_id],
-                context={
-                    "skip_backorder": True,
-                    "picking_ids_not_to_backorder": member_ids,
-                    "skip_sms": True,
-                },
+            # Odoo fuehrt action_done und die Versandlabel-Outbox in EINER
+            # Transaktion aus. Ein Backend-Nachlauf nach action_done koennte
+            # sonst einen gebuchten Versand ohne Label hinterlassen.
+            result = await self._odoo.execute_kw(
+                "stock.picking", "api_complete_batch_and_request_labels", [batch_id]
             )
         except OdooAPIError as exc:
             logger.error("validate_batch: action_done fehlgeschlagen (batch %s): %s",
@@ -930,10 +905,16 @@ class ClusterService:
                     "message": ("Batch-Abschluss erfordert eine manuelle Bestätigung in Odoo "
                                 f"({result.get('res_model')}).")}
 
-        # Hier feuerte der v1-Workflow `batch-confirmed`, den es nicht mehr
-        # gibt. Der Batch ist in Odoo abgeschlossen -- ein n8n-Folgeprozess
-        # existiert fuer diesen Fall nicht, also gibt es auch keinen
-        # degradierten Ausgang mehr.
+        if not isinstance(result, dict) or result.get("batch_complete") is not True:
+            logger.error("validate_batch: unerwartete Odoo-Antwort fuer Batch %s: %r", batch_id, result)
+            self._emit_batch_validate(False, batch_id, "invalid_response", t0)
+            return {
+                "success": False,
+                "batch_complete": False,
+                "message": "Batch-Abschluss konnte nicht verifiziert werden.",
+            }
+
+        # Odoo hat action_done und die Versandlabel-Outbox gemeinsam bestätigt.
         self._emit_batch_validate(True, batch_id, "success", t0)
         return {"success": True, "batch_complete": True, "message": "Batch abgeschlossen."}
 

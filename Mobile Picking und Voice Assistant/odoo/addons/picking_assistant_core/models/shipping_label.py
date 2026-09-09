@@ -142,6 +142,47 @@ class StockPickingShippingLabel(models.Model):
             "picking_name": picking.name or "",
         }
 
+    @api.model
+    def api_complete_batch_and_request_labels(self, batch_id):
+        """Complete a batch and enqueue labels for its outgoing pickings.
+
+        ``action_done`` and every enqueue share one Odoo transaction: a batch
+        cannot leave the mobile API as done while one of its outgoing parcels
+        has no outbox event.
+        """
+        self.env["picking.assistant.api.mixin"]._require_api_service()
+        batch = self.env["stock.picking.batch"].sudo().browse(int(batch_id)).exists()
+        if not batch:
+            raise ValidationError("Batch nicht gefunden.")
+
+        self.env.cr.execute(
+            "SELECT id FROM stock_picking_batch WHERE id = %s FOR UPDATE",
+            [batch.id],
+        )
+        member_ids = batch.picking_ids.ids
+        if member_ids:
+            self.env.cr.execute(
+                "SELECT id FROM stock_picking WHERE id IN %s ORDER BY id FOR UPDATE",
+                [tuple(member_ids)],
+            )
+
+        result = batch.with_context(
+            skip_backorder=True,
+            picking_ids_not_to_backorder=member_ids,
+            skip_sms=True,
+        ).action_done()
+        if isinstance(result, dict) and result.get("res_model"):
+            return result
+
+        outgoing_ids = batch.picking_ids.filtered(
+            lambda picking: picking.picking_type_id.code == "outgoing" and picking.state == "done"
+        ).ids
+        labels = [
+            self.api_complete_and_request_label(picking_id)
+            for picking_id in outgoing_ids
+        ]
+        return {"batch_complete": True, "labels": labels}
+
     _SHIPPING_STATUS_MAP = {
         "succeeded": "labeled",
         "review_required": "failed",

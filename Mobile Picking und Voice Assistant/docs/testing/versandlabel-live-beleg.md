@@ -1,5 +1,29 @@
 # Versandlabel über n8n – Live-Belege vom 03.09.2026
 
+## Nachtrag zum Code- und Teststand vom 09.09.2026
+
+Die folgenden Belege und offenen Testvorlagen dokumentieren den 03.09.
+Der aktuelle Cluster-Code ruft inzwischen
+`stock.picking.api_complete_batch_and_request_labels` auf: Odoo schließt den
+Batch ab und legt die Versandereignisse seiner ausgehenden Lieferungen in
+derselben Transaktion an. Die weiter unten beschriebene damalige Cluster-Lücke
+ist damit im Code behoben; sie ist kein Nachweis eines Cluster-Browser-Livetests.
+
+Am 09.09. wurde zusätzlich ein isoliert markierter Einzelauftrag
+`REVIEW-20260909-AUTO-LABEL` / `L1/OUT/00312` über den echten
+`PickingService.confirm_pick_line` bestätigt. Ergebnis nach 2,7 Sekunden:
+Auftrag `done`, Label `labeled`, genau ein Versandjob `succeeded`, gültiger
+PDF-Anhang mit 14.252 Bytes. Die drei Backend-Dateien für Picking, Odoo-Client
+und Outbox-Dispatcher stimmten per SHA-256 mit dem Checkout überein.
+Die Handybedienung sowie der HTTP-Claim-/Idempotenzpfad waren nicht Teil dieses
+Laufs; das Label enthält wie vorgesehen eine interne `PWR-…`-Sendungsnummer.
+
+Die neue Wiederholungsgrenze berücksichtigt außerdem die verfügbaren signierten
+Callback-IDs. Fehlt die ID für eine weitere Zustellung, erhält der Job
+`review_required` und das Versandobjekt einen sichtbaren Fehlerstatus.
+Die weiter unten beschriebene unbegrenzt ausstehende Anzeige ist für diesen
+konkreten Erschöpfungspfad daher ebenfalls historisch.
+
 ## Testlauf
 
 Alle Läufe fanden am 03.09.2026 im Worktree `feature/versandlabel-n8n` statt.

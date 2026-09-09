@@ -1,12 +1,21 @@
 """Route-Tests fuer /api/cluster/* (TestClient, Dependencies gemockt)."""
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.dependencies import get_cluster_service, get_required_picker_identity
+from app.dependencies import (
+    get_cluster_service,
+    get_mobile_workflow_service,
+    get_required_picker_identity,
+    get_write_request_context,
+)
 from app.main import app
-from app.services.mobile_workflow import PickerIdentity
+from app.services.mobile_workflow import (
+    IdempotencyReservation,
+    PickerIdentity,
+    WriteRequestContext,
+)
 from tests.conftest import BROWSER_GATE_HEADERS, install_browser_gate
 
 
@@ -17,8 +26,17 @@ def cluster_service():
 
 @pytest.fixture
 def client(cluster_service, sample_principal):
+    identity = PickerIdentity(user_id=7, device_id="device-42", picker_name="Mina Muster")
+    workflow = AsyncMock()
+    workflow.resolve_identity.return_value = identity
+    workflow.build_request_fingerprint = Mock(return_value="test-fingerprint")
+    workflow.begin_idempotent_request.return_value = IdempotencyReservation(status="disabled")
     app.dependency_overrides[get_cluster_service] = lambda: cluster_service
-    app.dependency_overrides[get_required_picker_identity] = lambda: PickerIdentity(user_id=7)
+    app.dependency_overrides[get_required_picker_identity] = lambda: identity
+    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_write_request_context] = lambda: WriteRequestContext(
+        idempotency_key="test-idempotency-key", identity=identity, principal_scope="user:7"
+    )
     # Task 16: diese Datei prueft Cluster-FACHLICHKEIT. Das App-weite Gate
     # (Session, Origin/CSRF, Idempotency-Key) wird in
     # tests/test_route_security.py bewiesen und hier nur erfuellt.
@@ -55,6 +73,29 @@ def test_create_batch(client, cluster_service):
     assert resp.status_code == 200
     assert resp.json()["batch_id"] == 99
     cluster_service.create_batch.assert_awaited_once()
+
+
+def test_create_batch_replays_existing_idempotency_response(client, cluster_service):
+    identity = PickerIdentity(user_id=7, device_id="device-42")
+    workflow = AsyncMock()
+    workflow.resolve_identity.return_value = identity
+    workflow.build_request_fingerprint = Mock(return_value="test-fingerprint")
+    workflow.begin_idempotent_request.return_value = IdempotencyReservation(
+        status="replay", response_payload={"batch_id": 99}
+    )
+    app.dependency_overrides[get_mobile_workflow_service] = lambda: workflow
+    app.dependency_overrides[get_write_request_context] = lambda: WriteRequestContext(
+        idempotency_key="test-idempotency-key", identity=identity, principal_scope="picker:7"
+    )
+    try:
+        response = client.post("/api/cluster/batches", json={"picking_ids": [1, 2]})
+    finally:
+        app.dependency_overrides.pop(get_mobile_workflow_service, None)
+        app.dependency_overrides.pop(get_write_request_context, None)
+
+    assert response.status_code == 200
+    assert response.json() == {"batch_id": 99}
+    cluster_service.create_batch.assert_not_awaited()
 
 
 def test_create_batch_rejects_empty(client, cluster_service):

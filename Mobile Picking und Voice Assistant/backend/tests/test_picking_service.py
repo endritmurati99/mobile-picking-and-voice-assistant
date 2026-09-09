@@ -185,6 +185,144 @@ class TestGetOpenPickings:
 
         assert result == []
 
+    @pytest.mark.anyio
+    async def test_loads_all_open_pickings_across_pages(self, service, odoo):
+        pickings = [
+            {
+                "id": index,
+                "name": f"WH/OUT/{index:05d}",
+                "origin": False,
+                "state": "assigned",
+                "partner_id": False,
+                "scheduled_date": False,
+                "picking_type_id": [4, "My Company: Delivery Orders"],
+                "priority": "0",
+                "batch_id": False,
+            }
+            for index in range(1, 252)
+        ]
+        raw_lines = [
+            {
+                "id": index,
+                "picking_id": [index, f"WH/OUT/{index:05d}"],
+                "product_id": [index, f"Product {index}"],
+                "quantity": 0,
+                "picked": False,
+                "move_id": [index, f"MOVE/{index}"],
+                "location_id": [1, "WH/Stock/A-1"],
+            }
+            for index in range(1, 252)
+        ]
+        moves = [{"id": index, "product_uom_qty": 1, "picked": False} for index in range(1, 252)]
+        products = [{"id": index, "default_code": f"SKU-{index}"} for index in range(1, 252)]
+        cursors = []
+
+        async def fake_search_read(model, domain, fields, limit=100, order=None, offset=0):
+            if model == "stock.picking":
+                cursor = next(term[2] for term in domain if term[:2] == ("id", ">"))
+                cursors.append(cursor)
+                assert len(cursors) <= 2, "Pagination did not advance beyond the first page"
+                return [picking for picking in pickings if picking["id"] > cursor][:limit]
+            if model == "stock.move":
+                return moves[offset:offset + limit]
+            if model == "product.product":
+                return products[offset:offset + limit]
+            raise AssertionError(f"Unexpected search_read model {model}")
+
+        async def fake_execute_kw(model, method, args, kwargs):
+            assert (model, method) == ("stock.move.line", "search_read")
+            offset = kwargs.get("offset", 0)
+            return raw_lines[offset:offset + kwargs["limit"]]
+
+        odoo.search_read.side_effect = fake_search_read
+        odoo.execute_kw.side_effect = fake_execute_kw
+
+        result = await service.get_open_pickings()
+
+        assert [picking["id"] for picking in result] == list(range(251, 0, -1))
+        assert cursors == [0, 250]
+        assert result[0]["primary_item_sku"] == "SKU-251"
+        assert result[-1]["primary_item_sku"] == "SKU-1"
+
+    @pytest.mark.anyio
+    async def test_keeps_open_picking_when_an_earlier_page_row_completes(self, service, odoo):
+        """Offset pagination must not skip an assigned picking after queue churn."""
+        pickings = [
+            {
+                "id": index,
+                "name": f"WH/OUT/{index:05d}",
+                "origin": False,
+                "state": "assigned",
+                "partner_id": False,
+                "scheduled_date": False,
+                "picking_type_id": [4, "My Company: Delivery Orders"],
+                "priority": "0",
+                "batch_id": False,
+            }
+            for index in range(1, 252)
+        ]
+        calls = 0
+
+        async def fake_search_read(model, domain, fields, limit=100, order=None, offset=0):
+            nonlocal calls
+            if model != "stock.picking":
+                raise AssertionError(f"Unexpected search_read model {model}")
+            calls += 1
+            current = pickings if calls == 1 else pickings[1:]
+            cursor = next((term[2] for term in domain if term[0] == "id" and term[1] == ">"), 0)
+            return [picking for picking in current if picking["id"] > cursor][:limit]
+
+        async def fake_execute_kw(model, method, args, kwargs):
+            assert (model, method) == ("stock.move.line", "search_read")
+            return []
+
+        odoo.search_read.side_effect = fake_search_read
+        odoo.execute_kw.side_effect = fake_execute_kw
+
+        result = await service.get_open_pickings()
+
+        assert {picking["id"] for picking in result} == set(range(1, 252))
+
+    @pytest.mark.anyio
+    async def test_loads_all_move_lines_across_pages(self, service, odoo):
+        odoo.search_read.return_value = [{
+            "id": 1,
+            "name": "WH/OUT/00001",
+            "origin": False,
+            "state": "assigned",
+            "partner_id": False,
+            "scheduled_date": False,
+            "picking_type_id": [4, "My Company: Delivery Orders"],
+            "priority": "0",
+            "batch_id": False,
+        }]
+        raw_lines = [
+            {
+                "id": index,
+                "picking_id": [1, "WH/OUT/00001"],
+                "product_id": False,
+                "quantity": 0,
+                "picked": False,
+                "move_id": False,
+                "location_id": [1, "WH/Stock/A-1"],
+            }
+            for index in range(1, 502)
+        ]
+        offsets = []
+
+        async def fake_execute_kw(model, method, args, kwargs):
+            assert (model, method) == ("stock.move.line", "search_read")
+            offset = kwargs.get("offset", 0)
+            offsets.append(offset)
+            return raw_lines[offset:offset + kwargs["limit"]]
+
+        odoo.execute_kw.side_effect = fake_execute_kw
+
+        result = await service.get_open_pickings()
+
+        assert result[0]["open_line_count"] == 501
+        assert offsets == [0, 250, 500]
+
 
 class TestGetPickingDetail:
     @pytest.mark.anyio

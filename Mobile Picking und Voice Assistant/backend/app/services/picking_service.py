@@ -380,24 +380,64 @@ class PickingService:
             "picking_type_id",
             "priority",
         ]
-        # Dringend zuerst, danach der fruehste Termin -- ueberfaellige
-        # Auftraege stehen damit oben. Ohne diese Angabe entschied `_order`
-        # von stock.picking, also eine Odoo-Voreinstellung, darueber.
-        reihenfolge = "priority desc, scheduled_date asc, id desc"
-        # Das Limit lag auf 100, und Lager 2 fuehrt genau 100 offene
-        # Auftraege: die Liste stand exakt auf der Kante, der 101. waere
-        # ohne jeden Hinweis verschwunden.
-        obergrenze = 250
+        seiten_groesse = 250
+
+        async def lade_seiten(
+            model: str,
+            domain: list,
+            felder: list[str],
+            *,
+            order: str | None = None,
+        ) -> list[dict]:
+            records: list[dict] = []
+            offset = 0
+            while True:
+                kwargs = {"limit": seiten_groesse}
+                if order:
+                    kwargs["order"] = order
+                if offset:
+                    kwargs["offset"] = offset
+                page = await self._odoo.search_read(
+                    model,
+                    domain,
+                    felder,
+                    **kwargs,
+                )
+                records.extend(page)
+                if len(page) < seiten_groesse:
+                    return records
+                offset += len(page)
+
+        async def lade_offene_pickings(felder: list[str]) -> list[dict]:
+            records: list[dict] = []
+            last_id = 0
+            while True:
+                page = await self._odoo.search_read(
+                    "stock.picking",
+                    [("state", "=", "assigned"), ("id", ">", last_id)],
+                    felder,
+                    limit=seiten_groesse,
+                    order="id asc",
+                )
+                records.extend(page)
+                if len(page) < seiten_groesse:
+                    break
+                last_id = page[-1]["id"]
+            # Der Cursor ist ID-basiert, damit sich verschiebende Seiten keine
+            # offenen Auftraege verschlucken. Erst danach wird die gewuenschte
+            # Arbeitsreihenfolge wiederhergestellt.
+            return sorted(
+                records,
+                key=lambda picking: (
+                    -int(picking.get("priority") or 0),
+                    picking.get("scheduled_date") or "9999-12-31",
+                    -picking["id"],
+                ),
+            )
 
         try:
             # `batch_id` zeigt, ob der Auftrag schon zu einem Cluster gehoert.
-            pickings = await self._odoo.search_read(
-                "stock.picking",
-                [("state", "=", "assigned")],
-                basis_felder + ["batch_id"],
-                order=reihenfolge,
-                limit=obergrenze,
-            )
+            pickings = await lade_offene_pickings(basis_felder + ["batch_id"])
         except OdooAPIError as exc:
             # Das Feld stammt aus stock_picking_batch. Ohne dieses Modul
             # kennt stock.picking es nicht -- dann faellt die
@@ -409,13 +449,7 @@ class PickingService:
                 "Auftragsliste ohne Cluster-Kennzeichnung: %s",
                 exc,
             )
-            pickings = await self._odoo.search_read(
-                "stock.picking",
-                [("state", "=", "assigned")],
-                basis_felder,
-                order=reihenfolge,
-                limit=obergrenze,
-            )
+            pickings = await lade_offene_pickings(basis_felder)
         if not pickings:
             return []
 
@@ -427,23 +461,35 @@ class PickingService:
             _apply_shipping_context(picking, partner_map)
 
         picking_ids = [picking["id"] for picking in pickings]
-        raw_lines = await self._odoo.execute_kw(
-            "stock.move.line",
-            "search_read",
-            [[("picking_id", "in", picking_ids)]],
-            {
-                "fields": [
-                    "id",
-                    "picking_id",
-                    "product_id",
-                    "quantity",
-                    "picked",
-                    "move_id",
-                    "location_id",
-                ],
-                "limit": max(500, len(picking_ids) * 20),
-            },
-        )
+        raw_line_fields = [
+            "id",
+            "picking_id",
+            "product_id",
+            "quantity",
+            "picked",
+            "move_id",
+            "location_id",
+        ]
+        raw_lines: list[dict] = []
+        offset = 0
+        while True:
+            kwargs = {
+                "fields": raw_line_fields,
+                "limit": seiten_groesse,
+                "order": "id asc",
+            }
+            if offset:
+                kwargs["offset"] = offset
+            page = await self._odoo.execute_kw(
+                "stock.move.line",
+                "search_read",
+                [[("picking_id", "in", picking_ids)]],
+                kwargs,
+            )
+            raw_lines.extend(page)
+            if len(page) < seiten_groesse:
+                break
+            offset += len(page)
 
         move_ids = list(
             {
@@ -454,10 +500,11 @@ class PickingService:
         )
         move_map: dict[int, dict[str, Any]] = {}
         if move_ids:
-            moves = await self._odoo.search_read(
+            moves = await lade_seiten(
                 "stock.move",
                 [("id", "in", move_ids)],
                 ["id", "product_uom_qty", "picked"],
+                order="id asc",
             )
             move_map = {move["id"]: move for move in moves}
 
@@ -470,10 +517,11 @@ class PickingService:
         )
         product_map: dict[int, dict[str, Any]] = {}
         if product_ids:
-            products = await self._odoo.search_read(
+            products = await lade_seiten(
                 "product.product",
                 [("id", "in", product_ids)],
                 ["id", "default_code"],
+                order="id asc",
             )
             product_map = {product["id"]: product for product in products}
 

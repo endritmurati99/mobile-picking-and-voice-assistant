@@ -92,7 +92,13 @@ class OdooClient:
         )
 
     async def search_read(
-        self, model: str, domain: list, fields: list, limit: int = 100, order: str | None = None
+        self,
+        model: str,
+        domain: list,
+        fields: list,
+        limit: int = 100,
+        order: str | None = None,
+        offset: int = 0,
     ) -> list[dict]:
         # `order` durchreichen statt sich auf `_order` des Modells zu
         # verlassen: welche Reihenfolge der Picker sieht, ist eine Entscheidung
@@ -101,6 +107,8 @@ class OdooClient:
         kwargs: dict = {"fields": fields, "limit": limit}
         if order:
             kwargs["order"] = order
+        if offset:
+            kwargs["offset"] = offset
         return await self.execute_kw(model, "search_read", [domain], kwargs)
 
     async def create(self, model: str, vals: dict) -> int:

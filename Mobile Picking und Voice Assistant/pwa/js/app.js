@@ -3916,6 +3916,10 @@ async function createClusterBatch() {
             if (startBtn) startBtn.disabled = false;
             return;
         }
+        if (batch?.recovery_required && batch.batch_id) {
+            await loadBatch(batch.batch_id);
+            return;
+        }
         resetClusterScanState();
         setState({ batch });
         renderClusterWalk(batch);

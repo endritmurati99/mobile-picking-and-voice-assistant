@@ -56,6 +56,19 @@ class TestOdooClient:
             assert len(result) == 1
             assert result[0]["name"] == "Test"
 
+    @pytest.mark.anyio
+    async def test_search_read_passes_offset_to_odoo(self, client):
+        client._uid = 2
+        client._secret = "test-key"
+        with patch.object(client, "_json_rpc", new_callable=AsyncMock) as mock_rpc:
+            mock_rpc.return_value = []
+
+            await client.search_read("stock.picking", [], ["name"], limit=250, order="id asc", offset=250)
+
+            assert mock_rpc.await_args.args[-1][6] == {
+                "fields": ["name"], "limit": 250, "order": "id asc", "offset": 250,
+            }
+
 
 def test_client_uses_explicit_profile():
     profile = OdooProfile(

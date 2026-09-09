@@ -1,5 +1,9 @@
 """Buchung und Ereignis entstehen zusammen oder gar nicht (Transactional
 Outbox). Zweiter Aufruf fuer dasselbe Picking wird abgewiesen."""
+from datetime import timedelta
+from unittest.mock import patch
+
+from odoo import fields
 from odoo.exceptions import AccessError, ValidationError
 from odoo.tests.common import TransactionCase
 
@@ -89,6 +93,39 @@ class TestCompleteAndRequestLabel(TransactionCase):
         self.assertEqual(self.picking.integration_revision, 2)
         self.assertEqual(job.aggregate_revision, 2)
 
+    def test_batch_completion_enqueues_label_for_outgoing_member(self):
+        batch = self.env["stock.picking.batch"].create(
+            {"picking_ids": [(6, 0, [self.picking.id])], "user_id": self.api_user.id}
+        )
+        batch.action_confirm()
+
+        result = self.Picking.api_complete_batch_and_request_labels(batch.id)
+
+        self.assertTrue(result["batch_complete"])
+        self.assertEqual(self.picking.state, "done")
+        self.assertEqual(self.picking.shipping_label_status, "pending")
+        self.assertEqual(len(self._outbox_rows()), 1)
+
+    def test_batch_completion_returns_wizard_without_creating_a_label_event(self):
+        batch = self.env["stock.picking.batch"].create(
+            {"picking_ids": [(6, 0, [self.picking.id])], "user_id": self.api_user.id}
+        )
+        batch.action_confirm()
+
+        with patch.object(
+            type(batch),
+            "action_done",
+            return_value={
+                "res_model": "stock.backorder.confirmation",
+                "type": "ir.actions.act_window",
+            },
+        ):
+            result = self.Picking.api_complete_batch_and_request_labels(batch.id)
+
+        self.assertEqual(result["res_model"], "stock.backorder.confirmation")
+        self.assertEqual(self.picking.shipping_label_status, "none")
+        self.assertEqual(len(self._outbox_rows()), 0)
+
     def test_second_call_is_refused_while_job_is_open(self):
         self.Picking.api_complete_and_request_label(self.picking.id)
         with self.assertRaises(ValidationError):
@@ -135,3 +172,48 @@ class TestCompleteAndRequestLabel(TransactionCase):
             self.Picking.api_complete_and_request_label(self.picking.id)
         self.assertEqual(len(self._outbox_rows()), 0)
         self.assertEqual(self.picking.shipping_label_status, "none")
+
+    def test_exhausted_callback_ids_require_review_instead_of_generation_seven(self):
+        """A legacy queued job beyond its signed IDs must end visibly."""
+        self.Picking.api_complete_and_request_label(self.picking.id)
+        outbox = self._outbox_rows()
+        job = outbox.job_record_id
+        generation_without_id = 6
+        now = fields.Datetime.now()
+        receipt = self.env["picking.assistant.event.receipt"].create(
+            {
+                "event_id": outbox.event_id,
+                "job_record_id": job.id,
+                "payload_fingerprint": outbox.payload_fingerprint,
+                "delivery_generation": generation_without_id,
+                "state": "processing",
+                "processing_lease_token": "expired-lease",
+                "processing_lease_expires_at": now - timedelta(seconds=1),
+            }
+        )
+        job.write(
+            {
+                "delivery_generation": generation_without_id,
+                "processing_lease_token": "expired-lease",
+                "processing_lease_expires_at": now - timedelta(seconds=1),
+            }
+        )
+        outbox.write(
+            {
+                "state": "leased",
+                "lease_owner": "expired-worker",
+                "lease_expires_at": now + timedelta(seconds=60),
+            }
+        )
+
+        outcome = self.env[
+            "picking.assistant.integration.job"
+        ]._recover_expired_lease(job, receipt, now)
+
+        self.assertEqual(outcome, "review_required")
+        self.assertEqual(job.state, "review_required")
+        self.assertEqual(job.delivery_generation, generation_without_id)
+        self.assertEqual(receipt.state, "completed")
+        self.assertEqual(outbox.state, "delivered")
+        self.assertEqual(self.picking.shipping_label_status, "failed")
+        self.assertIn("Callback-ID", self.picking.shipping_failure_reason)

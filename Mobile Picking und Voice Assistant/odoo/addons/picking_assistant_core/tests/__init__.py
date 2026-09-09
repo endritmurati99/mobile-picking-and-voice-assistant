@@ -1,6 +1,7 @@
 from . import test_decimal_precision
 from . import test_idempotency
 from . import test_idempotency_concurrency
+from . import test_mobile_batch
 from . import test_shipping_fields_guard
 from . import test_shipment_event
 from . import test_shipment_request
