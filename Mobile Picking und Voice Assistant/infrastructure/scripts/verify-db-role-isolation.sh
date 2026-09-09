@@ -73,6 +73,10 @@ log "OK: n8n_app rolsuper=false rolcreatedb=false rolcreaterole=false"
 
 N8N_DB_PASSWORD="$(cat "$N8N_DB_PASSWORD_FILE")"
 ODOO_DB_PASSWORD="$(cat "$ODOO_DB_PASSWORD_FILE")"
+odoo_databases=("$ODOO_DB_NAME")
+if [ -n "${ODOO_LAGER2_DB_NAME:-}" ] && [ "$ODOO_LAGER2_DB_NAME" != "$ODOO_DB_NAME" ]; then
+    odoo_databases+=("$ODOO_LAGER2_DB_NAME")
+fi
 
 # --- Check 4: n8n_app can connect/create/rollback a temp table in n8n. ---
 log "Check 4: n8n_app can connect and create a temp table in n8n (positive)"
@@ -85,9 +89,10 @@ fi
 log "OK: n8n_app connect+create+rollback succeeded in n8n"
 
 # --- Check 5: n8n_app connecting to the Odoo database must fail. ---
-log "Check 5: n8n_app connection to the Odoo database (negative)"
+for odoo_database in "${odoo_databases[@]}"; do
+log "Check 5: n8n_app connection to $odoo_database (negative)"
 if PGPASSWORD="$N8N_DB_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 \
-    --username n8n_app --dbname "$ODOO_DB_NAME" -c "SELECT 1" >/dev/null 2>&1
+    --username n8n_app --dbname "$odoo_database" -c "SELECT 1" >/dev/null 2>&1
 then
     fail "n8n_app unexpectedly connected to the Odoo database (expected connection failure)"
 fi
@@ -96,12 +101,13 @@ log "OK: n8n_app to Odoo database failed as expected connection failure"
 # --- Check 6: odoo_app can read its own schema; connecting to n8n fails. ---
 log "Check 6a: odoo_app can connect and read its schema (positive)"
 if ! PGPASSWORD="$ODOO_DB_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 \
-    --username odoo_app --dbname "$ODOO_DB_NAME" -c \
+    --username odoo_app --dbname "$odoo_database" -c \
     "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'" >/dev/null 2>&1
 then
     fail "odoo_app could not connect/read its own schema (expected success)"
 fi
-log "OK: odoo_app connect+read succeeded in $ODOO_DB_NAME"
+log "OK: odoo_app connect+read succeeded in $odoo_database"
+done
 
 log "Check 6b: odoo_app connection to n8n (negative)"
 if PGPASSWORD="$ODOO_DB_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 \

@@ -4,16 +4,19 @@
 # Runs only inside PostgreSQL's fresh-volume initialization directory
 # (docker-entrypoint-initdb.d) as the image-created bootstrap superuser
 # (pwr_db_admin). It creates two non-superuser application roles,
-# odoo_app and n8n_app, each owning exactly one database, and locks
+# odoo_app (one or two warehouses) and n8n_app (n8n), and locks
 # down cross-database visibility so neither app role can see the
 # other's database by default.
 #
-# Required environment (paths to files, never raw secrets):
+# Required environment (protected files or explicit deployment environment):
 #   PWR_DB_ADMIN_PASSWORD_FILE  - password for the pwr_db_admin bootstrap role
 #   ODOO_DB_PASSWORD_FILE       - password for the odoo_app role
 #   N8N_DB_PASSWORD_FILE        - password for the n8n_app role
 #   ODOO_DB_NAME                - final Odoo-19 production database name
 #                                  (fail closed: no guessed default)
+#   ODOO_LAGER2_DB_NAME - optional second warehouse database, same Odoo role
+# Passwords may instead use the corresponding variable without _FILE.
+# Supplying both sources is rejected; neither source is printed.
 #
 # This script never echoes secret file contents, and never passes a
 # password as a psql command-line argument (argv is readable by any
@@ -47,9 +50,22 @@ require_password_file() {
     fi
 }
 
-require_password_file PWR_DB_ADMIN_PASSWORD_FILE
-require_password_file ODOO_DB_PASSWORD_FILE
-require_password_file N8N_DB_PASSWORD_FILE
+read_password() {
+    local name="$1" file_var="${1}_FILE" value
+    if [ -n "${!file_var:-}" ]; then
+        [ -z "${!name:-}" ] || fail "both $name and $file_var are set"
+        require_password_file "$file_var"
+        value="$(cat "${!file_var}")"
+    else
+        value="${!name:-}"
+    fi
+    [ -n "$value" ] || fail "$name or $file_var must provide a non-empty password"
+    printf '%s' "$value"
+}
+
+PWR_ADMIN_PASSWORD="$(read_password PWR_DB_ADMIN_PASSWORD)"
+ODOO_APP_PASSWORD="$(read_password ODOO_DB_PASSWORD)"
+N8N_APP_PASSWORD="$(read_password N8N_DB_PASSWORD)"
 
 if [ -z "${ODOO_DB_NAME:-}" ]; then
     fail "ODOO_DB_NAME is required (final Odoo-19 production database name); refusing to guess it"
@@ -71,10 +87,6 @@ if [ "$actual_super" != "t" ]; then
     fail "connected role $POSTGRES_USER is not rolsuper=true; refusing to bootstrap app roles under a non-superuser identity"
 fi
 
-PWR_ADMIN_PASSWORD="$(cat "$PWR_DB_ADMIN_PASSWORD_FILE")"
-ODOO_DB_PASSWORD="$(cat "$ODOO_DB_PASSWORD_FILE")"
-N8N_DB_PASSWORD="$(cat "$N8N_DB_PASSWORD_FILE")"
-
 log "Bootstrapping roles pwr_db_admin (existing), odoo_app, n8n_app"
 log "Odoo database: $ODOO_DB_NAME"
 
@@ -89,7 +101,7 @@ env PWR_ADMIN_PASSWORD="$PWR_ADMIN_PASSWORD" \
 ALTER ROLE pwr_db_admin PASSWORD :'pwr_password';
 SQL
 
-env ODOO_APP_PASSWORD="$ODOO_DB_PASSWORD" N8N_APP_PASSWORD="$N8N_DB_PASSWORD" \
+env ODOO_APP_PASSWORD="$ODOO_APP_PASSWORD" N8N_APP_PASSWORD="$N8N_APP_PASSWORD" \
     psql -v ON_ERROR_STOP=1 \
     --username "$POSTGRES_USER" \
     --dbname postgres \
@@ -112,10 +124,6 @@ SELECT format(
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'n8n_app')
 \gexec
 
-SELECT format('CREATE DATABASE %I OWNER odoo_app', :'odoo_db')
-WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'odoo_db')
-\gexec
-
 SELECT 'CREATE DATABASE n8n OWNER n8n_app'
 WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'n8n')
 \gexec
@@ -123,8 +131,6 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'n8n')
 REVOKE CONNECT, TEMPORARY ON DATABASE n8n FROM PUBLIC;
 GRANT CONNECT, TEMPORARY ON DATABASE n8n TO n8n_app;
 
-SELECT format('REVOKE CONNECT, TEMPORARY ON DATABASE %I FROM PUBLIC', :'odoo_db') \gexec
-SELECT format('GRANT CONNECT, TEMPORARY ON DATABASE %I TO odoo_app', :'odoo_db') \gexec
 SQL
 
 log "Applying schema ownership and default privileges inside n8n"
@@ -136,13 +142,27 @@ ALTER DEFAULT PRIVILEGES FOR ROLE n8n_app GRANT ALL ON TABLES TO n8n_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE n8n_app GRANT ALL ON SEQUENCES TO n8n_app;
 SQL
 
-log "Applying schema ownership and default privileges inside $ODOO_DB_NAME"
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$ODOO_DB_NAME" <<'SQL'
+odoo_databases=("$ODOO_DB_NAME")
+if [ -n "${ODOO_LAGER2_DB_NAME:-}" ] && [ "$ODOO_LAGER2_DB_NAME" != "$ODOO_DB_NAME" ]; then
+    odoo_databases+=("$ODOO_LAGER2_DB_NAME")
+fi
+for odoo_database in "${odoo_databases[@]}"; do
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres \
+        -v "odoo_db=$odoo_database" <<'SQL'
+SELECT format('CREATE DATABASE %I OWNER odoo_app', :'odoo_db')
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'odoo_db')
+\gexec
+SELECT format('REVOKE CONNECT, TEMPORARY ON DATABASE %I FROM PUBLIC', :'odoo_db') \gexec
+SELECT format('GRANT CONNECT, TEMPORARY ON DATABASE %I TO odoo_app', :'odoo_db') \gexec
+SQL
+log "Applying schema ownership and default privileges inside $odoo_database"
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$odoo_database" <<'SQL'
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE, CREATE ON SCHEMA public TO odoo_app;
 ALTER SCHEMA public OWNER TO odoo_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE odoo_app GRANT ALL ON TABLES TO odoo_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE odoo_app GRANT ALL ON SEQUENCES TO odoo_app;
 SQL
+done
 
-log "Done: odoo_app owns $ODOO_DB_NAME, n8n_app owns n8n, both non-superuser"
+log "Done: odoo_app owns the configured warehouses, n8n_app owns n8n, both non-superuser"

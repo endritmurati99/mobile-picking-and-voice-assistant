@@ -1,10 +1,12 @@
 import os
+import re
 import stat
 import subprocess
 import textwrap
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "infrastructure" / "scripts"
@@ -23,13 +25,13 @@ def test_fresh_init_creates_separate_non_superuser_app_roles():
     assert "REVOKE CONNECT" in script
 
 
-def test_existing_volume_migration_has_all_reversible_modes():
+def test_existing_volume_migration_exposes_backup_apply_verify_and_refuses_partial_rollback():
     script = text("infrastructure/scripts/migrate-n8n-db-role.sh")
     for mode in ("backup", "apply", "verify", "rollback"):
         assert f'"{mode}")' in script
     assert "pg_dump --format=custom" in script
     assert "pg_dumpall --roles-only" in script
-    assert "REASSIGN OWNED" in script
+    assert "transfer_public_objects" in script
     assert "NOLOGIN" in script
 
 
@@ -56,6 +58,61 @@ def test_no_app_uses_cluster_bootstrap_role_in_compose():
     compose = text("docker-compose.yml")
     assert "DB_POSTGRESDB_USER: ${N8N_DB_USER:-n8n_app}" in compose
     assert "USER: ${ODOO_DB_USER:-odoo_app}" in compose
+
+
+def test_compose_bootstraps_roles_before_apps_and_does_not_override_odoo_user():
+    services = yaml.safe_load(text("docker-compose.yml"))["services"]
+    db = services["db"]
+    assert db["environment"]["POSTGRES_USER"] == "pwr_db_admin"
+    assert any("init-db-roles.sh:/docker-entrypoint-initdb.d/" in item for item in db["volumes"])
+    assert not any("init-n8n-db.sql:/docker-entrypoint-initdb.d/" in item for item in db["volumes"])
+    assert db["environment"]["ODOO_DB_NAME"] == "lager1"
+    assert db["environment"]["ODOO_LAGER2_DB_NAME"] == "lager2"
+    for service, key in (("odoo", "PASSWORD"), ("odoo-lager-2", "PASSWORD"),
+                         ("n8n", "DB_POSTGRESDB_PASSWORD"), ("n8n-credentials", "DB_POSTGRESDB_PASSWORD")):
+        assert "POSTGRES_PASSWORD" not in services[service]["environment"][key]
+    for config in ("odoo/odoo19.conf", "odoo/odoo19-lager2.conf"):
+        assert not any(line.startswith("db_user =") for line in text(config).splitlines())
+
+
+def test_env_example_documents_every_required_compose_variable():
+    required = set(re.findall(r"\$\{([A-Z_0-9]+):\?", text("docker-compose.yml")))
+    documented = set(re.findall(r"^([A-Z_0-9]+)=", text(".env.example"), re.MULTILINE))
+    assert not required - documented, f"Required settings absent from .env.example: {sorted(required - documented)}"
+
+
+def test_init_accepts_explicit_env_passwords_and_initializes_second_warehouse(tmp_path):
+    env, bin_dir = _env_with_bin(tmp_path)
+    capture = tmp_path / "sql.log"
+    _make_executable(bin_dir / "psql", textwrap.dedent(f"""\
+        if [[ "$*" == *rolsuper* ]]; then echo t; exit 0; fi
+        printf '%s\\n' "$*" >> '{capture}'
+        cat >> '{capture}'
+        """))
+    for key in ("PWR_DB_ADMIN_PASSWORD_FILE", "ODOO_DB_PASSWORD_FILE", "N8N_DB_PASSWORD_FILE"):
+        env.pop(key, None)
+    env.update(POSTGRES_USER="pwr_db_admin", PWR_DB_ADMIN_PASSWORD="review-admin",
+               ODOO_DB_PASSWORD="review-odoo", N8N_DB_PASSWORD="review-n8n",
+               ODOO_DB_NAME="lager1", ODOO_LAGER2_DB_NAME="lager2")
+    result = subprocess.run(["bash", str(SCRIPTS / "init-db-roles.sh")], env=env,
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    sql = capture.read_text()
+    assert "odoo_db=lager2" in sql
+    assert "--dbname lager2" in sql
+    assert "CREATE DATABASE %I OWNER odoo_app" in sql
+    for password in ("review-admin", "review-odoo", "review-n8n"):
+        assert password not in result.stdout + result.stderr + sql
+
+
+def test_init_rejects_ambiguous_password_sources(tmp_path):
+    env, _ = _env_with_bin(tmp_path)
+    env["PWR_DB_ADMIN_PASSWORD_FILE"] = str(_password_file(tmp_path, "admin.pass"))
+    env["PWR_DB_ADMIN_PASSWORD"] = "other-source"
+    result = subprocess.run(["bash", str(SCRIPTS / "init-db-roles.sh")], env=env,
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode != 0
+    assert "both" in result.stderr.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +254,8 @@ def _prepare_backup_dir(tmp_path: Path) -> Path:
     for name in (
         "roles-before.sql",
         "n8n-before.dump",
+        "odoo-before.dump",
+        "odoo-lager2-before.dump",
         "database-acl-before.tsv",
         "n8n-schema-acl-before.tsv",
     ):
@@ -210,7 +269,35 @@ def _prepare_backup_dir(tmp_path: Path) -> Path:
     return backup_dir
 
 
-def test_migrate_apply_creates_nosuperuser_roles_revokes_public_acls_and_quotes_identifiers(tmp_path):
+@pytest.mark.parametrize("mode", [0o704, 0o706, 0o750])
+def test_migrate_rejects_backup_directory_readable_by_others(tmp_path, mode):
+    env, bin_dir = _env_with_bin(tmp_path)
+    _stub_noop_psql(bin_dir)
+    backup = _prepare_backup_dir(tmp_path)
+    backup.chmod(mode)
+    env["ODOO_DB_NAME"] = "lager1"
+    result = subprocess.run(
+        ["bash", str(SCRIPTS / "migrate-n8n-db-role.sh"), "apply", str(backup)],
+        env=env, capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode != 0
+    assert "backup directory" in result.stderr and "0700" in result.stderr
+
+
+def test_migrate_rollback_refuses_before_running_any_external_command(tmp_path):
+    env, bin_dir = _env_with_bin(tmp_path)
+    env["ODOO_DB_NAME"] = "lager1"
+    touched = tmp_path / "touched"
+    for command in ("docker", "psql", "pg_restore"):
+        _make_executable(bin_dir / command, f"touch '{touched}'; exit 1\n")
+    result = subprocess.run(["bash", str(SCRIPTS / "migrate-n8n-db-role.sh"), "rollback", str(tmp_path)],
+                            env=env, capture_output=True, text=True, timeout=10)
+    assert result.returncode != 0 and "automatic rollback is disabled" in result.stderr
+    assert not touched.exists()
+
+
+@pytest.mark.parametrize("second_warehouse", [None, "lager2"])
+def test_migrate_apply_creates_nosuperuser_roles_revokes_public_acls_and_quotes_identifiers(tmp_path, second_warehouse):
     env, bin_dir = _env_with_bin(tmp_path)
     capture_file = tmp_path / "psql_capture.log"
 
@@ -242,6 +329,8 @@ def test_migrate_apply_creates_nosuperuser_roles_revokes_public_acls_and_quotes_
             case "$args" in
               *"--username n8n_app"*"--dbname picking"*)
                 exit 1 ;;
+              *"--username n8n_app"*"--dbname lager2"*)
+                exit 1 ;;
               *"--username odoo_app"*"--dbname n8n"*)
                 exit 1 ;;
             esac
@@ -264,6 +353,9 @@ def test_migrate_apply_creates_nosuperuser_roles_revokes_public_acls_and_quotes_
     )
 
     env["ODOO_DB_NAME"] = "picking"
+    env.pop("ODOO_LAGER2_DB_NAME", None)
+    if second_warehouse:
+        env["ODOO_LAGER2_DB_NAME"] = second_warehouse
     env["POSTGRES_USER"] = "odoo"
     env["LEGACY_DB_SUPERUSER"] = "odoo"
     env["PWR_DB_ADMIN_PASSWORD_FILE"] = str(_password_file(tmp_path, "pwr.pass"))
@@ -294,11 +386,14 @@ def test_migrate_apply_creates_nosuperuser_roles_revokes_public_acls_and_quotes_
     # The pwr_db_admin bootstrap role is actually created (not just logged).
     assert "CREATE ROLE pwr_db_admin SUPERUSER LOGIN" in captured
 
-    # Legacy role name is substituted through psql's quoted-identifier
-    # form, never as a bare/unquoted substitution.
-    assert 'REASSIGN OWNED BY :"legacy" TO n8n_app' in captured
-    assert 'REASSIGN OWNED BY :"legacy" TO odoo_app' in captured
-    assert 'ALTER ROLE :"legacy" NOSUPERUSER NOCREATEDB NOCREATEROLE NOLOGIN' in captured
+    # Catalog-selected application objects use quoted identifiers; system
+    # ownership must not be reassigned from the original initdb role.
+    assert "app_role=n8n_app" in captured and "app_role=odoo_app" in captured
+    assert "n.nspname = 'public'" in captured
+    assert "format('ALTER %s %I.%I OWNER TO %I'" in captured
+    assert "REASSIGN OWNED" not in captured
+    assert "ALTER ROLE %I %s NOLOGIN" in captured
+    assert "CASE WHEN oid = 10 THEN '' ELSE 'NOSUPERUSER NOCREATEDB NOCREATEROLE' END" in captured
     assert "REASSIGN OWNED BY :legacy " not in captured
     assert "ALTER ROLE :legacy " not in captured
 
@@ -307,6 +402,10 @@ def test_migrate_apply_creates_nosuperuser_roles_revokes_public_acls_and_quotes_
     assert "REVOKE CONNECT, TEMPORARY ON DATABASE n8n FROM PUBLIC" in captured
     assert "REVOKE CONNECT, TEMPORARY ON DATABASE %I FROM PUBLIC" in captured
     assert captured.count("REVOKE ALL ON SCHEMA public FROM PUBLIC") >= 2
+    if second_warehouse:
+        assert "-d lager2" in captured
+        assert "--dbname lager2" in captured
+        assert captured.index("--dbname lager2") < captured.index("ALTER ROLE %I %s NOLOGIN")
 
 
 def test_clone_delete_refuses_recorded_source_volume(tmp_path):
