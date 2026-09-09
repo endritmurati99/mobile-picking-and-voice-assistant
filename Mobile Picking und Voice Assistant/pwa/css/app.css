@@ -221,7 +221,8 @@ body {
 
 .instance-switch {
     /* Lane C: 40px -> 44px Handschuh-Mindestmass. */
-    width: clamp(5.5rem, 18vw, 6.8rem);
+    width: auto;
+    max-width: 100%;
     min-height: 44px;
     padding: 0 28px 0 10px;
     border: 1px solid var(--line);
@@ -3059,7 +3060,6 @@ main::-webkit-scrollbar-thumb {
 
     .instance-switch {
         /* Lane C: 38px -> 44px Handschuh-Mindestmass. */
-        max-width: 5.7rem;
         min-height: 44px;
         padding-right: 22px;
         padding-left: 8px;
@@ -4558,7 +4558,6 @@ body[data-view="cluster_walk"] .cluster-walk {
     }
 
     .instance-switch {
-        width: clamp(5.5rem, 18vw, 6.8rem);
         padding-right: 26px;
     }
 

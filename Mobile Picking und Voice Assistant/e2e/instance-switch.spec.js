@@ -1,6 +1,37 @@
 const { test, expect } = require('@playwright/test');
 const { mockPwaApi, loginPwa } = require('./helpers/pwa-api');
 
+test('Lagername und Kopfaktionen bleiben auf schmalen Telefonen vollständig sichtbar', async ({ page }) => {
+  await mockPwaApi(page, {
+    instances: [
+      { name: 'local', display_name: 'Lager 1' },
+      { name: 'lager-2', display_name: 'Lager 2' },
+    ],
+  });
+  await page.goto('/');
+  await loginPwa(page);
+  for (const width of [320, 390, 412]) {
+    await page.setViewportSize({ width, height: 844 });
+    const layout = await page.locator('#instance-switch').evaluate((select) => {
+      const style = getComputedStyle(select);
+      const context = document.createElement('canvas').getContext('2d');
+      context.font = style.font;
+      return {
+        labelSpace: select.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+        // Native selects also reserve space for the dropdown arrow.
+        neededSpace: Math.ceil(context.measureText(select.selectedOptions[0].textContent).width) + 20,
+        controlsFit: [...document.querySelectorAll('#instance-switch, .header-actions button, #picker-indicator')]
+          .every((node) => {
+            const box = node.getBoundingClientRect();
+            return box.left >= 0 && box.right <= innerWidth && box.height >= 44;
+          }),
+      };
+    });
+    expect(layout.labelSpace, `Lagername bei ${width}px`).toBeGreaterThanOrEqual(layout.neededSpace);
+    expect(layout.controlsFit, `Kopfaktionen bei ${width}px`).toBe(true);
+  }
+});
+
 test('Lager-Umschalter tauscht die authentifizierte Sitzung für Folge-Requests', async ({ page }) => {
   const api = await mockPwaApi(page, {
     instances: [

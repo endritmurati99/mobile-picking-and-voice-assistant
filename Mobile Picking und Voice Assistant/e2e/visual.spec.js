@@ -32,6 +32,9 @@ async function disableMotion(page) {
 }
 
 async function expectVisualSnapshot(page, locator, name, options = {}) {
+  // Snapshot the idle layout independently of the host's speech/audio timing.
+  await page.evaluate(async () => (await import('/js/voice.js')).stopSpeaking());
+  await expect(page.locator('#voice-status-indicator')).toHaveClass(/voice-status--idle/);
   await page.evaluate(() => {
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
