@@ -36,7 +36,8 @@ def test_backup_and_two_warehouse_migration_on_real_postgres(legacy_is_bootstrap
         docker("run", "-d", "--name", name, "--network", "none", "--tmpfs", "/var/lib/postgresql/data",
                "-e", "POSTGRES_HOST_AUTH_METHOD=trust", "-e", "POSTGRES_USER=" + bootstrap, image)
         for _ in range(30):
-            if docker("exec", name, "pg_isready", "-U", bootstrap, check=False).returncode == 0:
+            # The init server accepts sockets only; TCP waits for the final server.
+            if docker("exec", name, "pg_isready", "-h", "127.0.0.1", "-U", bootstrap, check=False).returncode == 0:
                 break
             time.sleep(0.5)
         else:
