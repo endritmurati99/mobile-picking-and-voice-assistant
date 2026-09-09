@@ -9,6 +9,14 @@ from ..models.receipts import PickingAssistantEventReceipt
 from .common import IntegrationCase
 
 
+CALLBACK_ENVELOPE_TEXT = (
+    '{"payload":{"callback_ids_by_generation":{'
+    '"1":{"terminal":"callback-1"},"2":{"terminal":"callback-2"},'
+    '"3":{"terminal":"callback-3"},"4":{"terminal":"callback-4"},'
+    '"5":{"terminal":"callback-5"}}}}'
+)
+
+
 class TestReceiptsAndCallbacks(IntegrationCase):
     def setUp(self):
         super().setUp()
@@ -21,7 +29,7 @@ class TestReceiptsAndCallbacks(IntegrationCase):
             aggregate_revision=1,
             event_id="a4ff5ca2-4546-4ea4-8e6c-b75bc003ca32",
             event_name="quality.assessment.requested.v1",
-            envelope_text='{"schema_version":"v2"}',
+            envelope_text=CALLBACK_ENVELOPE_TEXT,
             payload_fingerprint="a" * 64,
             correlation_id="0b2f7909-4ad9-44c1-8527-e775fe6d4bec",
             job_id="4ddb2442-e58a-47fe-9a6f-1ec1d779ef88",
@@ -319,7 +327,7 @@ class TestReceiptsAndCallbacks(IntegrationCase):
         self.assertEqual(self.job.state, "retry_scheduled")
         self.assertEqual(self.job.delivery_generation, 2)
         self.assertEqual(self.outbox.state, "pending")
-        self.assertEqual(self.outbox.envelope_text, '{"schema_version":"v2"}')
+        self.assertEqual(self.outbox.envelope_text, CALLBACK_ENVELOPE_TEXT)
 
     def test_retry_callback_after_a_recovered_retry_is_not_a_dead_end(self):
         """A retry OF a retry -- the branch none of the other 123 tests reach.

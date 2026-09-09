@@ -38,6 +38,22 @@ TRANSITIONS = {
 # Ablauf kann vor dem ersten Callback eintreten (Job noch `queued`) oder
 # danach (`running`).
 LEASE_RECOVERY_SOURCE_STATES = {"queued", "running"}
+CALLBACK_NAME_BY_JOB_TYPE = {
+    "quality_assessment": "quality.assessment.status.v1",
+    "shipping_label": "shipping.label.status.v1",
+}
+
+
+def _has_terminal_callback_id(envelope_text, generation):
+    """Whether this immutable event can complete the requested generation."""
+    try:
+        envelope = json.loads(envelope_text)
+        callback = envelope["payload"]["callback_ids_by_generation"][
+            str(generation)
+        ]
+    except (KeyError, TypeError, ValueError):
+        return False
+    return bool(isinstance(callback, dict) and callback.get("terminal"))
 
 # Audit retention windows (days); every cleanup skips legal_hold jobs.
 RETENTION_DELIVERED_OUTBOX_DAYS = 30
@@ -313,6 +329,53 @@ class PickingAssistantIntegrationJob(models.Model):
                 }
             )
             return "review_required"
+        outbox = outboxes.browse(outbox_row[0])
+        outbox.invalidate_recordset()
+        if not _has_terminal_callback_id(
+            outbox.envelope_text, job.delivery_generation
+        ):
+            sequence = job.sequence + 1
+            if job.state == "queued":
+                job._transition("running", sequence=sequence)
+                sequence += 1
+            error = {
+                "reason": "callback_generation_exhausted",
+                "message": "Keine Callback-ID fuer einen weiteren Zustellversuch.",
+            }
+            job._transition("review_required", sequence=sequence, error=error)
+            job.write(
+                {
+                    "processing_lease_token": False,
+                    "processing_lease_expires_at": False,
+                }
+            )
+            receipt.write(
+                {
+                    "state": "completed",
+                    "processing_lease_token": False,
+                    "processing_lease_expires_at": False,
+                    "last_received_at": now,
+                }
+            )
+            outbox.write(
+                {
+                    "state": "delivered",
+                    "delivered_at": now,
+                    "lease_owner": False,
+                    "lease_expires_at": False,
+                }
+            )
+            callback_name = CALLBACK_NAME_BY_JOB_TYPE.get(job.job_type)
+            if callback_name:
+                self.env["picking.assistant.callback.receipt"]._project_callback_result(
+                    aggregate_model=job.aggregate_model,
+                    aggregate_res_id=job.aggregate_res_id,
+                    callback_name=callback_name,
+                    status="review_required",
+                    result={},
+                    error=error,
+                )
+            return "review_required"
         job.write(
             {
                 "state": "retry_scheduled",
@@ -333,8 +396,6 @@ class PickingAssistantIntegrationJob(models.Model):
         # Dritter Lock in der globalen Reihenfolge job -> receipt -> outbox.
         # Dieselbe Zeile, unveraenderter Envelope: der Retry liefert das
         # gleiche Event erneut aus, nur unter neuer Generation.
-        outbox = outboxes.browse(outbox_row[0])
-        outbox.invalidate_recordset()
         outbox.write(
             {
                 "state": "pending",

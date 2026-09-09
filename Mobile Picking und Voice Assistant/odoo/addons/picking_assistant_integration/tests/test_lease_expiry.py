@@ -9,7 +9,7 @@ from odoo import fields
 from odoo.exceptions import ValidationError
 from odoo.tests.common import tagged
 
-from .concurrency_common import CommittedConcurrencyCase
+from .concurrency_common import CALLBACK_ENVELOPE_TEXT, CommittedConcurrencyCase
 
 
 @tagged("post_install", "-at_install")
@@ -129,7 +129,7 @@ class TestLeaseExpiry(CommittedConcurrencyCase):
             [("job_record_id", "=", job.id)], limit=1
         )
         self.assertEqual(outbox.state, "pending")
-        self.assertEqual(outbox.envelope_text, '{"schema_version":"v2"}')
+        self.assertEqual(outbox.envelope_text, CALLBACK_ENVELOPE_TEXT)
 
     def test_the_old_worker_is_useless_after_recovery(self):
         job, receipt = self._job_with_expired_lease()

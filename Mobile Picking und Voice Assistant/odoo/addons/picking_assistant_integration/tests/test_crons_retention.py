@@ -7,6 +7,14 @@ from odoo.exceptions import ValidationError
 from .common import IntegrationCase
 
 
+CALLBACK_ENVELOPE_TEXT = (
+    '{"payload":{"callback_ids_by_generation":{'
+    '"1":{"terminal":"callback-1"},"2":{"terminal":"callback-2"},'
+    '"3":{"terminal":"callback-3"},"4":{"terminal":"callback-4"},'
+    '"5":{"terminal":"callback-5"}}}}'
+)
+
+
 class TestRetention(IntegrationCase):
     def test_legal_hold_blocks_job_and_audit_cleanup(self):
         job, outbox = self.env[
@@ -18,7 +26,7 @@ class TestRetention(IntegrationCase):
             aggregate_revision=1,
             event_id="a4ff5ca2-4546-4ea4-8e6c-b75bc003ca32",
             event_name="shipment.parcel.ready.v1",
-            envelope_text='{"schema_version":"v2"}',
+            envelope_text=CALLBACK_ENVELOPE_TEXT,
             payload_fingerprint="a" * 64,
             correlation_id="0b2f7909-4ad9-44c1-8527-e775fe6d4bec",
         )
@@ -438,7 +446,7 @@ class TestWatchdogAndAuditCleanup(IntegrationCase):
             aggregate_revision=1,
             event_id=f"a4ff5ca2-4546-4ea4-8e6c-b75bc003ca3{suffix}",
             event_name="quality.assessment.requested.v1",
-            envelope_text='{"schema_version":"v2"}',
+            envelope_text=CALLBACK_ENVELOPE_TEXT,
             payload_fingerprint="a" * 64,
             correlation_id=f"0b2f7909-4ad9-44c1-8527-e775fe6d4be{suffix}",
         )
@@ -470,7 +478,7 @@ class TestWatchdogAndAuditCleanup(IntegrationCase):
         self.assertEqual(job.delivery_generation, 2)
         self.assertFalse(job.processing_lease_token)
         self.assertEqual(outbox.state, "pending")
-        self.assertEqual(outbox.envelope_text, '{"schema_version":"v2"}')
+        self.assertEqual(outbox.envelope_text, CALLBACK_ENVELOPE_TEXT)
 
     def test_one_poisoned_candidate_does_not_deny_recovery_to_the_others(self):
         """Fix round 2, finding 1: denial of recovery.

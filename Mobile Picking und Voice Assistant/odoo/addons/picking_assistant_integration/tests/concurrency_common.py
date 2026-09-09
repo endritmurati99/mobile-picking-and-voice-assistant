@@ -30,6 +30,12 @@ from ..models.receipts import PROCESSING_LEASE_SECONDS
 
 API_SERVICE_GROUP = "picking_assistant_integration.group_api_service"
 SUPERVISOR_GROUP = "picking_assistant_integration.group_supervisor"
+CALLBACK_ENVELOPE_TEXT = (
+    '{"payload":{"callback_ids_by_generation":{'
+    '"1":{"terminal":"callback-1"},"2":{"terminal":"callback-2"},'
+    '"3":{"terminal":"callback-3"},"4":{"terminal":"callback-4"},'
+    '"5":{"terminal":"callback-5"}}}}'
+)
 
 
 def _all_thread_stacks():
@@ -250,7 +256,7 @@ class CommittedConcurrencyCase(BaseCase):
             "event_id": receipt.event_id,
             "job_record_id": job.id,
             "event_name": "quality.assessment.requested.v1",
-            "envelope_text": '{"schema_version":"v2"}',
+            "envelope_text": CALLBACK_ENVELOPE_TEXT,
             "payload_fingerprint": receipt.payload_fingerprint,
             "state": "leased",
             "attempt_count": 1,
