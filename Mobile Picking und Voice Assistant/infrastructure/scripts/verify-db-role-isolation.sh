@@ -73,6 +73,10 @@ log "OK: n8n_app rolsuper=false rolcreatedb=false rolcreaterole=false"
 
 N8N_DB_PASSWORD="$(cat "$N8N_DB_PASSWORD_FILE")"
 ODOO_DB_PASSWORD="$(cat "$ODOO_DB_PASSWORD_FILE")"
+odoo_databases=("$ODOO_DB_NAME")
+if [ -n "${ODOO_LAGER2_DB_NAME:-}" ] && [ "$ODOO_LAGER2_DB_NAME" != "$ODOO_DB_NAME" ]; then
+    odoo_databases+=("$ODOO_LAGER2_DB_NAME")
+fi
 
 # --- Check 4: n8n_app can connect/create/rollback a temp table in n8n. ---
 log "Check 4: n8n_app can connect and create a temp table in n8n (positive)"
@@ -85,9 +89,10 @@ fi
 log "OK: n8n_app connect+create+rollback succeeded in n8n"
 
 # --- Check 5: n8n_app connecting to the Odoo database must fail. ---
-log "Check 5: n8n_app connection to the Odoo database (negative)"
+for odoo_database in "${odoo_databases[@]}"; do
+log "Check 5: n8n_app connection to $odoo_database (negative)"
 if PGPASSWORD="$N8N_DB_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 \
-    --username n8n_app --dbname "$ODOO_DB_NAME" -c "SELECT 1" >/dev/null 2>&1
+    --username n8n_app --dbname "$odoo_database" -c "SELECT 1" >/dev/null 2>&1
 then
     fail "n8n_app unexpectedly connected to the Odoo database (expected connection failure)"
 fi
@@ -96,12 +101,13 @@ log "OK: n8n_app to Odoo database failed as expected connection failure"
 # --- Check 6: odoo_app can read its own schema; connecting to n8n fails. ---
 log "Check 6a: odoo_app can connect and read its schema (positive)"
 if ! PGPASSWORD="$ODOO_DB_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 \
-    --username odoo_app --dbname "$ODOO_DB_NAME" -c \
+    --username odoo_app --dbname "$odoo_database" -c \
     "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'" >/dev/null 2>&1
 then
     fail "odoo_app could not connect/read its own schema (expected success)"
 fi
-log "OK: odoo_app connect+read succeeded in $ODOO_DB_NAME"
+log "OK: odoo_app connect+read succeeded in $odoo_database"
+done
 
 log "Check 6b: odoo_app connection to n8n (negative)"
 if PGPASSWORD="$ODOO_DB_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 \
@@ -111,4 +117,34 @@ then
 fi
 log "OK: odoo_app to n8n failed as expected connection failure"
 
-log "All six isolation checks passed"
+log "Check 7: both application roles are denied every retained extra database"
+extra_databases="$(psql_as_admin -d postgres -X -At -v "odoo_db=$ODOO_DB_NAME" \
+    -v "odoo_lager2=${ODOO_LAGER2_DB_NAME:-}" <<'SQL'
+SELECT datname
+FROM pg_database
+WHERE datallowconn AND NOT datistemplate
+  AND datname <> 'postgres' AND datname <> 'n8n' AND datname <> :'odoo_db'
+  AND (:'odoo_lager2' = '' OR datname <> :'odoo_lager2')
+ORDER BY oid;
+SQL
+)"
+while IFS= read -r extra_database; do
+    [ -n "$extra_database" ] || continue
+    extra_flags="$(psql_as_admin -d postgres -X -At -v "extra_db=$extra_database" <<'SQL'
+SELECT has_database_privilege('odoo_app', :'extra_db', 'CONNECT'),
+       has_database_privilege('n8n_app', :'extra_db', 'CONNECT');
+SQL
+)"
+    [ "$extra_flags" = "f|f" ] || fail "an application role retains CONNECT on extra database $extra_database"
+    for app_role in odoo_app n8n_app; do
+        if [ "$app_role" = "odoo_app" ]; then app_password="$ODOO_DB_PASSWORD"; else app_password="$N8N_DB_PASSWORD"; fi
+        if PGPASSWORD="$app_password" psql -X -At -v ON_ERROR_STOP=1 \
+            --username "$app_role" --dbname "$extra_database" -c "SELECT 1" >/dev/null 2>&1
+        then
+            fail "$app_role unexpectedly connected to extra database $extra_database (expected connection failure)"
+        fi
+    done
+done <<< "$extra_databases"
+log "OK: both application roles are denied retained extra databases"
+
+log "All seven isolation checks passed"

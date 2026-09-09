@@ -5,7 +5,7 @@ Lädt vorhandene Produkte und Lagerorte dynamisch aus der Datenbank —
 kein seed-odoo.py erforderlich.
 
 Verwendung:
-    python generate-pickings.py --url http://localhost:8069 --db masterfischer --user admin --api-key <key>
+    python generate-pickings.py --url http://localhost:8069 --db lager1 --user admin --api-key <key>
     python generate-pickings.py --count 50
 """
 import argparse
@@ -17,7 +17,7 @@ from xmlrpc.client import ServerProxy
 def main():
     parser = argparse.ArgumentParser(description="Test-Pickings generieren")
     parser.add_argument("--url", default="http://localhost:8069")
-    parser.add_argument("--db", default="masterfischer")
+    parser.add_argument("--db", default="lager1")
     parser.add_argument("--user", default="admin")
     parser.add_argument("--api-key", required=True)
     parser.add_argument("--count", type=int, default=100)

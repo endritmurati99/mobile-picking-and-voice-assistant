@@ -370,21 +370,86 @@ class PickingService:
 
     async def get_open_pickings(self) -> list[dict]:
         """Load open pickings enriched with operational preview data."""
-        pickings = await self._odoo.search_read(
-            "stock.picking",
-            [("state", "=", "assigned")],
-            [
-                "name",
-                "origin",
-                "partner_id",
-                "scheduled_date",
-                "date_deadline",
-                "state",
-                "picking_type_id",
-                "priority",
-            ],
-            limit=100,
-        )
+        basis_felder = [
+            "name",
+            "origin",
+            "partner_id",
+            "scheduled_date",
+            "date_deadline",
+            "state",
+            "picking_type_id",
+            "priority",
+        ]
+        seiten_groesse = 250
+
+        async def lade_seiten(
+            model: str,
+            domain: list,
+            felder: list[str],
+            *,
+            order: str | None = None,
+        ) -> list[dict]:
+            records: list[dict] = []
+            offset = 0
+            while True:
+                kwargs = {"limit": seiten_groesse}
+                if order:
+                    kwargs["order"] = order
+                if offset:
+                    kwargs["offset"] = offset
+                page = await self._odoo.search_read(
+                    model,
+                    domain,
+                    felder,
+                    **kwargs,
+                )
+                records.extend(page)
+                if len(page) < seiten_groesse:
+                    return records
+                offset += len(page)
+
+        async def lade_offene_pickings(felder: list[str]) -> list[dict]:
+            records: list[dict] = []
+            last_id = 0
+            while True:
+                page = await self._odoo.search_read(
+                    "stock.picking",
+                    [("state", "=", "assigned"), ("id", ">", last_id)],
+                    felder,
+                    limit=seiten_groesse,
+                    order="id asc",
+                )
+                records.extend(page)
+                if len(page) < seiten_groesse:
+                    break
+                last_id = page[-1]["id"]
+            # Der Cursor ist ID-basiert, damit sich verschiebende Seiten keine
+            # offenen Auftraege verschlucken. Erst danach wird die gewuenschte
+            # Arbeitsreihenfolge wiederhergestellt.
+            return sorted(
+                records,
+                key=lambda picking: (
+                    -int(picking.get("priority") or 0),
+                    picking.get("scheduled_date") or "9999-12-31",
+                    -picking["id"],
+                ),
+            )
+
+        try:
+            # `batch_id` zeigt, ob der Auftrag schon zu einem Cluster gehoert.
+            pickings = await lade_offene_pickings(basis_felder + ["batch_id"])
+        except OdooAPIError as exc:
+            # Das Feld stammt aus stock_picking_batch. Ohne dieses Modul
+            # kennt stock.picking es nicht -- dann faellt die
+            # Cluster-Kennzeichnung weg, aber nicht die ganze Auftragsliste.
+            if "batch_id" not in str(exc):
+                raise
+            logger.warning(
+                "get_open_pickings: stock.picking.batch_id nicht verfuegbar, "
+                "Auftragsliste ohne Cluster-Kennzeichnung: %s",
+                exc,
+            )
+            pickings = await lade_offene_pickings(basis_felder)
         if not pickings:
             return []
 
@@ -396,23 +461,35 @@ class PickingService:
             _apply_shipping_context(picking, partner_map)
 
         picking_ids = [picking["id"] for picking in pickings]
-        raw_lines = await self._odoo.execute_kw(
-            "stock.move.line",
-            "search_read",
-            [[("picking_id", "in", picking_ids)]],
-            {
-                "fields": [
-                    "id",
-                    "picking_id",
-                    "product_id",
-                    "quantity",
-                    "picked",
-                    "move_id",
-                    "location_id",
-                ],
-                "limit": max(500, len(picking_ids) * 20),
-            },
-        )
+        raw_line_fields = [
+            "id",
+            "picking_id",
+            "product_id",
+            "quantity",
+            "picked",
+            "move_id",
+            "location_id",
+        ]
+        raw_lines: list[dict] = []
+        offset = 0
+        while True:
+            kwargs = {
+                "fields": raw_line_fields,
+                "limit": seiten_groesse,
+                "order": "id asc",
+            }
+            if offset:
+                kwargs["offset"] = offset
+            page = await self._odoo.execute_kw(
+                "stock.move.line",
+                "search_read",
+                [[("picking_id", "in", picking_ids)]],
+                kwargs,
+            )
+            raw_lines.extend(page)
+            if len(page) < seiten_groesse:
+                break
+            offset += len(page)
 
         move_ids = list(
             {
@@ -423,10 +500,11 @@ class PickingService:
         )
         move_map: dict[int, dict[str, Any]] = {}
         if move_ids:
-            moves = await self._odoo.search_read(
+            moves = await lade_seiten(
                 "stock.move",
                 [("id", "in", move_ids)],
                 ["id", "product_uom_qty", "picked"],
+                order="id asc",
             )
             move_map = {move["id"]: move for move in moves}
 
@@ -439,10 +517,11 @@ class PickingService:
         )
         product_map: dict[int, dict[str, Any]] = {}
         if product_ids:
-            products = await self._odoo.search_read(
+            products = await lade_seiten(
                 "product.product",
                 [("id", "in", product_ids)],
                 ["id", "default_code"],
+                order="id asc",
             )
             product_map = {product["id"]: product for product in products}
 
@@ -916,25 +995,39 @@ class PickingService:
         validate_error = ""
         if all_done:
             try:
-                await self._odoo.call_method(
+                # Buchung UND Versandereignis in einer Odoo-Transaktion
+                # (`stock.picking.api_complete_and_request_label`). Frueher
+                # stand hier `button_validate` direkt, und der v1-Workflow
+                # `pick-confirmed` feuerte danach aus dem Backend. Heute
+                # schreibt Odoo das Ereignis `shipment.parcel.ready.v1` in
+                # die Outbox; der Dispatcher liefert es an n8n, das Label
+                # kommt als Callback zurueck. Faellt n8n aus, bleibt die
+                # Buchung trotzdem bestehen -- der Picker merkt nichts.
+                # `execute_kw` und nicht `call_method`: `call_method` ist fuer
+                # Record-Methoden gebaut und schiebt die Id-Liste als erstes
+                # Argument davor (`[ids] + args`). Die Odoo-Seite ist aber mit
+                # `@api.model` deklariert und erwartet EINE Id, bekam so aber
+                # `[239]` und starb an `int([239])`. Am 2026-09-05 live
+                # gemessen: jede Kommissionierung endete nach der letzten
+                # Position mit "Auftrag konnte nicht abgeschlossen werden",
+                # kein einziges Versandlabel wurde je ueber die PWA angefordert.
+                completion = await self._odoo.execute_kw(
                     "stock.picking",
-                    "button_validate",
+                    "api_complete_and_request_label",
                     [picking_id],
-                    context={"skip_immediate": True, "skip_backorder": True},
                 )
-                picking_complete = True
+                picking_complete = bool(
+                    isinstance(completion, dict) and completion.get("picking_complete")
+                )
             except OdooAPIError as exc:
                 # Jede Zeile ist gepickt, und Odoo weigert sich trotzdem --
                 # typisch, wenn eine Zeile noch ein Los oder eine Seriennummer
-                # verlangt. Frueher verschwand der Grund hier spurlos: der
-                # Auftrag blieb offen, der Picker las "Bestaetigt." und ging
-                # weiter. Sichtbar falsch und unsichtbar begruendet ist die
-                # Kombination, die einen Fehler im Betrieb unauffindbar macht.
+                # verlangt, oder wenn bereits ein Label-Job laeuft. Der Grund
+                # bleibt im Log sichtbar; die Antwort benennt den Unterschied.
                 picking_complete = False
                 validate_error = str(exc)
                 logger.warning(
-                    "button_validate refused picking %s after the last line was "
-                    "confirmed: %s",
+                    "Abschluss von picking %s nach der letzten Position abgewiesen: %s",
                     picking_id,
                     validate_error,
                 )
@@ -945,15 +1038,10 @@ class PickingService:
                 picking_complete = False
                 validate_error = str(exc)
                 logger.warning(
-                    "button_validate fuer picking %s unerwartet fehlgeschlagen: %s",
+                    "Abschluss von picking %s unerwartet fehlgeschlagen: %s",
                     picking_id,
                     validate_error,
                 )
-
-            # Bei `picking_complete` feuerte hier der v1-Workflow
-            # `pick-confirmed`, den es nicht mehr gibt. Die Buchung passiert in
-            # Odoo; ein n8n-Folgeprozess existiert fuer diesen Fall nicht mehr,
-            # also bleibt auch kein degradierter Zweig zu melden.
         _emit_serial_confirm(True, picking_id, move_line_id, product_id, bool(recorded_serial), _t0)
         if picking_complete:
             message = "Auftrag abgeschlossen."

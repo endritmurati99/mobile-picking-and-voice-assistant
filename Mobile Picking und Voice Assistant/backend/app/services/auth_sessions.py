@@ -238,8 +238,8 @@ class SessionService:
 
         **Was das bedeutet, ausgesprochen:** wer in Lager 1 angemeldet ist,
         bekommt eine Sitzung in Lager 2, ohne dort ein Passwort gezeigt zu
-        haben. Die beiden Odoo-Datenbanken sind getrennt, `admin` in `lager2_o19`
-        ist ein anderer Datensatz als `admin` in `masterfischer_o19` -- nur der
+        haben. Die beiden Odoo-Datenbanken sind getrennt, `admin` in `lager2`
+        ist ein anderer Datensatz als `admin` in `lager1` -- nur der
         Anmeldename ist derselbe. Genau dieser Name ist hier der Ausweis.
 
         Das ist eine bewusste Entscheidung fuer diese Anlage: dieselben

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Reversible, backup-verified migration of the existing shared
+# Backup-verified migration of the existing shared
 # superuser database role onto dedicated non-superuser application
 # roles (odoo_app, n8n_app), for an already-populated production
 # volume (Task 13). See docs/runbooks/n8n-db-role-migration.md for the
@@ -9,18 +9,17 @@
 #   migrate-n8n-db-role.sh backup   "$BACKUP_DIR"
 #   migrate-n8n-db-role.sh apply    "$BACKUP_DIR"
 #   migrate-n8n-db-role.sh verify
-#   migrate-n8n-db-role.sh rollback "$BACKUP_DIR"
+#   migrate-n8n-db-role.sh rollback "$BACKUP_DIR"  # refuses; use offline restore
 #
 # Required environment (every mode; the tool consumes the final
 # Odoo-19 database name unconditionally and fails closed if it is
 # unset, rather than guessing it):
 #   ODOO_DB_NAME
 #     - final Odoo-19 production database name
+#   ODOO_LAGER2_DB_NAME - optional second warehouse, migrated before legacy demotion
 #   PWR_DB_ADMIN_PASSWORD_FILE, ODOO_DB_PASSWORD_FILE, N8N_DB_PASSWORD_FILE
 #     - password files for the new roles, mode 0400 or 0600. apply and
-#       rollback need all three (they create/use these roles); verify
-#       needs PWR_DB_ADMIN_PASSWORD_FILE alone, to authenticate the
-#       isolation verifier's bootstrap-admin checks as pwr_db_admin.
+#       verify need all three; rollback fails without changing anything.
 #   LEGACY_DB_SUPERUSER
 #     - required only if the existing shared role is not named "odoo";
 #       must not be "postgres" or "pwr_db_admin"
@@ -59,13 +58,7 @@ require_backup_dir_not_world_readable() {
     [ -d "$dir" ] || fail "backup directory does not exist: $dir"
     local mode
     mode="$(stat -c '%a' "$dir" 2>/dev/null || stat -f '%Lp' "$dir")"
-    case "$mode" in
-        *[0246])
-            ;;
-        *)
-            fail "backup directory $dir must not be world-readable (mode $mode)"
-            ;;
-    esac
+    [ "$mode" = "700" ] || fail "backup directory $dir must be mode 0700 (found $mode)"
 }
 
 legacy_role() {
@@ -145,15 +138,43 @@ cmd_backup() {
     legacy="$(legacy_role)"
 
     log "Recording legacy role flags for $legacy"
-    psql_admin -d postgres -At -v "legacy=$legacy" -c \
-        "SELECT rolname, rolsuper, rolcreatedb, rolcreaterole, rolcanlogin FROM pg_roles WHERE rolname = :'legacy'" \
-        > "$backup_dir/legacy-role-flags-before.tsv"
+    psql_admin -d postgres -At -v "legacy=$legacy" \
+        > "$backup_dir/legacy-role-flags-before.tsv" <<'SQL'
+SELECT rolname, rolsuper, rolcreatedb, rolcreaterole, rolcanlogin FROM pg_roles WHERE rolname = :'legacy';
+SQL
 
     log "Dumping roles (no passwords redacted in output, filesystem access required)"
-    pg_dumpall --roles-only > "$backup_dir/roles-before.sql"
+    pg_dumpall --roles-only --username "$legacy" > "$backup_dir/roles-before.sql"
 
     log "Dumping n8n database"
-    pg_dump --format=custom --file "$backup_dir/n8n-before.dump" n8n
+    pg_dump --format=custom --username "$legacy" --file "$backup_dir/n8n-before.dump" n8n
+
+    log "Dumping the Odoo databases before ownership changes"
+    pg_dump --format=custom --username "$legacy" --file "$backup_dir/odoo-before.dump" "$ODOO_DB_NAME"
+    local extra_dumps=()
+    if [ -n "${ODOO_LAGER2_DB_NAME:-}" ] && [ "$ODOO_LAGER2_DB_NAME" != "$ODOO_DB_NAME" ]; then
+        pg_dump --format=custom --username "$legacy" --file "$backup_dir/odoo-lager2-before.dump" "$ODOO_LAGER2_DB_NAME"
+        extra_dumps+=(odoo-lager2-before.dump)
+    fi
+
+    # Every database left under the legacy owner is part of the recovery
+    # inventory: legacy NOLOGIN also removes its ability to reconnect there.
+    # OIDs make dump filenames safe and deterministic; the protected mapping
+    # retains the database name needed for restore.
+    psql_admin -d postgres -X -At -F $'\t' -v "odoo_db=$ODOO_DB_NAME" \
+        -v "odoo_lager2=${ODOO_LAGER2_DB_NAME:-}" > "$backup_dir/extra-databases-before.tsv" <<'SQL'
+SELECT oid, datname, format('extra-%s-before.dump', oid)
+FROM pg_database
+WHERE datallowconn AND NOT datistemplate
+  AND datname <> 'postgres' AND datname <> 'n8n' AND datname <> :'odoo_db'
+  AND (:'odoo_lager2' = '' OR datname <> :'odoo_lager2')
+ORDER BY oid;
+SQL
+    while IFS=$'\t' read -r _extra_oid extra_database extra_dump; do
+        [ -n "$extra_database" ] || continue
+        pg_dump --format=custom --username "$legacy" --file "$backup_dir/$extra_dump" "$extra_database"
+        extra_dumps+=("$extra_dump")
+    done < "$backup_dir/extra-databases-before.tsv"
 
     log "Recording database and schema ACLs"
     psql_admin -d postgres -At -c \
@@ -164,10 +185,14 @@ cmd_backup() {
         > "$backup_dir/n8n-schema-acl-before.tsv"
 
     (cd "$backup_dir" && sha256sum \
+        legacy-role-flags-before.tsv \
         roles-before.sql \
         n8n-before.dump \
+        odoo-before.dump \
+        "${extra_dumps[@]}" \
         database-acl-before.tsv \
         n8n-schema-acl-before.tsv \
+        extra-databases-before.tsv \
         > manifest.sha256)
     chmod 0600 "$backup_dir"/*.sql "$backup_dir"/*.dump "$backup_dir"/*.tsv "$backup_dir/manifest.sha256"
 
@@ -181,20 +206,116 @@ verify_manifest() {
         || fail "manifest.sha256 verification failed in $backup_dir"
 }
 
+verify_extra_backup_inventory() {
+    local backup_dir="$1" current recorded _extra_oid extra_database extra_dump
+    [ -f "$backup_dir/extra-databases-before.tsv" ] || fail "extra database inventory missing; run backup again before apply"
+
+    # The inventory itself is checksum-verified by verify_manifest. Compare it
+    # with the current catalog before any role, ACL, or ownership mutation.
+    current="$(psql_admin -X -At -F $'\t' -d postgres -v "odoo_db=$ODOO_DB_NAME" \
+        -v "odoo_lager2=${ODOO_LAGER2_DB_NAME:-}" <<'SQL'
+SELECT oid, datname, format('extra-%s-before.dump', oid)
+FROM pg_database
+WHERE datallowconn AND NOT datistemplate
+  AND datname <> 'postgres' AND datname <> 'n8n' AND datname <> :'odoo_db'
+  AND (:'odoo_lager2' = '' OR datname <> :'odoo_lager2')
+ORDER BY oid;
+SQL
+)"
+    recorded="$(cat "$backup_dir/extra-databases-before.tsv")"
+    [ "$current" = "$recorded" ] || fail "extra database inventory differs from backup; run backup again before apply"
+
+    while IFS=$'\t' read -r _extra_oid extra_database extra_dump; do
+        [ -n "$extra_database" ] || continue
+        [ -f "$backup_dir/$extra_dump" ] || fail "backup dump missing for extra database $extra_database"
+        awk -v file="$extra_dump" '$2 == file { found = 1 } END { exit !found }' "$backup_dir/manifest.sha256" \
+            || fail "backup manifest does not authenticate extra database $extra_database"
+    done < "$backup_dir/extra-databases-before.tsv"
+}
+
+transfer_public_objects() {
+    local database="$1" app_role="$2" legacy="$3"
+    # Docker's original POSTGRES_USER owns initdb's system objects too.
+    # REASSIGN OWNED refuses that role; on ordinary roles it also transfers
+    # shared databases/tablespaces. Move only this application's public objects.
+    psql_pwr_admin -d "$database" -v "legacy=$legacy" -v "app_role=$app_role" <<'SQL'
+SELECT format('ALTER %s %I.%I OWNER TO %I',
+  CASE c.relkind WHEN 'S' THEN 'SEQUENCE' WHEN 'v' THEN 'VIEW'
+    WHEN 'm' THEN 'MATERIALIZED VIEW' WHEN 'f' THEN 'FOREIGN TABLE' ELSE 'TABLE' END,
+  n.nspname, c.relname, :'app_role')
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public' AND c.relowner = (SELECT oid FROM pg_roles WHERE rolname = :'legacy')
+  AND c.relkind IN ('r', 'p', 'S', 'v', 'm', 'f')
+  AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass
+    AND d.objid = c.oid AND d.deptype = 'e')
+ORDER BY c.relkind = 'S', c.oid
+\gexec
+
+SELECT format('ALTER ROUTINE %I.%I(%s) OWNER TO %I', n.nspname, p.proname,
+  pg_get_function_identity_arguments(p.oid), :'app_role')
+FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'public' AND p.proowner = (SELECT oid FROM pg_roles WHERE rolname = :'legacy')
+  AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass
+    AND d.objid = p.oid AND d.deptype = 'e')
+\gexec
+
+SELECT format('ALTER TYPE %I.%I OWNER TO %I', n.nspname, t.typname, :'app_role')
+FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
+LEFT JOIN pg_class c ON c.oid = t.typrelid
+WHERE n.nspname = 'public' AND t.typowner = (SELECT oid FROM pg_roles WHERE rolname = :'legacy')
+  AND (t.typtype IN ('d', 'e', 'r') OR c.relkind = 'c')
+  AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_type'::regclass
+    AND d.objid = t.oid AND d.deptype = 'e')
+\gexec
+SQL
+}
+
 cmd_apply() {
     local backup_dir="${1:?BACKUP_DIR required}"
     require_backup_dir_not_world_readable "$backup_dir"
     verify_manifest "$backup_dir"
+    verify_extra_backup_inventory "$backup_dir"
     require_password_file PWR_DB_ADMIN_PASSWORD_FILE
     require_password_file ODOO_DB_PASSWORD_FILE
     require_password_file N8N_DB_PASSWORD_FILE
+    [ -f "$backup_dir/odoo-before.dump" ] || fail "Odoo backup missing; run backup again before apply"
+    if [ -n "${ODOO_LAGER2_DB_NAME:-}" ] && [ "$ODOO_LAGER2_DB_NAME" != "$ODOO_DB_NAME" ]; then
+        [ -f "$backup_dir/odoo-lager2-before.dump" ] || fail "second warehouse backup missing; run backup again before apply"
+    fi
 
     local legacy
     legacy="$(legacy_role)"
 
-    log "Stopping n8n before role migration"
-    docker compose stop n8n
+    # Do this before stopping writers or changing roles. An extra database is
+    # retained intact, but an active client there needs an explicit migration
+    # plan before legacy NOLOGIN can be safe.
+    local active_extra_clients
+    active_extra_clients="$(psql_admin -X -At -d postgres -v "odoo_db=$ODOO_DB_NAME" \
+        -v "odoo_lager2=${ODOO_LAGER2_DB_NAME:-}" <<'SQL'
+SELECT count(*)
+FROM pg_stat_activity
+WHERE backend_type = 'client backend' AND pid <> pg_backend_pid()
+  AND datname <> 'postgres' AND datname <> 'n8n' AND datname <> :'odoo_db'
+  AND (:'odoo_lager2' = '' OR datname <> :'odoo_lager2');
+SQL
+)"
+    [ "$active_extra_clients" = "0" ] || fail "extra databases have active client sessions; classify or stop them before migration"
 
+    local services=(odoo n8n)
+    local odoo_databases=("$ODOO_DB_NAME")
+    if [ -n "${ODOO_LAGER2_DB_NAME:-}" ] && [ "$ODOO_LAGER2_DB_NAME" != "$ODOO_DB_NAME" ]; then
+        services+=(odoo-lager-2)
+        odoo_databases+=("$ODOO_LAGER2_DB_NAME")
+    fi
+    local database unsupported_schemas
+    for database in n8n "${odoo_databases[@]}"; do
+        unsupported_schemas="$(psql_admin -X -At -d "$database" -c \
+            "SELECT nspname FROM pg_namespace WHERE nspname NOT IN ('public', 'information_schema') AND nspname !~ '^pg_' ORDER BY nspname")"
+        [ -z "$unsupported_schemas" ] || fail "database $database has additional schemas; review their ownership migration before apply: $unsupported_schemas"
+    done
+
+    log "Stopping application writers before role migration"
+    docker compose stop backend "${services[@]}"
     ensure_pwr_db_admin
 
     local odoo_password n8n_password
@@ -226,8 +347,8 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'n8n_app')
 SQL
 
     log "Reassigning ownership in n8n from $legacy to n8n_app"
+    transfer_public_objects n8n n8n_app "$legacy"
     psql_pwr_admin -d n8n -v "legacy=$legacy" <<'SQL'
-REASSIGN OWNED BY :"legacy" TO n8n_app;
 ALTER DATABASE n8n OWNER TO n8n_app;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE, CREATE ON SCHEMA public TO n8n_app;
@@ -238,9 +359,11 @@ ALTER DEFAULT PRIVILEGES FOR ROLE n8n_app GRANT ALL ON TABLES TO n8n_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE n8n_app GRANT ALL ON SEQUENCES TO n8n_app;
 SQL
 
-    log "Reassigning ownership in $ODOO_DB_NAME from $legacy to odoo_app"
-    psql_pwr_admin -d "$ODOO_DB_NAME" -v "legacy=$legacy" -v "odoo_db=$ODOO_DB_NAME" <<'SQL'
-REASSIGN OWNED BY :"legacy" TO odoo_app;
+    local odoo_database
+    for odoo_database in "${odoo_databases[@]}"; do
+    log "Reassigning ownership in $odoo_database from $legacy to odoo_app"
+    transfer_public_objects "$odoo_database" odoo_app "$legacy"
+    psql_pwr_admin -d "$odoo_database" -v "legacy=$legacy" -v "odoo_db=$odoo_database" <<'SQL'
 ALTER DATABASE :"odoo_db" OWNER TO odoo_app;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE, CREATE ON SCHEMA public TO odoo_app;
@@ -251,23 +374,47 @@ ALTER DEFAULT PRIVILEGES FOR ROLE odoo_app GRANT ALL ON TABLES TO odoo_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE odoo_app GRANT ALL ON SEQUENCES TO odoo_app;
 SQL
 
-    log "Enforcing per-database CONNECT isolation for n8n and $ODOO_DB_NAME"
-    psql_pwr_admin -d postgres -v "odoo_db=$ODOO_DB_NAME" <<'SQL'
+    log "Enforcing per-database CONNECT isolation for n8n and $odoo_database"
+    psql_pwr_admin -d postgres -v "odoo_db=$odoo_database" <<'SQL'
 REVOKE CONNECT, TEMPORARY ON DATABASE n8n FROM PUBLIC;
 GRANT CONNECT, TEMPORARY ON DATABASE n8n TO n8n_app;
 
 SELECT format('REVOKE CONNECT, TEMPORARY ON DATABASE %I FROM PUBLIC', :'odoo_db') \gexec
 SELECT format('GRANT CONNECT, TEMPORARY ON DATABASE %I TO odoo_app', :'odoo_db') \gexec
 SQL
+    done
+
+    # Existing volumes can contain retained archives or prior test databases.
+    # They keep their rows and owners, while PUBLIC and both new app roles lose
+    # the ability to connect. Individual REVOKEs alone cannot override PUBLIC.
+    log "Removing new application-role access to retained extra databases"
+    psql_pwr_admin -d postgres -v "odoo_db=$ODOO_DB_NAME" \
+        -v "odoo_lager2=${ODOO_LAGER2_DB_NAME:-}" <<'SQL'
+SELECT format('REVOKE CONNECT, TEMPORARY ON DATABASE %I FROM PUBLIC', datname)
+FROM pg_database
+WHERE datallowconn AND NOT datistemplate
+  AND datname <> 'postgres' AND datname <> 'n8n' AND datname <> :'odoo_db'
+  AND (:'odoo_lager2' = '' OR datname <> :'odoo_lager2')
+ORDER BY oid
+\gexec
+
+SELECT format('REVOKE CONNECT, TEMPORARY ON DATABASE %I FROM odoo_app, n8n_app', datname)
+FROM pg_database
+WHERE datallowconn AND NOT datistemplate
+  AND datname <> 'postgres' AND datname <> 'n8n' AND datname <> :'odoo_db'
+  AND (:'odoo_lager2' = '' OR datname <> :'odoo_lager2')
+ORDER BY oid
+\gexec
+SQL
 
     log "Checking resolved Compose config references odoo_app and n8n_app"
     local resolved_config
     resolved_config="$(docker compose config)"
-    echo "$resolved_config" | grep -q "odoo_app" || fail "resolved Compose config does not reference odoo_app"
-    echo "$resolved_config" | grep -q "n8n_app" || fail "resolved Compose config does not reference n8n_app"
+    grep -q "odoo_app" <<< "$resolved_config" || fail "resolved Compose config does not reference odoo_app"
+    grep -q "n8n_app" <<< "$resolved_config" || fail "resolved Compose config does not reference n8n_app"
 
     log "Starting Odoo and n8n with new role secret files"
-    docker compose up -d odoo n8n
+    docker compose up -d "${services[@]}"
 
     log "Running isolation verifier"
     # Force the verifier's bootstrap-admin check onto pwr_db_admin itself,
@@ -278,12 +425,19 @@ SQL
     POSTGRES_USER=pwr_db_admin PGPASSWORD="$(cat "$PWR_DB_ADMIN_PASSWORD_FILE")" \
         bash "$(dirname "${BASH_SOURCE[0]}")/verify-db-role-isolation.sh"
 
-    log "Demoting legacy role $legacy to a non-login, non-privileged role"
+    log "Disabling the legacy login $legacy"
     psql_pwr_admin -d postgres -v "legacy=$legacy" <<'SQL'
-ALTER ROLE :"legacy" NOSUPERUSER NOCREATEDB NOCREATEROLE NOLOGIN;
+-- PostgreSQL requires initdb's role (OID 10) to remain a superuser.
+-- It keeps system ownership but must no longer be an application login.
+SELECT format('ALTER ROLE %I %s NOLOGIN', :'legacy',
+  CASE WHEN oid = 10 THEN '' ELSE 'NOSUPERUSER NOCREATEDB NOCREATEROLE' END)
+FROM pg_roles WHERE rolname = :'legacy'
+\gexec
 SQL
 
-    log "Apply complete: $legacy demoted, odoo_app/n8n_app own their databases, pwr_db_admin is the sole surviving superuser"
+    docker compose up -d backend
+
+    log "Apply complete: legacy login disabled, odoo_app/n8n_app own their databases; the initdb role retains its required system privileges"
 }
 
 cmd_verify() {
@@ -293,44 +447,7 @@ cmd_verify() {
 }
 
 cmd_rollback() {
-    local backup_dir="${1:?BACKUP_DIR required}"
-    require_backup_dir_not_world_readable "$backup_dir"
-    verify_manifest "$backup_dir"
-    require_password_file PWR_DB_ADMIN_PASSWORD_FILE
-
-    local legacy
-    legacy="$(legacy_role)"
-
-    log "Stopping n8n and Odoo before rollback"
-    docker compose stop n8n odoo
-
-    ensure_pwr_db_admin
-
-    log "Re-enabling legacy role $legacy with its pre-migration flags"
-    local flags
-    flags="$(cat "$backup_dir/legacy-role-flags-before.tsv")"
-    psql_pwr_admin -d postgres -v "legacy=$legacy" <<'SQL'
-ALTER ROLE :"legacy" LOGIN;
-SQL
-    log "Legacy role flags recorded at migration time: $flags"
-    log "Review $backup_dir/legacy-role-flags-before.tsv and restore SUPERUSER/CREATEDB/CREATEROLE manually if it held them"
-
-    log "Dropping and recreating n8n database owned by legacy role"
-    psql_pwr_admin -d postgres -v "legacy=$legacy" <<'SQL'
-DROP DATABASE IF EXISTS n8n;
-SELECT format('CREATE DATABASE n8n OWNER %I', :'legacy') \gexec
-SQL
-
-    log "Restoring n8n from backup dump"
-    pg_restore --dbname n8n --no-owner --role "$legacy" "$backup_dir/n8n-before.dump"
-
-    log "Database/schema ACL restoration from $backup_dir/database-acl-before.tsv and n8n-schema-acl-before.tsv requires generated, reviewed SQL; not applied automatically"
-
-    log "Starting services with the recorded legacy-role override"
-    docker compose up -d odoo n8n
-
-    log "Rollback complete. Run each service's pre-migration health probe manually."
-    log "pwr_db_admin, odoo_app, and n8n_app are preserved; their application grants should be removed only after the old services are confirmed healthy"
+    fail "automatic rollback is disabled: restore the verified offline PostgreSQL clone and previous Compose/Odoo configuration; see docs/runbooks/n8n-db-role-migration.md"
 }
 
 main() {

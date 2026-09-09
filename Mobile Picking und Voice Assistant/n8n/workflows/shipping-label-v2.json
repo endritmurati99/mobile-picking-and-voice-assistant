@@ -1,0 +1,307 @@
+{
+  "name": "Shipping Label v2",
+  "nodes": [
+    {
+      "id": "e1a2b3c4-0000-4000-8000-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-320, 0],
+      "parameters": {
+        "path": "shipping-label-v2",
+        "httpMethod": "POST",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": { "rawBody": true }
+      },
+      "webhookId": "0b7d2f61-3c4e-4a5b-9c8d-7e6f5a4b3c2d"
+    },
+    {
+      "id": "e1a2b3c4-0000-4000-8000-000000000002",
+      "name": "PWR Signature Gate",
+      "type": "CUSTOM.pwrSignatureGate",
+      "typeVersion": 1,
+      "position": [-100, 0],
+      "parameters": {
+        "expectedMethod": "POST",
+        "expectedTarget": "/webhook/shipping-label-v2"
+      }
+    },
+    {
+      "id": "e1a2b3c4-0000-4000-8000-000000000003",
+      "name": "Reject Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [120, 160],
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": "={{ $json.pwr.status_code }}",
+        "responseBody": "={{ JSON.stringify({ reason_code: $json.pwr.reason_code }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "e1a2b3c4-0000-4000-8000-000000000004",
+      "name": "Build Acceptance",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [120, -80],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            { "id": "a01", "name": "event_id", "type": "string", "value": "={{ $json.body.event_id }}" },
+            { "id": "a02", "name": "job_id", "type": "string", "value": "={{ $json.body.payload.job_id }}" },
+            { "id": "a03", "name": "odoo_instance", "type": "string", "value": "={{ $json.body.source.odoo_instance }}" },
+            { "id": "a04", "name": "correlation_id", "type": "string", "value": "={{ $json.body.correlation_id }}" },
+            { "id": "a05", "name": "delivery_generation", "type": "number", "value": "={{ $json.pwr.delivery_generation }}" },
+            { "id": "a06", "name": "idempotency_key", "type": "string", "value": "={{ $json.body.event_id }}" },
+            { "id": "a07", "name": "callback_ids_by_generation", "type": "object", "value": "={{ $json.body.payload.callback_ids_by_generation }}" },
+            { "id": "a08", "name": "payload", "type": "object", "value": "={{ $json.body.payload }}" },
+            { "id": "a09", "name": "acceptance_body", "type": "object", "value": "={{ ({ schema_version: 'v2', event_id: $json.body.event_id, job_id: $json.body.payload.job_id, odoo_instance: $json.body.source.odoo_instance, payload_fingerprint: $json.pwr.body_sha256, ingress_key_id: $json.pwr.key_id, ingress_nonce: $json.pwr.nonce, delivery_generation: $json.pwr.delivery_generation }) }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "e1a2b3c4-0000-4000-8000-000000000005",
+      "name": "PWR Signed Acceptance",
+      "type": "CUSTOM.pwrSignedHttpRequest",
+      "typeVersion": 1,
+      "position": [340, -80],
+      "parameters": {
+        "method": "POST",
+        "target": "/api/internal/n8n/v2/events/accept",
+        "host": "backend",
+        "bodyMode": "json",
+        "jsonProperty": "acceptance_body",
+        "contentType": "application/json",
+        "deliveryGenerationProperty": "delivery_generation",
+        "idempotencyKeyProperty": "idempotency_key",
+        "responseMode": "json",
+        "timeoutMs": 10000
+      }
+    },
+    {
+      "id": "e1a2b3c4-0000-4000-8000-000000000006",
+      "name": "Accepted Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [560, -80],
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 202,
+        "responseBody": "={{ JSON.stringify({ accepted: true, event_id: $json.event_id }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "e1a2b3c4-0000-4000-8000-000000000007",
+      "name": "If Process",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [780, -80],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            { "value1": "={{ $json.process }}", "operation": "equal", "value2": true }
+          ]
+        }
+      }
+    },
+    {
+      "id": "e1a2b3c4-0000-4000-8000-000000000008",
+      "name": "If Country DE",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1000, -80],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            { "value1": "={{ $('Build Acceptance').item.json.payload.recipient.country_code === 'DE' }}", "operation": "equal", "value2": true }
+          ]
+        }
+      }
+    },
+    {
+      "id": "e1a2b3c4-0000-4000-8000-000000000009",
+      "name": "If Weight Under 2kg",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1220, -200],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            { "value1": "={{ Number($('Build Acceptance').item.json.payload.total_weight_kg) <= 2 }}", "operation": "equal", "value2": true }
+          ]
+        }
+      }
+    },
+    {
+      "id": "e1a2b3c4-0000-4000-8000-000000000010",
+      "name": "If Country EU",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1220, 40],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            { "value1": "={{ ['AT','BE','BG','HR','CY','CZ','DK','EE','FI','FR','GR','HU','IE','IT','LV','LT','LU','MT','NL','PL','PT','RO','SK','SI','ES','SE'].includes($('Build Acceptance').item.json.payload.recipient.country_code) }}", "operation": "equal", "value2": true }
+          ]
+        }
+      }
+    },
+    {
+      "id": "e1a2b3c4-0000-4000-8000-000000000011",
+      "name": "Set Carrier DHL Paket",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1440, -280],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": { "assignments": [
+          { "id": "c01", "name": "carrier_code", "type": "string", "value": "DHL" },
+          { "id": "c02", "name": "carrier_name", "type": "string", "value": "DHL Paket" },
+          { "id": "c03", "name": "service_note", "type": "string", "value": "Standard Inland, bis 2 kg" }
+        ] },
+        "options": {}
+      }
+    },
+    {
+      "id": "e1a2b3c4-0000-4000-8000-000000000012",
+      "name": "Set Carrier DHL Paket 5kg",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1440, -140],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": { "assignments": [
+          { "id": "c01", "name": "carrier_code", "type": "string", "value": "DHL5" },
+          { "id": "c02", "name": "carrier_name", "type": "string", "value": "DHL Paket 5 kg" },
+          { "id": "c03", "name": "service_note", "type": "string", "value": "Standard Inland, ueber 2 kg" }
+        ] },
+        "options": {}
+      }
+    },
+    {
+      "id": "e1a2b3c4-0000-4000-8000-000000000013",
+      "name": "Set Carrier DPD Classic",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1440, 0],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": { "assignments": [
+          { "id": "c01", "name": "carrier_code", "type": "string", "value": "DPD" },
+          { "id": "c02", "name": "carrier_name", "type": "string", "value": "DPD Classic" },
+          { "id": "c03", "name": "service_note", "type": "string", "value": "EU-Ausland" }
+        ] },
+        "options": {}
+      }
+    },
+    {
+      "id": "e1a2b3c4-0000-4000-8000-000000000014",
+      "name": "Set Carrier UPS Standard",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1440, 140],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": { "assignments": [
+          { "id": "c01", "name": "carrier_code", "type": "string", "value": "UPS" },
+          { "id": "c02", "name": "carrier_name", "type": "string", "value": "UPS Standard" },
+          { "id": "c03", "name": "service_note", "type": "string", "value": "Drittland" }
+        ] },
+        "options": {}
+      }
+    },
+    {
+      "id": "e1a2b3c4-0000-4000-8000-000000000015",
+      "name": "Build Label Callback",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1700, -80],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            { "id": "b01", "name": "delivery_generation", "type": "number", "value": "={{ $('Build Acceptance').item.json.delivery_generation }}" },
+            { "id": "b02", "name": "idempotency_key", "type": "string", "value": "={{ (() => { const acc = $('Build Acceptance').item.json; const ids = acc.callback_ids_by_generation[String(acc.delivery_generation)]; if (!ids || !ids.terminal) { throw new Error('no callback id for signed delivery generation'); } return ids.terminal; })() }}" },
+            { "id": "b03", "name": "callback_body", "type": "object", "value": "={{ (() => { const acc = $('Build Acceptance').item.json; const p = acc.payload; const ids = acc.callback_ids_by_generation[String(acc.delivery_generation)]; if (!ids || !ids.terminal) { throw new Error('no callback id for signed delivery generation'); } const numberPart = String(p.picking_name || '').split('/').pop() || String(p.picking_id); const tracking = 'PWR-' + $json.carrier_code + '-' + numberPart + '-' + String(acc.event_id).replace(/-/g, '').slice(0, 4).toUpperCase(); return { schema_version: 'v2', callback_name: 'shipping.label.status.v1', callback_id: ids.terminal, source_event_id: acc.event_id, correlation_id: acc.correlation_id, odoo_instance: acc.odoo_instance, job_id: acc.job_id, sequence: 1, attempt: 1, delivery_generation: acc.delivery_generation, processing_lease_token: $('PWR Signed Acceptance').item.json.processing_lease_token, status: 'succeeded', execution_id: String($execution.id), occurred_at: new Date().toISOString(), next_retry_at: null, result: { carrier_code: $json.carrier_code, carrier_name: $json.carrier_name, service_note: $json.service_note, tracking_number: tracking, label: { picking_name: p.picking_name, sender_name: p.warehouse || acc.odoo_instance, recipient: p.recipient, items: p.items, total_weight_kg: p.total_weight_kg } }, error: null, metrics: { carrier_code: String($json.carrier_code) } }; })() }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "e1a2b3c4-0000-4000-8000-000000000016",
+      "name": "PWR Signed Terminal Callback",
+      "type": "CUSTOM.pwrSignedHttpRequest",
+      "typeVersion": 1,
+      "position": [1920, -80],
+      "parameters": {
+        "method": "POST",
+        "target": "/api/internal/n8n/v2/callbacks/status",
+        "host": "backend",
+        "bodyMode": "json",
+        "jsonProperty": "callback_body",
+        "contentType": "application/json",
+        "deliveryGenerationProperty": "delivery_generation",
+        "idempotencyKeyProperty": "idempotency_key",
+        "responseMode": "json",
+        "timeoutMs": 10000
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "PWR Signature Gate", "type": "main", "index": 0 }]] },
+    "PWR Signature Gate": {
+      "main": [
+        [{ "node": "Build Acceptance", "type": "main", "index": 0 }],
+        [{ "node": "Reject Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Acceptance": { "main": [[{ "node": "PWR Signed Acceptance", "type": "main", "index": 0 }]] },
+    "PWR Signed Acceptance": { "main": [[{ "node": "Accepted Response", "type": "main", "index": 0 }]] },
+    "Accepted Response": { "main": [[{ "node": "If Process", "type": "main", "index": 0 }]] },
+    "If Process": { "main": [[{ "node": "If Country DE", "type": "main", "index": 0 }], []] },
+    "If Country DE": {
+      "main": [
+        [{ "node": "If Weight Under 2kg", "type": "main", "index": 0 }],
+        [{ "node": "If Country EU", "type": "main", "index": 0 }]
+      ]
+    },
+    "If Weight Under 2kg": {
+      "main": [
+        [{ "node": "Set Carrier DHL Paket", "type": "main", "index": 0 }],
+        [{ "node": "Set Carrier DHL Paket 5kg", "type": "main", "index": 0 }]
+      ]
+    },
+    "If Country EU": {
+      "main": [
+        [{ "node": "Set Carrier DPD Classic", "type": "main", "index": 0 }],
+        [{ "node": "Set Carrier UPS Standard", "type": "main", "index": 0 }]
+      ]
+    },
+    "Set Carrier DHL Paket": { "main": [[{ "node": "Build Label Callback", "type": "main", "index": 0 }]] },
+    "Set Carrier DHL Paket 5kg": { "main": [[{ "node": "Build Label Callback", "type": "main", "index": 0 }]] },
+    "Set Carrier DPD Classic": { "main": [[{ "node": "Build Label Callback", "type": "main", "index": 0 }]] },
+    "Set Carrier UPS Standard": { "main": [[{ "node": "Build Label Callback", "type": "main", "index": 0 }]] },
+    "Build Label Callback": { "main": [[{ "node": "PWR Signed Terminal Callback", "type": "main", "index": 0 }]] }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "none",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false
+  },
+  "active": false
+}

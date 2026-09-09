@@ -22,7 +22,7 @@ editierbar. Die SVG-Datei ist die Exportfassung.
 
 ## Lokale Demo-Zugänge
 
-Für die lokale Odoo-19-Demo `masterfischer_o19` gilt bewusst eine einfache
+Für die lokale Odoo-19-Demo `lager1` gilt bewusst eine einfache
 Testkonfiguration:
 
 | Anzeigename | Benutzername | Passwort | Odoo-Rolle | PWA-Anmeldung |

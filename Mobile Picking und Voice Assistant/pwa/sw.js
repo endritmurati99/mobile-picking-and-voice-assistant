@@ -1,3 +1,24 @@
+// v39: Lagerumschalter passt seine Breite an Text und nativen Dropdown-Pfeil an.
+// v38: Lagerplatztext verwendet auch auf hellen Karten den kontrastreichen Akzent.
+// v37: Nach einem erfolgreich angelegten Cluster mit fehlgeschlagener
+// Detail-Antwort lädt die PWA den bekannten Batch erneut statt einen leeren
+// Rundgang zu rendern.
+// v36: Telefonkopfzeile bricht bei gleichzeitigem Lager- und Demo-Umschalter
+// um, statt Bedienelemente ausserhalb des sichtbaren Bereichs abzuschneiden.
+// v35: Auftragskarte zeigt Cluster-Zugehoerigkeit; Liste kommt sortiert
+// (dringend, dann fruehester Termin) aus dem Backend.
+// v34: Telefon -- Kopfzeile zeigt Lagerumschalter vollstaendig, Platzangabe
+// als Zeile statt Block, Ueberfaellig-Hinweis nur noch einmal je Karte.
+// v33: Cluster-Einstieg als eigene Kachel mit Symbol und Erklaerzeile statt
+// gestricheltem Platzhalter-Rahmen.
+// v32: Auftragskarte -- offene Positionen als grosse Zahl, Termin im Klartext
+// (Heute/Morgen/ueberfaellig), Badge "Delivery Orders" entfernt, leerer
+// Fortschrittsbalken ausgeblendet.
+// v31: Auftragskarte nennt nur noch den Bausatz -- Bezeichnung und Nummer
+// der ersten Position lasen sich wie der Auftragsinhalt.
+// v30: Lagerumschalter liest `/auth/instances` (der Entwicklungs-Router
+// `/instances` fehlt unter RUNTIME_PROFILE=production, der Umschalter blieb
+// deshalb unsichtbar).
 // v26: Kamera-Barcode-Fallback fuer iOS (scanner.js + /vendor/zxing/*). Unter iOS
 // gibt es in KEINEM Browser einen BarcodeDetector -- ohne Bump behaelt jedes iPhone
 // die alte scanner.js, die nur eine Vorschau ohne jede Erkennung zeigt, und der
@@ -18,7 +39,7 @@
 // no login screen, legacy identity headers that the backend no longer honours,
 // and a health probe against a route that does not exist. The symptom is an app
 // that looks merely broken, which is the worst kind of stale cache.
-const CACHE_NAME = 'picking-v29';
+const CACHE_NAME = 'picking-v39';
 const PRECACHE = [
     '/',
     '/index.html',

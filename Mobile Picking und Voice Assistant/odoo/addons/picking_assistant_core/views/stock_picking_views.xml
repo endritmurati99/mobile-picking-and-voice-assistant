@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_picking_form_shipping_label" model="ir.ui.view">
+        <field name="name">stock.picking.form.shipping.label</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+                <page string="Versand" name="shipping_label">
+                    <group>
+                        <group string="Label">
+                            <field name="shipping_label_status" readonly="1"/>
+                            <field name="shipping_carrier_name" readonly="1"/>
+                            <field name="shipping_carrier_code" readonly="1"/>
+                            <field name="shipping_tracking_number" readonly="1"/>
+                            <field name="shipping_weight_kg" readonly="1"/>
+                        </group>
+                        <group string="Ablauf">
+                            <field name="shipping_labeled_at" readonly="1"/>
+                            <field name="shipping_failure_reason" readonly="1"
+                                   invisible="shipping_label_status != 'failed'"/>
+                            <field name="shipping_label_attachment_id" readonly="1"
+                                   invisible="not shipping_label_attachment_id"/>
+                        </group>
+                    </group>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>
