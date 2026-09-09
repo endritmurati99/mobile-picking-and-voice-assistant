@@ -4558,34 +4558,34 @@ body[data-view="cluster_walk"] .cluster-walk {
     }
 
     .instance-switch {
-        max-width: none;
-        width: auto;
-        flex: 0 0 auto;
+        width: clamp(5.5rem, 18vw, 6.8rem);
         padding-right: 26px;
     }
 
     /* Fuenf Bedienelemente auf 412 px: Profil, Lager, Verbindung, Thema,
-       Suche. Sie muessen in EINE Zeile, sonst schiebt der Kopf die
-       Auftragsliste nach unten -- und genau die ist der Inhalt. Der
-       Profil-Chip ist das einzige Element, das schrumpfen darf. */
+       Suche. Auf schmalen Geraeten duerfen sie umbrechen, damit keine
+       Bedienelemente abgeschnitten werden. */
     .header-row--top {
         display: flex;
         align-items: center;
         gap: 8px;
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
     }
 
     .header-actions {
+        margin-left: 0;
         display: flex;
         align-items: center;
         gap: 6px;
-        flex: 0 0 auto;
-        flex-wrap: nowrap;
+        flex: 1 1 12rem;
+        min-width: 0;
+        flex-wrap: wrap;
+        justify-content: flex-end;
     }
 
     .picker-chip {
         flex: 1 1 auto;
-        max-width: 42vw;
+        max-width: none;
     }
 
     /* --- Auftragskarte: Platzangabe als Zeile ----------------------------

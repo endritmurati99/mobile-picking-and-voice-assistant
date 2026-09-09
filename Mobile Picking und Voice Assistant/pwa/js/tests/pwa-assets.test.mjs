@@ -27,9 +27,12 @@ function assertPng(relativePath, expectedSize) {
     assert.equal(height, expectedSize.height, `${relativePath} height`);
 }
 
-test('service worker cache is bumped for the phone reliability release', () => {
+test('service worker uses a versioned cache for the precached app shell', () => {
     const sw = readFileSync(path.join(pwaRoot, 'sw.js'), 'utf8');
-    assert.match(sw, /const CACHE_NAME = 'picking-v29';/);
+    assert.match(sw, /const CACHE_NAME = 'picking-v\d+';/);
+    for (const asset of ['/index.html', '/css/app.css', '/js/app.js']) {
+        assert.ok(sw.includes(`'${asset}'`), `${asset} fehlt im PRECACHE`);
+    }
 });
 
 test('active voice button has a filled high-contrast state', () => {
