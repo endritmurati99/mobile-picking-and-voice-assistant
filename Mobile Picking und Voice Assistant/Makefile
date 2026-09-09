@@ -1,8 +1,6 @@
-.PHONY: help setup build-all build-backend build-odoo up down logs logs-backend logs-odoo seed clean shell-odoo shell-db
+.PHONY: help setup build-all build-backend build-odoo up down logs logs-backend logs-odoo seed clean shell-odoo shell-db test-api
 
 SHELL := /bin/bash
--include .env
-export
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -23,10 +21,7 @@ build-odoo: ## Nur Odoo Image bauen
 	docker compose build odoo
 
 up: ## Stack starten
-	docker compose up -d
-	@echo "Warte auf Services..."
-	@sleep 10
-	@echo "Stack laeuft."
+	docker compose up -d --wait --wait-timeout 300
 
 down: ## Stack stoppen
 	docker compose down
@@ -41,13 +36,16 @@ logs-odoo: ## Odoo-Logs
 	docker compose logs -f --tail=50 odoo
 
 seed: ## Seed-Daten laden
-	python infrastructure/scripts/seed-odoo.py --url http://localhost:8069 --db $${ODOO_DB:-masterfischer_o19} --user $${ODOO_USER:-admin} --api-key $${ODOO_API_KEY}
+	PYTHONPATH=backend/.deps python3 infrastructure/scripts/seed-odoo.py
+
+test-api: ## Angemeldeter API-Rauchtest fuer beide Lager
+	PYTHONPATH=backend/.deps python3 infrastructure/scripts/test-api.py
 
 clean: ## Alles entfernen
 	docker compose down -v --rmi local
 
 shell-odoo: ## Odoo Shell
-	docker compose exec odoo odoo shell -d $${ODOO_DB:-masterfischer_o19}
+	docker compose exec odoo odoo shell -d $${ODOO_DB:-lager1}
 
 shell-db: ## PostgreSQL Shell
-	docker compose exec db psql -U $${POSTGRES_USER:-odoo} -d $${ODOO_DB:-masterfischer_o19}
+	docker compose exec db psql -U pwr_db_admin -d $${ODOO_DB:-lager1}

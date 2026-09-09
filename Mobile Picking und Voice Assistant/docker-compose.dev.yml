@@ -23,6 +23,7 @@ services:
   backend:
     ports:
       - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
+    command: [ "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info", "--reload" ]
     # Die Produktionsdatei setzt PWA_ORIGINS auf genau eine LAN-Origin
     # (https://${LAN_HOST}). Beim Testen ueber den Rechner selbst laeuft die PWA
     # aber unter https://localhost -- deren Origin stand nicht auf der Liste, und

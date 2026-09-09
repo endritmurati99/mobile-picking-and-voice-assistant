@@ -157,19 +157,16 @@ Healthcheck.
 Der deklarierte und laufende Ist-Stand enthält noch Punkte für die
 Betriebsreife:
 
-- `.env.example` enthält weder die aktiven v2-Key-IDs noch die zugehörigen
-  Pflicht-Secrets; `RUNTIME_PROFILE` ist dort nur auskommentiert, obwohl Compose
-  den Wert beim Start verlangt.
-- Der `n8n-credentials`-Container ruft `provision-credentials.mjs` ohne den
-  zwingenden Modus `provision`, `verify` oder `rotate` auf und würde deshalb
-  sofort abbrechen.
-- Von den vorgesehenen App-Rollen existiert im laufenden PostgreSQL nur `odoo`;
-  sie ist Superuser und Eigentümer sowohl von `masterfischer_o19` als auch von
-  `n8n`. Die Zielarchitektur mit `odoo_app` und `n8n_app` ist noch nicht
-  verdrahtet.
-- Ein frisches `pg_data` scheitert: `init-n8n-db.sql` setzt `n8n_app` voraus,
-  aber `init-db-roles.sh`, das diese Rolle erzeugt, ist nicht in Compose
-  gemountet.
+- `.env.example` dokumentiert die v2-Key-IDs und Secret-Platzhalter sowie
+  `RUNTIME_PROFILE=production`. Eigene Schlüssel müssen vor dem Start erzeugt
+  und für n8n mit denselben Werten provisioniert werden. Der Profil-Container
+  `n8n-credentials` ruft dafür ausdrücklich den Modus `provision` auf.
+- Die Compose-Konfiguration nutzt seit dem Review-Fix vom 07.09.2026
+  `odoo_app` und `n8n_app`; ein frisches Volume erhält beide Rollen und die
+  Datenbanken `lager1`, `lager2`, `n8n` durch `init-db-roles.sh`. Ein bestehendes
+  Volume braucht vor dem Neustart eine gesonderte Migration; der bisherige
+  Betriebsstand mit gemeinsamem Superuser wird nicht automatisch geändert.
+  Siehe [Migrationsablauf](../runbooks/n8n-db-role-migration.md).
 - Das Backend verwendet effektiv `TRUSTED_CADDY_PEERS=127.0.0.1`, Caddy hat im
   Edge-Netz aber `172.28.10.2`. Deshalb sieht die Login-Drosselung dort die
   Caddy-IP statt der eigentlichen Client-IP.

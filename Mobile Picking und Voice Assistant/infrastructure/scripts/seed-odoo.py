@@ -7,13 +7,13 @@ Erstellt Mindest-Testdaten für den Picking-PoC:
 - Test-Pickings mit verschiedenen Prioritäten, Terminen und Zuständen
 
 Verwendung (generische Testdaten):
-    python seed-odoo.py --url http://localhost:8069 --db masterfischer_o19 --user admin --api-key admin
+    python seed-odoo.py --url http://localhost:8069 --db lager1 --user admin --api-key admin
 
 Zweite Lagerinstanz (Compose-Profil `second-odoo`, Port 8070):
-    python seed-odoo.py --url http://localhost:8070 --db lager2_o19 --user admin --api-key admin
+    python seed-odoo.py --url http://localhost:8070 --db lager2 --user admin --api-key admin
 
 Verwendung (BOM-basierte Pickings aus echten Produkten, benoetigt `mrp`):
-    python seed-odoo.py --url http://localhost:8069 --db masterfischer_o19 --user admin --api-key admin --bom-mode
+    python seed-odoo.py --url http://localhost:8069 --db lager1 --user admin --api-key admin --bom-mode
 
 Odoo-19-Hinweise:
 - `stock.move.name` gibt es nicht mehr; die Bewegungsbezeichnung wird aus dem
@@ -23,8 +23,11 @@ Odoo-19-Hinweise:
 """
 import argparse
 import sys
+from pathlib import Path
 from datetime import date, timedelta
 from xmlrpc.client import ServerProxy
+
+from dotenv import dotenv_values
 
 
 ODOO_KWARG_KEYS = {
@@ -107,6 +110,24 @@ def build_demo_customers():
             "email": "laborlogistik@fh-demo.example",
             "phone": "+49 251 000004",
         },
+        {
+            "name": "Alpin Spielwaren GmbH",
+            "street": "Mariahilfer Strasse 45",
+            "zip": "1060",
+            "city": "Wien",
+            "country_code": "AT",
+            "email": "einkauf@alpin-demo.example",
+            "phone": "+43 1 000005",
+        },
+        {
+            "name": "Zuerich Modellbau AG",
+            "street": "Bahnhofstrasse 22",
+            "zip": "8001",
+            "city": "Zuerich",
+            "country_code": "CH",
+            "email": "bestellung@zuerich-demo.example",
+            "phone": "+41 44 000006",
+        },
     ]
 
 
@@ -154,28 +175,82 @@ def build_demo_customer_order_plan():
             "zone": "Rechts",
             "products": ["4216758", "4185178"],
         },
+        {
+            # Schwerer Demo-Auftrag: 200 x Technikrahmen (0,012 kg) = 2,4 kg,
+            # damit der Versandregel-Zweig "DHL Paket 5 kg" (> 2 kg) vorfuehrbar
+            # ist. Kunde muss DE sein (customer_index 0-3): die n8n-Versandregel
+            # prueft das Zielland vor dem Gewicht, ein AT-Kunde wuerde immer in
+            # den DPD-Classic-Zweig laufen und den Gewichtszweig nie zeigen.
+            "origin": "SO-DEMO-007",
+            "customer_index": 2,
+            "delivery_date": "2026-07-10",
+            "zone": "Rechts",
+            "products": ["4216758"],
+            "quantities": {"4216758": 200},
+        },
+        {
+            # Leichter CH-Demo-Auftrag, damit der Drittland-Zweig "UPS Standard"
+            # (Schweiz) ueberhaupt ein Vorfuehrbeispiel hat.
+            "origin": "SO-DEMO-008",
+            "customer_index": 5,
+            "delivery_date": "2026-07-10",
+            "zone": "Rechts",
+            "products": ["343721"],
+            "quantities": {"343721": 10},
+        },
     ]
 
 
+def build_demo_cluster_product_locations():
+    return {
+        "301121": "LOC-A01",
+        "343721": "LOC-A02",
+        "4166960": "LOC-A02",
+        "343724": "LOC-A02",
+        "343701": "LOC-A02",
+        "4216758": "LOC-B01",
+        "4250172": "LOC-B02",
+        "4185178": "LOC-B02",
+    }
+
+
+def build_demo_cluster_stock_quantities():
+    """Eingebuchte Bestandsmenge je Produktcode fuer die Cluster-Demo-Auftraege.
+
+    Standardmenge ist 80 Stk. `4216758` braucht mehr, weil SO-DEMO-007 allein
+    200 Stk. davon bestellt (Versandregel-Zweig > 2 kg) und SO-DEMO-005/006
+    zusaetzlich je 4 Stk. verbrauchen.
+    """
+    defaults = {code: 80 for code in build_demo_cluster_product_locations()}
+    defaults["4216758"] = 400
+    return defaults
+
+
 def build_demo_cluster_products():
+    # Gewichte in kg. Lego-Klemmbausteine wiegen nur wenige Gramm; das
+    # Odoo-Feld product.decimal_stock_weight ist per Datensatz-Override auf
+    # 3 Nachkommastellen angehoben (siehe picking_assistant_core/data/
+    # decimal_precision.xml), sonst wuerden Werte unter 0,005 kg auf 0,00
+    # gerundet und die Gewichtssumme auf dem Versandlabel bliebe leer.
     return [
-        {"name": "Demo Klemmbaustein 2x4 rot", "barcode": "301121", "default_code": "301121"},
-        {"name": "Demo Achse 4M", "barcode": "343721", "default_code": "343721"},
-        {"name": "Demo Verbinder blau", "barcode": "4166960", "default_code": "4166960"},
-        {"name": "Demo Achse 6M", "barcode": "343724", "default_code": "343724"},
-        {"name": "Demo Platte 2x6", "barcode": "343701", "default_code": "343701"},
-        {"name": "Demo Technikrahmen rechts", "barcode": "4216758", "default_code": "4216758"},
-        {"name": "Demo Zahnrad 20Z", "barcode": "4250172", "default_code": "4250172"},
-        {"name": "Demo Winkelverbinder", "barcode": "4185178", "default_code": "4185178"},
+        {"name": "Demo Klemmbaustein 2x4 rot", "barcode": "301121", "default_code": "301121", "weight": 0.003},
+        {"name": "Demo Achse 4M", "barcode": "343721", "default_code": "343721", "weight": 0.002},
+        {"name": "Demo Verbinder blau", "barcode": "4166960", "default_code": "4166960", "weight": 0.001},
+        {"name": "Demo Achse 6M", "barcode": "343724", "default_code": "343724", "weight": 0.003},
+        {"name": "Demo Platte 2x6", "barcode": "343701", "default_code": "343701", "weight": 0.004},
+        {"name": "Demo Technikrahmen rechts", "barcode": "4216758", "default_code": "4216758", "weight": 0.012},
+        {"name": "Demo Zahnrad 20Z", "barcode": "4250172", "default_code": "4250172", "weight": 0.002},
+        {"name": "Demo Winkelverbinder", "barcode": "4185178", "default_code": "4185178", "weight": 0.002},
     ]
 
 
 def main():
+    dotenv = dotenv_values(Path(__file__).resolve().parents[2] / ".env")
     parser = argparse.ArgumentParser(description="Odoo Seed-Daten")
     parser.add_argument("--url", default="http://localhost:8069")
-    parser.add_argument("--db", default="masterfischer_o19")
-    parser.add_argument("--user", default="admin")
-    parser.add_argument("--api-key", required=True)
+    parser.add_argument("--db", default=dotenv.get("ODOO_DB") or "lager1")
+    parser.add_argument("--user", default=dotenv.get("ODOO_USER") or "admin")
+    parser.add_argument("--api-key", default=dotenv.get("ODOO_API_KEY") or "")
     parser.add_argument("--users-only", action="store_true",
                         help="Nur Demo-Benutzer, Passwoerter und Picker-Rollen synchronisieren")
     parser.add_argument("--bom-mode", action="store_true",
@@ -183,6 +258,8 @@ def main():
     parser.add_argument("--lego-seed", action="store_true",
                         help="LEGO-Produkte einlagern + Pickings aus BOMs erstellen (ohne bestehende Pickings zu loeschen)")
     args = parser.parse_args()
+    if not args.api_key:
+        parser.error("--api-key or ODOO_API_KEY in .env is required")
 
     common = ServerProxy(f"{args.url}/xmlrpc/2/common")
     uid = common.authenticate(args.db, args.user, args.api_key, {})
@@ -382,13 +459,13 @@ def main():
     print("\nProdukte...")
 
     products_data = [
-        {"name": "Schraube M8x40", "barcode": "4006381333931", "default_code": "SCR-M8-40"},
-        {"name": "Mutter M8 DIN934", "barcode": "4006381333948", "default_code": "NUT-M8"},
-        {"name": "Unterlegscheibe M8", "barcode": "4006381333955", "default_code": "WSH-M8"},
-        {"name": "Winkel 40x40", "barcode": "5901234123457", "default_code": "ANG-40"},
-        {"name": "Gewindestange M8", "barcode": "7622210100528", "default_code": "ROD-M8"},
-        {"name": "Sechskantschraube M6", "barcode": "4006381334013", "default_code": "SCR-M6"},
-        {"name": "Federscheibe M10", "barcode": "4006381334020", "default_code": "SPR-M10"},
+        {"name": "Schraube M8x40", "barcode": "4006381333931", "default_code": "SCR-M8-40", "weight": 0.02},
+        {"name": "Mutter M8 DIN934", "barcode": "4006381333948", "default_code": "NUT-M8", "weight": 0.005},
+        {"name": "Unterlegscheibe M8", "barcode": "4006381333955", "default_code": "WSH-M8", "weight": 0.002},
+        {"name": "Winkel 40x40", "barcode": "5901234123457", "default_code": "ANG-40", "weight": 0.05},
+        {"name": "Gewindestange M8", "barcode": "7622210100528", "default_code": "ROD-M8", "weight": 0.12},
+        {"name": "Sechskantschraube M6", "barcode": "4006381334013", "default_code": "SCR-M6", "weight": 0.008},
+        {"name": "Federscheibe M10", "barcode": "4006381334020", "default_code": "SPR-M10", "weight": 0.003},
         *build_demo_cluster_products(),
     ]
 
@@ -403,7 +480,7 @@ def main():
             "product.product",
             "write",
             [pid],
-            {"type": "consu", "is_storable": True, "tracking": "none"},
+            {"type": "consu", "is_storable": True, "tracking": "none", "weight": prod.get("weight", 0.0)},
         )
         prod_ids[prod["barcode"]] = pid
         prod_ids[prod["default_code"]] = pid
@@ -414,16 +491,8 @@ def main():
     # ── Bestand einbuchen ────────────────────────────────────
     print("\nBestaende einbuchen...")
 
-    demo_product_locations = {
-        "301121": "LOC-A01",
-        "343721": "LOC-A02",
-        "4166960": "LOC-A02",
-        "343724": "LOC-A02",
-        "343701": "LOC-A02",
-        "4216758": "LOC-B01",
-        "4250172": "LOC-B02",
-        "4185178": "LOC-B02",
-    }
+    demo_product_locations = build_demo_cluster_product_locations()
+    demo_product_quantities = build_demo_cluster_stock_quantities()
 
     stock_quants = [
         (prod_ids["4006381333931"], loc_ids["LOC-A01"], 100),
@@ -435,7 +504,7 @@ def main():
         (prod_ids["4006381334020"], loc_ids["LOC-D01"], 60),
     ]
     stock_quants.extend(
-        (prod_ids[code], loc_ids[location_barcode], 80)
+        (prod_ids[code], loc_ids[location_barcode], demo_product_quantities[code])
         for code, location_barcode in demo_product_locations.items()
     )
 
@@ -519,11 +588,12 @@ def main():
 
         print("\nCluster-Demo-Auftraege...")
         for order in build_demo_customer_order_plan():
+            order_quantities = order.get("quantities", {})
             moves = [
                 {
                     "name": product_names[code],
                     "product_id": prod_ids[code],
-                    "qty": 4,
+                    "qty": order_quantities.get(code, 4),
                     "loc_src": loc_ids[demo_product_locations[code]],
                 }
                 for code in order["products"]

@@ -8,6 +8,19 @@ Untersucht wird, wie ein bestehendes ERP für die Arbeit am Smartphone ergänzt
 werden kann. Odoo bleibt dabei die führende Datenquelle; die mobile Anwendung
 unterstützt Mitarbeitende mit klaren, nachvollziehbaren Arbeitsschritten.
 
+## Starten
+
+Die Laufzeit liegt in [`Mobile Picking und Voice Assistant`](<Mobile Picking und Voice Assistant>). Dort eine private, restriktiv geschützte `.env` mit den erforderlichen Compose-Werten anlegen und starten:
+
+```bash
+cd "Mobile Picking und Voice Assistant"
+install -m 600 /dev/null .env
+# Werte in .env eintragen
+make up
+```
+
+Bei einem vorhandenen PostgreSQL-Volume müssen die getrennten Datenbankrollen vor dem Neustart nach dem [Migrations-Runbook](<Mobile Picking und Voice Assistant/docs/runbooks/n8n-db-role-migration.md>) geprüft und migriert werden.
+
 ![Systemlandkarte mit PWA, FastAPI, Odoo, Voice, Quality und lokalen KI-Diensten](<Mobile Picking und Voice Assistant/docs/architecture/ebene-1-systemlandkarte.svg>)
 
 ## Was dieses Projekt untersucht

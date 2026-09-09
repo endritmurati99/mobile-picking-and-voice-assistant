@@ -80,6 +80,25 @@ class StockPicking(models.Model):
             and (self.mobile_claim_device_id or "") == (device_id or "")
         )
 
+    @api.model
+    def _lock_mobile_picking(self, picking_id):
+        """Reread a picking after serializing claim and batch ownership."""
+        picking_id = int(picking_id)
+        self.env.cr.execute(
+            "SELECT id FROM stock_picking WHERE id = %s FOR UPDATE", [picking_id]
+        )
+        self.env.invalidate_all()
+        return self.sudo().browse(picking_id).exists()
+
+    def _batch_claim_conflict(self):
+        self.ensure_one()
+        if not self.batch_id:
+            return None
+        payload = self._claim_payload(success=False, status="conflict")
+        payload["conflict"] = True
+        payload["message"] = "Picking wird in einem Batch bearbeitet."
+        return payload
+
     def _find_internal_replenishment_type(self):
         self.ensure_one()
         picking_type_model = self.env["stock.picking.type"].sudo()
@@ -102,9 +121,13 @@ class StockPicking(models.Model):
     @api.model
     def api_claim_mobile(self, picking_id, picker_user_id, device_id, ttl_seconds=120):
         self.env["picking.assistant.api.mixin"]._require_api_service()
-        picking = self.sudo().browse(int(picking_id)).exists()
+        picking = self._lock_mobile_picking(picking_id)
         if not picking:
             return {"success": False, "status": "missing", "message": "Picking nicht gefunden"}
+
+        conflict = picking._batch_claim_conflict()
+        if conflict:
+            return conflict
 
         conflict = picking._active_claim_conflict(int(picker_user_id), device_id)
         if conflict:
@@ -115,9 +138,13 @@ class StockPicking(models.Model):
     @api.model
     def api_heartbeat_mobile(self, picking_id, picker_user_id, device_id, ttl_seconds=120):
         self.env["picking.assistant.api.mixin"]._require_api_service()
-        picking = self.sudo().browse(int(picking_id)).exists()
+        picking = self._lock_mobile_picking(picking_id)
         if not picking:
             return {"success": False, "status": "missing", "message": "Picking nicht gefunden"}
+
+        conflict = picking._batch_claim_conflict()
+        if conflict:
+            return conflict
 
         conflict = picking._active_claim_conflict(int(picker_user_id), device_id)
         if conflict:

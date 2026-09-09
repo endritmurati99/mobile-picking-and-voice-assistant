@@ -34,7 +34,7 @@ def main():
     parser.add_argument("--src-port", type=int, default=8070, help="Quell-Port (mit Bildern)")
     parser.add_argument("--dst-port", type=int, default=8069, help="Ziel-Port (Bilder fehlen)")
     parser.add_argument("--src-db", default="test", help="DB-Name auf dem Quell-Server")
-    parser.add_argument("--dst-db", default="masterfischer", help="DB-Name auf dem Ziel-Server")
+    parser.add_argument("--dst-db", default="lager1", help="DB-Name auf dem Ziel-Server")
     parser.add_argument("--user", default="admin")
     parser.add_argument("--password", default="Admin")
     args = parser.parse_args()

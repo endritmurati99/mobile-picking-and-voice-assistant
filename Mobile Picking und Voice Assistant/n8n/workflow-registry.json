@@ -83,6 +83,52 @@
           "logical_name": "pwr.v2.n8n-to-backend-hmac"
         }
       ]
+    },
+    {
+      "file": "shipping-label-v2.json",
+      "name": "Shipping Label v2",
+      "generation": "v2",
+      "event_names": [
+        "shipment.parcel.ready.v1"
+      ],
+      "webhook_paths": [
+        "shipping-label-v2"
+      ],
+      "callback_paths": [
+        "/api/internal/n8n/v2/events/accept",
+        "/api/internal/n8n/v2/callbacks/status"
+      ],
+      "artifact_path_templates": [],
+      "authentication": "native_header_hmac",
+      "managed": true,
+      "production_activation": true,
+      "test_only": false,
+      "activation_order": 30,
+      "allowed_target_hosts": [
+        "backend"
+      ],
+      "credential_bindings": [
+        {
+          "node": "Webhook",
+          "credential_type": "httpHeaderAuth",
+          "logical_name": "pwr.v2.inbound-header"
+        },
+        {
+          "node": "PWR Signature Gate",
+          "credential_type": "pwrInboundHmac",
+          "logical_name": "pwr.v2.backend-to-n8n-hmac"
+        },
+        {
+          "node": "PWR Signed Acceptance",
+          "credential_type": "pwrOutboundHmac",
+          "logical_name": "pwr.v2.n8n-to-backend-hmac"
+        },
+        {
+          "node": "PWR Signed Terminal Callback",
+          "credential_type": "pwrOutboundHmac",
+          "logical_name": "pwr.v2.n8n-to-backend-hmac"
+        }
+      ]
     }
   ]
 }

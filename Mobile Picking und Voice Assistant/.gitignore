@@ -94,3 +94,6 @@ infrastructure/bildkorpus/messwerte/**/*.log
 # Lokale mkcert-CA, nur zum Ausliefern an Testgeraete im WLAN (kein Schluesselmaterial)
 pwa/rootCA.pem
 pwa/rootCA.crt
+
+# Lokale DB-Sicherungen vor Aufraeumlaeufen (enthalten Zugangs-Hashes)
+backups/
