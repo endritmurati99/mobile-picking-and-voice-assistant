@@ -1,10 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { mockPwaApi } = require('./helpers/pwa-api');
-
-async function choosePicker(page, name = 'Lena Lager') {
-  await expect(page.getByRole('heading', { name: 'Profil auswählen' })).toBeVisible();
-  await page.getByRole('button', { name }).click();
-}
+const { mockPwaApi, loginPwa } = require('./helpers/pwa-api');
 
 async function triggerResume(page) {
   await page.evaluate(() => {
@@ -42,9 +37,9 @@ test.describe('small mobile layout', () => {
   test('keeps list, detail, and quality alert usable at 320px width', async ({ page }) => {
     await mockPwaApi(page);
     await page.goto('/');
-    await choosePicker(page);
+    await loginPwa(page);
 
-    await expect(page.getByText('4x Brick 2x2 orange')).toBeVisible();
+    await expect(page.getByRole('article', { name: 'LEGO Ente', exact: true })).toBeVisible();
 
     const listMetrics = await readViewportMetrics(page, {
       firstCard: '.pick-list-card',
@@ -54,7 +49,7 @@ test.describe('small mobile layout', () => {
     expect(listMetrics.firstCard.top).toBeLessThan(listMetrics.viewportHeight - 40);
     expect(listMetrics.filterRow.right).toBeLessThanOrEqual(listMetrics.innerWidth + 1);
 
-    await page.getByText('4x Brick 2x2 orange').click();
+    await page.getByRole('article', { name: 'LEGO Ente', exact: true }).click();
     await expect(page.locator('#main .btn-confirm')).toBeVisible();
 
     const detailMetrics = await readViewportMetrics(page, {
@@ -83,8 +78,8 @@ test.describe('lifecycle refresh', () => {
     const api = await mockPwaApi(page);
 
     await page.goto('/');
-    await choosePicker(page);
-    await expect(page.getByText('4x Brick 2x2 orange')).toBeVisible();
+    await loginPwa(page);
+    await expect(page.getByRole('article', { name: 'LEGO Ente', exact: true })).toBeVisible();
 
     api.setPickings((pickings) => pickings.map((picking) => (
       picking.id === 1001
@@ -93,7 +88,7 @@ test.describe('lifecycle refresh', () => {
     )));
 
     await triggerResume(page);
-    await expect(page.getByText('6x Brick 2x2 orange')).toBeVisible();
+    await expect(page.getByRole('article', { name: 'LEGO Ente Reloaded', exact: true })).toBeVisible();
 
     await page.waitForTimeout(950);
 
@@ -106,15 +101,15 @@ test.describe('lifecycle refresh', () => {
     await page.evaluate(() => {
       window.dispatchEvent(new Event('online'));
     });
-    await expect(page.getByText('7x Brick 2x2 orange')).toBeVisible();
+    await expect(page.getByRole('article', { name: 'LEGO Ente Online', exact: true })).toBeVisible();
   });
 
   test('keeps the active detail line when refreshing the current picking', async ({ page }) => {
     const api = await mockPwaApi(page);
 
     await page.goto('/');
-    await choosePicker(page);
-    await page.getByText('4x Brick 2x2 orange').click();
+    await loginPwa(page);
+    await page.getByRole('article', { name: 'LEGO Ente', exact: true }).click();
     await page.locator('.btn-confirm').click();
 
     await expect(page.locator('#main')).toContainText('Brick 2x2 hellgruen');
@@ -143,8 +138,8 @@ test.describe('lifecycle refresh', () => {
     const api = await mockPwaApi(page);
 
     await page.goto('/');
-    await choosePicker(page);
-    await page.getByText('4x Brick 2x2 orange').click();
+    await loginPwa(page);
+    await page.getByRole('article', { name: 'LEGO Ente', exact: true }).click();
     await page.locator('#btn-alert').click();
 
     const description = page.getByLabel('Beschreibung');

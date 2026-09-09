@@ -1,12 +1,12 @@
 const { test, expect } = require('@playwright/test');
-const { mockPwaApi } = require('./helpers/pwa-api');
+const { mockPwaApi, loginPwa } = require('./helpers/pwa-api');
 
 test('submits a quality alert from the active picking context', async ({ page }) => {
   const api = await mockPwaApi(page);
 
   await page.goto('/');
-  await page.getByRole('button', { name: 'Lena Lager' }).click();
-  await page.getByText('4x Brick 2x2 orange').click();
+  await loginPwa(page);
+  await page.getByRole('article', { name: 'LEGO Ente', exact: true }).click();
 
   await page.locator('#btn-alert').click();
 

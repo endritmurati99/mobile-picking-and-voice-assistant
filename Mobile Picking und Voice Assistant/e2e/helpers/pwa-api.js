@@ -10,6 +10,9 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+const TEST_LOGIN = 'lena.lager';
+const TEST_PASSWORD = 'admin';
+
 function createProductImageSvg(productId) {
   const palettes = [
     ['#F59E0B', '#F97316'],
@@ -255,6 +258,7 @@ async function mockPwaApi(page, options = {}) {
   let lastQualityRequest = null;
   let pickingsRequests = 0;
   let detailRequests = 0;
+  const switchInstanceRequests = [];
 
   await page.route('**/api/**', async (route) => {
     const request = route.request();
@@ -274,8 +278,27 @@ async function mockPwaApi(page, options = {}) {
         : jsonResponse(route, 401, { detail: 'Ungueltige oder abgelaufene Sitzung.' });
     }
 
+    if (path === '/api/auth/csrf' && request.method() === 'POST') {
+      return jsonResponse(route, 200, { csrf_token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' });
+    }
+
+    if (path === '/api/auth/switch-instance' && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() || '{}');
+      switchInstanceRequests.push(body);
+      const instance = instances.find((item) => item.name === body.odoo_instance);
+      if (!principal || !instance) return jsonResponse(route, 401, { detail: 'Instanz nicht verfügbar.' });
+      principal = { ...principal, odoo_instance: instance.name };
+      return jsonResponse(route, 200, {
+        principal,
+        csrf_token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      });
+    }
+
     if (path === '/api/auth/picker-session' && request.method() === 'POST') {
       const body = JSON.parse(request.postData() || '{}');
+      if (body.login !== TEST_LOGIN || body.password !== TEST_PASSWORD || !body.device_id) {
+        return jsonResponse(route, 401, { detail: 'Ungültige Anmeldedaten.' });
+      }
       const picker = pickers.find((item) => item.name === 'Lena Lager') || pickers[0];
       principal = {
         picker_user_id: picker.id,
@@ -413,11 +436,17 @@ async function mockPwaApi(page, options = {}) {
     getDetailRequests() {
       return detailRequests;
     },
+    getSwitchInstanceRequests() {
+      return clone(switchInstanceRequests);
+    },
     getLastConfirmRequest() {
       return lastConfirmRequest;
     },
     getLastQualityRequest() {
       return lastQualityRequest;
+    },
+    getPrincipal() {
+      return clone(principal);
     },
     getPickings() {
       return clone(pickingsState);
@@ -436,9 +465,19 @@ async function mockPwaApi(page, options = {}) {
   };
 }
 
+async function loginPwa(page, { login = TEST_LOGIN, password = TEST_PASSWORD } = {}) {
+  await page.locator('#login-user').fill(login);
+  await page.locator('#login-password').fill(password);
+  await page.locator('#login-submit').click();
+  await page.getByRole('heading', { name: 'Deine Aufträge' }).waitFor({ state: 'visible' });
+}
+
 module.exports = {
   createPickingDetail,
   createPickingList,
   createPickers,
+  TEST_LOGIN,
+  TEST_PASSWORD,
   mockPwaApi,
+  loginPwa,
 };

@@ -1,8 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const { mockPwaApi } = require('./helpers/pwa-api');
+const { mockPwaApi, loginPwa } = require('./helpers/pwa-api');
 
-test('Lager-Umschalter setzt X-Odoo-Instance-Header auf Folge-Requests', async ({ page }) => {
-  await mockPwaApi(page, {
+test('Lager-Umschalter tauscht die authentifizierte Sitzung für Folge-Requests', async ({ page }) => {
+  const api = await mockPwaApi(page, {
     instances: [
       { name: 'local', display_name: 'Lager 1' },
       { name: 'lager-2', display_name: 'Lager 2' },
@@ -20,7 +20,7 @@ test('Lager-Umschalter setzt X-Odoo-Instance-Header auf Folge-Requests', async (
   });
 
   await page.goto('/');
-  await page.getByRole('button', { name: 'Lena Lager' }).click();
+  await loginPwa(page);
 
   const select = page.locator('#instance-switch');
   await expect(select).toBeVisible();
@@ -28,10 +28,9 @@ test('Lager-Umschalter setzt X-Odoo-Instance-Header auf Folge-Requests', async (
   await select.selectOption('lager-2');
 
   await expect(page.locator('#instance-switch')).toHaveValue('lager-2');
-  await page.getByRole('button', { name: 'Lena Lager' }).click();
-
-  expect(pickingsInstanceHeaders).toContain(null);
-  expect(pickingsInstanceHeaders).toContain('lager-2');
+  await expect.poll(() => api.getSwitchInstanceRequests()).toEqual([{ odoo_instance: 'lager-2' }]);
+  await expect.poll(() => api.getPrincipal()?.odoo_instance).toBe('lager-2');
+  await expect.poll(() => pickingsInstanceHeaders).toEqual([null, null]);
 });
 
 test('Lager-Umschalter verwirft gespeicherte Alt-Instanz wenn nur lokal verfuegbar ist', async ({ page }) => {
@@ -52,7 +51,7 @@ test('Lager-Umschalter verwirft gespeicherte Alt-Instanz wenn nur lokal verfuegb
   });
 
   await page.goto('/');
-  await page.getByRole('button', { name: 'Lena Lager' }).click();
+  await loginPwa(page);
 
   await expect(page.locator('#instance-switch')).toBeHidden();
   expect(pickingsInstanceHeaders).toEqual([null]);

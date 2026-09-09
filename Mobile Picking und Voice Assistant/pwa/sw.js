@@ -1,3 +1,4 @@
+// v38: Lagerplatztext verwendet auch auf hellen Karten den kontrastreichen Akzent.
 // v37: Nach einem erfolgreich angelegten Cluster mit fehlgeschlagener
 // Detail-Antwort lädt die PWA den bekannten Batch erneut statt einen leeren
 // Rundgang zu rendern.
@@ -37,7 +38,7 @@
 // no login screen, legacy identity headers that the backend no longer honours,
 // and a health probe against a route that does not exist. The symptom is an app
 // that looks merely broken, which is the worst kind of stale cache.
-const CACHE_NAME = 'picking-v37';
+const CACHE_NAME = 'picking-v38';
 const PRECACHE = [
     '/',
     '/index.html',

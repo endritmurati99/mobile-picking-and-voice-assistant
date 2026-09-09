@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { mockPwaApi } = require('./helpers/pwa-api');
+const { mockPwaApi, loginPwa } = require('./helpers/pwa-api');
 
 // Stateful Cluster-API-Mock: getBatch spiegelt die picked-Flags wider, die
 // confirm-line setzt, damit der Fortschritt im Rundgang real hochzaehlt.
@@ -112,9 +112,7 @@ async function mockClusterApi(page, options = {}) {
 
 async function enterCluster(page) {
   await page.goto('/');
-  await page.locator('#login-user').fill('lena.lager');
-  await page.locator('#login-password').fill('admin');
-  await page.locator('#login-submit').click();
+  await loginPwa(page);
   await page.locator('[data-cluster-start]').first().click();
   await expect(page.getByText('Cluster zusammenstellen')).toBeVisible();
 }
@@ -142,8 +140,9 @@ test('Cluster-Validate: pending_action wizard zeigt Fehler-Toast und entsperrt B
   await page.getByRole('button', { name: 'Vorschlag wählen' }).first().click();
   await page.locator('[data-cluster-confirm]').click();
 
-  // Mark all lines as done so the validate button is enabled.
-  await page.locator('[data-stop-confirm="5001"]').click();
+  // Explicit manual exception for the untracked line, then the required serial.
+  await expect(page.locator('[data-stop-confirm="5001"]')).toBeDisabled();
+  await page.locator('[data-stop-manual="5001"]').click();
   await page.locator('[data-carton-pick="1001"]').click();
   await page.locator('[data-stop-confirm="5002"]').click();
   await page.locator('[data-carton-pick="1002"]').click();
@@ -178,10 +177,14 @@ test('Cluster-Flow: Auswahl -> Rundgang -> Serial -> Abschluss', async ({ page }
   await expect(page.locator('.cluster-box-chip').first()).toBeVisible();
   await expect(page.getByText('CLUSTER-B1/WH/INT/00007').first()).toBeVisible();
 
-  // Erste (nicht-serielle) Position: zuerst Empfaengerkarton bestaetigen
-  await page.locator('[data-stop-confirm="5001"]').click();
-  await expect(page.locator('#carton-title')).toBeVisible();
-  await page.locator('[data-carton-pick="1001"]').click();
+  // Ohne Artikelpruefung bleibt die regulaere Bestaetigung gesperrt.
+  await expect(page.locator('[data-stop-confirm="5001"]')).toBeDisabled();
+  await page.keyboard.type('4006381333931');
+  await page.keyboard.press('Enter');
+  await expect(page.getByText('Artikel geprüft', { exact: true })).toBeVisible();
+  await expect(page.locator('[data-stop-confirm="5001"]')).toBeEnabled();
+  await page.keyboard.type('CLUSTER-B1/WH/INT/00007');
+  await page.keyboard.press('Enter');
   await expect(page.locator('.cluster-progress__count')).toHaveText('1 / 2');
 
   // Zweite Position: Karton bestaetigen, dann Serial-Modal (serialisiert)
@@ -201,6 +204,11 @@ test('Cluster-Flow: Auswahl -> Rundgang -> Serial -> Abschluss', async ({ page }
   // Serial wurde fuer die serialisierte Position uebergeben
   const requests = cluster.getConfirmRequests();
   expect(requests).toHaveLength(2);
+  expect(requests.find((r) => r.move_line_id === 5001)).toMatchObject({
+    picking_id: 1001,
+    scanned_barcode: '4006381333931',
+    scanned_package: 'CLUSTER-B1/WH/INT/00007',
+  });
   expect(requests.find((r) => r.move_line_id === 5002)).toMatchObject({
     picking_id: 1002, serial_number: 'SN-CLUSTER-1',
   });
@@ -216,7 +224,7 @@ test('Cluster-Karton: falscher Karton warnt und blockiert, richtiger geht durch'
   await page.locator('[data-cluster-confirm]').click();
 
   // Position 5001 (Auftrag 1001) bestaetigen, aber FALSCHEN Karton (Auftrag 1002) tippen
-  await page.locator('[data-stop-confirm="5001"]').click();
+  await page.locator('[data-stop-manual="5001"]').click();
   await expect(page.locator('#carton-title')).toBeVisible();
   await page.locator('[data-carton-pick="1002"]').click();
 
@@ -282,7 +290,7 @@ test('Cluster-Karton: fehlender Zielkarton blockiert Confirm', async ({ page }) 
   await page.getByRole('button', { name: 'Vorschlag wählen' }).first().click();
   await page.locator('[data-cluster-confirm]').click();
 
-  await page.locator('[data-stop-confirm="5001"]').click();
+  await page.locator('[data-stop-manual="5001"]').click();
   await expect(page.getByText(/Zielkarton fehlt/i)).toBeVisible();
   expect(cluster.getConfirmRequests()).toHaveLength(0);
 });

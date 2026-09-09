@@ -1,16 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { mockPwaApi } = require('./helpers/pwa-api');
-
-async function choosePicker(page, name = 'Lena Lager') {
-  const searchInput = page.locator('#search-input');
-  if (await searchInput.isEnabled().catch(() => false)) return;
-
-  const pickerOption = page.locator('.picker-option').filter({ hasText: name }).first();
-  await expect(pickerOption).toBeVisible();
-  await pickerOption.click();
-  await expect(page.locator('#picker-indicator')).toBeVisible();
-  await expect(searchInput).toBeEnabled();
-}
+const { mockPwaApi, loginPwa } = require('./helpers/pwa-api');
 
 test('loads the picking list and opens the picking detail view', async ({ page }) => {
   await mockPwaApi(page);
@@ -18,15 +7,15 @@ test('loads the picking list and opens the picking detail view', async ({ page }
   await page.goto('/');
 
   await expect(page.locator('#main')).not.toContainText('LEGO Ente');
-  await choosePicker(page);
+  await loginPwa(page);
   await expect(page.locator('#status-indicator')).toHaveText('Online');
   await expect(page.getByText('LEGO Ente')).toBeVisible();
-  await expect(page.getByText('4x Brick 2x2 orange')).toBeVisible();
+  await expect(page.getByRole('article', { name: 'LEGO Ente', exact: true })).toBeVisible();
   await expect(page.getByText('WH/INT/00007')).toBeVisible();
   await expect(page.locator('#task-counter')).toHaveText('3 Aufgaben offen');
   await expect(page.locator('#picker-indicator')).toHaveAttribute('data-short-label', 'LL');
 
-  await page.getByText('LEGO Ente').click();
+  await page.getByRole('article', { name: 'LEGO Ente', exact: true }).click();
 
   await expect(page.locator('#header')).toBeVisible();
   await expect(page.locator('#header')).toHaveClass(/header--compact/);
@@ -45,10 +34,11 @@ test('filters locally by search, urgency and preferred zone', async ({ page }) =
   await mockPwaApi(page);
 
   await page.goto('/');
-  await choosePicker(page);
+  await loginPwa(page);
 
-  await page.locator('#search-toggle').click();
   const searchInput = page.locator('#search-input');
+  await page.locator('#search-toggle').click();
+  await expect(searchInput).toBeVisible();
   await searchInput.fill('ente');
 
   await expect(page.getByText('LEGO Ente')).toBeVisible();
@@ -65,7 +55,7 @@ test('filters locally by search, urgency and preferred zone', async ({ page }) =
   await page.getByRole('button', { name: 'Dringend (2)' }).click();
 
   await expect(page.getByText('1x Motorblock')).toBeVisible();
-  await expect(page.getByText('4x Brick 2x2 orange')).toBeVisible();
+  await expect(page.getByRole('article', { name: 'LEGO Ente', exact: true })).toBeVisible();
   await expect(page.getByText('2x Brick 1x4 blau')).toBeHidden();
 
   await page.getByRole('button', { name: 'Mein Bereich (0)' }).click();
@@ -82,7 +72,7 @@ test('toggles and remembers dark mode from the header', async ({ page }) => {
   await mockPwaApi(page);
 
   await page.goto('/');
-  await choosePicker(page);
+  await loginPwa(page);
 
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await page.locator('#theme-toggle').click();

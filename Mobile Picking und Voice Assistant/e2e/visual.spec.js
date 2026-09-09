@@ -1,5 +1,21 @@
 const { test, expect } = require('@playwright/test');
-const { mockPwaApi } = require('./helpers/pwa-api');
+const { mockPwaApi, loginPwa } = require('./helpers/pwa-api');
+
+async function freezeClock(page) {
+  await page.addInitScript((now) => {
+    const RealDate = Date;
+    class FrozenDate extends RealDate {
+      constructor(...args) {
+        super(...(args.length ? args : [now]));
+      }
+
+      static now() {
+        return now;
+      }
+    }
+    window.Date = FrozenDate;
+  }, Date.parse('2026-09-09T10:00:00Z'));
+}
 
 async function disableMotion(page) {
   await page.addStyleTag({
@@ -33,9 +49,10 @@ async function expectVisualSnapshot(page, locator, name, options = {}) {
 
 test('picking list matches the mobile visual baseline', async ({ page }) => {
   await mockPwaApi(page);
+  await freezeClock(page);
   await page.goto('/');
-  await page.getByRole('button', { name: 'Lena Lager' }).click();
-  await expect(page.getByText('4x Brick 2x2 orange')).toBeVisible();
+  await loginPwa(page);
+  await expect(page.getByRole('article', { name: 'LEGO Ente', exact: true })).toBeVisible();
   await expect(page.locator('#status-indicator')).toHaveText('Online');
   await expect(page.locator('#status-indicator')).toHaveClass(/online/);
   await disableMotion(page);
@@ -44,9 +61,10 @@ test('picking list matches the mobile visual baseline', async ({ page }) => {
 
 test('picking detail matches the mobile visual baseline', async ({ page }) => {
   await mockPwaApi(page);
+  await freezeClock(page);
   await page.goto('/');
-  await page.getByRole('button', { name: 'Lena Lager' }).click();
-  await page.getByText('4x Brick 2x2 orange').click();
+  await loginPwa(page);
+  await page.getByRole('article', { name: 'LEGO Ente', exact: true }).click();
   await expect(page.locator('#main')).toContainText('Brick 2x2 orange');
   await disableMotion(page);
   await expectVisualSnapshot(page, page.locator('#app'), 'picking-detail.png', { clearHover: true });
@@ -54,9 +72,10 @@ test('picking detail matches the mobile visual baseline', async ({ page }) => {
 
 test('quality alert matches the mobile visual baseline', async ({ page }) => {
   await mockPwaApi(page);
+  await freezeClock(page);
   await page.goto('/');
-  await page.getByRole('button', { name: 'Lena Lager' }).click();
-  await page.getByText('4x Brick 2x2 orange').click();
+  await loginPwa(page);
+  await page.getByRole('article', { name: 'LEGO Ente', exact: true }).click();
   await page.locator('#btn-alert').click();
   await expect(page.getByRole('heading', { name: 'Problem melden' })).toBeVisible();
   await disableMotion(page);

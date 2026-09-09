@@ -1,11 +1,11 @@
 const { test, expect } = require('@playwright/test');
-const { mockPwaApi } = require('./helpers/pwa-api');
+const { mockPwaApi, loginPwa } = require('./helpers/pwa-api');
 
 async function bootDesktopList(page, viewport) {
   await mockPwaApi(page);
   await page.setViewportSize(viewport);
   await page.goto('/');
-  await page.getByRole('button', { name: 'Lena Lager' }).click();
+  await loginPwa(page);
   await expect(page.locator('.list-workspace')).toBeVisible();
 }
 
@@ -21,7 +21,7 @@ test('desktop list uses a broad workspace without a narrow middle column', async
 
 test('detail view becomes two-column on large desktop', async ({ page }) => {
   await bootDesktopList(page, { width: 1536, height: 960 });
-  await page.getByText('4x Brick 2x2 orange').click();
+  await page.getByRole('article', { name: 'LEGO Ente', exact: true }).click();
 
   await expect(page.locator('.detail-workspace')).toBeVisible();
   await expect(page.locator('.detail-side')).toBeVisible();
@@ -45,7 +45,7 @@ test('detail view becomes two-column on large desktop', async ({ page }) => {
 
 test('completion screen shows a substantial completion card with next-action CTA', async ({ page }) => {
   await bootDesktopList(page, { width: 1366, height: 900 });
-  await page.getByText('4x Brick 2x2 orange').click();
+  await page.getByRole('article', { name: 'LEGO Ente', exact: true }).click();
 
   await page.locator('.btn-confirm').click();
   await page.locator('.btn-confirm').click();
