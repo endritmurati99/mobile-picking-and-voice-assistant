@@ -29,8 +29,15 @@ class TestJobOutboxTransaction(IntegrationCase):
                 raise RuntimeError("force rollback")
         self.env.invalidate_all()
         self.assertFalse(self.env["res.partner"].search([("name", "=", marker)]))
-        self.assertFalse(self.env["picking.assistant.integration.job"].search([]))
-        self.assertFalse(self.env["picking.assistant.outbox"].search([]))
+        job_domain = [
+            ("aggregate_model", "=", "res.partner"),
+            ("aggregate_res_id", "=", self.picker.partner_id.id),
+            ("correlation_id", "=", "0b2f7909-4ad9-44c1-8527-e775fe6d4be1"),
+        ]
+        self.assertFalse(self.env["picking.assistant.integration.job"].search(job_domain))
+        self.assertFalse(self.env["picking.assistant.outbox"].search([
+            ("event_id", "=", "a4ff5ca2-4546-4ea4-8e6c-b75bc003ca31"),
+        ]))
 
     def test_success_keeps_exact_envelope_text(self):
         envelope = '{"schema_version":"v2","message":"Gruess dich"}'

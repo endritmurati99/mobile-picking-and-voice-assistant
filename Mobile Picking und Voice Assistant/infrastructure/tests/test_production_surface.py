@@ -188,6 +188,42 @@ def test_backend_mounts_the_reviewed_workflow_registry_read_only():
     assert "WORKFLOW_REGISTRY_PATH: /run/pwr/workflow-registry.json" in block
 
 
+def test_backend_has_a_real_compose_readiness_probe_without_production_reload():
+    compose = read("docker-compose.yml")
+    backend = service_block(compose, "backend")
+    assert "urllib.request.urlopen('http://localhost:8000/api/health/live'" in backend
+    assert "healthcheck:" in backend
+    assert "--reload" not in backend
+
+
+def test_development_overlay_owns_backend_reload_and_uses_the_documented_second_port_name():
+    override = read("docker-compose.dev.yml")
+    assert "--reload" in service_block(override, "backend")
+    env_example = read(".env.example")
+    assert "ODOO_LAGER2_HOST_PORT=8070" in env_example
+    assert "ODOO_LAGER2_PORT=" not in env_example
+
+
+def test_make_up_waits_for_compose_healthchecks_without_a_blind_sleep():
+    makefile = read("Makefile")
+    up = re.search(r"(?ms)^up:.*?(?=^[a-zA-Z_-]+:|\Z)", makefile)
+    assert up, "Makefile has no up target"
+    assert "docker compose up -d --wait --wait-timeout 300" in up.group(0)
+    assert "sleep " not in up.group(0)
+    assert "-include .env" not in makefile, (
+        "Compose reads .env itself; GNU make cannot safely parse quoted values "
+        "containing spaces"
+    )
+    assert "PYTHONPATH=backend/.deps python3 infrastructure/scripts/test-api.py" in makefile
+    assert "psql -U pwr_db_admin -d $${ODOO_DB:-lager1}" in makefile
+
+
+def test_env_example_documents_a_cross_platform_dev_compose_file_choice():
+    env_example = read(".env.example")
+    assert "# COMPOSE_PATH_SEPARATOR=;" in env_example
+    assert "# COMPOSE_FILE=docker-compose.yml;docker-compose.dev.yml" in env_example
+
+
 def test_compose_secrets_are_owned_and_mode_restricted():
     """R3 made this mandatory: Docker's default 0444 root-owned mount is
     REJECTED by the credential check, so provisioning refuses to start.

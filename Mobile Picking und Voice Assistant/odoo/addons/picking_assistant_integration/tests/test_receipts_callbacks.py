@@ -62,8 +62,12 @@ class TestReceiptsAndCallbacks(IntegrationCase):
         self.assertTrue(first["process"])
         self.assertTrue(first["processing_lease_token"])
         self.assertFalse(second["process"])
+        receipt_domain = [
+            ("job_record_id", "=", self.job.id),
+            ("event_id", "=", self.outbox.event_id),
+        ]
         self.assertEqual(
-            self.env["picking.assistant.event.receipt"].search_count([]), 1
+            self.env["picking.assistant.event.receipt"].search_count(receipt_domain), 1
         )
 
     def test_reused_ingress_nonce_is_rejected_even_for_same_event(self):
@@ -86,7 +90,10 @@ class TestReceiptsAndCallbacks(IntegrationCase):
             receipts.api_accept_event(
                 *args, "123e4567-e89b-42d3-a456-426614174002"
             )
-        self.assertEqual(receipts.search_count([]), 1)
+        self.assertEqual(receipts.search_count([
+            ("job_record_id", "=", self.job.id),
+            ("event_id", "=", self.outbox.event_id),
+        ]), 1)
 
     def test_wrong_job_id_causes_no_nonce_or_receipt_write(self):
         """Since Task 3 the nonce is reserved FIRST (LOCK_ORDER), so this is
@@ -109,10 +116,21 @@ class TestReceiptsAndCallbacks(IntegrationCase):
                 "n2b-test",
                 "123e4567-e89b-42d3-a456-426614174011",
             )
-        self.assertFalse(receipts.search_count([]))
-        self.assertFalse(
-            self.env["picking.assistant.webhook.nonce"].search_count([])
-        )
+        self.assertFalse(receipts.search_count([
+            ("job_record_id", "=", self.job.id),
+            ("event_id", "=", self.outbox.event_id),
+        ]))
+        nonces = self.env["picking.assistant.webhook.nonce"]
+        self.assertFalse(nonces.search_count([
+            ("direction", "=", "backend_to_n8n"),
+            ("key_id", "=", "b2n-test"),
+            ("nonce", "=", "123e4567-e89b-42d3-a456-426614174010"),
+        ]))
+        self.assertFalse(nonces.search_count([
+            ("direction", "=", "n8n_to_backend"),
+            ("key_id", "=", "n2b-test"),
+            ("nonce", "=", "123e4567-e89b-42d3-a456-426614174011"),
+        ]))
 
     def test_acceptance_revalidates_outbox_under_lock(self):
         """readonly=True does not stop privileged ORM writes, so the

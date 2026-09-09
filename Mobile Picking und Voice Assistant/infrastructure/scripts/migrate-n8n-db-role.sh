@@ -157,6 +157,25 @@ SQL
         extra_dumps+=(odoo-lager2-before.dump)
     fi
 
+    # Every database left under the legacy owner is part of the recovery
+    # inventory: legacy NOLOGIN also removes its ability to reconnect there.
+    # OIDs make dump filenames safe and deterministic; the protected mapping
+    # retains the database name needed for restore.
+    psql_admin -d postgres -X -At -F $'\t' -v "odoo_db=$ODOO_DB_NAME" \
+        -v "odoo_lager2=${ODOO_LAGER2_DB_NAME:-}" > "$backup_dir/extra-databases-before.tsv" <<'SQL'
+SELECT oid, datname, format('extra-%s-before.dump', oid)
+FROM pg_database
+WHERE datallowconn AND NOT datistemplate
+  AND datname <> 'postgres' AND datname <> 'n8n' AND datname <> :'odoo_db'
+  AND (:'odoo_lager2' = '' OR datname <> :'odoo_lager2')
+ORDER BY oid;
+SQL
+    while IFS=$'\t' read -r _extra_oid extra_database extra_dump; do
+        [ -n "$extra_database" ] || continue
+        pg_dump --format=custom --username "$legacy" --file "$backup_dir/$extra_dump" "$extra_database"
+        extra_dumps+=("$extra_dump")
+    done < "$backup_dir/extra-databases-before.tsv"
+
     log "Recording database and schema ACLs"
     psql_admin -d postgres -At -c \
         "SELECT datname, datacl FROM pg_database ORDER BY datname" \
@@ -173,6 +192,7 @@ SQL
         "${extra_dumps[@]}" \
         database-acl-before.tsv \
         n8n-schema-acl-before.tsv \
+        extra-databases-before.tsv \
         > manifest.sha256)
     chmod 0600 "$backup_dir"/*.sql "$backup_dir"/*.dump "$backup_dir"/*.tsv "$backup_dir/manifest.sha256"
 
@@ -184,6 +204,33 @@ verify_manifest() {
     [ -f "$backup_dir/manifest.sha256" ] || fail "manifest.sha256 missing in $backup_dir"
     (cd "$backup_dir" && sha256sum -c manifest.sha256 >/dev/null) \
         || fail "manifest.sha256 verification failed in $backup_dir"
+}
+
+verify_extra_backup_inventory() {
+    local backup_dir="$1" current recorded _extra_oid extra_database extra_dump
+    [ -f "$backup_dir/extra-databases-before.tsv" ] || fail "extra database inventory missing; run backup again before apply"
+
+    # The inventory itself is checksum-verified by verify_manifest. Compare it
+    # with the current catalog before any role, ACL, or ownership mutation.
+    current="$(psql_admin -X -At -F $'\t' -d postgres -v "odoo_db=$ODOO_DB_NAME" \
+        -v "odoo_lager2=${ODOO_LAGER2_DB_NAME:-}" <<'SQL'
+SELECT oid, datname, format('extra-%s-before.dump', oid)
+FROM pg_database
+WHERE datallowconn AND NOT datistemplate
+  AND datname <> 'postgres' AND datname <> 'n8n' AND datname <> :'odoo_db'
+  AND (:'odoo_lager2' = '' OR datname <> :'odoo_lager2')
+ORDER BY oid;
+SQL
+)"
+    recorded="$(cat "$backup_dir/extra-databases-before.tsv")"
+    [ "$current" = "$recorded" ] || fail "extra database inventory differs from backup; run backup again before apply"
+
+    while IFS=$'\t' read -r _extra_oid extra_database extra_dump; do
+        [ -n "$extra_database" ] || continue
+        [ -f "$backup_dir/$extra_dump" ] || fail "backup dump missing for extra database $extra_database"
+        awk -v file="$extra_dump" '$2 == file { found = 1 } END { exit !found }' "$backup_dir/manifest.sha256" \
+            || fail "backup manifest does not authenticate extra database $extra_database"
+    done < "$backup_dir/extra-databases-before.tsv"
 }
 
 transfer_public_objects() {
@@ -227,6 +274,7 @@ cmd_apply() {
     local backup_dir="${1:?BACKUP_DIR required}"
     require_backup_dir_not_world_readable "$backup_dir"
     verify_manifest "$backup_dir"
+    verify_extra_backup_inventory "$backup_dir"
     require_password_file PWR_DB_ADMIN_PASSWORD_FILE
     require_password_file ODOO_DB_PASSWORD_FILE
     require_password_file N8N_DB_PASSWORD_FILE
@@ -237,6 +285,21 @@ cmd_apply() {
 
     local legacy
     legacy="$(legacy_role)"
+
+    # Do this before stopping writers or changing roles. An extra database is
+    # retained intact, but an active client there needs an explicit migration
+    # plan before legacy NOLOGIN can be safe.
+    local active_extra_clients
+    active_extra_clients="$(psql_admin -X -At -d postgres -v "odoo_db=$ODOO_DB_NAME" \
+        -v "odoo_lager2=${ODOO_LAGER2_DB_NAME:-}" <<'SQL'
+SELECT count(*)
+FROM pg_stat_activity
+WHERE backend_type = 'client backend' AND pid <> pg_backend_pid()
+  AND datname <> 'postgres' AND datname <> 'n8n' AND datname <> :'odoo_db'
+  AND (:'odoo_lager2' = '' OR datname <> :'odoo_lager2');
+SQL
+)"
+    [ "$active_extra_clients" = "0" ] || fail "extra databases have active client sessions; classify or stop them before migration"
 
     local services=(odoo n8n)
     local odoo_databases=("$ODOO_DB_NAME")
@@ -320,6 +383,29 @@ SELECT format('REVOKE CONNECT, TEMPORARY ON DATABASE %I FROM PUBLIC', :'odoo_db'
 SELECT format('GRANT CONNECT, TEMPORARY ON DATABASE %I TO odoo_app', :'odoo_db') \gexec
 SQL
     done
+
+    # Existing volumes can contain retained archives or prior test databases.
+    # They keep their rows and owners, while PUBLIC and both new app roles lose
+    # the ability to connect. Individual REVOKEs alone cannot override PUBLIC.
+    log "Removing new application-role access to retained extra databases"
+    psql_pwr_admin -d postgres -v "odoo_db=$ODOO_DB_NAME" \
+        -v "odoo_lager2=${ODOO_LAGER2_DB_NAME:-}" <<'SQL'
+SELECT format('REVOKE CONNECT, TEMPORARY ON DATABASE %I FROM PUBLIC', datname)
+FROM pg_database
+WHERE datallowconn AND NOT datistemplate
+  AND datname <> 'postgres' AND datname <> 'n8n' AND datname <> :'odoo_db'
+  AND (:'odoo_lager2' = '' OR datname <> :'odoo_lager2')
+ORDER BY oid
+\gexec
+
+SELECT format('REVOKE CONNECT, TEMPORARY ON DATABASE %I FROM odoo_app, n8n_app', datname)
+FROM pg_database
+WHERE datallowconn AND NOT datistemplate
+  AND datname <> 'postgres' AND datname <> 'n8n' AND datname <> :'odoo_db'
+  AND (:'odoo_lager2' = '' OR datname <> :'odoo_lager2')
+ORDER BY oid
+\gexec
+SQL
 
     log "Checking resolved Compose config references odoo_app and n8n_app"
     local resolved_config

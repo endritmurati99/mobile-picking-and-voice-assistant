@@ -23,8 +23,11 @@ Odoo-19-Hinweise:
 """
 import argparse
 import sys
+from pathlib import Path
 from datetime import date, timedelta
 from xmlrpc.client import ServerProxy
+
+from dotenv import dotenv_values
 
 
 ODOO_KWARG_KEYS = {
@@ -242,11 +245,12 @@ def build_demo_cluster_products():
 
 
 def main():
+    dotenv = dotenv_values(Path(__file__).resolve().parents[2] / ".env")
     parser = argparse.ArgumentParser(description="Odoo Seed-Daten")
     parser.add_argument("--url", default="http://localhost:8069")
-    parser.add_argument("--db", default="lager1")
-    parser.add_argument("--user", default="admin")
-    parser.add_argument("--api-key", required=True)
+    parser.add_argument("--db", default=dotenv.get("ODOO_DB") or "lager1")
+    parser.add_argument("--user", default=dotenv.get("ODOO_USER") or "admin")
+    parser.add_argument("--api-key", default=dotenv.get("ODOO_API_KEY") or "")
     parser.add_argument("--users-only", action="store_true",
                         help="Nur Demo-Benutzer, Passwoerter und Picker-Rollen synchronisieren")
     parser.add_argument("--bom-mode", action="store_true",
@@ -254,6 +258,8 @@ def main():
     parser.add_argument("--lego-seed", action="store_true",
                         help="LEGO-Produkte einlagern + Pickings aus BOMs erstellen (ohne bestehende Pickings zu loeschen)")
     args = parser.parse_args()
+    if not args.api_key:
+        parser.error("--api-key or ODOO_API_KEY in .env is required")
 
     common = ServerProxy(f"{args.url}/xmlrpc/2/common")
     uid = common.authenticate(args.db, args.user, args.api_key, {})

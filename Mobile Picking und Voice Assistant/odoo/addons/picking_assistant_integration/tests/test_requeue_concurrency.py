@@ -54,14 +54,16 @@ class TestRequeueConcurrency(CommittedConcurrencyCase):
     def test_two_requeues_do_not_both_reset_the_row(self):
         outbox = self._dead_outbox_row()
         supervisor = self._active_supervisor()
+        event_id = outbox.event_id
+        supervisor_id = supervisor.id
 
         results = self.run_concurrently(
             lambda env: env["picking.assistant.outbox"]
             .with_user(self.api_user_id)
-            .api_requeue_dead(outbox.event_id, supervisor.id, "first"),
+            .api_requeue_dead(event_id, supervisor_id, "first"),
             lambda env: env["picking.assistant.outbox"]
             .with_user(self.api_user_id)
-            .api_requeue_dead(outbox.event_id, supervisor.id, "second"),
+            .api_requeue_dead(event_id, supervisor_id, "second"),
         )
 
         winners = [r for r in results if isinstance(r, dict)]

@@ -1,8 +1,6 @@
 .PHONY: help setup install-backend-deps install-ui-deps build-all build-backend build-odoo up down logs seed test test-ui test-visual test-visual-diff test-visual-diff-update test-a11y test-api test-n8n-api load-test verify-code verify-ui verify-visual verify-visual-diff verify-a11y verify-workflows verify-odoo-schema verify-stack verify clean
 
 SHELL := /bin/bash
--include .env
-export
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -26,10 +24,7 @@ build-odoo: ## Nur Odoo Image bauen
 	docker compose build odoo
 
 up: ## Stack starten
-	docker compose up -d
-	@echo "Warte auf Services..."
-	@sleep 10
-	@echo "Stack laeuft."
+	docker compose up -d --wait --wait-timeout 300
 
 down: ## Stack stoppen
 	docker compose down
@@ -44,7 +39,7 @@ logs-odoo: ## Odoo-Logs
 	docker compose logs -f --tail=50 odoo
 
 seed: ## Seed-Daten laden
-	python infrastructure/scripts/seed-odoo.py --url http://localhost:8069 --db $${ODOO_DB:-lager1} --user $${ODOO_USER:-admin} --api-key $${ODOO_API_KEY}
+	PYTHONPATH=backend/.deps python3 infrastructure/scripts/seed-odoo.py
 
 test: ## Backend-Tests
 	cd backend && PYTHONPATH=.deps python -m pytest -p pytest_asyncio tests/ -v
@@ -72,7 +67,7 @@ test-all: ## Alle ausfuehrbaren Testsuiten nacheinander
 	$(MAKE) test-pwa
 
 test-api: ## API-Rauchtest
-	python infrastructure/scripts/test-api.py
+	PYTHONPATH=backend/.deps python3 infrastructure/scripts/test-api.py
 
 test-n8n-api: ## n8n Public API mit API-Key pruefen
 	python infrastructure/scripts/test-n8n-api.py
@@ -106,4 +101,4 @@ shell-odoo: ## Odoo Shell
 	docker compose exec odoo odoo shell -d $${ODOO_DB:-lager1}
 
 shell-db: ## PostgreSQL Shell
-	docker compose exec db psql -U $${POSTGRES_USER:-odoo} -d $${ODOO_DB:-lager1}
+	docker compose exec db psql -U pwr_db_admin -d $${ODOO_DB:-lager1}

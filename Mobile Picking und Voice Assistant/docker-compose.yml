@@ -214,7 +214,13 @@ services:
       - ./backend/app:/app/app:ro
       - ./docs:/obsidian:ro
       - ./n8n/workflow-registry.json:/run/pwr/workflow-registry.json:ro
-    command: [ "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info", "--reload" ]
+    command: [ "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info" ]
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health/live',timeout=5).status==200 else 1)" ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     networks:
       edge-net:
         ipv4_address: 172.28.10.3
@@ -486,14 +492,6 @@ volumes:
   pg_data:
   odoo_data:
   odoo_lager2_data:
-  # Der odoo19-trial-Dienst ist mit dem Cutover entfallen. Diese Deklaration
-  # bleibt waehrend des Rollback-Fensters bestehen, damit der Papierpfad
-  # erhalten bleibt; sie wird im Folge-Commit nach Schliessen des Fensters
-  # entfernt (Plan Task 8, "Closing the window").
-  # ACHTUNG: explizites globales `name:` — dieses Volume ist NICHT
-  # projekt-gescoped und darf nicht fuer Produktion wiederverwendet werden.
-  odoo19_trial_data:
-    name: odoo19_trial_data
   caddy_data:
   caddy_config:
   n8n_data:

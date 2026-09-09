@@ -38,7 +38,11 @@ allein migriert weder Rollen noch Eigentümer.
    `apply <dasselbe-Verzeichnis>`. Der Apply-Pfad stoppt die App-Schreiber,
    überträgt die Anwendungsobjekte im `public`-Schema beider angegebenen Lager,
    prüft die Zugriffsgrenzen und deaktiviert erst danach den alten gemeinsamen
-   Login. `verify` wiederholt die Prüfung. Objekte von PostgreSQL-Extensions
+   Login. Nicht-Zieldatenbanken werden mit OID-basiertem, geschütztem Namenindex
+   und Dump gesichert; ihre Daten und Besitzer bleiben unverändert. Der Apply
+   bricht vor Änderungen ab, wenn dort aktive Clients laufen, und entfernt dann
+   PUBLIC- sowie `odoo_app`/`n8n_app`-CONNECT. `verify` wiederholt die Prüfung.
+   Objekte von PostgreSQL-Extensions
    und Systemobjekte behalten ihren Besitzer; weitere Anwendungsschemas sind
    nicht Teil dieses Migrationsskripts und müssen vorab separat geprüft werden.
 4. Zusätzlich Anmeldung, beide Lager, Picking und n8n-Credentials am Klon
@@ -68,7 +72,7 @@ damit nicht behauptet.
 Der zusätzliche Integrationstest startet für jeden Lauf einen neuen
 PostgreSQL-16-Container ohne Netzwerkfreigabe und mit einem Wegwerf-Dateisystem.
 Er führt Backup, Apply und die Positiv-/Negativprüfungen mit echtem SQL für
-`lager1`, `lager2` und `n8n` aus. Die Compose-Befehle zum Stoppen/Starten sind
+`lager1`, `lager2`, `n8n` und eine erhaltene Archivdatenbank aus. Die Compose-Befehle zum Stoppen/Starten sind
 in diesem Test ersetzt: Er beweist die SQL-Migration und den Erhalt von Tabellen,
 Views, Sequenzen, Routinen und Typen, nicht den Neustart der Anwendungen.
 

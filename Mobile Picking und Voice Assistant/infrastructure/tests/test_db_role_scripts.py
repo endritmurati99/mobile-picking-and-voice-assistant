@@ -33,6 +33,10 @@ def test_existing_volume_migration_exposes_backup_apply_verify_and_refuses_parti
     assert "pg_dumpall --roles-only" in script
     assert "transfer_public_objects" in script
     assert "NOLOGIN" in script
+    assert "extra-databases-before.tsv" in script
+    assert "verify_extra_backup_inventory" in script
+    assert "REVOKE CONNECT, TEMPORARY ON DATABASE %I FROM PUBLIC" in script
+    assert "active client sessions" in script
 
 
 def test_isolation_probe_contains_positive_and_negative_checks():
@@ -40,6 +44,8 @@ def test_isolation_probe_contains_positive_and_negative_checks():
     assert "rolsuper" in script
     assert "n8n_app" in script and "odoo_app" in script
     assert "expected connection failure" in script
+    assert "has_database_privilege" in script
+    assert "extra database" in script
 
 
 def test_volume_clone_is_offline_verified_and_deletable():
@@ -258,8 +264,9 @@ def _prepare_backup_dir(tmp_path: Path) -> Path:
         "odoo-lager2-before.dump",
         "database-acl-before.tsv",
         "n8n-schema-acl-before.tsv",
+        "extra-databases-before.tsv",
     ):
-        (backup_dir / name).write_text("stub-content")
+        (backup_dir / name).write_text("" if name == "extra-databases-before.tsv" else "stub-content")
     subprocess.run(
         ["bash", "-c", "sha256sum *.sql *.dump *.tsv > manifest.sha256"],
         cwd=backup_dir,
@@ -315,13 +322,17 @@ def test_migrate_apply_creates_nosuperuser_roles_revokes_public_acls_and_quotes_
             }} >> "{capture_file}"
             # Answer the isolation verifier's role-flag lookups so it can
             # run to completion inside cmd_apply.
-            case "$args" in
+            case "$args $stdin_content" in
               *"rolsuper FROM pg_roles WHERE rolname = 'pwr_db_admin'"*)
                 echo "t" ;;
               *"rolname = 'odoo_app'"*)
                 echo "f|f|f" ;;
               *"rolname = 'n8n_app'"*)
                 echo "f|f|f" ;;
+              *"pg_stat_activity"*)
+                echo "0" ;;
+              *"has_database_privilege"*)
+                echo "f|f" ;;
             esac
             # Simulate real cross-database connection refusal for the
             # isolation verifier's two negative checks; every other
@@ -401,6 +412,7 @@ def test_migrate_apply_creates_nosuperuser_roles_revokes_public_acls_and_quotes_
     # databases, not just declared in the fresh-init script.
     assert "REVOKE CONNECT, TEMPORARY ON DATABASE n8n FROM PUBLIC" in captured
     assert "REVOKE CONNECT, TEMPORARY ON DATABASE %I FROM PUBLIC" in captured
+    assert "datname <> 'postgres' AND datname <> 'n8n' AND datname <> :'odoo_db'" in captured
     assert captured.count("REVOKE ALL ON SCHEMA public FROM PUBLIC") >= 2
     if second_warehouse:
         assert "-d lager2" in captured

@@ -30,3 +30,33 @@ Aufträge und Bestände in der App angezeigt werden.
 - [n8n-Anmeldung](docs/screenshots/aktuell/n8n-anmeldung-2026-08-27.png)
 
 Weitere Erklärungen stehen in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Starten
+
+Für eine neue Installation `.env.example` nach `.env` kopieren, alle
+Passwörter und Secrets setzen, dann `make setup` und `make up` ausführen.
+`make up` wartet bis zu fünf Minuten auf die Compose-Healthchecks und endet bei
+einem nicht bereiten Dienst mit Fehler. Ein neues PostgreSQL-Volume legt
+`lager1`, `lager2` und `n8n` samt getrennten App-Rollen an; Odoo-Module und
+Benutzer werden danach wie bei jeder neuen Odoo-Installation eingerichtet.
+
+Ein vorhandenes PostgreSQL-Volume darf nicht nur mit den neuen
+`ODOO_DB_PASSWORD`- und `N8N_DB_PASSWORD`-Werten neu gestartet werden. Seine
+Rollen und Eigentümer müssen zuerst nach dem
+[DB-Rollen-Migrationsablauf](docs/runbooks/n8n-db-role-migration.md) auf einem
+verifizierten Offline-Klon geprüft und anschließend im Wartungsfenster
+migriert werden.
+
+Die Basis-Compose-Datei läuft ohne Uvicorn-Reload. Für lokale Entwicklung kann
+`.env` das Overlay auf Windows und Linux einheitlich aktivieren:
+
+```dotenv
+COMPOSE_PATH_SEPARATOR=;
+COMPOSE_FILE=docker-compose.yml;docker-compose.dev.yml
+COMPOSE_PROFILES=second-odoo
+```
+
+Das Overlay aktiviert Reload und bindet Backend, PostgreSQL, beide Odoo-Instanzen
+und n8n nur an `127.0.0.1`; die Basisdatei veröffentlicht lediglich Caddy auf
+Port 80 und 443. `COMPOSE_PROFILES=second-odoo` startet Lager 2; ohne diese
+Zeile bleibt die zweite Odoo-Instanz optional.

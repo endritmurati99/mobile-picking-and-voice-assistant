@@ -117,4 +117,34 @@ then
 fi
 log "OK: odoo_app to n8n failed as expected connection failure"
 
-log "All six isolation checks passed"
+log "Check 7: both application roles are denied every retained extra database"
+extra_databases="$(psql_as_admin -d postgres -X -At -v "odoo_db=$ODOO_DB_NAME" \
+    -v "odoo_lager2=${ODOO_LAGER2_DB_NAME:-}" <<'SQL'
+SELECT datname
+FROM pg_database
+WHERE datallowconn AND NOT datistemplate
+  AND datname <> 'postgres' AND datname <> 'n8n' AND datname <> :'odoo_db'
+  AND (:'odoo_lager2' = '' OR datname <> :'odoo_lager2')
+ORDER BY oid;
+SQL
+)"
+while IFS= read -r extra_database; do
+    [ -n "$extra_database" ] || continue
+    extra_flags="$(psql_as_admin -d postgres -X -At -v "extra_db=$extra_database" <<'SQL'
+SELECT has_database_privilege('odoo_app', :'extra_db', 'CONNECT'),
+       has_database_privilege('n8n_app', :'extra_db', 'CONNECT');
+SQL
+)"
+    [ "$extra_flags" = "f|f" ] || fail "an application role retains CONNECT on extra database $extra_database"
+    for app_role in odoo_app n8n_app; do
+        if [ "$app_role" = "odoo_app" ]; then app_password="$ODOO_DB_PASSWORD"; else app_password="$N8N_DB_PASSWORD"; fi
+        if PGPASSWORD="$app_password" psql -X -At -v ON_ERROR_STOP=1 \
+            --username "$app_role" --dbname "$extra_database" -c "SELECT 1" >/dev/null 2>&1
+        then
+            fail "$app_role unexpectedly connected to extra database $extra_database (expected connection failure)"
+        fi
+    done
+done <<< "$extra_databases"
+log "OK: both application roles are denied retained extra databases"
+
+log "All seven isolation checks passed"
