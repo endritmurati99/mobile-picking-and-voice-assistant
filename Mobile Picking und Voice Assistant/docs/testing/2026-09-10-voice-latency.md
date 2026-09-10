@@ -1,5 +1,20 @@
 # Bestehende Spracheingabe: Docker- und Browserprüfung, 10.09.2026
 
+## Nachtrag: Anmeldung über localhost
+
+Beim realen Login meldete der Nutzer „Origin ist nicht erlaubt“. Die laufende
+Compose-Konfiguration erlaubte nur die LAN-IP; `https://localhost` wurde vor
+der Passwortprüfung mit HTTP 403 abgewiesen. Der bisherige API-Smoke-Test
+verdeckte dies, weil er die konfigurierte Freigabe als Origin mitsendete.
+
+Compose erlaubt nun zusätzlich ausdrücklich `https://localhost`; der lokale
+Voice-Override setzt dieselbe Freigabe für den laufenden Teststand. Der
+API-Smoke-Test leitet die Origin aus seiner tatsächlichen Basis-URL ab.
+Dieser Test scheiterte vor der Konfigurationskorrektur mit HTTP 403 und bestand
+danach für beide Lager. Fremde, fehlende, HTTP- und abweichende Port-Origins
+bleiben gesperrt. Nur Backend wurde neu erstellt; Voice-Quellmounts bleiben
+erhalten. Das separate IP-Zertifikatsproblem ist damit nicht behoben.
+
 Whisper Small / faster-whisper bleibt unverändert. Die Korrektur betrifft Aufnahmeende, Audioformat, Fehlerfeedback und die Verarbeitung verspäteter Ergebnisse.
 
 ## Ergebnis

@@ -187,7 +187,7 @@ services:
       N8N_CIRCUIT_BREAKER_FAILURES: ${N8N_CIRCUIT_BREAKER_FAILURES:-3}
       N8N_CIRCUIT_BREAKER_OPEN_SECONDS: ${N8N_CIRCUIT_BREAKER_OPEN_SECONDS:-60}
       OBSIDIAN_PATH: /obsidian
-      PWA_ORIGINS: "https://${LAN_HOST:-localhost}"
+      PWA_ORIGINS: "https://${LAN_HOST:-localhost},https://localhost"
       # RUNTIME_PROFILE ist ab dem Odoo-19-Cutover FAIL-CLOSED: der Stack
       # startet nicht mehr, wenn die Variable fehlt. Das schliesst das
       # Restloch, das das Register der "deployment work" zugewiesen hatte —
