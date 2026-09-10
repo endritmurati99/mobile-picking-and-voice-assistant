@@ -1288,7 +1288,8 @@ main > * {
     color: var(--ink-muted);
 }
 
-.nav-btn--active {
+#nav .nav-btn.nav-btn--active,
+#nav .nav-btn.nav-btn--ptt {
     background: var(--primary);
     color: var(--primary-ink);
     border-color: var(--primary);
