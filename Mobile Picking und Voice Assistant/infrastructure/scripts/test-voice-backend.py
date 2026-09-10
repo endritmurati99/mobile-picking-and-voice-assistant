@@ -55,6 +55,67 @@ else:
 
     if not shutil.which("ffmpeg"):
         print("route checks skipped (ffmpeg unavailable)")
+
+        async def recognition_checks_without_ffmpeg() -> None:
+            app = FastAPI()
+            app.include_router(voice.router)
+            transport = httpx.ASGITransport(app=app)
+
+            async def passthrough_conversion(data: bytes, _content_type: str) -> bytes:
+                return data
+
+            async def uncertain_command(*_args: object) -> str:
+                return "unrelated words"
+
+            original_convert = voice.convert_to_wav
+            original_transcribe = voice.whisper_client.transcribe_audio
+            voice.convert_to_wav = passthrough_conversion
+            voice.whisper_client.transcribe_audio = uncertain_command
+            try:
+                async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                    with patch.object(
+                        voice,
+                        "get_classifier",
+                        side_effect=AssertionError("command recognition called the LLM"),
+                        create=True,
+                    ):
+                        response = await client.post(
+                            "/voice/recognize",
+                            data={"context": "awaiting_command"},
+                            files={"audio": ("valid.wav", valid_wav, "audio/wav")},
+                        )
+                    assert response.status_code == 200, response.text
+                    assert response.json()["intent"] == "unknown", response.text
+
+                    async def clear_command(*_args: object) -> str:
+                        return "weiter"
+
+                    voice.whisper_client.transcribe_audio = clear_command
+                    response = await client.post(
+                        "/voice/recognize",
+                        data={"context": "awaiting_command"},
+                        files={"audio": ("valid.wav", valid_wav, "audio/wav")},
+                    )
+                    assert response.status_code == 200, response.text
+                    assert response.json()["intent"] == "next", response.text
+                    assert response.json()["requires_confirmation"] is False, response.text
+
+                    async def negated_command(*_args: object) -> str:
+                        return "nicht bestaetigen"
+
+                    voice.whisper_client.transcribe_audio = negated_command
+                    response = await client.post(
+                        "/voice/recognize",
+                        data={"context": "awaiting_command"},
+                        files={"audio": ("valid.wav", valid_wav, "audio/wav")},
+                    )
+                    assert response.status_code == 200, response.text
+                    assert response.json()["intent"] == "problem", response.text
+            finally:
+                voice.convert_to_wav = original_convert
+                voice.whisper_client.transcribe_audio = original_transcribe
+
+        asyncio.run(recognition_checks_without_ffmpeg())
     else:
         async def route_checks() -> None:
             app = FastAPI()
@@ -84,6 +145,54 @@ else:
                         files={"audio": ("valid.wav", valid_wav, "audio/wav")},
                     )
                     assert response.status_code == 503, response.text
+            finally:
+                voice.whisper_client.transcribe_audio = original_transcribe
+
+            async def uncertain_command(*_args: object) -> str:
+                return "unrelated words"
+
+            voice.whisper_client.transcribe_audio = uncertain_command
+            try:
+                async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                    # Command recognition must not wait for optional Ollama fallback.
+                    with patch.object(
+                        voice,
+                        "get_classifier",
+                        side_effect=AssertionError("command recognition called the LLM"),
+                        create=True,
+                    ):
+                        response = await client.post(
+                            "/voice/recognize",
+                            data={"context": "awaiting_command"},
+                            files={"audio": ("valid.wav", valid_wav, "audio/wav")},
+                        )
+                    assert response.status_code == 200, response.text
+                    assert response.json()["intent"] == "unknown", response.text
+
+                    async def clear_command(*_args: object) -> str:
+                        return "weiter"
+
+                    voice.whisper_client.transcribe_audio = clear_command
+                    response = await client.post(
+                        "/voice/recognize",
+                        data={"context": "awaiting_command"},
+                        files={"audio": ("valid.wav", valid_wav, "audio/wav")},
+                    )
+                    assert response.status_code == 200, response.text
+                    assert response.json()["intent"] == "next", response.text
+                    assert response.json()["requires_confirmation"] is False, response.text
+
+                    async def negated_command(*_args: object) -> str:
+                        return "nicht bestaetigen"
+
+                    voice.whisper_client.transcribe_audio = negated_command
+                    response = await client.post(
+                        "/voice/recognize",
+                        data={"context": "awaiting_command"},
+                        files={"audio": ("valid.wav", valid_wav, "audio/wav")},
+                    )
+                    assert response.status_code == 200, response.text
+                    assert response.json()["intent"] == "problem", response.text
             finally:
                 voice.whisper_client.transcribe_audio = original_transcribe
 

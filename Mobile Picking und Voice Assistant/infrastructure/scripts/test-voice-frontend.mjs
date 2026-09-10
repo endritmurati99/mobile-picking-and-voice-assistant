@@ -6,7 +6,7 @@ const root = new URL('../..', import.meta.url);
 const source = await fs.readFile(new URL('pwa/js/voice.js', root), 'utf8');
 const helpers = await fs.readFile(new URL('pwa/js/voice-helpers.mjs', root), 'utf8');
 
-async function loadVoice({ samples, recognize, getUserMedia = null }) {
+async function loadVoice({ samples, recognize, getUserMedia = null, fetch = null }) {
   let now = 1_000;
   let monitor;
   let recorder;
@@ -17,14 +17,15 @@ async function loadVoice({ samples, recognize, getUserMedia = null }) {
     getFloatTimeDomainData(buffer) { buffer.fill(samples.shift() ?? 0); },
     getByteFrequencyData() { throw new Error('FFT path must not be used'); },
   };
+  const documentListeners = new Map();
   const context = vm.createContext({
-    Blob, console, Float32Array, Promise, setTimeout, clearTimeout,
+    AbortController, Blob, console, Float32Array, Promise, URL, setTimeout, clearTimeout, queueMicrotask,
     Date: { now: () => now },
-    document: { addEventListener() {} },
+    document: { addEventListener(event, callback) { documentListeners.set(event, callback); } },
     navigator: { mediaDevices: { async getUserMedia() { return getUserMedia ? getUserMedia() : stream; } } },
     window: {
       setInterval(callback) { monitor = callback; return 1; }, clearInterval() {}, setTimeout, clearTimeout,
-      speechSynthesis: { getVoices: () => [], addEventListener() {}, cancel() {}, speak() {} },
+      speechSynthesis: { getVoices: () => [], addEventListener() {}, cancel() {}, speak(utterance) { queueMicrotask(() => utterance.onend?.()); } },
       AudioContext: class {
         state = 'running'; async resume() {}
         createAnalyser() { return analyser; }
@@ -32,6 +33,13 @@ async function loadVoice({ samples, recognize, getUserMedia = null }) {
         close() { return Promise.resolve(); }
       },
     },
+    fetch: fetch || (async () => { throw new Error('unexpected fetch'); }),
+    Audio: class {
+      constructor() { this.onended = null; this.onerror = null; }
+      play() { queueMicrotask(() => this.onended?.()); return Promise.resolve(); }
+      pause() {}
+    },
+    SpeechSynthesisUtterance: class { constructor(text) { this.text = text; } },
     MediaRecorder: class {
       static isTypeSupported() { return true; }
       constructor() { recorder = this; recorders.push(this); this.stream = stream; this.state = 'inactive'; this.mimeType = 'audio/webm;codecs=opus'; }
@@ -61,6 +69,8 @@ async function loadVoice({ samples, recognize, getUserMedia = null }) {
     async flush() { await new Promise((resolve) => setImmediate(resolve)); },
     get recorder() { return recorder; },
     get recorders() { return recorders; },
+    unlockTts() { documentListeners.get('pointerdown')?.(); },
+    helpers: helper.namespace,
   };
 }
 
@@ -89,6 +99,15 @@ const cancelledPtt = await loadVoice({ samples: [], recognize: async () => ({ in
 assert.equal(await cancelledPtt.voice.startPushToTalk((result) => cancelledPttResults.push(result)), true);
 await cancelledPtt.voice.cancelPushToTalk();
 assert.equal(cancelledPttResults.length, 0, 'a cancelled push-to-talk gesture never dispatches its result');
+
+const writeIntentResults = [];
+const writeIntent = await loadVoice({
+  samples: [],
+  recognize: async () => ({ intent: 'confirm_all', text: 'alle bestaetigen', confidence: 0.91, requires_confirmation: true, confirmation_prompt: 'Richtig?' }),
+});
+assert.equal(await writeIntent.voice.startPushToTalk((result) => writeIntentResults.push(result)), true);
+await writeIntent.voice.stopPushToTalk();
+assert.deepEqual(writeIntentResults, [{ intent: 'confirm_all', text: 'alle bestaetigen', confidence: 0.91, requires_confirmation: true, confirmation_prompt: 'Richtig?' }], 'write intents reach app.js directly so it owns the only confirmation prompt');
 
 let releaseOldPtt;
 let pttRecognitionCount = 0;
@@ -160,5 +179,57 @@ staleFailure.voice.stopVoiceMode();
 rejectLate(new Error('late network failure'));
 await staleFailure.flush();
 assert.equal(staleFailureResults.length, 0, 'a late stale STT failure cannot alter recovery state');
+
+const shortPromptCalls = [];
+const shortPrompt = await loadVoice({
+  samples: [],
+  recognize: async () => ({ intent: 'unknown', text: '', confidence: 0 }),
+  fetch: async (...args) => {
+    shortPromptCalls.push(args);
+    return new Response(new Blob(['audio']), { status: 200 });
+  },
+});
+shortPrompt.unlockTts();
+await shortPrompt.voice.speak('Fertig.');
+assert.equal(shortPromptCalls.length, 1, 'short prompts use Piper when it is available');
+assert.equal(shortPrompt.helpers.shouldUsePiperTts('Fertig.'), true, 'every non-empty prompt is eligible for Piper');
+
+let retryPiperCalls = 0;
+const retryPiper = await loadVoice({
+  samples: [],
+  recognize: async () => ({ intent: 'unknown', text: '', confidence: 0 }),
+  fetch: async () => {
+    retryPiperCalls += 1;
+    return retryPiperCalls === 1
+      ? new Response('', { status: 503 })
+      : new Response(new Blob(['audio']), { status: 200 });
+  },
+});
+retryPiper.unlockTts();
+await retryPiper.voice.speak('Erste Ansage.');
+await retryPiper.voice.speak('Zweite Ansage.');
+assert.equal(retryPiperCalls, 2, 'a failed Piper attempt does not permanently disable later retries');
+
+let firstRequest;
+const piperRequests = [];
+const overlappingSpeech = await loadVoice({
+  samples: [],
+  recognize: async () => ({ intent: 'unknown', text: '', confidence: 0 }),
+  fetch: (_url, options) => {
+    piperRequests.push(options);
+    if (piperRequests.length === 1) return new Promise((resolve) => { firstRequest = resolve; });
+    return Promise.resolve(new Response(new Blob(['audio']), { status: 200 }));
+  },
+});
+const speechStates = [];
+overlappingSpeech.voice.setVoiceStatusListener((state) => speechStates.push(state));
+overlappingSpeech.unlockTts();
+const firstSpeech = overlappingSpeech.voice.speak('Erste Ansage.');
+const secondSpeech = overlappingSpeech.voice.speak('Neue Ansage.');
+await secondSpeech;
+firstRequest(new Response(new Blob(['audio']), { status: 200 }));
+await firstSpeech;
+assert.equal(piperRequests[0].signal.aborted, true, 'starting newer speech aborts the older Piper request');
+assert.equal(speechStates.filter((state) => state === 'cooldown').length, 2, 'a late Piper completion cannot finish newer speech twice');
 
 console.log('voice frontend checks passed');

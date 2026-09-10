@@ -23,15 +23,6 @@ export function calculateRms(samples) {
 export function shouldStopAfterSilence({ hasSpeech, silenceMs, tailMs = 550 }) {
   return hasSpeech && silenceMs >= tailMs;
 }
-// Bleibt bei 24 -- der Plan sah 60 vor, um die langsame Piper-Synthese zu
-// umgehen. Die Ursache war aber nicht Piper, sondern die gewaehlte
-// Qualitaetsstufe: thorsten-HIGH brauchte 1857 ms fuer eine Zeilenansage,
-// thorsten-MEDIUM braucht 280 ms bei gleicher Samplerate und gleichem Sprecher
-// (siehe piper/Dockerfile). Damit ist der Grund fuer die Anhebung entfallen und
-// die natuerliche Stimme bleibt auch fuer kurze Ansagen erhalten. Nur sehr
-// kurze Quittungen ("Fertig.") laufen weiter ueber die 80-ms-Browser-Stimme.
-const PIPER_MIN_TEXT_LENGTH = 24;
-
 export function normalizePromptText(text) {
     return String(text || '')
         .toLowerCase()
@@ -99,8 +90,7 @@ export function isLikelyPromptEcho(transcript, prompt) {
 
 export function shouldUsePiperTts(text) {
     const normalized = String(text || '').replace(/\s+/g, ' ').trim();
-    if (!normalized) return false;
-    return normalized.length > PIPER_MIN_TEXT_LENGTH;
+    return Boolean(normalized);
 }
 
 export function transitionVoiceState(currentState, event, { voiceModeActive = true } = {}) {

@@ -390,7 +390,7 @@ let serialPromptActive = false;
 let serialPromptCleanup = null;
 let cartonPromptActive = false;
 let cartonPromptCleanup = null;
-let confirmAllInProgress = false;
+let bookingInProgress = false;
 let voiceLongPressTimer = null;
 let voiceLongPressStarted = false;
 let suppressNextVoiceClick = false;
@@ -540,6 +540,7 @@ function resetSearchUi() {
 }
 
 function resetOperatorUiState() {
+    clearWriteConfirmation();
     activeFilter = DEFAULT_FILTER;
     preferredZone = null;
     setStoredPreferredZone(null);
@@ -1009,6 +1010,7 @@ async function refreshActivePickingDetail() {
 }
 
 async function refreshCurrentView() {
+    if (bookingInProgress || pendingWriteConfirm) return;
     if (!navigator.onLine || !shouldRunLifecycleRefresh()) return;
     if (lifecycleRefreshPromise) return lifecycleRefreshPromise;
 
@@ -2448,6 +2450,11 @@ function announceScanOutcome(outcome) {
 // schliessen -- nur SCAN_OUTCOME.BOOKED heisst gebucht. Siehe
 // describeScanOutcome in voice-runtime.mjs fuer die Ansage danach.
 async function handleScan(barcode) {
+    expiredWriteConfirmation = false;
+    return runBooking(() => performScan(barcode));
+}
+
+async function performScan(barcode) {
     stopSpeaking();
     const { currentPicking, currentLineIndex, currentPicker } = getState();
     if (!currentPicking) return SCAN_OUTCOME.NO_LINE;
@@ -2635,13 +2642,25 @@ async function finishVoiceLongPress() {
  */
 function triggerConfirmAll() {
     const { currentPicking, currentLineIndex } = getState();
-    // Re-Entry verhindern: ein zweiter confirm_all-Trigger waehrend eines
-    // laufenden Bulk-Laufs wuerde ein offenes Serial-Modal-DOM ueberschreiben.
-    if (!currentPicking || confirmAllInProgress) return Promise.resolve();
-    confirmAllInProgress = true;
+    if (!currentPicking) return Promise.resolve();
     const lines = currentPicking.move_lines || [];
-    return Promise.resolve(handleConfirmAll(currentPicking, lines, currentLineIndex))
-        .finally(() => { confirmAllInProgress = false; });
+    return runBooking(() => handleConfirmAll(currentPicking, lines, currentLineIndex));
+}
+
+async function runBooking(operation) {
+    if (bookingInProgress || pendingWriteConfirm) return SCAN_OUTCOME.ABORTED;
+    bookingInProgress = true;
+    stopSpeaking();
+    showVoiceAction('Position wird gebucht …');
+    const startedAt = Date.now();
+    try {
+        return await operation();
+    } finally {
+        bookingInProgress = false;
+        hideVoiceAction();
+        if (getCurrentVoiceView() === 'detail') renderResponsiveCurrentLine();
+        console.info('[Voice] Buchung:', Date.now() - startedAt, 'ms');
+    }
 }
 
 async function openNextOrderFromVoice() {
@@ -2694,6 +2713,7 @@ async function handleConfirmAll(picking, lines, startIndex) {
 
     for (const [offset, pickLine] of remaining.entries()) {
         const lineIdx = startIndex + offset;
+        showVoiceAction(`Position ${offset + 1} von ${remaining.length} wird gebucht …`);
 
         let serialNumber = '';
         if (pickLine.tracking === 'serial' || pickLine.tracking === 'lot') {
@@ -2734,7 +2754,6 @@ async function handleConfirmAll(picking, lines, startIndex) {
 
             bookedCount += 1;
             setState({ currentLineIndex: lineIdx + 1 });
-            renderResponsiveCurrentLine();
 
             if (result.picking_complete) {
                 pickingWasCompleted = true;
@@ -2766,9 +2785,8 @@ async function handleConfirmAll(picking, lines, startIndex) {
     }
 
     await releaseCurrentClaim();
-    // Menge mitquittieren, damit der Picker ohne Blick aufs Display weiss, was
-    // gebucht wurde. Bleibt unter PIPER_MIN_TEXT_LENGTH und laeuft damit ueber
-    // die schnelle Browser-Stimme.
+    // Menge mitquittieren, damit der Picker ohne Blick aufs Display weiss,
+    // was gebucht wurde.
     speak(`Fertig, ${bookedCount} gebucht.`);
     setState({ currentLineIndex: lines.length });
     renderResponsiveCurrentLine();
@@ -2777,6 +2795,94 @@ async function handleConfirmAll(picking, lines, startIndex) {
 // A write intent recognized below its direct threshold is held here until the
 // next affirmative confirms it, so a single misrecognition never books.
 let pendingWriteConfirm = null; // { intent, expiresAt, retries }
+let writeConfirmTimer = null;
+let expiredWriteConfirmation = false;
+
+function showVoiceAction(text, confirmation = false) {
+    const panel = document.getElementById('voice-action');
+    if (!panel) return;
+    panel.hidden = false;
+    document.getElementById('voice-action-text').textContent = text;
+    document.getElementById('voice-action-yes').hidden = !confirmation;
+    document.getElementById('voice-action-no').hidden = !confirmation;
+    if (mainEl()) mainEl().inert = true;
+    if (headerEl()) headerEl().inert = true;
+    if (btnScan()) btnScan().disabled = true;
+    if (btnAlert()) btnAlert().disabled = true;
+}
+
+function hideVoiceAction() {
+    const panel = document.getElementById('voice-action');
+    const restoreFocus = panel?.contains?.(document.activeElement);
+    if (panel) panel.hidden = true;
+    if (mainEl()) mainEl().inert = false;
+    if (headerEl()) headerEl().inert = false;
+    if (btnScan()) btnScan().disabled = false;
+    if (btnAlert()) btnAlert().disabled = false;
+    if (restoreFocus) mainEl()?.focus();
+}
+
+function clearWriteConfirmation() {
+    pendingWriteConfirm = null;
+    window.clearTimeout(writeConfirmTimer);
+    writeConfirmTimer = null;
+    if (!bookingInProgress) hideVoiceAction();
+}
+
+function confirmationMatchesCurrentView(pending) {
+    const { currentPicking, currentLineIndex } = getState();
+    return pending.pickingId === currentPicking?.id
+        && pending.lineIndex === currentLineIndex
+        && pending.view === getCurrentVoiceView();
+}
+
+function armWriteConfirmation(pending) {
+    window.clearTimeout(writeConfirmTimer);
+    pending.expiresAt = Date.now() + READBACK_TTL_MS;
+    writeConfirmTimer = window.setTimeout(() => {
+        if (pendingWriteConfirm !== pending) return;
+        clearWriteConfirmation();
+        expiredWriteConfirmation = true;
+        showToast('Bestätigung abgelaufen. Bitte erneut anfordern.', 'info');
+    }, READBACK_TTL_MS);
+}
+
+function promptWriteConfirmation(pending, text = pending.prompt) {
+    showVoiceAction(text, true);
+    armWriteConfirmation(pending);
+    // Give the operator the full response window after the spoken question.
+    speak(text).then(() => {
+        if (pendingWriteConfirm === pending) armWriteConfirmation(pending);
+    });
+}
+
+async function answerWriteConfirmation(answer) {
+    const pending = pendingWriteConfirm;
+    if (!pending || bookingInProgress) return;
+    const valid = Date.now() < pending.expiresAt && confirmationMatchesCurrentView(pending);
+    clearWriteConfirmation();
+    stopSpeaking();
+    if (!valid || answer !== 'yes') {
+        expiredWriteConfirmation = true;
+        showToast(valid ? 'Abgebrochen.' : 'Bestätigung nicht mehr aktuell.', 'info');
+        speak(valid ? 'Abgebrochen.' : 'Bitte erneut anfordern.');
+        return;
+    }
+    if (pending.intent === 'submit_alert') {
+        document.getElementById('qa-submit')?.click();
+    } else if (pending.intent === 'confirm_all') {
+        await triggerConfirmAll();
+    } else {
+        const { currentPicking, currentLineIndex } = getState();
+        const line = currentPicking?.move_lines?.[currentLineIndex];
+        if (line) announceScanOutcome(await handleScan(line.product_barcode || ''));
+    }
+}
+
+function initVoiceActionPanel() {
+    document.getElementById('voice-action-yes')?.addEventListener('click', () => answerWriteConfirmation('yes'));
+    document.getElementById('voice-action-no')?.addEventListener('click', () => answerWriteConfirmation('no'));
+}
 // 25 s statt 8 s. Gemessen im Live-Log: zwischen der gestellten Rueckfrage und
 // der eintreffenden Antwort lagen 10 s -- Ansage vorlesen, Cooldown, sprechen,
 // Stillefenster, Transkription, und der Mensch ueberlegt auch noch. Mit 8 s war
@@ -2824,9 +2930,7 @@ function readbackAnswer(text) {
 // Stufe 3: kein Zweig in `handleVoiceIntent` darf mehr ohne Rueckmeldung enden.
 // Ein `break` ohne Ansage ist fuer den Nutzer nicht davon zu unterscheiden, dass
 // der Befehl gar nicht angekommen ist -- gemessen 15 solcher stillen No-Ops im
-// 108-Satz-Korpus. Alle Texte bleiben bewusst unter PIPER_MIN_TEXT_LENGTH (24
-// Zeichen) und laufen damit ueber die schnelle Browser-Stimme; laengere Ansagen
-// gingen an Piper und holten den Latenzgewinn aus Stufe 1 wieder ein.
+// 108-Satz-Korpus. Kurze Ansagen halten die Rueckmeldung verstaendlich.
 const NO_ACTIVE_LINE = 'Keine aktive Position.';
 const NO_OPEN_LINE = 'Keine Position offen.';
 const LAST_LINE = 'Letzte Position.';
@@ -2849,6 +2953,20 @@ function announceListOnly() {
 }
 
 async function handleVoiceIntent(result) {
+    if (bookingInProgress) return;
+    if (!pendingWriteConfirm && expiredWriteConfirmation
+        && !['confirm_all', 'submit_alert'].includes(result?.intent)
+        && readbackAnswer(result?.text)) {
+        if (result?.intent === 'confirm'
+            && /^(bestaetigen|bestaetige|buchen)$/.test(normalizeSpokenAnswer(result.text))) {
+            // A fresh explicit command may reopen readback; a late "ja" may not book.
+            result = { ...result, confidence: Math.min(Number(result.confidence), 0.89) };
+        } else {
+            showToast('Keine offene Rückfrage. Bitte Buchung erneut anfordern.', 'info');
+            speak('Bitte Buchung erneut anfordern.');
+            return;
+        }
+    }
     // STT returned nothing (Whisper down, or a hallucination dropped upstream):
     // give audible + visible feedback instead of a silent drop.
     if (result?.intent === 'error' && !result.text) {
@@ -2874,42 +2992,24 @@ async function handleVoiceIntent(result) {
     const lines = currentPicking?.move_lines || [];
     const line = lines[currentLineIndex];
 
-    if (result?.text) {
-        const intentLabel = result.intent !== 'unknown' ? ` -> ${result.intent}` : ' -> nicht erkannt';
-        showToast(`"${result.text}"${intentLabel}`, result.intent !== 'unknown' ? 'info' : 'warning');
-    }
-
     // Eine wartende Rueckfrage aufloesen. Solange sie laeuft, wird die
     // Aeusserung AUSSCHLIESSLICH als Antwort auf die gestellte Ja/Nein-Frage
     // gelesen -- nicht als neues Kommando. Vorher fiel eine nicht eindeutige
     // Antwort durch, verwarf die Buchung wortlos und lief als frischer Befehl
     // weiter; der Nutzer sah nur, dass nichts passierte.
-    if (pendingWriteConfirm && Date.now() >= pendingWriteConfirm.expiresAt) {
-        pendingWriteConfirm = null;
+    if (pendingWriteConfirm && (Date.now() >= pendingWriteConfirm.expiresAt
+        || !confirmationMatchesCurrentView(pendingWriteConfirm))) {
+        clearWriteConfirmation();
+        expiredWriteConfirmation = true;
+        showToast('Bestätigung nicht mehr aktuell. Bitte erneut anfordern.', 'info');
+        return;
     }
 
     if (pendingWriteConfirm) {
         const answer = readbackAnswer(result?.text);
 
-        if (answer === 'no') {
-            pendingWriteConfirm = null;
-            updateVoiceStatusIndicator('recognized', { temporary: true });
-            showToast('Abgebrochen.', 'info');
-            speak('Abgebrochen.');
-            return;
-        }
-
-        if (answer === 'yes') {
-            const toRun = pendingWriteConfirm.intent;
-            pendingWriteConfirm = null;
-            updateVoiceStatusIndicator('recognized', { temporary: true });
-            if (toRun === 'submit_alert') {
-                document.getElementById('qa-submit')?.click();
-            } else if (toRun === 'confirm_all') {
-                await triggerConfirmAll();
-            } else if (line) {
-                announceScanOutcome(await handleScan(line.product_barcode || ''));
-            }
+        if (answer) {
+            await answerWriteConfirmation(answer);
             return;
         }
 
@@ -2918,15 +3018,13 @@ async function handleVoiceIntent(result) {
         // damit die Rueckfrage nicht endlos scharf bleibt.
         pendingWriteConfirm.retries = (pendingWriteConfirm.retries || 0) + 1;
         if (pendingWriteConfirm.retries > READBACK_MAX_RETRIES) {
-            pendingWriteConfirm = null;
+            clearWriteConfirmation();
             showToast('Abgebrochen.', 'warning');
             speak('Abgebrochen.');
             return;
         }
-        pendingWriteConfirm.expiresAt = Date.now() + READBACK_TTL_MS;
         updateVoiceStatusIndicator('uncertain', { temporary: true });
-        showToast('Bitte Ja oder Nein.', 'warning');
-        speak('Bitte Ja oder Nein.');
+        promptWriteConfirmation(pendingWriteConfirm, `${pendingWriteConfirm.prompt} Bitte Ja oder Nein.`);
         return;
     }
 
@@ -2950,18 +3048,23 @@ async function handleVoiceIntent(result) {
     }
 
     if (classification.kind === 'readback') {
+        expiredWriteConfirmation = false;
         pendingWriteConfirm = {
             intent: result.intent,
             expiresAt: Date.now() + READBACK_TTL_MS,
             retries: 0,
+            pickingId: currentPicking?.id,
+            lineIndex: currentLineIndex,
+            view: getCurrentVoiceView(),
         };
         const prompt = buildReadbackPrompt(result.intent, {
             line,
             remainingCount: Math.max(lines.length - currentLineIndex, 0),
         });
         updateVoiceStatusIndicator('recognized', { temporary: true });
-        showToast(prompt, 'info');
-        speak(prompt);
+        pendingWriteConfirm.prompt = prompt;
+        promptWriteConfirmation(pendingWriteConfirm);
+        document.getElementById('voice-action-no')?.focus();
         return;
     }
 
@@ -3415,6 +3518,7 @@ function openQualityAlertForm({ initialDescription = '', returnToListOnSuccess =
 }
 
 async function init() {
+    initVoiceActionPanel();
     initPWA({
         onConnectivityChange: () => updateConnectivityStatus(),
         onOnline: async () => {
@@ -3574,6 +3678,10 @@ async function init() {
     window.addEventListener('offline', () => updateConnectivityStatus());
 
     subscribe((state) => {
+        if (pendingWriteConfirm && !confirmationMatchesCurrentView(pendingWriteConfirm)) {
+            clearWriteConfirmation();
+            expiredWriteConfirmation = true;
+        }
         updatePickerIndicator();
         updateConnectivityStatus({ loading: state.loading });
     });

@@ -57,6 +57,13 @@
             <span id="voice-status-indicator" class="status voice-status voice-status--idle">Bereit</span>
             <span id="task-counter" style="display:none;">0 Aufgaben offen</span>
         </header>
+        <section id="voice-action" class="voice-action" aria-label="Buchung bestätigen" hidden>
+            <p id="voice-action-text" role="status" aria-live="polite" aria-atomic="true"></p>
+            <div class="voice-action__buttons">
+                <button id="voice-action-no" type="button" class="picker-option">Nein, abbrechen</button>
+                <button id="voice-action-yes" type="button" class="picker-option">Ja, bestätigen</button>
+            </div>
+        </section>
         <main id="main" tabindex="0"><p>Wird geladen...</p></main>
         <div id="app-overlay" class="app-overlay" hidden></div>
         <nav id="nav">
