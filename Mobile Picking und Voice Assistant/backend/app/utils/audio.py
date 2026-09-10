@@ -14,10 +14,14 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+class AudioConversionError(RuntimeError):
+    """The uploaded recording could not be converted to the WAV contract."""
+
+
 def _run_ffmpeg(audio_bytes: bytes, suffix: str) -> bytes:
     """
     Synchroner ffmpeg-Aufruf (läuft im Thread-Pool, blockiert nicht den Event-Loop).
-    Gibt WAV-Bytes zurück, oder die Original-Bytes bei Fehler.
+    Gibt WAV-Bytes zurück oder signalisiert einen Konvertierungsfehler.
     """
     inp_path = ""
     out_path = ""
@@ -45,11 +49,11 @@ def _run_ffmpeg(audio_bytes: bytes, suffix: str) -> bytes:
             return Path(out_path).read_bytes()
 
         logger.warning("ffmpeg Fehler: %s", result.stderr.decode())
-        return audio_bytes
+        raise AudioConversionError("ffmpeg conversion failed")
 
     except Exception as exc:
         logger.error("Audio-Konvertierung fehlgeschlagen: %s", exc)
-        return audio_bytes
+        raise AudioConversionError("audio conversion failed") from exc
     finally:
         for p in (inp_path, out_path):
             if p:

@@ -11,6 +11,8 @@ import {
     POST_TTS_COOLDOWN_MS,
     VOICE_STATES,
     isLikelyPromptEcho,
+    calculateRms,
+    shouldStopAfterSilence,
     shouldUsePiperTts,
     transitionVoiceState,
 } from './voice-helpers.mjs';
@@ -28,7 +30,7 @@ let cooldownTimer = null;
 let ttsBusy = false;
 let voiceState = VOICE_STATES.IDLE;
 
-const SPEECH_RMS = 18;
+const SPEECH_RMS = 0.02;
 // Historie: urspruenglich 300 ms, das schnitt bei natuerlichen Sprechpausen das
 // Kommando-Ende ab ("hinten nicht geklappt"), danach 700 ms.
 // Jetzt 550 ms: der Stille-Tail am Blob-Ende bringt gemessen KEINEN
@@ -55,6 +57,8 @@ let ignoreFirstTranscriptAfterTts = false;
 
 let pushToTalkSession = null;
 let pushToTalkActive = false;
+let pushToTalkGeneration = 0;
+let pushToTalkStarting = false;
 
 // Recovery-dialog state: set when backend returns requires_confirmation=true.
 // Cleared on explicit yes, no, or when a different intent overrides it.
@@ -110,11 +114,14 @@ function _hasLivePendingConfirm() {
 // Picker als hoerbares Signal gemeldet, statt still zu sterben.
 function _dispatchIntent(payload) {
     if (!onIntentCallback) return;
+    const actionStartedAt = Date.now();
     try {
-        Promise.resolve(onIntentCallback(payload)).catch((err) => {
-            console.error('[voice] Intent-Verarbeitung fehlgeschlagen:', err);
-            speak('Sprachbefehl konnte nicht ausgefuehrt werden.');
-        });
+        Promise.resolve(onIntentCallback(payload))
+            .then(() => console.info('[Voice] Aktion:', Date.now() - actionStartedAt, 'ms'))
+            .catch((err) => {
+                console.error('[voice] Intent-Verarbeitung fehlgeschlagen:', err);
+                speak('Sprachbefehl konnte nicht ausgefuehrt werden.');
+            });
     } catch (err) {
         console.error('[voice] Intent-Dispatch fehlgeschlagen:', err);
         speak('Sprachbefehl konnte nicht ausgefuehrt werden.');
@@ -251,13 +258,14 @@ function stopCurrentRecording() {
 
 function getRMS() {
     if (!analyser) return 0;
-    const buffer = new Uint8Array(analyser.frequencyBinCount);
-    analyser.getByteFrequencyData(buffer);
-    let sum = 0;
-    for (let index = 0; index < buffer.length; index += 1) {
-        sum += buffer[index] * buffer[index];
-    }
-    return Math.sqrt(sum / buffer.length);
+    const buffer = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(buffer);
+    return calculateRms(buffer);
+}
+
+function isStaleCapture(capture) {
+    return capture.generation !== recognitionGeneration ||
+        capture.startedAt < lastTtsEndedAt + POST_TTS_COOLDOWN_MS;
 }
 
 function enterCooldown() {
@@ -563,6 +571,7 @@ async function startListeningCycle() {
         let silenceStart = null;
         let hasSpeech = false;
         const startedAt = Date.now();
+        let stopReason = 'unknown';
 
         recorder.onstop = () => {
             isRecording = false;
@@ -585,6 +594,8 @@ async function startListeningCycle() {
             resolve({
                 blob: new Blob(audioChunks, { type: mimeType }),
                 startedAt,
+                durationMs: Date.now() - startedAt,
+                stopReason,
                 generation: cycleGeneration,
             });
         };
@@ -596,13 +607,17 @@ async function startListeningCycle() {
         monitorInterval = window.setInterval(() => {
             if (ttsBusy || !voiceModeActive || pushToTalkActive || recorder.state !== 'recording') {
                 stopMonitor();
-                if (recorder.state === 'recording') recorder.stop();
+                if (recorder.state === 'recording') {
+                    stopReason = 'interrupted';
+                    recorder.stop();
+                }
                 return;
             }
 
             const elapsed = Date.now() - startedAt;
             if (elapsed > MAX_RECORDING_MS) {
                 stopMonitor();
+                stopReason = 'max-duration';
                 recorder.stop();
                 return;
             }
@@ -623,7 +638,8 @@ async function startListeningCycle() {
                     silenceStart = Date.now();
                     return;
                 }
-                if (Date.now() - silenceStart > SILENCE_AFTER_SPEECH) {
+                if (shouldStopAfterSilence({ hasSpeech, silenceMs: Date.now() - silenceStart, tailMs: SILENCE_AFTER_SPEECH })) {
+                    stopReason = 'speech-ended';
                     stopMonitor();
                     recorder.stop();
                 }
@@ -632,6 +648,7 @@ async function startListeningCycle() {
 
             if (elapsed > NO_SPEECH_TIMEOUT) {
                 stopMonitor();
+                stopReason = 'no-speech';
                 recorder.stop();
             }
         }, CHECK_MS);
@@ -641,6 +658,7 @@ async function startListeningCycle() {
 
     if (capture?.blob) {
         try {
+            const requestStartedAt = Date.now();
             const result = await recognizeVoice(capture.blob, getRecognitionOptions());
             const transcript = result?.text || '';
             // Diagnose: was hat Whisper WIRKLICH gehoert? Ohne diese Zeile sieht
@@ -650,13 +668,13 @@ async function startListeningCycle() {
             // Browser-Konsole (F12) ablesbar.
             console.log('[Voice] gehört:', JSON.stringify(transcript),
                 '| intent:', result?.intent, '| conf:', result?.confidence);
+            console.info('[Voice] Aufnahme:', capture.durationMs, 'ms', capture.stopReason,
+                '| Request:', Date.now() - requestStartedAt, 'ms');
             // Gleiche Off-by-one-Korrektur wie bei staleCapture oben: hier ist die
             // Transkription bereits bezahlt, das Ergebnis wurde trotzdem verworfen.
-            const staleResult =
-                capture.generation !== recognitionGeneration ||
-                capture.startedAt < lastTtsEndedAt + POST_TTS_COOLDOWN_MS;
+            const staleResult = isStaleCapture(capture);
 
-            if (!staleResult && transcript) {
+            if (!staleResult) {
                 const shouldDropEcho =
                     ignoreFirstTranscriptAfterTts && isLikelyPromptEcho(transcript, lastPromptText);
 
@@ -669,6 +687,9 @@ async function startListeningCycle() {
             }
         } catch (error) {
             console.error('[Voice] STT Fehler:', error);
+            if (!isStaleCapture(capture)) {
+                _handleIntentWithRecovery({ intent: 'error', text: '', confidence: 0 });
+            }
         }
     }
 
@@ -735,7 +756,10 @@ export async function captureAndRecognize() {
 }
 
 export async function startPushToTalk(onIntent, onError) {
-    if (pushToTalkActive || voiceModeActive) return false;
+    if (pushToTalkActive || pushToTalkStarting || voiceModeActive) return false;
+
+    const generation = ++pushToTalkGeneration;
+    pushToTalkStarting = true;
 
     onIntentCallback = onIntent || onIntentCallback;
 
@@ -743,30 +767,48 @@ export async function startPushToTalk(onIntent, onError) {
         if (ttsBusy || voiceState === VOICE_STATES.SPEAKING || voiceState === VOICE_STATES.COOLDOWN) {
             stopSpeaking();
         }
-        pushToTalkSession = await captureAndRecognize();
+        const session = await captureAndRecognize();
+        if (generation !== pushToTalkGeneration) {
+            await stopRecording();
+            return false;
+        }
+        pushToTalkSession = session;
         pushToTalkActive = true;
         return true;
     } catch (error) {
         console.error('Push-to-Talk konnte nicht gestartet werden:', error);
         if (onError) onError(error);
         return false;
+    } finally {
+        pushToTalkStarting = false;
     }
 }
 
 export async function stopPushToTalk() {
+    if (pushToTalkStarting) return cancelPushToTalk();
     if (!pushToTalkActive || !pushToTalkSession) return null;
 
     const session = pushToTalkSession;
+    const generation = pushToTalkGeneration;
     pushToTalkSession = null;
     pushToTalkActive = false;
 
     const result = await session.stop();
-    if (result?.text) {
+    if (result && generation === pushToTalkGeneration) {
         _handleIntentWithRecovery(result);
     }
     return result;
 }
 
+export async function cancelPushToTalk() {
+    const ownsRecording = pushToTalkActive || pushToTalkStarting;
+    pushToTalkGeneration += 1;
+    pushToTalkSession = null;
+    pushToTalkActive = false;
+    if (ownsRecording) await stopRecording();
+}
+
 export function stopVoiceMode() {
+    if (pushToTalkActive || pushToTalkStarting) void cancelPushToTalk();
     if (voiceModeActive) deactivateVoiceMode();
 }

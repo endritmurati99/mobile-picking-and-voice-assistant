@@ -59,6 +59,7 @@ import {
     isPushToTalkActive,
     startPushToTalk,
     stopPushToTalk,
+    cancelPushToTalk,
     stopVoiceMode,
     setVoiceRequestContextProvider,
     setVoiceStatusListener,
@@ -2618,7 +2619,10 @@ async function startVoiceLongPress() {
 }
 
 async function finishVoiceLongPress() {
-    if (!voiceLongPressStarted && !isPushToTalkActive()) return;
+    if (!voiceLongPressStarted && !isPushToTalkActive()) {
+        await cancelPushToTalk();
+        return;
+    }
     voiceLongPressStarted = false;
     btnVoice()?.classList.remove('nav-btn--ptt');
     await stopPushToTalk();
@@ -2847,7 +2851,13 @@ function announceListOnly() {
 async function handleVoiceIntent(result) {
     // STT returned nothing (Whisper down, or a hallucination dropped upstream):
     // give audible + visible feedback instead of a silent drop.
-    if (!result || (!result.text && (result.intent === 'unknown' || result.intent === 'error'))) {
+    if (result?.intent === 'error' && !result.text) {
+        updateVoiceStatusIndicator('uncertain', { temporary: true });
+        showToast('Spracherkennung fehlgeschlagen. Bitte erneut versuchen.', 'warning');
+        speak('Spracherkennung fehlgeschlagen. Bitte erneut versuchen.');
+        return;
+    }
+    if (!result || (!result.text && result.intent === 'unknown')) {
         updateVoiceStatusIndicator('uncertain', { temporary: true });
         showToast('Nicht verstanden, bitte nochmal.', 'warning');
         speak('Nicht verstanden, bitte nochmal.');
@@ -3517,8 +3527,17 @@ async function init() {
         };
 
         voiceButton.addEventListener('pointerup', stopPress);
-        voiceButton.addEventListener('pointercancel', stopPress);
-        voiceButton.addEventListener('pointerleave', stopPress);
+    const cancelPress = async () => {
+        if (voiceLongPressTimer) {
+            window.clearTimeout(voiceLongPressTimer);
+            voiceLongPressTimer = null;
+        }
+        voiceLongPressStarted = false;
+        btnVoice()?.classList.remove('nav-btn--ptt');
+        await cancelPushToTalk();
+    };
+    voiceButton.addEventListener('pointercancel', cancelPress);
+    voiceButton.addEventListener('pointerleave', cancelPress);
     }
 
     const scanButton = btnScan();

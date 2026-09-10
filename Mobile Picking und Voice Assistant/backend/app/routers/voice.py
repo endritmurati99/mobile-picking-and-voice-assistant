@@ -28,7 +28,7 @@ from app.services.mobile_workflow import WriteRequestContext
 from app.services.n8n_webhook import N8NReply
 from app.services.odoo_client import OdooClient
 from app.services.picking_service import PickingService
-from app.utils.audio import convert_to_wav
+from app.utils.audio import AudioConversionError, convert_to_wav
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -231,23 +231,21 @@ async def recognize_speech(
     audio_size = len(audio_bytes)
 
     convert_started_at = time.monotonic()
-    audio_bytes = await convert_to_wav(audio_bytes, audio.content_type or "")
+    try:
+        audio_bytes = await convert_to_wav(audio_bytes, audio.content_type or "")
+    except AudioConversionError as exc:
+        raise HTTPException(status_code=422, detail="Audio konnte nicht verarbeitet werden") from exc
     convert_ms = round((time.monotonic() - convert_started_at) * 1000)
 
     stt_started_at = time.monotonic()
-    text = await whisper_client.transcribe_audio(audio_bytes, "audio/wav")
+    try:
+        text = await whisper_client.transcribe_audio(audio_bytes, "audio/wav")
+    except whisper_client.WhisperTranscriptionError as exc:
+        raise HTTPException(status_code=503, detail="Spracherkennung ist derzeit nicht verfügbar") from exc
     stt_ms = round((time.monotonic() - stt_started_at) * 1000)
-    total_ms = round((time.monotonic() - started_at) * 1000)
-
-    logger.info(
-        "Voice latency: audio=%dB convert=%dms stt=%dms total=%dms",
-        audio_size,
-        convert_ms,
-        stt_ms,
-        total_ms,
-    )
 
     if not text:
+        total_ms = round((time.monotonic() - started_at) * 1000)
         return {
             "text": "",
             "intent": "unknown",
@@ -259,6 +257,7 @@ async def recognize_speech(
                 "audio_bytes": audio_size,
                 "convert_ms": convert_ms,
                 "stt_ms": stt_ms,
+                "intent_ms": 0,
                 "total_ms": total_ms,
             },
         }
@@ -273,6 +272,7 @@ async def recognize_speech(
     except ValueError:
         ui_surface = VoiceSurface.DETAIL
 
+    intent_started_at = time.monotonic()
     intent = recognize_intent(
         text,
         picking_context,
@@ -352,6 +352,8 @@ async def recognize_speech(
         else None
     )
 
+    intent_ms = round((time.monotonic() - intent_started_at) * 1000)
+    total_ms = round((time.monotonic() - started_at) * 1000)
     logger.info(
         "STT: '%s' -> intent=%s strategy=%s conf=%.2f surface=%s remaining=%s active_line=%s [%dms]",
         text,
@@ -377,6 +379,7 @@ async def recognize_speech(
             "audio_bytes": audio_size,
             "convert_ms": convert_ms,
             "stt_ms": stt_ms,
+            "intent_ms": intent_ms,
             "total_ms": total_ms,
         },
     }

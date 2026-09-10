@@ -12,6 +12,17 @@ export const VOICE_STATES = Object.freeze({
 // echoCancellation) nicht als Sprache zaehlt, laesst aber die natuerliche,
 // unmittelbare Antwort durch.
 export const POST_TTS_COOLDOWN_MS = 250;
+
+export function calculateRms(samples) {
+  if (!samples.length) return 0;
+  let sum = 0;
+  for (const sample of samples) sum += sample * sample;
+  return Math.sqrt(sum / samples.length);
+}
+
+export function shouldStopAfterSilence({ hasSpeech, silenceMs, tailMs = 550 }) {
+  return hasSpeech && silenceMs >= tailMs;
+}
 // Bleibt bei 24 -- der Plan sah 60 vor, um die langsame Piper-Synthese zu
 // umgehen. Die Ursache war aber nicht Piper, sondern die gewaehlte
 // Qualitaetsstufe: thorsten-HIGH brauchte 1857 ms fuer eine Zeilenansage,
