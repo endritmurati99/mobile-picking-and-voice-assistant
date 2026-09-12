@@ -1,0 +1,35 @@
+% Logical architecture; deliberately omits deployment and optional voice services.
+\begingroup\setstretch{1}
+\begin{tikzpicture}[
+  font=\small,
+  box/.style={draw=black!65, rounded corners=2pt, align=center,
+    text width=3.25cm, minimum height=1.1cm, inner sep=5pt, fill=white},
+  flow/.style={-{Latex[length=2mm]}, thick},
+  async/.style={flow,dashed},
+  lab/.style={font=\small,align=center,fill=white,inner sep=2pt}
+]
+\draw[draw=black!45,rounded corners=3pt,fill=blue!3] (3.5,1.15) rectangle (7.6,-3.25);
+\draw[draw=black!45,rounded corners=3pt,fill=orange!5] (9.3,1.15) rectangle (14.7,-3.25);
+\node[font=\small\bfseries] at (5.55,0.87) {Backend};
+\node[font=\small\bfseries] at (12,0.87) {Odoo Community};
+\node[box,text width=1.7cm] (pwa) at (1.05,0) {PWA\\ mobiler Client};
+\node[box] (api) at (5.55,0) {FastAPI\\ API-Schreibgrenze};
+\node[box,text width=4.45cm] (odoo) at (12,0) {Picking und Positionen\\ Custom Quality Alert};
+\node[box] (dispatcher) at (5.55,-2.55) {Outbox-Dispatcher\\ Hintergrundprozess};
+\node[box,text width=4.45cm] (outbox) at (12,-2.55) {Persistierte Outbox\\ mit Integrationsjob};
+\node[box] (n8n) at (5.55,-4.9) {n8n\\ Folgeprozesse};
+\draw[flow] (pwa) -- node[lab,above]{HTTP} (api);
+\draw[flow] (api) -- node[lab,above]{RPC} (odoo);
+\draw[flow] (odoo) -- node[lab,text width=4.2cm]{Alert + Job + Ereignis\\ eine Transaktion} (outbox);
+\draw[async,{Latex[length=2mm]}-{Latex[length=2mm]}] (dispatcher) --
+  node[lab,above,text width=1.5cm]{Lease /\\ Status} (outbox);
+\draw[async] (dispatcher) -- node[lab,right,text width=2.3cm]{signierter\\ Webhook} (n8n);
+\draw[async] (n8n.west) -- (2.9,-4.9) -- (2.9,-1.05) -- (5.55,-1.05) -- (api.south);
+\node[lab,text width=2.3cm] at (1.45,-3.7) {signierte\\ Annahme /\\ Status-Callbacks};
+\node[lab,align=left,anchor=west,text width=5cm] at (9.3,-4.9)
+  {API prüft Callbacks;\\ Odoo speichert das Ergebnis.};
+\node[align=left,anchor=west,text width=14.3cm] at (0,-6.2)
+  {Durchgezogen: Kernpfad. Gestrichelt: asynchrone Verarbeitung.\\
+   Zustellung kann wiederholt werden; Annahme ist noch kein Verarbeitungserfolg.};
+\end{tikzpicture}
+\endgroup

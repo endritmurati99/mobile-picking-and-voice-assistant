@@ -28,6 +28,8 @@ test-results/
 # Generated local outputs
 output/
 evaluation/
+!infrastructure/evaluation/
+!infrastructure/evaluation/**
 /*.png
 /*.zip
 /Detail

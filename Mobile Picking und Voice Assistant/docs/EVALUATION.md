@@ -1,47 +1,75 @@
-# Evaluationsplan
+# Technische Evaluation
 
-## Methodik: Design Science Research (Peffers et al., 2008)
+## Tatsächlich durchgeführte Prüfung
 
-### Phasen
-1. Problemidentifikation: Manuelle Picking-Prozesse sind fehleranfällig
-2. Zieldefinition: Mobile, sprachgesteuerte Picking-Assistenz mit Quality-Capture
-3. Design & Entwicklung: PWA + Odoo 19 + n8n + Voice
-4. Demonstration: PoC-Durchführung
-5. **Evaluation**: Nutzerstudie (Within-Subjects)
-6. Kommunikation: Bachelorarbeit
+Am 10. September 2026 wurde der Anwendungsstand `3c545b6` als technische
+Szenarioevaluation geprüft. Schreibende Tests liefen gegen eine getrennte Kopie
+der vorhandenen Odoo-Datenbank in einem internen Docker-Netz. Drei temporäre
+Container stellten PostgreSQL, Odoo und FastAPI bereit. Das Testnetz hatte keine
+veröffentlichten Ports und keinen externen Netzzugang; Odoo-Cronjobs,
+Mailserver und der Backend-Dispatcher waren in der Kopie deaktiviert.
 
-### Experimentaldesign
-- **Within-Subjects** mit Counterbalancing
-- **Bedingung A**: Papier-Pickliste, manuelle Qualitätsmeldung
-- **Bedingung B**: PWA mit Voice + Scan + Foto
-- **Teilnehmer**: 10–15, Latin-Square-Counterbalancing
-- **Aufgabe**: 5 Pickings × 3–5 Zeilen + 1–2 Qualitätsvorfälle
+Eine Fixture erzeugte zwei künstliche Artikel, zwei Picker, einen Lagerplatz
+und neun Aufträge mit jeweils zwei Positionen. Reguläre Fälle wurden per HTTP
+gegen FastAPI ausgeführt und anschließend per Odoo-RPC nachgelesen. Geprüft
+wurden ausgewählte Schutzbedingungen, Standard- und Mengenfälle,
+Qualitätsmeldungen, Rollback, Idempotenz, konkurrierende Claims, Fehlerpfade,
+Outbox-Wiederholung und ein Batch-Ablauf.
 
-### Messgrößen
-| Messgröße | Instrument | Vergleich |
-|-----------|-----------|-----------|
-| Picking-Zeit/Zeile | System-Timestamps | Stoppuhr (Papier) |
-| Fehlerquote | Post-hoc-Prüfung | Gleiche Prüfung |
-| Scan-Erfolgsrate | System-Log | N/A |
-| Quality-Report-Zeit | Timestamps | Stoppuhr |
-| Report-Qualität | 5-Kriterien-Rubrik (0–10) | Gleiche Rubrik |
-| Usability | SUS (Benchmark: 68) | N/A |
-| Kognitive Last | NASA-TLX Raw | Paarvergleich |
-| Qualitativ | Semi-strukturiertes Interview | Thematische Analyse |
+Der Lauf belegte die erwarteten Abläufe in diesen künstlichen Szenarien, mit
+zwei wesentlichen Einschränkungen: Eine Überentnahme von sechs Stück bei fünf
+Stück Soll wurde akzeptiert und bleibt eine offene fachliche Regel. Außerdem
+wurde eine ausdrücklich negative Menge damals als gültige Bestätigung
+umgedeutet. Dieser zweite Befund wurde anschließend korrigiert.
 
-### Serial-Confirm-Telemetrie (System-Log)
+Die Sprachprüfung bestand aus bestehenden Frontend- und Backend-Regressionen
+mit simulierten Browser- und Audio-Schnittstellen sowie einem synthetischen
+Piper-zu-Whisper-Versuch. Im dokumentierten Versuch entsprachen 13 von 15
+Intent-Zuordnungen der vorab festgelegten Erwartung. Die Mediane der direkt
+gemessenen Komponenten betrugen 54,32 ms für Piper, 455,29 ms für Whisper und
+0,24 ms für den deterministischen Resolver. Diese Werte sind keine mobile
+Ende-zu-Ende-Latenz.
 
-Der Endpoint `confirm_pick_line` emittiert pro Bestätigungsversuch **genau ein**
-`serial_confirm`-Event — auf allen Pfaden, auch bei Fehlern (`success=False`:
-Move-Line nicht gefunden, falscher Barcode, kein Bestand) sowie bei erfolgreichem
-Abschluss mit degradiertem n8n-Folgeprozess. Dadurch ist `success_rate`
-(`summarize_serial_events`) eine echte Quote über **alle** Versuche, nicht nur über
-die erfolgreichen. `serial_capture_rate` misst den Anteil der Versuche, bei denen
-tatsächlich eine Serien-/Losnummer geschrieben wurde; `latency_p50/p95_ms` die
-Antwortzeit des Confirm-Calls.
+## Vertragsregression vom 12. September 2026
 
-### Statistik
-- Gepaarte t-Tests (oder Wilcoxon bei Verletzung der Normalverteilung)
-- Cohen's d als Effektstärke
-- 95%-Konfidenzintervalle
-- Shapiro-Wilk-Test für Normalverteilungsprüfung
+Der aktuelle Anwendungsstand verwendet an beiden Confirm-Line-Requestmodellen
+eine Untergrenze von null und lehnt nicht endliche Fließkommawerte ab. Der
+zugehörige Regressionstest prüft beide Pydantic-Modelle und beide tatsächlichen
+FastAPI-Routen. Er umfasst gültige Null- und Positivwerte sowie negative Werte,
+`NaN` und positive beziehungsweise negative Unendlichkeit.
+
+Der bestandene lokale Test belegt die Ablehnung an der HTTP-Vertragsgrenze,
+bevor die Handler- und Buchungslogik ausgeführt wird. Die Abhängigkeiten waren
+im Test überschrieben; eine Aussage zur Reihenfolge realer Authentifizierung
+folgt daraus nicht. Er ist kein neuer
+Odoo-Integrationstest und belegt nicht erneut den positiven Buchungspfad. Die
+technischen Odoo-Ergebnisse vom 10. September bleiben deshalb als historischer
+Lauf abgegrenzt; für den korrigierten Mengenvertrag ist ein neuer isolierter
+Odoo-Lauf vorgesehen, sobald Docker verfügbar ist.
+
+Aus dem Anwendungsverzeichnis lässt sich der Vertragscheck so ausführen:
+
+```bash
+python infrastructure/scripts/test-confirm-quantity.py
+```
+
+Die vollständigen isolierten Szenarioskripte und ihre Sicherheitsgrenzen stehen
+unter `infrastructure/evaluation/`. Der Runner zeichnet den geprüften Git-Tree
+der Anwendung und alle Test-Exitcodes auf. Jeder fehlgeschlagene Fall führt zu
+einem fehlgeschlagenen Gesamtlauf; insbesondere wird der negative Mengentest
+nicht mehr als erlaubter Fehler behandelt.
+
+## Aussagegrenzen
+
+Die Evaluation ist eine technische Prüfung ausgewählter Kontroll- und
+Integrationsabläufe. Sie ist keine Nutzerstudie, keine Messung einer
+Zeitersparnis gegenüber Papier, kein Lasttest und kein Nachweis von
+Produktionsreife. Browser, Caddy, TLS, reales Mikrofon, reale Sprecher,
+unterschiedliche Mobilgeräte und die vollständige n8n-Callback-Verarbeitung
+gehörten nicht durchgehend zum Prüfumfang.
+
+Eine Nutzerstudie mit einem innerhalb der Personen verglichenen Papier- und
+PWA-Ablauf kann als zukünftige Evaluation folgen. Teilnehmerzahl,
+Counterbalancing, Messgrößen und statistische Verfahren müssen dafür vor der
+Datenerhebung festgelegt werden. Für dieses Repository werden keine
+Teilnehmerdaten oder Vergleichsergebnisse behauptet.

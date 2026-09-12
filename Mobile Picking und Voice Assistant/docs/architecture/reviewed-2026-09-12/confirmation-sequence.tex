@@ -1,0 +1,33 @@
+% Selected successful execution with response loss; not a distributed atomicity proof.
+\begingroup\setstretch{1}
+\begin{tikzpicture}[
+  font=\small,
+  actor/.style={draw=black!65,fill=blue!5,rounded corners=2pt,
+    minimum width=2.6cm,minimum height=.65cm,align=center},
+  call/.style={-{Latex[length=1.8mm]},thick},
+  reply/.style={call,dashed},
+  lab/.style={font=\small,fill=white,inner sep=2pt,align=center}
+]
+\node[actor] at (1.5,0) {PWA};
+\node[actor] at (7.15,0) {FastAPI};
+\node[actor] at (13.25,0) {Odoo};
+\draw[black!40,densely dotted] (1.5,-.35) -- (1.5,-5.8);
+\draw[black!40,densely dotted] (7.15,-.35) -- (7.15,-5.8);
+\draw[black!40,densely dotted] (13.25,-.35) -- (13.25,-5.8);
+\draw[call] (1.5,-.9) -- node[lab,above]{Bestätigen mit Schlüssel $k$} (7.15,-.9);
+\draw[call] (7.15,-1.6) -- node[lab,above]{Schlüssel und Anfrage reservieren} (13.25,-1.6);
+\draw[call] (7.15,-2.3) -- node[lab,above]{Position buchen: separater RPC} (13.25,-2.3);
+\draw[call] (7.15,-3) -- node[lab,above]{Ergebnis zu $k$ finalisieren} (13.25,-3);
+\draw[reply] (7.15,-3.7) -- node[lab,above]{Antwortverlust: Ausgang unbekannt} (2.15,-3.7);
+\draw[thick] (1.99,-3.56) -- (2.27,-3.84) (1.99,-3.84) -- (2.27,-3.56);
+
+\draw[call] (1.5,-4.55) -- node[lab,above]{Erneut mit $k$ und gleichen Daten} (7.15,-4.55);
+\draw[call] (7.15,-5.05) -- node[lab,above]{Reservierung prüfen} (13.25,-5.05);
+\draw[reply] (13.25,-5.65) -- node[lab,above]{Gespeichertes Ergebnis} (7.15,-5.65);
+\draw[reply] (7.15,-5.65) -- node[lab,above]{Gespeichertes Ergebnis} (1.5,-5.65);
+\node[align=left,anchor=north west,text width=14.3cm,draw=black!35,fill=black!3,inner sep=5pt] at (0,-5.98)
+  {Buchung und Finalisierung erfolgreich. Fehler dazwischen bleiben möglich.\\
+   Schutz nur bei gültigem Schlüssel im selben Berechtigungsbereich.\\
+   Keine globale Transaktion und keine Exactly-once-Garantie.};
+\end{tikzpicture}
+\endgroup

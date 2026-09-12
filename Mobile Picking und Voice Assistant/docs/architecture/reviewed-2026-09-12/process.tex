@@ -1,0 +1,30 @@
+% Scenario assumption, not an observed or measured before/after comparison.
+\begingroup\setstretch{1}
+\begin{tikzpicture}[
+  font=\small,
+  procbox/.style={draw=black!65, rounded corners=2pt, text width=2.9cm,
+    minimum height=1.8cm, align=center, inner sep=4pt},
+  flow/.style={-{Latex[length=2mm]}, thick},
+  note/.style={align=left, anchor=west}
+]
+\node[note,font=\small\bfseries] at (0,1.3) {Angenommener Referenzprozess};
+\node[procbox] (r1) at (1.6,0) {Auftrag auf\\ Papier erhalten};
+\node[procbox,fill=black!12] (r2) at (5.4,0) {Ware entnehmen\\ und prüfen};
+\node[procbox] (r3) at (9.2,0) {Menge, Mangel\\ auf Papier\\ festhalten};
+\node[procbox,fill=blue!6] (r4) at (13,0) {Rückmeldung\\ später in Odoo\\ erfassen};
+\draw[flow] (r1) -- (r2);
+\draw[flow] (r2) -- (r3);
+\draw[flow] (r3) -- (r4);
+\node[note,font=\small\bfseries] at (0,-1.35) {Digital unterstützter Zielprozess};
+\node[procbox,fill=blue!6] (s1) at (1.6,-2.7) {Auftrag in der\\ PWA öffnen};
+\node[procbox,fill=black!12] (s2) at (5.4,-2.7) {Ware entnehmen\\ und prüfen};
+\node[procbox,fill=blue!6] (s3) at (9.2,-2.7) {Pick bestätigen;\\ ggf. Mangel\\ digital erfassen};
+\node[procbox,fill=blue!6] (s4) at (13,-2.7) {In Odoo\\ speichern und\\ Ergebnis zeigen};
+\draw[flow] (s1) -- (s2);
+\draw[flow] (s2) -- (s3);
+\draw[flow] (s3) -- (s4);
+\node[note,text width=14.5cm] at (0,-4.4)
+  {Grau: Entnahme und Prüfung. Blau: digitale Erfassung oder Anzeige.\\
+   Pfeile: vereinfachte Reihenfolge je Position; die Mängelmeldung ist optional.};
+\end{tikzpicture}
+\endgroup
