@@ -40,7 +40,7 @@ IMAGE_VARIANTS = (
 class ConfirmLineRequest(BaseModel):
     move_line_id: int
     scanned_barcode: str = ""
-    quantity: float = 0
+    quantity: float = Field(default=0, ge=0, allow_inf_nan=False)
     serial_number: str = ""
 
 
