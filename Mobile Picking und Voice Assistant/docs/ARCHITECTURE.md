@@ -3,6 +3,13 @@
 Diese Seite ist der Einstieg in die Architekturdokumentation des **Mobile
 Picking und Voice Assistant**.
 
+## Schneller Einstieg
+
+Die [Lesefassung vom 12. September 2026](./architecture/lesefassung-2026-09-12/)
+verdichtet Systemlandkarte, Auftragsablauf und Qualitätsmeldung in drei
+einfachen Abbildungen. Für Implementierungsdetails bleiben die technischen
+Ebenen unten die maßgebliche Dokumentation.
+
 ## Für Einsteiger
 
 Beginne mit [Ebene 1: Die große Systemlandkarte](./architecture/ebene-1-systemlandkarte.md).
