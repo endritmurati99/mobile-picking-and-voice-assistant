@@ -9,6 +9,7 @@ pickings. It never creates, claims, confirms, or otherwise changes an order.
 import argparse
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 import httpx
@@ -35,13 +36,6 @@ def _expect(response, method, path, *, status=200, json=True):
     return response.json() if json else None
 
 
-def _origin(values):
-    origins = values.get("PWA_ORIGINS", "")
-    if origins:
-        return origins.split(",", 1)[0].strip()
-    return f"https://{values.get('LAN_HOST', 'localhost')}"
-
-
 def run_smoke(client, values, *, health_only=False):
     health = _expect(_request(client, "GET", "/api/health/live"), "GET", "/api/health/live")
     if health.get("status") != "ok":
@@ -58,7 +52,9 @@ def run_smoke(client, values, *, health_only=False):
     if not login or not password:
         raise SmokeFailure("authenticated smoke requires both ODOO_USER and ODOO_PASSWORD")
 
-    origin = _origin(values)
+    # Match the browser's actual address, not the server's allowlist.
+    address = urlsplit(str(client.base_url))
+    origin = f"{address.scheme}://{address.netloc}"
     for instance in instances:
         name = instance.get("name")
         if not isinstance(name, str) or not name:

@@ -347,6 +347,22 @@ body {
     border-color: var(--danger);
 }
 
+.voice-action {
+    flex-shrink: 0;
+    margin: 8px 16px;
+    padding: 16px;
+    border: 2px solid var(--primary);
+    border-radius: 16px;
+    background: var(--surface-2);
+    color: var(--ink);
+}
+.voice-action[hidden] { display: none; }
+.voice-action p { margin: 0 0 12px; font-weight: 700; }
+.voice-action__buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.voice-action__buttons button { flex: 1; min-height: 48px; }
+.voice-action__buttons button[hidden] { display: none; }
+.voice-action__buttons button:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
+
 /* Header content */
 .greeting {
     font-size: 0.95rem;
@@ -1272,7 +1288,8 @@ main > * {
     color: var(--ink-muted);
 }
 
-.nav-btn--active {
+#nav .nav-btn.nav-btn--active,
+#nav .nav-btn.nav-btn--ptt {
     background: var(--primary);
     color: var(--primary-ink);
     border-color: var(--primary);

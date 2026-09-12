@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "review_date": "2026-09-12",
+  "result": "local_regressions_passed_runtime_integration_blocked",
+  "application_trees": {
+    "baseline": "a4b8f4067a3a06c309beedf96c74ab1617b87f79",
+    "voice_evaluation_2026_09_10": "2216bef9edc6a46be9525e4b99201d98e09319f9",
+    "current_reviewed": "92c93dec5df39a8198374e21a142eebb23682e0d"
+  },
+  "checks": [
+    {
+      "name": "confirm_quantity_contract",
+      "command": "python infrastructure/scripts/test-confirm-quantity.py",
+      "exit_code": 0,
+      "tests_run": 3
+    },
+    {
+      "name": "voice_backend",
+      "command": "python infrastructure/scripts/test-voice-backend.py",
+      "exit_code": 0
+    },
+    {
+      "name": "voice_actions",
+      "command": "node --experimental-vm-modules infrastructure/scripts/test-voice-actions.mjs",
+      "exit_code": 0
+    },
+    {
+      "name": "voice_frontend",
+      "command": "node --experimental-vm-modules infrastructure/scripts/test-voice-frontend.mjs",
+      "exit_code": 0
+    },
+    {
+      "name": "workflow_validation",
+      "command": "python infrastructure/scripts/verify-workflows.py",
+      "exit_code": 0,
+      "warnings": 2
+    },
+    {
+      "name": "portable_evaluator_python_syntax",
+      "exit_code": 0
+    },
+    {
+      "name": "pwa_javascript_syntax",
+      "exit_code": 0
+    },
+    {
+      "name": "compose_yaml_parse",
+      "exit_code": 0
+    },
+    {
+      "name": "runner_failure_marker_and_tree_guards",
+      "exit_code": 0
+    }
+  ],
+  "docker": {
+    "query": "server_version_and_os",
+    "timeout_seconds": 8,
+    "status": "timeout",
+    "container_inventory_attempted": false,
+    "isolated_odoo_run_attempted": false
+  },
+  "review": {
+    "blocking_application_regressions_found": 0,
+    "evaluator_correctness_defects_fixed": 1,
+    "nonblocking_findings": [
+      "committed voice files contain CRLF or mixed line endings",
+      "current quantity fix was not rerun against Odoo because Docker was unavailable"
+    ]
+  },
+  "privacy": {
+    "static_personal_identifier_scan": "passed",
+    "committed_credentials_found": false,
+    "database_dumps_in_publication_set": false,
+    "runtime_private_outputs_excluded": true,
+    "source_database_clone_may_contain_real_data": true,
+    "source_container_operations": [
+      "docker inspect",
+      "pg_dump",
+      "readiness probe"
+    ],
+    "write_targets": [
+      "bachelor-eval-db",
+      "bachelor-eval-odoo",
+      "bachelor-eval-backend",
+      "bachelor-eval-isolated"
+    ]
+  },
+  "final_review_corrections": {
+    "offline_runner_guard_tests": 4,
+    "before_failures": 7,
+    "after_failures": 0,
+    "docker_mocked": true,
+    "new_odoo_run": false
+  }
+}

@@ -1,6 +1,6 @@
 """Cluster-/Batch-Picking-Endpoints (/api/cluster/*)."""
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.dependencies import (
     get_cluster_service,
@@ -26,7 +26,7 @@ class ClusterConfirmRequest(BaseModel):
     picking_id: int
     move_line_id: int
     scanned_barcode: str = ""
-    quantity: float = 0
+    quantity: float = Field(default=0, ge=0, allow_inf_nan=False)
     serial_number: str = ""
     scanned_package: str = ""
 

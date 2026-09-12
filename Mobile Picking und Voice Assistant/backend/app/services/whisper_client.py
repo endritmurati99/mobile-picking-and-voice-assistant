@@ -17,6 +17,10 @@ TIMEOUT = 60.0  # faster_whisper small ist schnell, aber längere Aufnahmen brau
 # erfundener Text bei Stille/Rauschen (z. B. "Untertitelung des ZDF").
 NO_SPEECH_MAX = 0.6
 
+
+class WhisperTranscriptionError(RuntimeError):
+    """The Whisper service did not return a usable response."""
+
 # Domänen-Prompt biast Whisper auf Lager-/Picking-Vokabular statt generischer
 # deutscher Sätze und reduziert Fehlerkennungen bei kurzen Kommandos.
 DOMAIN_PROMPT = (
@@ -63,7 +67,7 @@ async def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/wav") -> 
                 "task": "transcribe",
                 "language": "de",
                 "output": "json",
-                "encode": "false",
+                "encode": "true",
                 "initial_prompt": DOMAIN_PROMPT,
             },
             files={
@@ -89,4 +93,4 @@ async def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/wav") -> 
         return text
     except Exception as e:
         logger.error(f"Whisper STT Fehler: {type(e).__name__}: {e}")
-        return ""
+        raise WhisperTranscriptionError("Whisper transcription failed") from e

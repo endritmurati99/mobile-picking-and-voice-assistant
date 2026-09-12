@@ -1,4 +1,7 @@
-// v39: Lagerumschalter passt seine Breite an Text und nativen Dropdown-Pfeil an.
+// v43: Keep active and held voice controls orange in responsive navigation.
+// v42: Final voice dialog with safe expired-confirmation recovery.
+// v41: Piper prompts, persistent booking confirmation and progress.
+// v40: Voice recording uses PCM energy and reports STT failures.
 // v38: Lagerplatztext verwendet auch auf hellen Karten den kontrastreichen Akzent.
 // v37: Nach einem erfolgreich angelegten Cluster mit fehlgeschlagener
 // Detail-Antwort lädt die PWA den bekannten Batch erneut statt einen leeren
@@ -39,7 +42,7 @@
 // no login screen, legacy identity headers that the backend no longer honours,
 // and a health probe against a route that does not exist. The symptom is an app
 // that looks merely broken, which is the worst kind of stale cache.
-const CACHE_NAME = 'picking-v39';
+const CACHE_NAME = 'picking-v43';
 const PRECACHE = [
     '/',
     '/index.html',

@@ -11,6 +11,8 @@ import {
     POST_TTS_COOLDOWN_MS,
     VOICE_STATES,
     isLikelyPromptEcho,
+    calculateRms,
+    shouldStopAfterSilence,
     shouldUsePiperTts,
     transitionVoiceState,
 } from './voice-helpers.mjs';
@@ -28,7 +30,7 @@ let cooldownTimer = null;
 let ttsBusy = false;
 let voiceState = VOICE_STATES.IDLE;
 
-const SPEECH_RMS = 18;
+const SPEECH_RMS = 0.02;
 // Historie: urspruenglich 300 ms, das schnitt bei natuerlichen Sprechpausen das
 // Kommando-Ende ab ("hinten nicht geklappt"), danach 700 ms.
 // Jetzt 550 ms: der Stille-Tail am Blob-Ende bringt gemessen KEINEN
@@ -55,6 +57,8 @@ let ignoreFirstTranscriptAfterTts = false;
 
 let pushToTalkSession = null;
 let pushToTalkActive = false;
+let pushToTalkGeneration = 0;
+let pushToTalkStarting = false;
 
 // Recovery-dialog state: set when backend returns requires_confirmation=true.
 // Cleared on explicit yes, no, or when a different intent overrides it.
@@ -68,15 +72,16 @@ const PENDING_CONFIRM_TTL_MS = 15000;
 
 let cachedDeVoice = null;
 
-// Piper TTS health-state: null=unbekannt, true=verfuegbar, false=nicht erreichbar.
-// Wird beim ersten speak()-Aufruf ermittelt und dann gecacht.
-let _piperHealthy = null;
 let _currentPiperAudio = null;
+let _currentPiperRequest = null;
+let _currentBrowserPlayback = null;
 
 // Epoch-Token gegen TTS-Races: stopSpeaking() erhoeht den Zaehler; verzoegerte
 // Sprachstarts (80ms-Browser-Timer, laufender Piper-Fetch) pruefen ihn und
 // brechen still ab statt nach dem Cancel doch noch loszureden.
 let _speechEpoch = 0;
+
+const APP_MANAGED_WRITE_INTENTS = new Set(['confirm', 'confirm_all', 'submit_alert']);
 
 function _resetConfirmationState() {
     _pendingConfirmAction = null;
@@ -110,11 +115,14 @@ function _hasLivePendingConfirm() {
 // Picker als hoerbares Signal gemeldet, statt still zu sterben.
 function _dispatchIntent(payload) {
     if (!onIntentCallback) return;
+    const actionStartedAt = Date.now();
     try {
-        Promise.resolve(onIntentCallback(payload)).catch((err) => {
-            console.error('[voice] Intent-Verarbeitung fehlgeschlagen:', err);
-            speak('Sprachbefehl konnte nicht ausgefuehrt werden.');
-        });
+        Promise.resolve(onIntentCallback(payload))
+            .then(() => console.info('[Voice] Aktion:', Date.now() - actionStartedAt, 'ms'))
+            .catch((err) => {
+                console.error('[voice] Intent-Verarbeitung fehlgeschlagen:', err);
+                speak('Sprachbefehl konnte nicht ausgefuehrt werden.');
+            });
     } catch (err) {
         console.error('[voice] Intent-Dispatch fehlgeschlagen:', err);
         speak('Sprachbefehl konnte nicht ausgefuehrt werden.');
@@ -140,6 +148,10 @@ function _handleIntentWithRecovery(result) {
     }
 
     if (result.requires_confirmation && result.confirmation_prompt) {
+        if (APP_MANAGED_WRITE_INTENTS.has(result.intent)) {
+            _dispatchIntent(result);
+            return;
+        }
         speak(result.confirmation_prompt);
         _pendingConfirmAction = result.intent;
         _pendingConfirmValue = result.value ?? null;
@@ -251,13 +263,14 @@ function stopCurrentRecording() {
 
 function getRMS() {
     if (!analyser) return 0;
-    const buffer = new Uint8Array(analyser.frequencyBinCount);
-    analyser.getByteFrequencyData(buffer);
-    let sum = 0;
-    for (let index = 0; index < buffer.length; index += 1) {
-        sum += buffer[index] * buffer[index];
-    }
-    return Math.sqrt(sum / buffer.length);
+    const buffer = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(buffer);
+    return calculateRms(buffer);
+}
+
+function isStaleCapture(capture) {
+    return capture.generation !== recognitionGeneration ||
+        capture.startedAt < lastTtsEndedAt + POST_TTS_COOLDOWN_MS;
 }
 
 function enterCooldown() {
@@ -287,16 +300,31 @@ function beginSpeechInterlock(promptText) {
 /**
  * Versucht Text via Backend-Piper-TTS abzuspielen.
  * Gibt true zurueck bei Erfolg, false bei Fehler/Unavailability.
- * Cacht den Verfuegbarkeitsstatus um wiederholte Timeouts zu vermeiden.
  */
 async function _tryPiper(text, epoch) {
-    if (_piperHealthy === false) return false;
-
+    const preparationStartedAt = Date.now();
+    const controller = new AbortController();
+    const request = { controller, timerId: null, timedOut: false, preparationReported: false };
+    _currentPiperRequest = request;
+    console.info('[Voice TTS]', { source: 'piper', phase: 'source', outcome: 'selected' });
+    const finishPreparation = (outcome) => {
+        if (request.preparationReported) return;
+        request.preparationReported = true;
+        if (request.timerId) window.clearTimeout(request.timerId);
+        if (_currentPiperRequest === request) _currentPiperRequest = null;
+        console.info('[Voice TTS]', {
+            source: 'piper',
+            phase: 'preparation',
+            preparation_ms: Date.now() - preparationStartedAt,
+            outcome,
+        });
+    };
     try {
-        const controller = new AbortController();
         // 5s Timeout — laengere Saetze koennen 2-4s Synthesezeit brauchen.
-        // Kein permanentes Disable bei Timeout — nur bei echten Server-Fehlern.
-        const timerId = window.setTimeout(() => controller.abort(), 5000);
+        request.timerId = window.setTimeout(() => {
+            request.timedOut = true;
+            controller.abort();
+        }, 5000);
 
         // `/api/voice/tts` liegt seit Task 16 hinter dem Browser-Gate: eine
         // mutierende Methode (POST) braucht das CSRF-Token, sonst 403. Ohne den
@@ -315,60 +343,76 @@ async function _tryPiper(text, epoch) {
             body: JSON.stringify({ text, lang: 'de-DE' }),
             signal: controller.signal,
         });
-        window.clearTimeout(timerId);
 
         if (response.status === 403 || response.status === 401) {
             // Auth-/CSRF-Problem, KEIN toter Piper -- nicht permanent
             // deaktivieren, sonst bleibt die Browser-Stimme kleben, obwohl der
             // Dienst laeuft. Beim naechsten Versuch (mit gueltiger Session)
             // erneut probieren.
-            _piperHealthy = null;
+            finishPreparation('failure');
             return false;
         }
         if (!response.ok) {
-            // Echter Server-Fehler (5xx): Service ist down → deaktivieren
-            _piperHealthy = false;
+            // Auch 5xx nur temporär behandeln: der nächste kurze Prompt darf
+            // Piper erneut versuchen, statt dauerhaft zur Browser-Stimme zu fallen.
+            finishPreparation('failure');
             return false;
         }
 
         const blob = await response.blob();
-        _piperHealthy = true;
-
+        finishPreparation('ready');
         if (epoch !== undefined && epoch !== _speechEpoch) {
             // Waehrend des Fetch abgebrochen — nicht mehr abspielen, aber als
             // Erfolg melden, damit kein Browser-TTS-Fallback nachspricht.
             return true;
         }
 
-        return new Promise((resolve) => {
+        return await new Promise((resolve) => {
             const url = URL.createObjectURL(blob);
             const audio = new Audio(url);
             _currentPiperAudio = audio;
+            const playbackStartedAt = Date.now();
+            let settled = false;
             const cleanup = (success) => {
-                _currentPiperAudio = null;
+                if (settled) return;
+                settled = true;
+                if (_currentPiperAudio === audio) _currentPiperAudio = null;
                 URL.revokeObjectURL(url);
+                console.info('[Voice TTS]', {
+                    source: 'piper',
+                    phase: 'playback',
+                    playback_ms: Date.now() - playbackStartedAt,
+                    outcome: success ? 'success' : epoch === _speechEpoch ? 'failure' : 'cancelled',
+                });
                 resolve(success);
             };
+            audio._voiceCleanup = cleanup;
             audio.onended = () => cleanup(true);
             // Audio-Fehler: Blob-Format-Problem — retry naechstes Mal
             audio.onerror = () => cleanup(false);
             audio.play().catch(() => cleanup(false));
         });
     } catch {
-        // Netzwerkfehler / Timeout: Status auf null setzen → naechstes Mal retry
-        _piperHealthy = null;
+        // Netzwerkfehler / Timeout: beim naechsten Prompt erneut versuchen.
+        finishPreparation(request.timedOut ? 'timeout' : controller.signal.aborted ? 'cancelled' : 'failure');
         return false;
+    } finally {
+        finishPreparation(request.timedOut ? 'timeout' : controller.signal.aborted ? 'cancelled' : 'failure');
     }
 }
 
 function _speakBrowserTTS(text, done, epoch) {
     if (!('speechSynthesis' in window)) {
+        console.info('[Voice TTS]', { source: 'browser', phase: 'preparation', preparation_ms: 0, outcome: 'unavailable' });
         done();
         return;
     }
+    const preparationStartedAt = Date.now();
+    console.info('[Voice TTS]', { source: 'browser', phase: 'source', outcome: 'fallback' });
     window.speechSynthesis.cancel();
     window.setTimeout(() => {
         if (epoch !== undefined && epoch !== _speechEpoch) {
+            console.info('[Voice TTS]', { source: 'browser', phase: 'preparation', preparation_ms: Date.now() - preparationStartedAt, outcome: 'cancelled' });
             done();
             return;
         }
@@ -378,8 +422,21 @@ function _speakBrowserTTS(text, done, epoch) {
         utterance.pitch = 1.0;
         const voice = cachedDeVoice || loadBestDeVoice();
         if (voice) utterance.voice = voice;
-        utterance.onend = done;
-        utterance.onerror = done;
+        console.info('[Voice TTS]', { source: 'browser', phase: 'preparation', preparation_ms: Date.now() - preparationStartedAt, outcome: 'ready' });
+        const playbackStartedAt = Date.now();
+        let finished = false;
+        const playback = {
+            finish(outcome) {
+                if (finished) return;
+                finished = true;
+                if (_currentBrowserPlayback === playback) _currentBrowserPlayback = null;
+                console.info('[Voice TTS]', { source: 'browser', phase: 'playback', playback_ms: Date.now() - playbackStartedAt, outcome });
+                done();
+            },
+        };
+        _currentBrowserPlayback = playback;
+        utterance.onend = () => playback.finish('success');
+        utterance.onerror = () => playback.finish('failure');
         window.speechSynthesis.speak(utterance);
     }, 80);
 }
@@ -404,7 +461,14 @@ export function speak(text) {
         beginSpeechInterlock(text);
         const epoch = _speechEpoch;
 
+        let completed = false;
         const done = () => {
+            if (completed) return;
+            completed = true;
+            if (epoch !== _speechEpoch) {
+                resolve();
+                return;
+            }
             ttsBusy = false;
             lastTtsEndedAt = Date.now();
             enterCooldown();
@@ -428,9 +492,18 @@ export function speak(text) {
 
 export function stopSpeaking() {
     _speechEpoch += 1;
+    if (_currentPiperRequest) {
+        _currentPiperRequest.controller.abort();
+        if (_currentPiperRequest.timerId) window.clearTimeout(_currentPiperRequest.timerId);
+        _currentPiperRequest = null;
+    }
     if (_currentPiperAudio) {
-        _currentPiperAudio.pause();
-        _currentPiperAudio = null;
+        const audio = _currentPiperAudio;
+        audio.pause();
+        audio._voiceCleanup?.(false);
+    }
+    if (_currentBrowserPlayback) {
+        _currentBrowserPlayback.finish('cancelled');
     }
     if ('speechSynthesis' in window) {
         window.speechSynthesis.cancel();
@@ -563,6 +636,7 @@ async function startListeningCycle() {
         let silenceStart = null;
         let hasSpeech = false;
         const startedAt = Date.now();
+        let stopReason = 'unknown';
 
         recorder.onstop = () => {
             isRecording = false;
@@ -585,6 +659,8 @@ async function startListeningCycle() {
             resolve({
                 blob: new Blob(audioChunks, { type: mimeType }),
                 startedAt,
+                durationMs: Date.now() - startedAt,
+                stopReason,
                 generation: cycleGeneration,
             });
         };
@@ -596,13 +672,17 @@ async function startListeningCycle() {
         monitorInterval = window.setInterval(() => {
             if (ttsBusy || !voiceModeActive || pushToTalkActive || recorder.state !== 'recording') {
                 stopMonitor();
-                if (recorder.state === 'recording') recorder.stop();
+                if (recorder.state === 'recording') {
+                    stopReason = 'interrupted';
+                    recorder.stop();
+                }
                 return;
             }
 
             const elapsed = Date.now() - startedAt;
             if (elapsed > MAX_RECORDING_MS) {
                 stopMonitor();
+                stopReason = 'max-duration';
                 recorder.stop();
                 return;
             }
@@ -623,7 +703,8 @@ async function startListeningCycle() {
                     silenceStart = Date.now();
                     return;
                 }
-                if (Date.now() - silenceStart > SILENCE_AFTER_SPEECH) {
+                if (shouldStopAfterSilence({ hasSpeech, silenceMs: Date.now() - silenceStart, tailMs: SILENCE_AFTER_SPEECH })) {
+                    stopReason = 'speech-ended';
                     stopMonitor();
                     recorder.stop();
                 }
@@ -632,6 +713,7 @@ async function startListeningCycle() {
 
             if (elapsed > NO_SPEECH_TIMEOUT) {
                 stopMonitor();
+                stopReason = 'no-speech';
                 recorder.stop();
             }
         }, CHECK_MS);
@@ -641,22 +723,26 @@ async function startListeningCycle() {
 
     if (capture?.blob) {
         try {
+            const requestStartedAt = Date.now();
             const result = await recognizeVoice(capture.blob, getRecognitionOptions());
-            const transcript = result?.text || '';
-            // Diagnose: was hat Whisper WIRKLICH gehoert? Ohne diese Zeile sieht
-            // man nur den Status "erkannt", nicht den Text -- und kann nicht
-            // unterscheiden zwischen "Audio schlecht" (Text ist Muell) und
-            // "Intent nicht getroffen" (Text stimmt, Zuordnung nicht). In der
-            // Browser-Konsole (F12) ablesbar.
-            console.log('[Voice] gehört:', JSON.stringify(transcript),
-                '| intent:', result?.intent, '| conf:', result?.confidence);
+                const transcript = result?.text || '';
+                const timing = result?._timing || {};
+                console.info('[Voice] STT', {
+                    intent: result?.intent || 'unknown',
+                    confidence: result?.confidence ?? null,
+                    capture_ms: capture.durationMs,
+                    request_ms: Date.now() - requestStartedAt,
+                    convert_ms: timing.convert_ms ?? null,
+                    stt_ms: timing.stt_ms ?? null,
+                    intent_ms: timing.intent_ms ?? null,
+                    total_ms: timing.total_ms ?? null,
+                    stop_reason: capture.stopReason,
+                });
             // Gleiche Off-by-one-Korrektur wie bei staleCapture oben: hier ist die
             // Transkription bereits bezahlt, das Ergebnis wurde trotzdem verworfen.
-            const staleResult =
-                capture.generation !== recognitionGeneration ||
-                capture.startedAt < lastTtsEndedAt + POST_TTS_COOLDOWN_MS;
+            const staleResult = isStaleCapture(capture);
 
-            if (!staleResult && transcript) {
+            if (!staleResult) {
                 const shouldDropEcho =
                     ignoreFirstTranscriptAfterTts && isLikelyPromptEcho(transcript, lastPromptText);
 
@@ -669,6 +755,9 @@ async function startListeningCycle() {
             }
         } catch (error) {
             console.error('[Voice] STT Fehler:', error);
+            if (!isStaleCapture(capture)) {
+                _handleIntentWithRecovery({ intent: 'error', text: '', confidence: 0 });
+            }
         }
     }
 
@@ -735,7 +824,10 @@ export async function captureAndRecognize() {
 }
 
 export async function startPushToTalk(onIntent, onError) {
-    if (pushToTalkActive || voiceModeActive) return false;
+    if (pushToTalkActive || pushToTalkStarting || voiceModeActive) return false;
+
+    const generation = ++pushToTalkGeneration;
+    pushToTalkStarting = true;
 
     onIntentCallback = onIntent || onIntentCallback;
 
@@ -743,30 +835,48 @@ export async function startPushToTalk(onIntent, onError) {
         if (ttsBusy || voiceState === VOICE_STATES.SPEAKING || voiceState === VOICE_STATES.COOLDOWN) {
             stopSpeaking();
         }
-        pushToTalkSession = await captureAndRecognize();
+        const session = await captureAndRecognize();
+        if (generation !== pushToTalkGeneration) {
+            await stopRecording();
+            return false;
+        }
+        pushToTalkSession = session;
         pushToTalkActive = true;
         return true;
     } catch (error) {
         console.error('Push-to-Talk konnte nicht gestartet werden:', error);
         if (onError) onError(error);
         return false;
+    } finally {
+        pushToTalkStarting = false;
     }
 }
 
 export async function stopPushToTalk() {
+    if (pushToTalkStarting) return cancelPushToTalk();
     if (!pushToTalkActive || !pushToTalkSession) return null;
 
     const session = pushToTalkSession;
+    const generation = pushToTalkGeneration;
     pushToTalkSession = null;
     pushToTalkActive = false;
 
     const result = await session.stop();
-    if (result?.text) {
+    if (result && generation === pushToTalkGeneration) {
         _handleIntentWithRecovery(result);
     }
     return result;
 }
 
+export async function cancelPushToTalk() {
+    const ownsRecording = pushToTalkActive || pushToTalkStarting;
+    pushToTalkGeneration += 1;
+    pushToTalkSession = null;
+    pushToTalkActive = false;
+    if (ownsRecording) await stopRecording();
+}
+
 export function stopVoiceMode() {
+    if (pushToTalkActive || pushToTalkStarting) void cancelPushToTalk();
     if (voiceModeActive) deactivateVoiceMode();
 }
