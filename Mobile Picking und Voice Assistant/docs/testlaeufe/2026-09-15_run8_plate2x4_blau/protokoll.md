@@ -64,7 +64,14 @@ Fotos:        4  (fotos/qa_photo_01.jpg bis _04.jpg, je 1 024 px JPEG)
 | 08:36:01,3 | 185,2 s | `vision_probe` Katalogbild (Bilddekodierung 2,97 s), `ok: true` | **18,88 s** |
 | ≈08:36:06 | 190 s | Abschließender Textabgleich (4,77 s), `assessments/quality` → 200 OK, `callbacks/status` → 200 OK | — |
 
-**Gesamtlaufzeit: 3 min 10 s.** Foto 4 wurde nie an die Kette übergeben.
+**Gesamtlaufzeit: 3 min 10 s.** Gegen das n8n-Knotenlimit zählt die Strecke Webhook bis Antwort
+auf `/assessments/quality`: **188,1 s von 270 s, Reserve 81,9 s.** Foto 4 wurde nie an die Kette
+übergeben.
+
+Dass der vierte Bildaufruf das **Katalogbild** war und nicht das vierte Foto, zeigen die
+Token-Zahlen: Fotos 1 bis 3 gingen mit je 439 Prompt- und 256 Bild-Token hinein, der vierte Aufruf
+mit 232 Prompt- und nur 49 Bild-Token. Das Katalogbild aus Odoo ist 192 px groß, die Meldefotos
+1 024 px.
 
 ### 3.1 Inferenzzeiten
 
@@ -120,6 +127,21 @@ Ergebnis, dass fünf englische Sätze im Odoo-Formular landen.
 (`DAMAGE_PROMPT` sagt bisher nur „array of short strings"), oder `_schadensworte` kürzt zu lange
 Einträge auf ihr erstes Schlüsselwort. Die erste Variante ist die ehrlichere: sie ändert, was das
 Modell liefert, statt nachträglich zu raten, was gemeint war.
+
+### 3.2 Die Bilddekodierung ist der zweitgrößte Posten
+
+| Aufruf | Dekodierung | Gesamt | Anteil |
+|---|---|---|---|
+| Foto 1 | 14,58 s | 48,48 s | 30 % |
+| Foto 2 | 15,27 s | 42,41 s | 36 % |
+| Foto 3 | 21,22 s | 43,49 s | 49 % |
+| Katalogbild | 2,97 s | 18,14 s | 16 % |
+
+Die reine Auswertezeit schwankt wenig (10,5–17,1 s), die Dekodierung dagegen um Faktor 1,5
+zwischen drei gleich großen Fotos. Kleinere Bilder wären der offensichtliche Hebel — aber genau
+den hat die Kette schon einmal verworfen: Laut Messung in `assessment_media` verschwanden bei
+512 px zwei von drei geprüften Rissen. `DAMAGE_MAX_EDGE = 1024` ist also kein Versehen, sondern
+eine bezahlte Entscheidung zugunsten der Erkennung.
 
 ## 6. Vergleich aller Fotoanzahlen
 
