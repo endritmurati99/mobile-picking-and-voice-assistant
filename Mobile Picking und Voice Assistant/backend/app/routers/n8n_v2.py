@@ -771,17 +771,94 @@ _SCHADENSWORTE = {
     "deformation": "Verformung",
     "rough area": "raue Stelle",
     "ragged edge": "ausgefranste Kante",
+    # Gemessen am 2026-09-15 ueber alle 80 Alerts mit Bildbefund: von 29
+    # verschiedenen Begriffen uebersetzte das Glossar fuenf. Die langen
+    # Phrasen ("a large cracked area with missing material") stammen aus der
+    # Zeit vor der Wortgrenze im Prompt und kommen nicht wieder. Diese hier
+    # sind kurz genug, dass der heutige Prompt sie erneut liefern kann.
+    "broken": "gebrochen",
+    "broken piece": "gebrochenes Stück",
+    "gouged stud": "ausgekerbte Noppe",
+}
+
+# Zweiwortbefunde setzt der Prompt selbst zusammen: ein Zustandswort und ein
+# Bauteil ("gouged stud", QA/0378). Sie alle einzeln einzutragen ist ein
+# Wettlauf, den das Glossar nicht gewinnt -- die Kombination entsteht im
+# Modell, nicht in einer Liste.
+#
+# Die Bauteile hier sind ALLE FEMININ. Das ist kein Zufall, sondern die
+# Bedingung dafuer, dass die Zusammensetzung ohne Grammatikwissen funktioniert:
+# die Adjektivendung "-e" passt dann immer. Ein Neutrum wie "Stück" ergaebe
+# "gebrochene Stück"; solche Faelle stehen oben als ganzer Eintrag.
+_ZUSTANDSWORTE = {
+    "broken": "gebrochene",
+    "cracked": "gerissene",
+    "chipped": "abgeplatzte",
+    "gouged": "ausgekerbte",
+    "torn": "aufgerissene",
+    "missing": "fehlende",
+    "scratched": "zerkratzte",
+    "jagged": "ausgefranste",
+    "ragged": "ausgefranste",
+    "rough": "raue",
+    "deformed": "verformte",
+    "dented": "eingedellte",
+}
+_BAUTEILE = {
+    "stud": "Noppe",
+    "studs": "Noppen",
+    "edge": "Kante",
+    "edges": "Kanten",
+    "corner": "Ecke",
+    "corners": "Ecken",
+    "surface": "Oberfläche",
+    "tube": "Röhre",
+    "tubes": "Röhren",
+    "side": "Seite",
+    "area": "Stelle",
+    "wall": "Wand",
+    "face": "Fläche",
 }
 
 
+def _zusammengesetzt(wort: str) -> str | None:
+    """`gouged stud` zu `ausgekerbte Noppe`, sonst `None`.
+
+    Nur zwei Woerter, nur wenn BEIDE bekannt sind. Ein halb uebersetzter Befund
+    ("ausgekerbte stud") waere schlechter als der englische Originalbefund:
+    beim englischen weiss der Mensch im Lager, dass das Modell so geantwortet
+    hat, beim halben nicht.
+    """
+    teile = wort.split()
+    if len(teile) != 2:
+        return None
+    zustand = _ZUSTANDSWORTE.get(teile[0])
+    bauteil = _BAUTEILE.get(teile[1])
+    if not zustand or not bauteil:
+        return None
+    # Singular wie Plural tragen im Femininum dieselbe Adjektivendung:
+    # "ausgekerbte Noppe", "ausgekerbte Noppen".
+    return f"{zustand} {bauteil}"
+
+
 def _schadensworte(befunde: list[str]) -> str:
-    """Englische Einzelbefunde zu einer lesbaren deutschen Aufzaehlung."""
+    """Englische Einzelbefunde zu einer lesbaren deutschen Aufzaehlung.
+
+    Drei Stufen, in dieser Reihenfolge: der ganze Eintrag aus dem Glossar, dann
+    die Zusammensetzung aus Zustandswort und Bauteil, sonst der Originalbefund.
+    Die letzte Stufe ist Absicht -- ein unbekannter englischer Befund gehoert
+    ins Formular, nicht in eine Luecke.
+    """
     gesehen: dict[str, str] = {}
     for rohwort in befunde:
         wort = " ".join(rohwort.split()).strip(" .,;").lower()
         if not wort or wort in gesehen:
             continue
-        gesehen[wort] = _SCHADENSWORTE.get(wort, rohwort.strip(" .,;"))
+        gesehen[wort] = (
+            _SCHADENSWORTE.get(wort)
+            or _zusammengesetzt(wort)
+            or rohwort.strip(" .,;")
+        )
     return ", ".join(gesehen.values())
 
 
@@ -803,12 +880,17 @@ async def _check_damage(
 
     Zwei Stufen. Zuerst schaut das Bildmodell jedes Foto FUER SICH an und
     beantwortet die absolute Frage: bricht hier etwas die glatte Oberflaeche?
-    Liegt ein Katalogbild vor, folgt der Soll/Ist-Vergleich des Zustands
-    (`_zustandsvergleich`) und darf den Befund NUR VERSCHAERFEN. Die absolute
-    Frage allein reicht nicht: ein sauber abgebrochenes Eck laesst sie durch,
-    weil eine glatte Bruchflaeche keine ausgefranste Stelle ist. Umgekehrt darf
-    der Vergleich nichts zuruecknehmen -- am 2026-08-08 (QA/0223) hat er einen
-    gefundenen Riss wegerklaert; die Begruendung steht in `_zustandsvergleich`.
+    Sagt sie `intact` und liegt ein Katalogbild vor, folgt der Soll/Ist-
+    Vergleich des Zustands (`_zustandsvergleich`). Die absolute Frage allein
+    reicht dort nicht: ein sauber abgebrochenes Eck laesst sie durch, weil eine
+    glatte Bruchflaeche keine ausgefranste Stelle ist.
+
+    Steht `damaged` bereits fest, laeuft der Vergleich NICHT mehr. Er darf nur
+    eskalieren -- am 2026-08-08 (QA/0223) hat er einen gefundenen Riss
+    wegerklaert, seitdem darf er nichts zuruecknehmen -- und kann an einem
+    bereits gefundenen Schaden also nichts mehr aendern. Bis zum 2026-09-15
+    kostete er trotzdem einen vollen Bildaufruf am Ende der Kette; in den
+    Laeufen 9 bis 13 kam er deshalb kein einziges Mal mehr an die Reihe.
 
     `deadline` begrenzt die Reihe als Ganzes. Jeder weitere Aufruf wird nur
     noch gestartet, wenn die Restzeit fuer einen GANZEN Aufruf reicht
@@ -862,7 +944,18 @@ async def _check_damage(
     # Vergleich darf `damage` noch drehen, und die Zeile darunter beschreibt
     # dann den gedrehten Stand. Seine eigene Zeile kommt danach.
     zustandszeile: str | None = None
-    if damage != "unavailable" and reference is not None:
+    # NUR bei `intact`. Der Vergleich darf ausschliesslich eskalieren, also
+    # `intact` auf `damaged` heben -- steht `damaged` schon fest, kann er am
+    # Urteil nichts mehr aendern und liefert bestenfalls einen Satz ueber sich
+    # selbst ("bestaetigt den Befund"). Dafuer kostete er bis zum 2026-09-15
+    # einen vollen Bildaufruf, und zwar den letzten: in den Laeufen 9 bis 13
+    # kam er deshalb kein einziges Mal mehr an die Reihe, weil die Fotos die
+    # Frist vorher aufgebraucht hatten.
+    #
+    # Er ist damit nicht abgeschafft, sondern zurueck an der Stelle, an der er
+    # etwas entscheidet: ein sauber abgebrochenes Eck, das die absolute
+    # Pruefung durchgelassen hat. Genau dort ist jetzt auch Zeit fuer ihn.
+    if damage == "intact" and reference is not None:
         damage, zustandszeile = await _zustandsvergleich(
             vision=vision,
             llm=llm,
@@ -872,6 +965,15 @@ async def _check_damage(
             deadline=deadline,
             product_label=product_label,
         )
+    elif damage == "damaged" and reference is not None:
+        # Kein stiller Wegfall: dass der Vergleich NICHT lief und warum, steht
+        # im Protokoll. Im Odoo-Formular steht dazu bewusst nichts -- "der
+        # Vergleich war nicht noetig" ist eine Aussage ueber die Kette, nicht
+        # ueber die Ware, und der Schadensbefund steht eine Zeile darueber.
+        logger.info(json.dumps({
+            "event_type": "condition_compare_skipped",
+            "grund": "schaden_bereits_sichtbar",
+        }, ensure_ascii=False))
 
     if damage == "unavailable":
         lines.append(
@@ -975,6 +1077,10 @@ async def _zustandsvergleich(
     Ausgewertet wird der Befund des Fotos, das Schaden zeigte -- sonst der erste
     lesbare. Jeder Fehlerpfad gibt `damage` unveraendert zurueck und sagt im
     Klartext, warum: ein ausgefallener Vergleich ist kein Freispruch.
+
+    Der einzige Aufrufer ruft seit dem 2026-09-15 nur noch mit `intact` auf;
+    die Zweige fuer `damaged` bleiben stehen, weil die Funktion mit jedem
+    Eingangswert richtig bleiben soll, und beschreiben die Asymmetrie.
     """
     ist = next((befund for befund in befunde if befund.damaged), None)
     if ist is None:

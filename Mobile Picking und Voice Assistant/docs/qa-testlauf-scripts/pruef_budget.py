@@ -13,7 +13,7 @@ import asyncio
 import time
 
 from app.config import settings
-from app.routers.n8n_v2 import _check_damage
+from app.routers.n8n_v2 import _check_damage, _schadensworte
 from app.services.vision_client import (
     DamageCheck,
     _DAUERN,
@@ -120,6 +120,29 @@ async def main() -> None:
     # 8. Nur die letzten acht zaehlen.
     assert len(_DAUERN["pruefmodell"]) == 8, len(_DAUERN["pruefmodell"])
     _DAUERN.pop("pruefmodell", None)
+
+    # 9. Der Zustandsvergleich laeuft NUR bei `intact`. Bei `damaged` kann er
+    #    nichts mehr aendern und kostete bis zum 15.09. den letzten Aufruf.
+    vision = PapierModell(damaged=True)
+    lines = []
+    damage, _ = await _check_damage(
+        vision, llm=None, candidates=[b"x"], lines=lines,
+        deadline=time.monotonic() + SCHAETZUNG * 5, garantiert=False,
+        reference=b"katalog", product_label="Brick 2x2",
+    )
+    assert damage == "damaged", damage
+    assert not any("Zustand" in zeile for zeile in lines), lines
+    assert vision.aufrufe == 1, f"Vergleich lief trotz sichtbarem Schaden: {vision.aufrufe}"
+
+    # 10. Das Glossar setzt Zweiwortbefunde zusammen (Lauf 13: `gouged stud`
+    #     stand englisch im Odoo-Formular).
+    assert _schadensworte(["gouged stud"]) == "ausgekerbte Noppe"
+    assert _schadensworte(["broken studs"]) == "gebrochene Noppen"
+    assert _schadensworte(["crack", "chipped corner"]) == "Riss, abgeplatzte Ecke"
+    # Unbekanntes bleibt englisch, halb uebersetzt waere schlimmer.
+    assert _schadensworte(["weird blemish"]) == "weird blemish"
+    # Doppelte Befunde aus mehreren Fotos erscheinen einmal.
+    assert _schadensworte(["crack", "crack"]) == "Riss"
 
     print(
         f"alle Pruefungen bestanden (Vorgabe je Aufruf: {SCHAETZUNG:.0f} s, "

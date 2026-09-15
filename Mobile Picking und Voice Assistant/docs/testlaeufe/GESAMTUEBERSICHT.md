@@ -30,6 +30,7 @@ Schätzungen. Uhrzeiten in UTC, wie dort protokolliert; die Ortszeit liegt zwei 
 | 11 (QA/0376) | 15.09. | Plate 2x4 grün | 5 (2 geprüft) | weiß | 8 | **`match`** | **`completed`** | **4 min 8 s** |
 | 12 (QA/0377) | 15.09. | Brick 2x4 hellgelb | 5 (**4 geprüft**) | weiß | 8 | **`match`** | **`completed`** | **4 min 13 s** |
 | 13 (QA/0378) | 15.09. | Brick 2x2 hellblau | 5 (**5 geprüft**) | weiß | 8 | **`match`** | **`completed`** | **4 min 8 s** |
+| 14 (QA/0379) | 15.09. | Brick 2x2 hellblau (dieselben Fotos wie 13) | 5 (4 geprüft) | weiß | 8 | **`match`** | **`completed`** | **4 min 4 s** |
 
 Zwei Stellschrauben erklären die ganze Tabelle: **die Threadzahl** entscheidet, ob die Kette
 überhaupt fertig wird, und **der Bildhintergrund** entscheidet, ob die Artikelachse trägt.
@@ -359,9 +360,30 @@ dem schnellsten aller Läufe — auf 49,9 s und ließ Foto 5 zu.
 Der Artikel entscheidet mit: ein 2x2-Stein kostet 37–46 s je Aufruf, eine 2x4-Platte 42–83 s. Ein
 fester Wert kann das grundsätzlich nicht abbilden.
 
-**Was weiterhin liegen bleibt, ist der Zustandsvergleich.** Er steht am Ende der Kette und ist
-seit Lauf 9 in keinem Lauf mehr drangekommen. Ob er wichtiger ist als das fünfte Foto, ist eine
-fachliche Entscheidung.
+### Lauf 14: der Zustandsvergleich war gar nicht das Zeitproblem
+
+Dass der Zustandsvergleich seit Lauf 9 nie mehr drankam, sah nach einem Zeitproblem aus. Es war
+eins der Reihenfolge — und darunter ein Denkfehler: **der Vergleich darf nur eskalieren**
+(`intact` auf `damaged`, nie zurück, seit QA/0223). Steht `damaged` schon fest, kann er am Urteil
+nichts mehr ändern und liefert bestenfalls einen Satz über sich selbst. In den Läufen 9 bis 13
+hätte er also in keinem einzigen Fall etwas entschieden, hätte aber jedes Mal den letzten
+Bildaufruf gekostet.
+
+Seit dem 15.09. läuft er nur noch bei `intact`, also dort, wo er als Einziger ein sauber
+abgebrochenes Eck findet — dort ist auch Zeit für ihn. Bei `damaged` steht der Grund im Log
+(`condition_compare_skipped`), nicht im Odoo-Formular: dass die Kette einen Vergleich nicht
+brauchte, ist keine Aussage über die Ware.
+
+Lauf 14 belegt es an denselben fünf Fotos wie Lauf 13: die Zeile „Zustand: nicht verglichen
+(Zeitbudget erschöpft)" ist verschwunden, und `gouged stud` heißt jetzt `ausgekerbte Noppe`.
+
+Nebenbei vermessen: Lauf 14 prüfte vier statt fünf Fotos, weil das Backend für den neuen Code neu
+gestartet war und die Messreihe leer begann. **Eine leere Messreihe kostet genau ein Foto in der
+ersten Meldung nach einem Neustart** — mehr nicht.
+
+**Offen bleibt der Beleg für den anderen Fall.** Der Zustandsvergleich läuft jetzt nur noch bei
+`intact`; ein Lauf, der ihn tatsächlich arbeiten sieht, braucht Fotos eines Teils mit einem sauber
+abgebrochenen Eck, das die absolute Prüfung durchlässt.
 
 ### Lauf 11: der Schätzwert war zu niedrig, und es hat trotzdem gehalten
 
@@ -535,3 +557,4 @@ Zeit kosten:
 | 11 | `2026-09-15_run11_plate2x4_gruen/protokoll.md` |
 | 12 | `2026-09-15_run12_brick2x4_hellgelb/protokoll.md` |
 | 13 | `2026-09-15_run13_brick2x2_hellblau/protokoll.md` |
+| 14 | `2026-09-15_run14_zustandsvergleich/protokoll.md` |

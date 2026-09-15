@@ -110,8 +110,17 @@ docker exec mobilepickingundvoiceassistant-backend-1 python /tmp/warmlaufen.py
 
 Im Picking Assistant einen Auftrag öffnen. **Die Auftragskarte in der Liste ist kein `button`** —
 sie ist ein `article` mit Klick-Handler, und `.click()` auf das Element bleibt wirkungslos. Sie
-braucht einen echten Mausklick: `find` nach der Auftragsnummer, dann `computer` mit
-`left_click` auf `ref` oder auf die Koordinaten aus dem Screenshot.
+braucht ein echtes Klickereignis. Am zuverlaessigsten ohne Screenshot:
+
+```js
+[...document.querySelectorAll('article')]
+  .find(a => a.innerText.includes('<AUFTRAG>'))
+  .dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true, view: window}));
+```
+
+Alternativ `find` nach der Auftragsnummer und `computer` mit `left_click` auf die Koordinaten aus
+dem Screenshot. **Nicht** blind auf eine `ref` klicken, die `find` fuer die Auftragsnummer
+liefert — das ist oft ein inneres `generic`, und der Klick verpufft.
 
 Die Positionsliste **innerhalb** des Auftrags besteht dagegen aus `button`-Elementen und lässt sich
 direkt anklicken. Für Varietät eine andere Position als Position 1 nehmen:
