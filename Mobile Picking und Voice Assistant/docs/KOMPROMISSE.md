@@ -130,3 +130,45 @@ niemand als Beleg zitiert.
 - Einzelprotokolle: `docs/testlaeufe/*/protokoll.md`
 - Gesamtübersicht aller Läufe: `docs/testlaeufe/GESAMTUEBERSICHT.md`
 - Messskripte: `.claude/skills/qa-testlauf/scripts/`
+
+---
+
+## 7. Nachgemessen am 15.09.2026: die Fremdschwelle bleibt
+
+Aus den Läufen 1 bis 3 entstand der Verdacht, `EINBETT_FREMD_SCHWELLE = 0.45` sei zu niedrig: Der
+falsche Gewinner im Lagerfoto kam auf 0,4973 und damit knapp darüber, das Verfahren gab also ein
+selbstsicheres Fehlurteil statt `unsicher`. Eine Auswertung der in den Protokollen notierten Werte
+legte eine Schwelle um 0,78 nahe — sie hätte alle drei Fehlurteile verhindert, ohne einen
+dokumentierten Treffer zu kosten.
+
+**Die Nachmessung über 23 Fotos widerlegt das.** Gemessen mit
+`scripts/probe_schwellen.py` direkt gegen den Einbettungsdienst:
+
+| Bildwelt | n | kleinster Spitzenwert | größter Spitzenwert |
+|---|---|---|---|
+| unverändertes Katalogbild | 2 | 1,0000 | 1,0000 |
+| Schadensfoto freigestellt | 14 | **0,6391** | 0,9301 |
+| Schadensfoto im Lager | 7 | 0,4263 | **0,7655** |
+
+Die Bereiche überlappen von 0,639 bis 0,766. Eine Schwelle bei 0,78 hätte **vier von vierzehn**
+korrekten Treffern auf weißem Grund zerstört (0,6640, 0,6937, 0,7108, 0,7681). Die frühere
+Empfehlung beruhte auf den Bestwerten, die zufällig in den Protokollen standen.
+
+**Die Schwelle bleibt bei 0,45.** Der Hebel gegen die Fehlurteile ist und bleibt der Hintergrund
+des Meldefotos, nicht die Schwelle.
+
+### Nebenbefund: nicht jede Ansicht taugt für die Artikelachse
+
+```
+pr_r8_04.jpg  frei  mismatch  6294943  0.6391  Abstand 0.0468  4216758 auf Platz 5
+```
+
+Die Unteransicht der Platte aus Lauf 8 liefert **freigestellt** ein Fehlurteil. `_check_article`
+(`backend/app/routers/n8n_v2.py:322`) sieht nur `candidates[0]` — das zuerst hochgeladene Foto.
+Wäre diese Ansicht zuerst gekommen, hätte die Artikelachse falsch entschieden. In Lauf 8 hat die
+Odoo-Obergrenze von drei Fotos sie zufällig ausgeschlossen.
+
+**Vorschlag, gemessen begründet:** Den Einbettungsabgleich über **alle** Fotos laufen lassen und
+den besten Spitzenwert nehmen, statt blind das erste Foto zu verwenden. Kosten: 0,24 bis 0,66 s je
+Abfrage, bei drei Fotos also unter 2 s — gegen einen Fehlurteilstyp, der die ganze Bewertung
+entwertet. Noch nicht umgesetzt; die Änderung gehört gemessen, bevor sie eingebaut wird.
