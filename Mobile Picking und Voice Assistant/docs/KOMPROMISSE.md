@@ -80,7 +80,7 @@ es keine Entscheidung, sondern eine Annahme — die gehört in Abschnitt 4.
 | **n8n-Knoten** | **270 s** | `n8n/workflows/quality-assessment-v2.json` |
 
 Gemessene Auslastung des Knotenlimits: 59 % (2 Fotos), 70 % (4 Fotos, davon 3 geprüft),
-94 % (3 Fotos), 78 % (Lauf 10, 5 Fotos, davon 3 geprüft). **Die Summe der Einzelbudgets übersteigt
+94 % (3 Fotos), 78 % (Lauf 10, 5 Fotos, davon 3 geprüft), 92 % (Lauf 11, 5 Fotos, davon 2 geprüft). **Die Summe der Einzelbudgets übersteigt
 das Knotenlimit** — 90 s Text plus 240 s Bild plus zwei Textvergleiche à 90 s.
 
 **Bezahlt am 15.09. nach Lauf 9.** Die Einzelbudgets blieben, darüber liegt jetzt die Frist des
@@ -94,6 +94,13 @@ Der Preis: Fotos, die rechnerisch nicht mehr passen, werden nicht mehr versucht 
 wenn der Aufruf schneller gewesen wäre als der Schätzwert. In Lauf 10 lagen die Aufrufe bei
 40,2–46,2 s; ein viertes Foto hätte gepasst. Der Schätzwert ist bewusst konservativ: ein
 liegengebliebenes Foto wird genannt, eine abgeschnittene Antwort ist ganz weg.
+
+**Nachtrag Lauf 11: 60 s sind auch zu wenig.** Ein Bildaufruf brauchte dort 82,88 s bei 519 Token,
+ein zweiter im selben Lauf 59,11 s bei 513 Token. Das Band ist damit **42–83 s**. Ein fester Wert
+kann beides nicht abdecken; ein gleitender Mittelwert der letzten Aufrufe je Modell wäre die
+ehrlichere Grenze. Dass Lauf 11 trotzdem durchkam, liegt an der zweiten Schranke: `_in_restzeit`
+kappt einen laufenden Aufruf an der Frist und rettet die bereits fertigen Befunde. Der Schätzwert
+spart Rechenzeit, die Kappung rettet Ergebnisse — erst beide zusammen tragen.
 
 ---
 

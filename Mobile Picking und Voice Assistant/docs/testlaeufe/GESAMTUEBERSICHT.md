@@ -27,6 +27,7 @@ Schätzungen. Uhrzeiten in UTC, wie dort protokolliert; die Ortszeit liegt zwei 
 | 8 (QA/0373) | 15.09. | Plate 2x4 blau | 4 (3 geprüft) | weiß | 8 | **`match`** | **`completed`** | 3 min 10 s |
 | 9 (QA/0374) | 15.09. | Brick Bow 2x3x1 hellblau | 5 (3 geprüft) | weiß | 8 | **`match`** | `assessment unavailable` | **Abbruch nach 270 s** |
 | 10 (QA/0375) | 15.09. | Brick Bow 2x3x1 hellblau | 5 (3 geprüft) | weiß | 8 | **`match`** | **`completed`** | **3 min 31 s** |
+| 11 (QA/0376) | 15.09. | Plate 2x4 grün | 5 (2 geprüft) | weiß | 8 | **`match`** | **`completed`** | **4 min 8 s** |
 
 Zwei Stellschrauben erklären die ganze Tabelle: **die Threadzahl** entscheidet, ob die Kette
 überhaupt fertig wird, und **der Bildhintergrund** entscheidet, ob die Artikelachse trägt.
@@ -119,6 +120,7 @@ nicht zwei Teile.
 | 8 | Plate 2x4 blau | `match` | richtig, **0,8978** | 0,08 |
 | 9 | Brick Bow 2x3x1 hellblau | `match` | richtig, **0,9176** | 0,0886 |
 | 10 | Brick Bow 2x3x1 hellblau (dieselben Fotos wie 9) | `match` | richtig, **0,9176** | 0,0886 |
+| 11 | Plate 2x4 grün | `match` | richtig, **0,8829** | 0,0654 |
 
 In Lauf 5 lag *Brick 2x3 W. Inv. Bow gelb* punktgleich daneben: dieselbe Form, dieselbe Farbe,
 eine Noppenreihe weniger. Der Dienst rät nicht, sondern meldet `unsicher` mit Grund `zu_dicht`.
@@ -325,6 +327,31 @@ Nebenbefund: Die Bildaufrufe lagen mit 40,2–46,2 s (ollama) am unteren Rand de
 Der Schätzwert 60 s ist also konservativ — er lässt eher ein Foto liegen, als eine Antwort zu
 verlieren. Ein gleitender Mittelwert der letzten Aufrufe wäre genauer.
 
+### Lauf 11: der Schätzwert war zu niedrig, und es hat trotzdem gehalten
+
+Neuer Artikel (Plate 2x4 grün, in keinem Vorlauf), fünf Fotos, Antwort nach **247,9 s** mit
+`completed`. Zwei Stufen liefen aus dem Rahmen: die Textbewertung brauchte **74,94 s** statt der
+51–54 s der Vorläufe, und **Foto 1 brauchte 82,88 s** — bei 519 Token gegen 513 Token bei Foto 2,
+das 59,11 s brauchte. Fast gleiche Tokenzahl, 26 s Unterschied: **das Bildmodell schwankt auch in
+der Dauer**, nicht nur im Wortlaut.
+
+Damit ist `vision_call_estimate_ms = 60 s` gemessen zu niedrig; das Band der Bildaufrufe ist nach
+elf Läufen **42–83 s**. Gehalten hat der Lauf trotzdem, weil zwei Schranken hintereinander greifen:
+
+* Der Schätzwert entscheidet, ob ein Aufruf **startet** — er verhindert verlorene Rechenzeit.
+* `_in_restzeit` kappt einen laufenden Aufruf an der Frist — es verhindert verlorene **Ergebnisse**.
+
+Foto 2 startete mit rund 75 s Restzeit und kam mit 13 s Reserve durch. Hätte es wie Foto 1
+gedauert, wäre es gekappt worden und der fertige Befund von Foto 1 trotzdem in Odoo gelandet.
+
+**Ohne den Fix wäre Lauf 11 ein zweiter Lauf 9 geworden:** Vom alten Bildbudget (240 s ab
+≈12:55:10) waren nach Foto 2 erst 149 s verbraucht, die alte Prüfung hätte Foto 3 gestartet, und
+der Knoten hätte um ≈12:58:07 mitten hinein abgebrochen — beide fertigen Befunde verloren.
+
+Artikelachse: `match`, 0,8829, Abstand 0,0654. Auf Platz 3 landete ein Teil **derselben Farbe**
+aus demselben Auftrag (Brick 2x2 grün, 0,8083) — die Farbe zieht die Kandidaten zusammen, die Form
+trennt sie wieder.
+
 ### Erster Versuch: was Fremdlast anrichtet
 
 Lauf 7 A (QA/0371) endete nach exakt 270 s mit `assessment unavailable` — nicht wegen der drei
@@ -469,3 +496,4 @@ Zeit kosten:
 | 8 | `2026-09-15_run8_plate2x4_blau/protokoll.md` |
 | 9 | `2026-09-15_run9_brickbow_hellblau/protokoll.md` |
 | 10 | `2026-09-15_run10_budgetbremse/protokoll.md` |
+| 11 | `2026-09-15_run11_plate2x4_gruen/protokoll.md` |

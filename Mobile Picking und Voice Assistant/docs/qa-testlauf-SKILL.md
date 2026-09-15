@@ -250,9 +250,9 @@ Gemessene Kosten je Stufe (warme Modelle, `num_thread: 8`):
 
 | Stufe | Dauer |
 |---|---|
-| Textbewertung | 20–74 s |
+| Textbewertung | 20–75 s |
 | Einbettungsabgleich | unter 1 s |
-| Schadensprüfung je Foto | 42–60 s |
+| Schadensprüfung je Foto | **42–83 s** (Lauf 11: 82,9 s und 59,1 s bei fast gleicher Tokenzahl) |
 | Katalogbildvergleich | 18–33 s |
 | Artikelvergleich im Text | 5–22 s |
 
@@ -300,10 +300,13 @@ MD5-Gleichheit protokollieren.
 schreibt `Fotos: 1 weitere ungeprüft.` — kein Fehler. Für Messungen mit mehr Fotos:
 
 ```powershell
-$env:QA_MAX_ASSESSMENT_PHOTOS=5; docker compose up -d odoo
+$env:QA_MAX_ASSESSMENT_PHOTOS=5; docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d odoo
 ```
 
-Danach **zurücksetzen**: `docker compose up -d odoo` ohne die Variable.
+Danach **zurücksetzen**: derselbe Befehl ohne die Variable
+(`Remove-Item Env:QA_MAX_ASSESSMENT_PHOTOS`).
+
+**Beide Compose-Dateien angeben, immer.** Siehe Stolperfalle 11 — genau hier ist sie entstanden.
 
 **9. Das Bildmodell ist nicht stabil.** Dasselbe Foto, derselbe Prompt, `temperature: 0` lieferte
 einmal fünf ganze Sätze als Befunde und einmal zwei Wörter. Einzelmessungen taugen nicht — immer
@@ -312,6 +315,27 @@ eine Serie.
 **10. Nicht jede Ansicht taugt für die Artikelachse.** Die Unteransicht einer Platte ergab
 freigestellt ein `mismatch` mit dem erwarteten Artikel auf Platz 5. `_check_article` sieht nur das
 **erste** Foto (`n8n_v2.py:322`) — die Reihenfolge des Hochladens entscheidet mit.
+
+**11. `docker compose up -d <dienst>` ohne `-f docker-compose.dev.yml` zerlegt den Dienst.** Der
+Stack läuft aus zwei Dateien: die Basis kennt weder Host-Ports noch `edge-net`, erst
+`docker-compose.dev.yml` fügt beides hinzu. Wird ein einzelner Dienst ohne die zweite Datei neu
+erzeugt, verliert er stillschweigend Portfreigabe und Netz — der Container ist `healthy`, der Log
+sauber, und trotzdem meldet die PWA „Odoo offline", weil Caddy auf `edge-net` ihn nicht mehr
+erreicht. Am 15.09. zweimal passiert, beim Hoch- und beim Zurücksetzen der Fotoobergrenze; ein
+kompletter Neustart des Stacks heilt es **nicht**, weil er denselben Befehl wiederholt.
+
+Gegenprobe, wenn irgendetwas „offline" ist:
+
+```powershell
+docker inspect mobilepickingundvoiceassistant-odoo-1 --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}'
+docker inspect mobilepickingundvoiceassistant-odoo-1 --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+```
+
+Erwartet: **beide** Compose-Dateien, und die Netze `core-net` **und** `edge-net`. Reparatur:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d odoo db
+```
 
 ---
 
