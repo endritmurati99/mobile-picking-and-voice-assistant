@@ -207,14 +207,17 @@ für den Zustandsvergleich.
 | Bildaufrufe | 3 | 3 | **4** |
 | Bildzeit gesamt | 121,6 s | 129,3 s | **169,9 s** |
 | Gesamtlaufzeit | 3 min 15 s | 2 min 42 s | **4 min 17 s** |
-| Auslastung Bildbudget (240 s) | 51 % | 54 % | **71 %** |
-| Auslastung n8n-Knoten (270 s) | 71 % | 59 % | **95 %** |
+| Auslastung Bildbudget (240 s) | 51 % | 54 % | **72 %** |
+| Auslastung n8n-Knoten (270 s) | 71 % | 59 % | **94 %** |
 
 Einzelzeiten in Lauf 7 B: Foto 1 46,55 s, Foto 2 49,28 s, Foto 3 48,38 s, Katalogbild 25,65 s.
 Textbewertung 59,41 s, abschließender Artikelvergleich 20,43 s.
 
-**Die Reserve zum Knotenlimit beträgt 13 Sekunden.** Ein viertes Foto — rund 48 s — würde den
-Lauf abbrechen. Damit ist die Obergrenze gemessen statt geschätzt: **drei Fotos je Meldung sind
+**Die bindende Grenze ist das Knotenlimit, nicht das Bildbudget.** Webhook bis Antwort:
+254,5 s von 270 s, **Reserve 15,5 s**. Das Bildbudget hat dagegen noch 66,7 s frei (173,3 s von
+240 s verbraucht). Grund: Die beiden Textaufrufe kosten zusammen 79,9 s, zählen gegen das
+Knotenlimit, stecken aber in keinem Budget. Ein viertes Foto — rund 48 s — würde das Bildbudget
+aushalten, das Knotenlimit aber um gut 30 s reißen. Damit ist die Obergrenze gemessen statt geschätzt: **drei Fotos je Meldung sind
 das Maximum, das die Kette in dieser Konfiguration trägt.** Die Hochrechnung aus Lauf 6 („bei
 vier Fotos noch 20-30 s Reserve") war zu optimistisch; sie hatte den Zustandsvergleich mit 33 s
 angesetzt statt der hier gemessenen 25,7 s und die Fotos mit 40 s statt 48 s.
