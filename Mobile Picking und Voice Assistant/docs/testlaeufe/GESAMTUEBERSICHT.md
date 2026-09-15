@@ -24,6 +24,7 @@ Schätzungen. Uhrzeiten in UTC, wie dort protokolliert; die Ortszeit liegt zwei 
 | 6 (QA/0370) | 15.09. | Roof Tile 4x2 rot | 2 | weiß | 8 | **`match`** | **`completed`** | 2 min 42 s |
 | 7 A (QA/0371) | 15.09. | Brick 2x2 blau | 3 | weiß | 8 | `match` | `assessment unavailable` (Fremdlast) | Abbruch nach 270 s |
 | 7 B (QA/0372) | 15.09. | Brick 2x2 blau | 3 | weiß | 8 | **`match`** | **`completed`** | 4 min 17 s |
+| 8 (QA/0373) | 15.09. | Plate 2x4 blau | 4 (3 geprüft) | weiß | 8 | **`match`** | **`completed`** | 3 min 10 s |
 
 Zwei Stellschrauben erklären die ganze Tabelle: **die Threadzahl** entscheidet, ob die Kette
 überhaupt fertig wird, und **der Bildhintergrund** entscheidet, ob die Artikelachse trägt.
@@ -113,6 +114,7 @@ nicht zwei Teile.
 | 5 | Brick 2x4 Bows gelb | `unsicher` | richtig, 0,9318 | **0,0000** |
 | 6 | Roof Tile 4x2 rot | `match` | richtig, 0,846 | **0,2396** |
 | 7 | Brick 2x2 blau | `match` | richtig, 0,8467 | 0,0223 |
+| 8 | Plate 2x4 blau | `match` | richtig, **0,8978** | 0,08 |
 
 In Lauf 5 lag *Brick 2x3 W. Inv. Bow gelb* punktgleich daneben: dieselbe Form, dieselbe Farbe,
 eine Noppenreihe weniger. Der Dienst rät nicht, sondern meldet `unsicher` mit Grund `zu_dicht`.
@@ -213,6 +215,33 @@ für den Zustandsvergleich.
 Einzelzeiten in Lauf 7 B: Foto 1 46,55 s, Foto 2 49,28 s, Foto 3 48,38 s, Katalogbild 25,65 s.
 Textbewertung 59,41 s, abschließender Artikelvergleich 20,43 s.
 
+### Lauf 8 mit vier Fotos: die Grenze liegt woanders
+
+Erwartet war ein Abbruch. Eingetreten ist: **3 min 10 s, `completed`, ein Foto ungeprüft.**
+Im Formular steht `Fotos: 1 weitere ungeprüft.` Die Ursache steht in
+`odoo/addons/quality_alert_custom/models/quality_alert.py:237`:
+
+```python
+_MAX_ASSESSMENT_PHOTOS = 3
+```
+
+`api_get_assessment_media` übergibt höchstens drei Anhänge an die Kette, zählt aber alle
+(`photo_total`). **Die Fotoanzahl war also längst gedeckelt, bevor ich sie gemessen habe.** Die
+Schlussfolgerung aus Lauf 7 — drei Fotos sind das Maximum — war im Ergebnis richtig, in der
+Begründung falsch: Es deckelt diese Konstante, nicht das Zeitbudget. Vier Fotos können die Kette
+gar nicht überlasten.
+
+| | 1 Foto | 2 Fotos | 3 Fotos | 4 Fotos |
+|---|---|---|---|---|
+| übergeben | 1 | 2 | 3 | **3 von 4** |
+| Bildaufrufe | 3 | 3 | 4 | 4 |
+| Bildzeit | 121,6 s | 129,3 s | 169,9 s | 156,5 s |
+| Gesamt | 3 min 15 s | 2 min 42 s | 4 min 17 s | 3 min 10 s |
+| Knotenlimit-Auslastung | 71 % | 59 % | 94 % | 70 % |
+
+Lauf 8 war mit einem Foto mehr **schneller** als Lauf 7: Die Streuung zwischen zwei Läufen
+(Textbewertung 25,1 s gegen 59,4 s) ist größer als der Unterschied zwischen drei und vier Fotos.
+
 **Die bindende Grenze ist das Knotenlimit, nicht das Bildbudget.** Webhook bis Antwort:
 254,5 s von 270 s, **Reserve 15,5 s**. Das Bildbudget hat dagegen noch 66,7 s frei (173,3 s von
 240 s verbraucht). Grund: Die beiden Textaufrufe kosten zusammen 79,9 s, zählen gegen das
@@ -283,6 +312,13 @@ Schaden: SICHTBAR -- Riss, broken piece, aufgerissene Stelle.
 
 Drei Begriffe statt neun. `broken piece` steht nicht im Glossar und bleibt wörtlich stehen.
 
+**Grenze des Glossars, sichtbar in Lauf 8:** `gemma4:12b` lieferte dort ganze Sätze als
+Einzelbefunde (`crack running through the middle`, `broken piece missing from front left corner`,
+…). Die Entdopplung griff, aber ein Satz steht in keinem Glossar und bleibt wörtlich stehen — fünf
+englische Sätze im Formular. Offen: entweder `DAMAGE_PROMPT` in `vision_client.py` verlangt
+ausdrücklich Ein- bis Zweiwortbefunde statt „array of short strings", oder `_schadensworte` kürzt
+zu lange Einträge. Die erste Variante ändert, was das Modell liefert, statt nachträglich zu raten.
+
 ---
 
 ## 10. Offene Punkte
@@ -303,10 +339,9 @@ Drei Begriffe statt neun. `broken piece` steht nicht im Glossar und bleibt wört
    33,2 s, weil der Katalogbild-Befund nicht im Prozess-Cache `_SOLL_BEFUNDE` lag
    (`n8n_v2.py:812`). Ein Warmlauf über die aktiven Artikel nach dem Start spart diese Zeit bei
    der jeweils ersten Meldung je Artikel.
-5. **Fotoanzahl deckeln — jetzt gemessen.** Drei Fotos lasten den n8n-Knoten zu 95 % aus
-   (Abschnitt 7), das vierte würde den Lauf abbrechen. Die Zählung übersprungener Fotos steht
-   bereits im Code (`n8n_v2.py:727-730`); eine harte Grenze von drei geprüften Fotos macht das
-   Verhalten vorhersagbar, statt es vom Zeitbudget abhängen zu lassen.
+5. ~~Fotoanzahl deckeln~~ — **erledigt, war bereits umgesetzt.** `_MAX_ASSESSMENT_PHOTOS = 3`
+   in `odoo/addons/quality_alert_custom/models/quality_alert.py:237`. In Lauf 8 mit vier Fotos
+   belegt: drei geprüft, `Fotos: 1 weitere ungeprüft.` im Formular.
 6. **Verwaiste Arbeit abbrechen.** In Lauf 7 A gab der n8n-Knoten um 08:09:00 auf, das Backend
    rechnete aber bis 08:09:40 weiter — 40 s auf einer ohnehin knappen CPU, deren Ergebnis niemand
    mehr abholt. Ein `request.is_disconnected()` vor jedem teuren Bildaufruf würde das beenden.
