@@ -17,12 +17,17 @@ Satz ueber "ragged, torn or gouged" traf das Modell null von vier
 Pruefbildern; mit ihm drei von vier, ohne einen einzigen Fehlalarm auf den
 heilen Teilen.
 
-**Zwei getrennte MODELLE, seit dem 2026-08-14.** `describe` fragt
-`vision_article_model` (`gemma4:12b`), `inspect_damage` fragt `vision_model`
-(`qwen2.5vl:7b`). Begruendung und Messwerte stehen bei den beiden Feldern in
-`config.py`; kurz: auf der Artikelachse haelt `qwen2.5vl:7b` einen Riss fuer
-ein Artikelmerkmal (Schadenstoleranz 2/6 gegen 5/6), auf der Schadensachse ist
-es bei 1024 px eingemessen und `gemma4:12b` ungemessen.
+**Zwei getrennte FELDER, ein Modell.** `describe` fragt
+`vision_article_model`, `inspect_damage` fragt `vision_model`. Beide stehen
+seit dem 2026-08-14 auf `gemma4:12b` (`config.py`). Die Trennung bleibt, damit
+sich die Achsen einzeln umstellen lassen.
+
+Hier stand bis zum 2026-09-15, `inspect_damage` frage `qwen2.5vl:7b` und
+`gemma4:12b` sei auf der Schadensachse ungemessen. Beides ist ueberholt: Der
+Wechsel am 2026-08-14 ist bei `vision_model` in `config.py` mit acht von Hand
+beschrifteten Bildern belegt -- `qwen2.5vl:7b` 2/4 Schaeden, `gemma4:12b` 4/4,
+beide ohne Fehlalarm. Auf der Artikelachse haelt `qwen2.5vl:7b` einen Riss fuer
+ein Artikelmerkmal (Schadenstoleranz 2/6 gegen 5/6).
 
 Jeder Fehler endet in `ok=False` mit leeren Feldern. Ein halber Befund waere
 die Einladung, doch etwas daraus zu schliessen.
@@ -30,14 +35,63 @@ die Einladung, doch etwas daraus zu schliessen.
 from __future__ import annotations
 
 import base64
+import math
+import os
 import json
 import logging
 import time
+from collections import deque
 from dataclasses import dataclass, field
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+# Wie lange die letzten Schadensaufrufe je Modell gebraucht haben.
+#
+# Der Aufrufer muss vor jedem Bildaufruf wissen, ob die Restzeit noch fuer
+# einen GANZEN Aufruf reicht. Bis zum 2026-09-15 stand dafuer ein fester Wert
+# in der Konfiguration, und Lauf 11 hat ihn widerlegt: derselbe Prompt, fast
+# dieselbe Tokenzahl (519 gegen 513), einmal 82,88 s und einmal 59,11 s. Ein
+# fester Wert deckt entweder den schnellen Fall ab und laesst Aufrufe starten,
+# die ihn reissen, oder den langsamen und laesst Fotos liegen, die gepasst
+# haetten.
+#
+# Prozesslokal und absichtlich klein: nach einem Neustart gilt wieder die
+# Vorgabe aus der Konfiguration. Ein Messwert, der einen Neustart ueberlebt,
+# muesste gepflegt werden -- und eine kalte Maschine rechnet ohnehin anders.
+_DAUERN: dict[str, deque[float]] = {}
+# Ab wievielen Messungen der gemessene Wert die Vorgabe abloest. Unter drei
+# Werten ist der 80-%-Wert kein Quantil, sondern ein Zufall.
+_MINDESTMESSUNGEN = 3
+
+
+def notiere_schadensdauer(model: str, sekunden: float) -> None:
+    """Haelt die Dauer EINES abgeschlossenen Schadensaufrufs fest.
+
+    Abgebrochene Aufrufe gehoeren NICHT hierher: ihre Dauer ist die Restzeit,
+    die sie noch hatten, nicht die, die sie gebraucht haetten. Wer sie
+    mitzaehlt, zieht die Schaetzung genau dann nach unten, wenn es eng wird.
+    """
+    _DAUERN.setdefault(model, deque(maxlen=8)).append(sekunden)
+
+
+def geschaetzte_schadensdauer(model: str, vorgabe: float) -> float:
+    """Womit ein Aufruf dieses Modells zu rechnen hat, in Sekunden.
+
+    Der 80-%-Wert der letzten acht Messungen: hoch genug, dass ein einzelner
+    schneller Aufruf die Schaetzung nicht zu tief zieht, und robust genug, dass
+    ein einzelner Ausreisser nach oben sie nicht fuer die naechsten acht
+    Aufrufe bestimmt. Der Hoechstwert waere das nicht -- nach Lauf 11 stuende
+    die Schaetzung bei 83 s, und ein Foto, das in 59 s durchgelaufen waere,
+    bliebe liegen.
+
+    Vor `_MINDESTMESSUNGEN` Messungen gilt die uebergebene Vorgabe.
+    """
+    werte = sorted(_DAUERN.get(model, ()))
+    if len(werte) < _MINDESTMESSUNGEN:
+        return vorgabe
+    return werte[math.ceil(0.8 * len(werte)) - 1]
 
 # EIN Bild je Aufruf, und der Vergleich passiert spaeter im Text.
 #
@@ -74,8 +128,17 @@ DAMAGE_PROMPT = (
     '  "surface_description": describe the surface: is it smooth and continuous '
     "everywhere, or is there a region that looks torn, split, gouged, ragged or "
     "broken open?,\n"
-    '  "anomalies": array of short strings for every region that breaks the '
-    "smooth surface. Empty array if the surface is continuous everywhere.,\n"
+    # "short strings" war die einzige Laengenvorgabe und blieb unbestimmt.
+    # Am 2026-09-15 lieferte `gemma4:12b` darauf beim Plattenfoto aus Lauf 8
+    # ganze Saetze ("a large cracked area with missing pieces", 7 Woerter),
+    # bei denselben Optionen und `temperature: 0` auf anderen Fotos aber
+    # weiter ein Wort. Die Vorgabe nennt die Laenge deshalb jetzt in Zahlen
+    # und gibt Beispiele. Die Entscheidungsregel unten bleibt unberuehrt --
+    # sie betrifft `damaged`, nicht dieses Feld.
+    '  "anomalies": array of short strings, ONE TO THREE WORDS EACH, for '
+    "every region that breaks the smooth surface "
+    '(for example "crack", "broken edge", "missing stud"). '
+    "Empty array if the surface is continuous everywhere.,\n"
     '  "damaged": true or false,\n'
     '  "confidence": number 0.0 to 1.0\n\n'
     "Decisive rule: a ragged, torn or gouged area on an otherwise smooth moulded "
@@ -89,6 +152,14 @@ DAMAGE_PROMPT = (
 # Kacheln und passt nicht in die Standardgroesse von 4096. 8192 hat in beiden
 # Messungen gereicht.
 _NUM_CTX = 8192
+# Gemessen am 2026-09-15 auf leerem Ollama, qwen2.5:7b, 60 Token, gleicher
+# Prompt: ohne diese Option 1,21 tok/s, mit num_thread=8 7,40 tok/s (Faktor 6).
+# Grund: Docker meldet 14 CPUs, der Host ist ein Intel Core Ultra 7 255H mit
+# 6 P-Cores, 8 E-Cores, 2 LP-E-Cores. llama.cpp synchronisiert bei jedem Token,
+# der schnellste Kern wartet auf den langsamsten. Die Umgebungsvariable
+# OLLAMA_NUM_THREAD wirkt NICHT -- gemessen am selben Tag, 1,21 tok/s trotz
+# gesetzter Variablen. Nur diese Option im Request wirkt.
+_NUM_THREAD = int(os.environ.get("OLLAMA_NUM_THREAD", "8"))
 
 
 @dataclass(frozen=True)
@@ -152,7 +223,11 @@ class VisionClient:
             "images": [base64.b64encode(image).decode("ascii") for image in images],
             "stream": False,
             "format": "json",
-            "options": {"temperature": 0, "num_ctx": _NUM_CTX},
+            "options": {
+                "temperature": 0,
+                "num_ctx": _NUM_CTX,
+                "num_thread": _NUM_THREAD,
+            },
         }
         try:
             async with httpx.AsyncClient(
@@ -227,7 +302,12 @@ class VisionClient:
         )
 
     async def inspect_damage(self, candidate: bytes) -> DamageCheck:
+        begonnen = time.monotonic()
         parsed = await self._ask(DAMAGE_PROMPT, [candidate], self._model)
+        # Auch ein Aufruf ohne verwertbare Antwort hat seine Zeit gekostet und
+        # gehoert in die Schaetzung. Ein ABGEBROCHENER kommt hier nie an --
+        # `_in_restzeit` bricht die Koroutine ab, und das ist richtig so.
+        notiere_schadensdauer(self._model, time.monotonic() - begonnen)
         if parsed is None or not isinstance(parsed.get("damaged"), bool):
             return DamageCheck(ok=False)
         raw = parsed.get("anomalies")

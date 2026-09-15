@@ -80,7 +80,11 @@ from app.models.events import (
 )
 from app.config import settings
 from app.services.llm_client import LlmClient
-from app.services.vision_client import DamageCheck, VisionClient
+from app.services.vision_client import (
+    DamageCheck,
+    VisionClient,
+    geschaetzte_schadensdauer,
+)
 from app.services.assessment_media import DAMAGE_MAX_EDGE, MediaError, prepare_image
 from app.services.embed_catalogue import katalog_sicherstellen
 from app.services.assessment_reconciliation import PhotoFinding, reconcile
@@ -255,7 +259,8 @@ async def apply_callback(
 
 
 async def _collect_photo_finding(
-    odoo, vision: VisionClient, llm: LlmClient, body, runtime=None
+    odoo, vision: VisionClient, llm: LlmClient, body, runtime=None,
+    anrufer_frist: float | None = None,
 ) -> tuple[PhotoFinding, bool]:
     """Holt die Bilder und laesst das Bildmodell darauf schauen.
 
@@ -263,6 +268,10 @@ async def _collect_photo_finding(
     zu sehen war -- dann steht der Grund im Klartext und das Texturteil bleibt
     allein stehen. Ein halber Bildbefund entsteht hier nie: jeder Fehlerpfad
     endet in "unavailable", nicht in einer Vermutung.
+
+    `anrufer_frist` ist der `time.monotonic()`-Zeitpunkt, an dem der n8n-Knoten
+    aufgibt. Fehlt sie, gilt allein das Bildbudget -- so laufen Aufrufer ohne
+    eigene Frist (Messskripte) unveraendert weiter.
     """
     try:
         media = await odoo.execute_kw(
@@ -317,7 +326,12 @@ async def _collect_photo_finding(
             reference_damage = None
 
     lines: list[str] = []
+    # Die fruehere der beiden Fristen gewinnt. Das Bildbudget schuetzt die
+    # Lease, die Anruferfrist den, der auf die Antwort wartet: wer sie
+    # ueberlaeuft, rechnet in einen abgeschnittenen Kanal hinein.
     deadline = time.monotonic() + max(0.0, settings.vision_budget_ms / 1000.0)
+    if anrufer_frist is not None:
+        deadline = min(deadline, anrufer_frist)
     article = await _check_article(
         vision, llm, media, candidates[0], lines, deadline,
         runtime=runtime, odoo=odoo, instanz=getattr(body, "odoo_instance", "") or "",
@@ -356,6 +370,45 @@ async def _collect_photo_finding(
 
 def _no_finding(note: str) -> PhotoFinding:
     return PhotoFinding(article="unavailable", damage="unavailable", note=note)
+
+
+def _reicht_die_zeit(deadline: float, stelle: str = "", offen: int = 0) -> bool:
+    """Passt noch EIN Bildaufruf in die Restzeit?
+
+    Die richtige Frage vor einem Aufruf ist nicht "ist das Budget erschoepft",
+    sondern "reicht es fuer den naechsten". Die alte Form liess jeden Aufruf
+    los, solange auch nur eine Sekunde uebrig war. In Lauf 9 startete Foto 4
+    mit 30,6 s Restzeit fuer einen Aufruf, der 42-60 s braucht: er dekodierte
+    20,74 s, verarbeitete den Prompt zu 99 % und wurde 24,2 s nach dem
+    n8n-Abbruch serverseitig beendet -- 65,6 s Rechenzeit ohne Ergebnis, ohne
+    eine einzige Zeile im Backend-Log.
+
+    Womit zu rechnen ist, sagt seit dem 2026-09-15 die MESSUNG der letzten
+    Aufrufe (`geschaetzte_schadensdauer`), nicht mehr der feste Wert aus der
+    Konfiguration -- der gilt nur noch, solange zu wenige Messungen vorliegen.
+    Lauf 11 hat den festen Wert widerlegt: 82,88 s gegen 59,11 s bei fast
+    gleicher Tokenzahl im selben Lauf.
+
+    `stelle` und `offen` landen im Log, wenn die Antwort "nein" lautet. Bis
+    dahin stand ueber ein zurueckgestelltes Foto KEINE Zeile im Backend-Log --
+    die Zahl tauchte nur im Odoo-Formular auf, und wer den Grund suchte, fand
+    nichts.
+    """
+    rest = deadline - time.monotonic()
+    schaetzung = geschaetzte_schadensdauer(
+        settings.vision_model, settings.vision_call_estimate_ms / 1000.0
+    )
+    if rest >= schaetzung:
+        return True
+    if stelle:
+        logger.info(json.dumps({
+            "event_type": "vision_budget_stop",
+            "stelle": stelle,
+            "restzeit_s": round(rest, 1),
+            "schaetzung_s": round(schaetzung, 1),
+            "offene_fotos": offen,
+        }))
+    return False
 
 
 async def _in_restzeit(aufruf, deadline: float):
@@ -605,7 +658,7 @@ async def _artikel_ueber_text(
         reference_text = hinterlegt
         reference_source = "odoo"
     else:
-        if time.monotonic() >= deadline:
+        if not _reicht_die_zeit(deadline, "artikel_katalogbild"):
             lines.append(
                 "Artikel: nicht geprüft (Zeitbudget erschöpft). "
                 f"Foto zeigt: {candidate_seen.text}."
@@ -686,6 +739,129 @@ def _ohne_artikelnummer(label: str) -> str:
     return gekuerzt.strip()
 
 
+# Die Befunde kommen englisch und einzeln je Foto aus `inspect_damage`. Zwei
+# Fotos desselben Risses liefern denselben Begriff zweimal -- in QA/0370 stand
+# deshalb "crack, broken edge, crack, split" im Odoo-Formular. Wer im Lager
+# darauf schaut, liest eine Aufzaehlung, die laenger wirkt als der Schaden ist.
+#
+# Also: Dopplungen raus (Reihenfolge bleibt, das erste Vorkommen zaehlt) und
+# die haeufigen Begriffe uebersetzen. Unbekanntes bleibt woertlich stehen --
+# ein falsch geratenes deutsches Wort waere schlimmer als ein englisches, das
+# man nachschlagen kann.
+_SCHADENSWORTE = {
+    "crack": "Riss",
+    "cracks": "Risse",
+    "crack/split": "Riss",
+    "split": "Bruch",
+    "broken edge": "gebrochene Kante",
+    "broken corner": "gebrochene Ecke",
+    "chip": "Abplatzer",
+    "chipped edge": "abgeplatzte Kante",
+    "chipped corner": "abgeplatzte Ecke",
+    "gouge": "Kerbe",
+    "gouged area": "Kerbe",
+    "dent": "Delle",
+    "scratch": "Kratzer",
+    "scratches": "Kratzer",
+    "hole": "Loch",
+    "tear": "Riss",
+    "torn area": "aufgerissene Stelle",
+    "broken stud": "abgebrochene Noppe",
+    "missing stud": "fehlende Noppe",
+    "deformation": "Verformung",
+    "rough area": "raue Stelle",
+    "ragged edge": "ausgefranste Kante",
+    # Gemessen am 2026-09-15 ueber alle 80 Alerts mit Bildbefund: von 29
+    # verschiedenen Begriffen uebersetzte das Glossar fuenf. Die langen
+    # Phrasen ("a large cracked area with missing material") stammen aus der
+    # Zeit vor der Wortgrenze im Prompt und kommen nicht wieder. Diese hier
+    # sind kurz genug, dass der heutige Prompt sie erneut liefern kann.
+    "broken": "gebrochen",
+    "broken piece": "gebrochenes Stück",
+    "gouged stud": "ausgekerbte Noppe",
+}
+
+# Zweiwortbefunde setzt der Prompt selbst zusammen: ein Zustandswort und ein
+# Bauteil ("gouged stud", QA/0378). Sie alle einzeln einzutragen ist ein
+# Wettlauf, den das Glossar nicht gewinnt -- die Kombination entsteht im
+# Modell, nicht in einer Liste.
+#
+# Die Bauteile hier sind ALLE FEMININ. Das ist kein Zufall, sondern die
+# Bedingung dafuer, dass die Zusammensetzung ohne Grammatikwissen funktioniert:
+# die Adjektivendung "-e" passt dann immer. Ein Neutrum wie "Stück" ergaebe
+# "gebrochene Stück"; solche Faelle stehen oben als ganzer Eintrag.
+_ZUSTANDSWORTE = {
+    "broken": "gebrochene",
+    "cracked": "gerissene",
+    "chipped": "abgeplatzte",
+    "gouged": "ausgekerbte",
+    "torn": "aufgerissene",
+    "missing": "fehlende",
+    "scratched": "zerkratzte",
+    "jagged": "ausgefranste",
+    "ragged": "ausgefranste",
+    "rough": "raue",
+    "deformed": "verformte",
+    "dented": "eingedellte",
+}
+_BAUTEILE = {
+    "stud": "Noppe",
+    "studs": "Noppen",
+    "edge": "Kante",
+    "edges": "Kanten",
+    "corner": "Ecke",
+    "corners": "Ecken",
+    "surface": "Oberfläche",
+    "tube": "Röhre",
+    "tubes": "Röhren",
+    "side": "Seite",
+    "area": "Stelle",
+    "wall": "Wand",
+    "face": "Fläche",
+}
+
+
+def _zusammengesetzt(wort: str) -> str | None:
+    """`gouged stud` zu `ausgekerbte Noppe`, sonst `None`.
+
+    Nur zwei Woerter, nur wenn BEIDE bekannt sind. Ein halb uebersetzter Befund
+    ("ausgekerbte stud") waere schlechter als der englische Originalbefund:
+    beim englischen weiss der Mensch im Lager, dass das Modell so geantwortet
+    hat, beim halben nicht.
+    """
+    teile = wort.split()
+    if len(teile) != 2:
+        return None
+    zustand = _ZUSTANDSWORTE.get(teile[0])
+    bauteil = _BAUTEILE.get(teile[1])
+    if not zustand or not bauteil:
+        return None
+    # Singular wie Plural tragen im Femininum dieselbe Adjektivendung:
+    # "ausgekerbte Noppe", "ausgekerbte Noppen".
+    return f"{zustand} {bauteil}"
+
+
+def _schadensworte(befunde: list[str]) -> str:
+    """Englische Einzelbefunde zu einer lesbaren deutschen Aufzaehlung.
+
+    Drei Stufen, in dieser Reihenfolge: der ganze Eintrag aus dem Glossar, dann
+    die Zusammensetzung aus Zustandswort und Bauteil, sonst der Originalbefund.
+    Die letzte Stufe ist Absicht -- ein unbekannter englischer Befund gehoert
+    ins Formular, nicht in eine Luecke.
+    """
+    gesehen: dict[str, str] = {}
+    for rohwort in befunde:
+        wort = " ".join(rohwort.split()).strip(" .,;").lower()
+        if not wort or wort in gesehen:
+            continue
+        gesehen[wort] = (
+            _SCHADENSWORTE.get(wort)
+            or _zusammengesetzt(wort)
+            or rohwort.strip(" .,;")
+        )
+    return ", ".join(gesehen.values())
+
+
 async def _check_damage(
     vision,
     llm,
@@ -704,19 +880,27 @@ async def _check_damage(
 
     Zwei Stufen. Zuerst schaut das Bildmodell jedes Foto FUER SICH an und
     beantwortet die absolute Frage: bricht hier etwas die glatte Oberflaeche?
-    Liegt ein Katalogbild vor, folgt der Soll/Ist-Vergleich des Zustands
-    (`_zustandsvergleich`) und darf den Befund NUR VERSCHAERFEN. Die absolute
-    Frage allein reicht nicht: ein sauber abgebrochenes Eck laesst sie durch,
-    weil eine glatte Bruchflaeche keine ausgefranste Stelle ist. Umgekehrt darf
-    der Vergleich nichts zuruecknehmen -- am 2026-08-08 (QA/0223) hat er einen
-    gefundenen Riss wegerklaert; die Begruendung steht in `_zustandsvergleich`.
+    Sagt sie `intact` und liegt ein Katalogbild vor, folgt der Soll/Ist-
+    Vergleich des Zustands (`_zustandsvergleich`). Die absolute Frage allein
+    reicht dort nicht: ein sauber abgebrochenes Eck laesst sie durch, weil eine
+    glatte Bruchflaeche keine ausgefranste Stelle ist.
 
-    `deadline` begrenzt die Reihe als Ganzes. `garantiert` erzwingt das erste
-    Foto auch bei abgelaufenem Budget -- ein Budget, das gar keinen Bildaufruf
-    zulaesst, waere dasselbe wie eine abgeschaltete Bildpruefung, nur
-    unausgesprochen. Gesetzt wird es nur, wenn der Artikelabgleich ausfiel;
-    sonst hat der den garantierten Aufruf schon getragen. Liefert neben dem
-    Befund die Zahl der Fotos, die dafuer liegen blieben.
+    Steht `damaged` bereits fest, laeuft der Vergleich NICHT mehr. Er darf nur
+    eskalieren -- am 2026-08-08 (QA/0223) hat er einen gefundenen Riss
+    wegerklaert, seitdem darf er nichts zuruecknehmen -- und kann an einem
+    bereits gefundenen Schaden also nichts mehr aendern. Bis zum 2026-09-15
+    kostete er trotzdem einen vollen Bildaufruf am Ende der Kette; in den
+    Laeufen 9 bis 13 kam er deshalb kein einziges Mal mehr an die Reihe.
+
+    `deadline` begrenzt die Reihe als Ganzes. Jeder weitere Aufruf wird nur
+    noch gestartet, wenn die Restzeit fuer einen GANZEN Aufruf reicht
+    (`_reicht_die_zeit`). `garantiert` nimmt das erste Foto von dieser Pruefung
+    aus -- ein Budget, das gar keinen Bildaufruf zulaesst, waere dasselbe wie
+    eine abgeschaltete Bildpruefung, nur unausgesprochen. Es laeuft aber
+    ebenfalls gegen die Frist und wird gekappt, statt den Anrufer zu
+    ueberleben. Gesetzt wird es nur, wenn der Artikelabgleich ausfiel; sonst
+    hat der den garantierten Aufruf schon getragen. Liefert neben dem Befund
+    die Zahl der Fotos, die dafuer liegen blieben.
     """
     damage = "unavailable"
     seen: list[str] = []
@@ -724,22 +908,23 @@ async def _check_damage(
     ungeprueft = 0
     budget_gerissen = False
     for index, candidate in enumerate(candidates):
-        if not (garantiert and index == 0) and time.monotonic() >= deadline:
+        # Der garantierte erste Aufruf darf STARTEN, auch wenn die Restzeit
+        # rechnerisch nicht mehr fuer ihn reicht -- ein Budget, das gar keinen
+        # Bildaufruf zulaesst, waere eine abgeschaltete Bildpruefung unter
+        # anderem Namen. Gekappt wird er trotzdem: seit Lauf 9 ist gemessen,
+        # was ein ungefesselter Aufruf kostet, der den Anrufer ueberlebt.
+        garantie = garantiert and index == 0
+        if not garantie and not _reicht_die_zeit(
+            deadline, "schadenspruefung", len(candidates) - index
+        ):
             ungeprueft += len(candidates) - index
             budget_gerissen = True
             break
-        # Der garantierte erste Aufruf laeuft ohne Fessel -- ein Budget, das
-        # gar keinen Bildaufruf zulaesst, waere eine abgeschaltete Bildpruefung
-        # unter anderem Namen. Jeder weitere Aufruf muss das Budget einhalten,
-        # auch waehrend er laeuft.
-        if garantiert and index == 0:
-            check = await vision.inspect_damage(candidate)
-        else:
-            check = await _in_restzeit(vision.inspect_damage(candidate), deadline)
-            if check is None:
-                ungeprueft += len(candidates) - index
-                budget_gerissen = True
-                break
+        check = await _in_restzeit(vision.inspect_damage(candidate), deadline)
+        if check is None:
+            ungeprueft += len(candidates) - index
+            budget_gerissen = True
+            break
         if not check.ok:
             # Ein Foto ohne Antwort ist ein UNGEPRUEFTES Foto. Vorher wurde es
             # uebersprungen und nirgends gezaehlt: bei drei Fotos, von denen
@@ -759,7 +944,18 @@ async def _check_damage(
     # Vergleich darf `damage` noch drehen, und die Zeile darunter beschreibt
     # dann den gedrehten Stand. Seine eigene Zeile kommt danach.
     zustandszeile: str | None = None
-    if damage != "unavailable" and reference is not None:
+    # NUR bei `intact`. Der Vergleich darf ausschliesslich eskalieren, also
+    # `intact` auf `damaged` heben -- steht `damaged` schon fest, kann er am
+    # Urteil nichts mehr aendern und liefert bestenfalls einen Satz ueber sich
+    # selbst ("bestaetigt den Befund"). Dafuer kostete er bis zum 2026-09-15
+    # einen vollen Bildaufruf, und zwar den letzten: in den Laeufen 9 bis 13
+    # kam er deshalb kein einziges Mal mehr an die Reihe, weil die Fotos die
+    # Frist vorher aufgebraucht hatten.
+    #
+    # Er ist damit nicht abgeschafft, sondern zurueck an der Stelle, an der er
+    # etwas entscheidet: ein sauber abgebrochenes Eck, das die absolute
+    # Pruefung durchgelassen hat. Genau dort ist jetzt auch Zeit fuer ihn.
+    if damage == "intact" and reference is not None:
         damage, zustandszeile = await _zustandsvergleich(
             vision=vision,
             llm=llm,
@@ -769,6 +965,15 @@ async def _check_damage(
             deadline=deadline,
             product_label=product_label,
         )
+    elif damage == "damaged" and reference is not None:
+        # Kein stiller Wegfall: dass der Vergleich NICHT lief und warum, steht
+        # im Protokoll. Im Odoo-Formular steht dazu bewusst nichts -- "der
+        # Vergleich war nicht noetig" ist eine Aussage ueber die Kette, nicht
+        # ueber die Ware, und der Schadensbefund steht eine Zeile darueber.
+        logger.info(json.dumps({
+            "event_type": "condition_compare_skipped",
+            "grund": "schaden_bereits_sichtbar",
+        }, ensure_ascii=False))
 
     if damage == "unavailable":
         lines.append(
@@ -782,7 +987,7 @@ async def _check_damage(
         # "feather" zurueck. Als ganze Zeile ("Schadenspruefung: feather.")
         # liest das im Lager niemand als Schaden; hinter der Aussage ist es ein
         # Hinweis, wo man hinschauen soll.
-        detail = ", ".join(seen)
+        detail = _schadensworte(seen)
         lines.append(
             "Schaden: SICHTBAR"
             + (f" -- {detail}" if detail else "")
@@ -872,13 +1077,17 @@ async def _zustandsvergleich(
     Ausgewertet wird der Befund des Fotos, das Schaden zeigte -- sonst der erste
     lesbare. Jeder Fehlerpfad gibt `damage` unveraendert zurueck und sagt im
     Klartext, warum: ein ausgefallener Vergleich ist kein Freispruch.
+
+    Der einzige Aufrufer ruft seit dem 2026-09-15 nur noch mit `intact` auf;
+    die Zweige fuer `damaged` bleiben stehen, weil die Funktion mit jedem
+    Eingangswert richtig bleiben soll, und beschreiben die Asymmetrie.
     """
     ist = next((befund for befund in befunde if befund.damaged), None)
     if ist is None:
         ist = befunde[0] if befunde else None
     if ist is None or not ist.description:
         return damage, None
-    if time.monotonic() >= deadline:
+    if not _reicht_die_zeit(deadline, "zustandsvergleich"):
         return damage, "Zustand: nicht verglichen (Zeitbudget erschöpft)."
 
     soll = await _soll_befund(vision, reference, deadline)
@@ -949,6 +1158,11 @@ async def assess_quality(
     Text bewerten, abgleichen. Das Textmodell bekommt den Bildbefund NICHT --
     nur deshalb laesst sich sein Urteil anschliessend daran pruefen.
     """
+    # Nullpunkt der Anruferfrist: hier wartet der n8n-Knoten bereits. Die
+    # Wartezeit an der Sperre zaehlt mit -- sie verbraucht seine Geduld genauso
+    # wie ein Modellaufruf.
+    anrufer_frist = time.monotonic() + max(0.0, settings.caller_budget_ms / 1000.0)
+
     body = _verified_body(
         QualityAssessmentV2Request, verified, idempotency_key, "event_id"
     )
@@ -965,7 +1179,7 @@ async def assess_quality(
         )
         return _busy_response()
     try:
-        return await _assess(llm, vision, runtime, body)
+        return await _assess(llm, vision, runtime, body, anrufer_frist)
     finally:
         _ASSESSMENT_GATE.release()
 
@@ -996,7 +1210,9 @@ def _busy_response() -> QualityAssessmentV2Response:
     )
 
 
-async def _assess(llm, vision, runtime, body) -> QualityAssessmentV2Response:
+async def _assess(
+    llm, vision, runtime, body, anrufer_frist: float | None = None
+) -> QualityAssessmentV2Response:
     result = await llm.classify_disposition(
         description=body.description,
         priority=body.priority,
@@ -1010,7 +1226,9 @@ async def _assess(llm, vision, runtime, body) -> QualityAssessmentV2Response:
         checked = False
     else:
         odoo = get_callback_odoo_client(runtime, body.odoo_instance)
-        finding, checked = await _collect_photo_finding(odoo, vision, llm, body, runtime)
+        finding, checked = await _collect_photo_finding(
+            odoo, vision, llm, body, runtime, anrufer_frist
+        )
 
     # Konfidenz und Begruendung reisen mit, damit ein widersprochenes
     # Texturteil im Klartext nachlesbar bleibt: der Widerspruchszweig in n8n

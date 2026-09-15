@@ -1,0 +1,1955 @@
+INFO:     127.0.0.1:45440 - "GET /api/health/live HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52976 - "GET /api/health/live HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44148 - "GET /api/health/live HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59330 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:13:27,711 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:27,724 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:29,738 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:29,754 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:30,099 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:30,114 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:31,771 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:31,785 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:33,800 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:33,814 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:35,834 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:35,847 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:39,418 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:39,433 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:41,449 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:41,461 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:43,476 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:43,490 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:45,504 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:45,516 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:47,533 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:47,546 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:49,563 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:49,576 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:51,593 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:51,606 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:53,620 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:53,643 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:55,663 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:55,680 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:57,695 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:57,708 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:59,721 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:13:59,738 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:01,753 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:01,766 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:03,783 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:03,795 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:05,811 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:05,826 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:07,840 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:07,855 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:11,427 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:32798 - "GET /api/health/live HTTP/1.1" 200 OK
+INFO:     127.0.0.1:37676 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:14:11,440 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:13,454 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:13,470 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:15,483 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:15,496 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:17,511 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:17,527 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:19,543 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:19,559 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:21,579 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:21,596 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:23,611 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:23,626 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:25,639 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:25,652 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:27,669 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:27,684 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:29,701 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:29,714 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:31,728 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:34674 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:14:31,743 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:33,239 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:33,252 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:33,761 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:33,774 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:35,787 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:35,802 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:37,820 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:37,833 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:39,847 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:39,859 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:43,438 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:43,451 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:45,466 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:45,481 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:47,498 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:60372 - "GET /api/health/live HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57738 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:14:47,516 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:49,533 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:49,550 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:51,564 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:51,577 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:53,591 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:53,605 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:55,619 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:52530 - "GET /api/health/live HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42916 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:14:55,633 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:57,647 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:57,660 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:59,677 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:14:59,694 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:01,709 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:01,726 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:03,741 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:03,754 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:05,768 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:39864 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:15:05,783 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:07,798 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:07,813 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:09,826 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:09,842 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:11,857 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:11,874 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:15,484 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:15,499 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:17,518 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:17,535 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:19,550 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:19,564 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:21,579 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:21,596 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:23,611 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:23,628 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:25,645 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:25,661 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:27,675 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:27,689 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:29,707 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:29,724 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:31,739 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:31,752 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:33,768 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:33,782 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:35,796 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:35,810 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:36,426 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:42820 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:15:36,440 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:37,826 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:37,840 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:39,854 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:39,869 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:41,887 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:41,902 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:45,474 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:45,491 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:47,510 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:47,525 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:49,539 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:49,555 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:51,576 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:50082 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:15:51,591 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:53,608 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:53,622 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:55,640 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:55,659 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:57,682 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:57,705 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:15:59,731 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:58646 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:15:59,754 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:01,772 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:01,788 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:03,803 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:35222 - "GET /api/health/live HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44406 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:16:03,817 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:05,834 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:05,850 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:07,864 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:07,878 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:09,894 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:09,908 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:11,922 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:11,939 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:13,957 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:13,971 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:17,545 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:17,558 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:19,571 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:19,585 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:21,608 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:21,628 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:23,649 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:23,666 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:25,684 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:25,701 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:27,719 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:27,735 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:29,755 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:29,771 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:31,789 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:31,804 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:33,826 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:33,844 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:41696 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:16:35,861 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:35,881 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:37,897 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:37,912 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:39,571 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:39,590 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:39,930 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:39,946 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:41,961 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:58334 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:16:41,976 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:44,004 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:44,027 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:57532 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:16:46,046 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:46,064 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:49,648 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:49,667 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:51,684 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:51,699 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:53,720 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:53,745 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:55,760 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:55,773 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:57,789 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:57,804 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:37276 - "GET /api/health/live HTTP/1.1" 200 OK
+INFO:     127.0.0.1:46674 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:16:59,818 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:16:59,831 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:01,846 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:01,859 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:03,875 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:03,891 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:05,906 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:05,921 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:07,937 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:07,952 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:34246 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:17:09,966 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:09,979 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:12,002 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:12,029 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:14,050 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:14,070 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:16,089 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:16,111 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:18,137 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:18,158 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:41598 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:17:21,774 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:21,793 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:23,813 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:23,832 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:25,855 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:25,878 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:27,899 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:27,922 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:29,941 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:29,957 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:31,974 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:31,990 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:34,011 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:34,028 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:36,043 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:36,060 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:38,079 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:38,095 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:40,114 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:40,128 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:42,143 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:42,157 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:42,767 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:42,781 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:44,174 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:44,189 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:46474 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:17:46,205 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:46,218 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:48,236 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:48,255 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:51,827 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:51,843 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:53,862 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:53,878 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:55,895 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:55,908 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:57,923 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:57,938 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:59,954 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:17:59,967 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:01,982 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:01,995 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:04,009 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:04,021 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:06,040 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:06,056 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:08,071 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:08,085 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:10,099 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:41796 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:18:10,112 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:12,129 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:12,143 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:14,158 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:45322 - "GET /api/health/live HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59804 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:18:14,171 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:16,187 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:16,207 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:18,224 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:18,238 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:20,253 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:20,268 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:23,843 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:23,856 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:51338 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:18:25,869 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:25,883 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:27,899 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:27,913 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:29,926 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:29,941 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:31,958 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:31,971 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:33,988 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:36514 - "GET /api/health/live HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56406 - "GET /api/health/live HTTP/1.1" 200 OK
+INFO:     127.0.0.1:48452 - "GET /api/health/live HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47318 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:18:34,001 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:36,016 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:36,033 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:38,047 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:38,062 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:40,075 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:40,088 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:42,105 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:42,119 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:44,134 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:44,148 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:45,915 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:42546 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:18:45,930 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:46,167 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:46,181 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:48,197 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:48,210 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:50,225 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:50,237 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:52,256 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:42078 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:18:52,270 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:55,853 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:55,866 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:57,883 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:57,895 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:59,912 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:18:59,927 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:01,944 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:01,961 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:03,977 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:03,992 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:06,006 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:06,020 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:08,034 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:08,047 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:10,062 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:10,075 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:12,093 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:12,109 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:14,123 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:14,137 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:16,155 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:16,172 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:18,187 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:18,201 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:20,217 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:20,231 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:22,248 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:22,261 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:24,279 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:39816 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:19:24,292 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:27,901 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:27,915 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:29,931 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:29,947 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:31,963 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:31,976 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:33,993 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:34,006 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:36,020 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:36,034 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:38,050 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:38,064 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:40,079 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:40,092 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:42,108 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:42,123 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:44,138 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:44,150 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:46,164 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:46,178 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:48,194 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:48,208 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:49,110 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:49,124 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:50,222 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:50,235 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:52,250 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:52,265 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:59930 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:19:54,279 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:54,293 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:57,869 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:57,884 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:59,899 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:19:59,912 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:01,927 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:01,940 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:03,954 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:03,968 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:55572 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:20:05,982 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:05,994 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:08,010 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:08,024 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:10,040 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:10,053 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:12,067 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:12,080 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:14,097 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:14,111 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:47094 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:20:16,127 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:59702 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:20:16,142 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:18,157 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:18,170 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:20,186 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:20,199 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:22,215 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:22,229 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:24,248 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:24,262 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:26,281 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:26,295 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:29,873 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:29,888 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:31,904 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:31,921 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:33,944 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:33,958 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:35,972 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:35,985 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:38,000 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:38,013 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:40,026 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:40,039 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:54994 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:20:42,053 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:42,066 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:44,081 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:40346 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:20:44,095 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:46,116 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:46,131 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:48,146 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:48,160 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:50,175 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:50,189 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:52,207 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:52,221 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:52,258 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:52,271 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:54,235 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:54,250 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:56,264 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:56,278 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:60000 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:20:58,295 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:20:58,310 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:01,894 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:01,907 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:47432 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:21:03,922 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:03,936 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:05,950 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:05,967 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:07,983 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:07,996 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:10,010 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:10,024 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:12,039 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:12,052 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:14,067 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:55222 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:21:14,082 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:16,098 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:16,114 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:18,128 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:18,142 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:20,157 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:20,169 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:22,182 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:32812 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:21:22,194 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:24,208 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:24,222 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:26,238 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:26,252 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:28,273 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:28,286 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:30,303 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:30,320 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:33,929 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:33,943 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:35,959 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:35,974 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:37,994 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:38,013 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:40,034 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:40,049 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:42,066 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:42,082 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:44,099 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:56044 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:21:44,113 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:46,131 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:46,150 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:48,166 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:48,181 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:50,202 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:50,224 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:52,239 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:52,252 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:54,266 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:54,280 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:55,449 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:55,463 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:56,297 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:56,315 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:58,330 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:21:58,345 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:43552 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:22:00,361 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:00,375 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:02,389 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:02,404 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:05,978 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:05,990 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:08,005 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:08,019 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:52454 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:22:10,033 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:10,047 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:12,063 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:12,077 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:14,092 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:14,107 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:16,124 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:16,143 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:18,159 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:18,175 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:20,191 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:20,207 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:36142 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:22:22,223 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:22,238 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:24,255 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:24,270 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:26,288 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:26,302 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:59338 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:22:28,317 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:28,332 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:30,350 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:30,372 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:32,389 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:54456 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:22:32,406 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+WARNING:  WatchFiles detected changes in 'app/config.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [2544]
+INFO:     Started server process [9163]
+INFO:     Waiting for application startup.
+2026-09-15 12:22:37,738 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:37,753 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:38,204 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:38,226 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     Application startup complete.
+2026-09-15 12:22:38,257 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:38,258 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:38,274 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:38,275 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:40,296 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:40,317 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:42,244 WARNING app.services.voice_intent_classifier: {"event_type": "voice_intent_llm_failed", "error": ""}
+2026-09-15 12:22:42,345 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:42,370 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+WARNING:  WatchFiles detected changes in 'app/routers/n8n_v2.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [9163]
+INFO:     Started server process [9168]
+INFO:     Waiting for application startup.
+2026-09-15 12:22:44,599 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:44,615 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:45,153 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:45,181 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'app/routers/n8n_v2.py'. Reloading...
+INFO:     127.0.0.1:49666 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:22:45,214 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:45,215 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:45,235 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:45,236 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+2026-09-15 12:22:45,831 INFO httpx: HTTP Request: POST http://ollama:11434/api/chat "HTTP/1.1 200 OK"
+INFO:     Application shutdown complete.
+INFO:     Finished server process [9168]
+INFO:     Started server process [9179]
+INFO:     Waiting for application startup.
+2026-09-15 12:22:47,283 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:47,299 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:47,584 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:47,600 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     Application startup complete.
+2026-09-15 12:22:47,627 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:47,628 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:47,645 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:47,646 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:48,089 INFO httpx: HTTP Request: POST http://ollama:11434/api/chat "HTTP/1.1 200 OK"
+WARNING:  WatchFiles detected changes in 'app/routers/n8n_v2.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [9179]
+INFO:     Started server process [9184]
+INFO:     Waiting for application startup.
+2026-09-15 12:22:50,693 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:50,712 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+WARNING:  WatchFiles detected changes in 'app/routers/n8n_v2.py'. Reloading...
+2026-09-15 12:22:51,013 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:51,029 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     Application startup complete.
+INFO:     Started server process [9189]
+INFO:     Waiting for application startup.
+WARNING:  WatchFiles detected changes in 'app/routers/n8n_v2.py'. Reloading...
+2026-09-15 12:22:52,351 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:52,369 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:52,715 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:52,732 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     Application startup complete.
+INFO:     Started server process [9194]
+INFO:     Waiting for application startup.
+2026-09-15 12:22:53,987 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:54,002 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:54,323 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:54,338 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     Application startup complete.
+2026-09-15 12:22:54,369 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:54,371 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:54,387 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:54,391 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:54,862 INFO httpx: HTTP Request: POST http://ollama:11434/api/chat "HTTP/1.1 200 OK"
+INFO:     127.0.0.1:36560 - "GET /api/health/live HTTP/1.1" 200 OK
+WARNING:  WatchFiles detected changes in 'app/routers/n8n_v2.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [9194]
+INFO:     Started server process [9205]
+INFO:     Waiting for application startup.
+2026-09-15 12:22:56,892 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:56,913 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:57,222 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:57,239 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     Application startup complete.
+2026-09-15 12:22:57,270 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:57,271 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:57,290 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:57,291 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:22:57,721 INFO httpx: HTTP Request: POST http://ollama:11434/api/chat "HTTP/1.1 200 OK"
+WARNING:  WatchFiles detected changes in 'app/routers/n8n_v2.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [9205]
+INFO:     Started server process [9210]
+INFO:     Waiting for application startup.
+2026-09-15 12:23:00,322 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:00,340 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:00,650 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:00,669 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     Application startup complete.
+2026-09-15 12:23:00,706 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:00,707 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:00,731 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:00,732 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:01,324 INFO httpx: HTTP Request: POST http://ollama:11434/api/chat "HTTP/1.1 200 OK"
+WARNING:  WatchFiles detected changes in 'app/routers/n8n_v2.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [9210]
+INFO:     Started server process [9215]
+INFO:     Waiting for application startup.
+WARNING:  WatchFiles detected changes in 'app/routers/n8n_v2.py'. Reloading...
+2026-09-15 12:23:04,244 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:04,260 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:04,577 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:04,595 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'app/routers/n8n_v2.py'. Reloading...
+INFO:     Started server process [9220]
+INFO:     Waiting for application startup.
+2026-09-15 12:23:07,541 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:07,564 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:07,885 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:07,908 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'app/routers/n8n_v2.py'. Reloading...
+INFO:     Started server process [9231]
+INFO:     Waiting for application startup.
+INFO:     127.0.0.1:51276 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:23:09,300 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:09,316 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:09,632 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:09,649 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     Application startup complete.
+INFO:     Started server process [9236]
+INFO:     Waiting for application startup.
+2026-09-15 12:23:10,937 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:10,956 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:11,265 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:11,283 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     Application startup complete.
+2026-09-15 12:23:11,313 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:11,314 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:11,334 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:11,335 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:11,811 INFO httpx: HTTP Request: POST http://ollama:11434/api/chat "HTTP/1.1 200 OK"
+2026-09-15 12:23:13,351 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:13,369 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:15,387 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:15,404 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:17,422 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:17,438 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:19,459 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:19,478 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:54158 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:23:21,499 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:21,518 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:23,538 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:23,556 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:25,573 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:25,588 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:27,602 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:27,617 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:29,637 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:29,652 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:31,669 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:39698 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:23:31,684 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:33,702 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:33,719 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:35,736 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:35,754 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:39,362 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:39,378 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:41,397 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:41,418 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:41462 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:23:43,436 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:43,455 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:45,470 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:45,487 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:47,501 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:47,521 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:49,539 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:49,558 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:51,577 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:51,598 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:57986 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:23:53,614 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:53,628 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:55,645 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:55,661 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:57,678 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:23:57,694 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [9236]
+INFO:     Stopping reloader process [1]
+INFO:     Will watch for changes in these directories: ['/app']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [1] using WatchFiles
+INFO:     Started server process [8]
+INFO:     Waiting for application startup.
+2026-09-15 12:24:01,389 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:01,408 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:01,749 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:01,767 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     Application startup complete.
+2026-09-15 12:24:01,797 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:01,797 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:01,817 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:01,817 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:02,268 INFO httpx: HTTP Request: POST http://ollama:11434/api/chat "HTTP/1.1 200 OK"
+2026-09-15 12:24:03,838 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:03,856 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:05,876 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:05,894 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:07,911 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:07,925 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:11,504 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:56606 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:24:11,519 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:13,534 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:13,547 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:15,563 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:15,581 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:34102 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:24:17,599 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:17,617 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:19,634 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:19,649 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:21,668 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:36516 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:24:21,685 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:23,707 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:23,730 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:25,754 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:25,776 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:27,797 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:27,816 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:29,836 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:29,855 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:31,885 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:31,915 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:33,931 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:33,947 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:35,965 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:35,981 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:38,007 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:38,031 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:40,052 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:40,106 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:43,703 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:43,758 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:45,805 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:45,845 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:47,873 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:36256 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:24:47,898 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:37032 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:24:49,943 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:49,977 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:52,011 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:52,040 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:54,075 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:54,112 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:56,219 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:56,271 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:58,690 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:24:58,756 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:01,046 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:53094 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:25:01,234 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:03,273 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:03,344 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:05,011 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:05,047 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:05,378 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:05,399 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:07,426 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:07,467 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:09,498 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:09,523 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:11,562 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:11,599 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:15,253 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:38100 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:25:15,281 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:52682 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:25:17,405 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:17,443 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:19,493 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:19,633 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:21,673 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:21,702 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:23,773 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:23,817 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:25,840 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:25,858 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:27,884 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:27,933 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:29,976 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:30,019 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:57982 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:25:32,040 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:32,062 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:34,080 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:34,100 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:36,121 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:36,141 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:38,168 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:40,532 ERROR app.services.outbox_dispatcher: Outbox cycle failed for instance local
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection.py", line 103, in handle_async_request
+    return await self._connection.handle_async_request(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_async/http11.py", line 136, in handle_async_request
+    raise exc
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_async/http11.py", line 106, in handle_async_request
+    ) = await self._receive_response_headers(**kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_async/http11.py", line 177, in _receive_response_headers
+    event = await self._receive_event(timeout=timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_async/http11.py", line 217, in _receive_event
+    data = await self._network_stream.read(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_backends/anyio.py", line 32, in read
+    with map_exceptions(exc_map):
+         ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ReadError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/app/app/services/outbox_dispatcher.py", line 204, in run
+    await self.run_once(instance)
+  File "/app/app/services/outbox_dispatcher.py", line 106, in run_once
+    rows = await odoo.execute_kw(
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/app/services/odoo_client.py", line 89, in execute_kw
+    return await self._json_rpc(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/app/app/services/odoo_client.py", line 57, in _json_rpc
+    resp = await self._client.post(f"{self._url}/jsonrpc", json=payload)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1859, in post
+    return await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ReadError
+INFO:     127.0.0.1:42088 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:25:42,587 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:48,080 ERROR app.services.outbox_dispatcher: Outbox cycle failed for instance local
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection.py", line 101, in handle_async_request
+    raise exc
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_backends/auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_backends/anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+         ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ConnectError: [Errno -2] Name or service not known
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/app/app/services/outbox_dispatcher.py", line 204, in run
+    await self.run_once(instance)
+  File "/app/app/services/outbox_dispatcher.py", line 106, in run_once
+    rows = await odoo.execute_kw(
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/app/services/odoo_client.py", line 89, in execute_kw
+    return await self._json_rpc(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/app/app/services/odoo_client.py", line 57, in _json_rpc
+    resp = await self._client.post(f"{self._url}/jsonrpc", json=payload)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1859, in post
+    return await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError: [Errno -2] Name or service not known
+2026-09-15 12:25:50,112 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:50,576 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:52,592 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:52,614 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:40528 - "GET /api/health/live HTTP/1.1" 200 OK
+INFO:     172.28.10.2:60938 - "GET /api/health/live HTTP/1.1" 200 OK
+INFO:     172.28.10.2:60938 - "GET /api/auth/instances HTTP/1.1" 200 OK
+INFO:     172.28.10.2:60938 - "GET /api/auth/me HTTP/1.1" 401 Unauthorized
+INFO:     172.28.10.2:60938 - "GET /api/auth/instances HTTP/1.1" 200 OK
+2026-09-15 12:25:54,632 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:39668 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:25:54,654 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:56,705 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:56,731 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:58,755 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:25:58,774 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:00,792 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:00,811 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:02,826 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:02,841 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:04,858 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:04,872 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:06,887 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:06,900 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:08,237 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:08,262 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:08,917 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:08,933 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:10,948 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:10,961 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:12,977 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:12,991 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:52912 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:26:15,005 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:15,020 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:37912 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:26:18,594 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:18,606 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:20,621 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:20,885 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:22,909 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:23,116 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:23,177 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:23,288 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:23,310 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:23,524 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:23,548 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:37912 - "GET /api/auth/instances HTTP/1.1" 200 OK
+INFO:     172.28.10.2:37912 - "GET /api/auth/me HTTP/1.1" 200 OK
+2026-09-15 12:26:23,611 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:23,702 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:23,869 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:23,924 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:24,113 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:24,166 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:24,200 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:24,219 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:24,255 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:24,300 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:24,482 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:37912 - "GET /api/pickings HTTP/1.1" 200 OK
+2026-09-15 12:26:24,506 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:24,530 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:24,552 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:24,574 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:24,594 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:24,616 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:24,640 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:24,666 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:24,697 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:24,732 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:24,765 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:24,792 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:24,827 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:24,857 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:24,879 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:25,001 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:25,005 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:25,025 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:25,057 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:25,077 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:25,103 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:25,129 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:25,158 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:25,170 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:25,187 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:25,499 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:56204 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:26:25,540 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:38010 - "GET /api/health/live HTTP/1.1" 200 OK
+INFO:     172.28.10.2:37912 - "GET /api/products/105/image?size=256 HTTP/1.1" 200 OK
+INFO:     172.28.10.2:37922 - "GET /api/products/115/image?size=256 HTTP/1.1" 200 OK
+2026-09-15 12:26:25,568 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:25,594 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:37936 - "GET /api/products/71/image?size=256 HTTP/1.1" 200 OK
+INFO:     172.28.10.2:37936 - "GET /api/auth/instances HTTP/1.1" 200 OK
+2026-09-15 12:26:25,639 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:25,669 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:25,739 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:37954 - "GET /api/products/98/image?size=256 HTTP/1.1" 200 OK
+2026-09-15 12:26:25,782 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:25,830 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:25,863 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:25,904 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:25,937 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:25,982 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:37942 - "GET /api/products/116/image?size=256 HTTP/1.1" 200 OK
+2026-09-15 12:26:26,010 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:37968 - "GET /api/products/106/image?size=256 HTTP/1.1" 200 OK
+INFO:     172.28.10.2:37996 - "GET /api/products/99/image?size=256 HTTP/1.1" 200 OK
+INFO:     172.28.10.2:37974 - "GET /api/products/107/image?size=256 HTTP/1.1" 200 OK
+INFO:     172.28.10.2:37972 - "GET /api/products/100/image?size=256 HTTP/1.1" 200 OK
+2026-09-15 12:26:26,087 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:26,116 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:38004 - "GET /api/products/104/image?size=256 HTTP/1.1" 200 OK
+2026-09-15 12:26:26,144 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:26,901 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:26,952 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:27,053 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:27,102 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:27,207 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:38004 - "GET /api/auth/me HTTP/1.1" 200 OK
+INFO:     172.28.10.2:37982 - "GET /api/products/117/image?size=256 HTTP/1.1" 200 OK
+2026-09-15 12:26:27,251 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:27,285 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:27,323 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:27,392 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:27,445 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:27,557 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:27,627 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:27,657 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:27,678 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:27,704 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:27,756 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:27,895 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:27,918 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:28,034 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:28,076 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:28,100 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:37982 - "GET /api/pickings HTTP/1.1" 200 OK
+2026-09-15 12:26:28,122 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:28,166 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:28,202 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:28,258 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:28,313 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:28,348 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:28,392 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:28,435 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:28,508 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:29,946 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:29,970 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:37982 - "GET /api/pickings HTTP/1.1" 200 OK
+2026-09-15 12:26:31,993 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:32,011 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:34,025 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:47674 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:26:34,038 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:36,053 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:36,066 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:38,081 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:38,095 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:40,112 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:40,126 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:42,142 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:42,155 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:48480 - "GET /api/auth/instances HTTP/1.1" 200 OK
+2026-09-15 12:26:44,171 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:44,187 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:46,202 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:53504 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:26:46,215 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:49,794 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:49,809 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:51,826 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:51,841 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:53,861 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:53,881 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:55,282 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:55,303 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:55,328 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:55,351 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:55,374 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:55,390 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:55,429 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:55,476 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:55,500 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:55,522 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:55,544 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:55,576 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:55,904 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:55,924 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:57,952 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:49694 - "GET /api/pickings HTTP/1.1" 200 OK
+2026-09-15 12:26:57,973 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:53982 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:26:59,986 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:26:59,999 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:02,015 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:51068 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:27:02,031 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:04,046 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:04,060 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:06,079 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:06,092 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:08,110 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:08,127 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:10,142 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:47490 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:27:10,156 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:11,401 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:11,415 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:12,171 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:12,185 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:14,201 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:14,215 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:16,231 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:16,247 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:19,829 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:19,845 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:21,862 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:21,875 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:23,892 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:23,908 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:25,174 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:25,196 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:25,219 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:25,241 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:25,269 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:25,289 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:25,329 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:25,366 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:25,384 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:25,401 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:25,418 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:25,441 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:25,922 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:25,936 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:27,952 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:27,968 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:55406 - "GET /api/pickings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50510 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:27:29,984 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:29,998 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:32,014 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:32,030 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:34,052 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:34,073 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:36,092 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:37940 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:27:36,106 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:38,120 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:38,135 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:47786 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:27:40,150 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:40,164 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:42,180 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:42,197 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:44,215 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:44,233 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:46,249 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:46,263 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:48,280 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:48,297 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:51,891 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:51,905 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:53,919 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:53,932 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:55,947 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:55,961 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:35822 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:27:57,978 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:27:57,996 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:00,012 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:00,025 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:02,044 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:02,060 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:04,079 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:04,099 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:06,135 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:06,150 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:07,691 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:35212 - "GET /api/health/live HTTP/1.1" 200 OK
+INFO:     172.28.10.2:35212 - "GET /api/auth/instances HTTP/1.1" 200 OK
+INFO:     172.28.10.2:35212 - "GET /api/auth/me HTTP/1.1" 200 OK
+INFO:     172.28.10.2:35212 - "GET /api/pickings HTTP/1.1" 200 OK
+2026-09-15 12:28:07,735 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:07,759 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:07,781 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:07,804 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:07,829 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:07,848 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:07,893 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:07,932 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:07,952 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:07,971 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:07,990 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:08,017 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:08,168 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:08,186 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:10,204 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:10,219 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:12,238 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:12,253 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:14,004 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:14,021 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:14,270 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:14,284 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:14,576 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:14,590 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:16,301 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:16,315 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:18,330 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:60210 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:28:18,343 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:35224 - "POST /api/auth/csrf HTTP/1.1" 200 OK
+2026-09-15 12:28:20,360 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:20,377 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:23,989 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:24,004 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:26,021 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:26,036 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:28,056 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:28,074 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:30,095 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:30,114 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:33300 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:28:32,134 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,155 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,263 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,293 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,319 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,339 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,362 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,389 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,407 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,444 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,481 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,501 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,571 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:35224 - "POST /api/pickings/301/claim HTTP/1.1" 200 OK
+2026-09-15 12:28:32,591 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:35224 - "GET /api/pickings/301 HTTP/1.1" 200 OK
+2026-09-15 12:28:32,613 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,634 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,659 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,684 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,721 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,745 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,767 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,791 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,821 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,845 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,855 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,869 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,878 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,894 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,904 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,916 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,925 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,939 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:35224 - "GET /api/pickings/301/stock?product_id=73&location_id=15 HTTP/1.1" 200 OK
+2026-09-15 12:28:32,946 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,960 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,971 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,984 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:32,995 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:33,008 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:33,029 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:33,030 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:33,083 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:33,084 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:48698 - "GET /api/health/live HTTP/1.1" 200 OK
+INFO:     172.28.10.2:51984 - "GET /api/products/73/image?size=1024 HTTP/1.1" 200 OK
+INFO:     172.28.10.2:51972 - "GET /api/products/73/image?size=256 HTTP/1.1" 200 OK
+INFO:     172.28.10.2:51998 - "GET /api/products/87/image?size=256 HTTP/1.1" 200 OK
+2026-09-15 12:28:33,102 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:33,119 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:33,123 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:33,140 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:33,145 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:33,164 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:33,171 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:33,189 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:33,194 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:33,214 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:33,224 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:51972 - "GET /api/products/108/image?size=256 HTTP/1.1" 200 OK
+2026-09-15 12:28:33,243 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:33,251 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:33,264 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:33,286 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:33,308 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:33,336 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:34,184 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:34,217 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:35,743 INFO httpx: HTTP Request: POST http://piper:5500/synthesize "HTTP/1.1 200 OK"
+2026-09-15 12:28:36,244 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:51984 - "GET /api/products/88/image?size=256 HTTP/1.1" 200 OK
+INFO:     172.28.10.2:51998 - "GET /api/products/96/image?size=256 HTTP/1.1" 200 OK
+INFO:     172.28.10.2:51972 - "GET /api/products/103/image?size=256 HTTP/1.1" 200 OK
+INFO:     172.28.10.2:51960 - "POST /api/voice/tts HTTP/1.1" 200 OK
+2026-09-15 12:28:36,269 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:38,293 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:38,312 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:40,306 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:40,324 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:40,331 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:40,342 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:40,350 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:40,359 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:40,368 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:40,378 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:40,390 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:40,397 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:40,419 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:42,368 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:42,382 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:44,396 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:44,410 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:51960 - "GET /api/pickings/301/stock?product_id=96&location_id=17 HTTP/1.1" 200 OK
+INFO:     172.28.10.2:49290 - "GET /api/products/96/image?size=1024 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34318 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:28:46,428 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:46,446 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:48,464 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:48,478 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:50,493 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:50,509 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:34774 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:28:52,524 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:52,539 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:56,117 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:56,131 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:58,149 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:28:58,168 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:00,183 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:00,199 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:02,216 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:02,231 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:03,555 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:03,575 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:03,595 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:03,612 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:03,633 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:03,654 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:51486 - "POST /api/pickings/301/heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45820 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:29:03,671 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:03,697 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:03,726 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:03,743 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:04,249 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:04,268 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:06,286 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:06,303 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:08,317 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:08,331 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:51488 - "POST /api/quality-alerts HTTP/1.1" 200 OK
+2026-09-15 12:29:08,896 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:08,913 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:08,930 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:08,945 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:08,967 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:08,984 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,001 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,026 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,195 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,211 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:51488 - "POST /api/pickings/301/claim HTTP/1.1" 200 OK
+INFO:     172.28.10.2:51488 - "GET /api/pickings/301 HTTP/1.1" 200 OK
+2026-09-15 12:29:09,274 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,291 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,307 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,322 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,340 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,359 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,375 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,392 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,415 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,434 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:51488 - "GET /api/pickings/301/stock?product_id=73&location_id=15 HTTP/1.1" 200 OK
+INFO:     172.28.10.2:51502 - "POST /api/voice/tts HTTP/1.1" 200 OK
+INFO:     172.28.10.133:33880 - "POST /api/internal/n8n/v2/events/accept HTTP/1.1" 200 OK
+2026-09-15 12:29:09,456 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,474 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,493 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,511 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,529 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,546 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,568 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,587 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,601 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,615 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,641 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,645 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,659 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,666 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,680 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,685 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,701 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,701 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:09,748 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:10,033 INFO httpx: HTTP Request: POST http://piper:5500/synthesize "HTTP/1.1 200 OK"
+2026-09-15 12:29:10,352 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:39278 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:29:10,375 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:10,527 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:10,532 INFO httpx: HTTP Request: POST http://n8n:5678/webhook/quality-assessment-v2 "HTTP/1.1 200 OK"
+2026-09-15 12:29:10,552 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:12,601 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:12,633 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:14,669 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:14,696 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:16,757 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:16,816 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:55138 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:29:17,783 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:17,816 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:18,858 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:18,898 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:20,935 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:20,979 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:23,013 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:23,053 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:26,663 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:26,703 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:28,741 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:28,776 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:30,811 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:30,843 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:32,884 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:32,925 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:34,963 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:35,005 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:37,043 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:37,081 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:40348 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:29:39,116 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:39,153 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:40,306 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:40,340 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:40,376 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:40,407 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:40,454 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:40,510 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:40,550 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:40,597 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:40,651 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:40,696 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:38448 - "POST /api/pickings/301/heartbeat HTTP/1.1" 200 OK
+2026-09-15 12:29:41,191 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:41,221 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:43,258 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:43,292 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:45,321 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:45,352 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:47,385 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:47,418 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:58574 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:29:49,451 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:49,484 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:51,515 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:51,546 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:53,583 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:47520 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:29:53,615 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:55,650 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:55,690 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:59,306 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:29:59,338 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:01,372 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:01,402 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:03,434 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:03,470 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:05,498 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:05,528 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:07,561 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:07,591 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:08,188 INFO httpx: HTTP Request: POST http://ollama:11434/api/chat "HTTP/1.1 200 OK"
+2026-09-15 12:30:08,233 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:08,606 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:08,626 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:08,646 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:08,669 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:08,689 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:08,710 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:08,729 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:08,749 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:08,768 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:08,787 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:08,803 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:09,610 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:09,646 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:10,369 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:32936 - "GET /api/health/live HTTP/1.1" 200 OK
+INFO:     172.28.10.2:35656 - "POST /api/pickings/301/heartbeat HTTP/1.1" 200 OK
+2026-09-15 12:30:10,577 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:10,602 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:10,632 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:10,658 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:10,687 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:10,708 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:10,733 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:10,760 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:10,783 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:11,667 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:41526 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:30:11,689 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:13,709 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:13,730 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:15,771 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:15,798 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:17,820 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:17,839 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:19,703 INFO httpx: HTTP Request: POST http://embed:8000/katalog "HTTP/1.1 200 OK"
+2026-09-15 12:30:19,703 INFO app.services.embed_client: {"event_type": "embed_katalog", "artikel": 47, "duration_ms": 10899}
+2026-09-15 12:30:19,704 INFO app.services.embed_catalogue: {"event_type": "embed_katalog_bereit", "instanz": "local", "artikel": 47, "duration_ms": 11118}
+2026-09-15 12:30:19,865 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:19,888 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:19,913 INFO httpx: HTTP Request: POST http://embed:8000/abgleich "HTTP/1.1 200 OK"
+2026-09-15 12:30:19,914 INFO app.services.embed_client: {"event_type": "embed_abgleich", "urteil": "match", "grund_art": "treffer", "erwartet": "6138111", "rang": [["6138111", 0.9176], ["6286339", 0.829], ["6294237", 0.7444]], "abstand": 0.0886, "duration_ms": 210}
+2026-09-15 12:30:19,914 INFO app.routers.n8n_v2: {"event_type": "article_compare", "verfahren": "einbettung", "same_article": true, "urteil": "match", "erwartet": "6138111", "rang": "6138111 0.918, 6286339 0.829, 6294237 0.744", "abstand": 0.0886, "reason": "Stimmt mit dem Katalogbild überein (0.918, Abstand zum nächsten Artikel 0.089).", "product_label": "Brick Bow 2x3x1 hellblau"}
+2026-09-15 12:30:20,996 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:21,018 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:21,940 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:21,987 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:24,021 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:24,072 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:26,101 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:26,132 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:29,811 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:29,866 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:35566 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:30:31,902 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:31,935 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:33,974 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:34,021 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:36,072 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:36,112 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:38,183 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:38,245 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:40,285 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:40,315 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:40,490 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:40,525 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:44010 - "POST /api/pickings/301/heartbeat HTTP/1.1" 200 OK
+2026-09-15 12:30:40,568 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:40,606 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:40,647 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:40,687 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:40,720 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:40,756 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:40,796 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:40,828 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:42,348 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:56860 - "GET /api/health/live HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51354 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:30:42,379 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:44,417 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:44,451 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:46,499 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:46,532 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:48,593 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:48,724 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:50,760 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:50,802 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:52,830 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:52,855 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:54,884 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:54,910 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:56,929 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:56,958 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:58,998 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:30:59,026 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:02,612 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:02,642 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:04,673 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:37954 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:31:04,708 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:06,734 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:06,764 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:08,793 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:08,821 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:10,150 INFO httpx: HTTP Request: POST http://ollama:11434/api/generate "HTTP/1.1 200 OK"
+2026-09-15 12:31:10,151 INFO app.services.vision_client: {"event_type": "vision_probe", "model": "gemma4:12b", "images": 1, "duration_ms": 47070, "ok": true}
+2026-09-15 12:31:10,529 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:10,553 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:10,573 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:10,589 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:10,610 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:10,630 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:10,648 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:10,667 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:10,689 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:10,706 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:43456 - "POST /api/pickings/301/heartbeat HTTP/1.1" 200 OK
+2026-09-15 12:31:10,838 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:10,872 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:12,895 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:12,922 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:14,959 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:14,985 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:17,016 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:17,046 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:56678 - "GET /api/health/live HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54204 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:31:19,080 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:19,112 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:59780 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:31:21,178 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:21,236 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:23,271 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:23,303 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:24,219 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:24,248 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:25,340 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:25,382 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:27,423 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:27,459 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:29,502 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:29,541 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:33,160 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:33,196 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:35,233 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:35,264 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:37,320 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:37,364 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:39,413 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:39,452 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:40,653 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:40,697 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:40,760 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:40,810 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:47410 - "POST /api/pickings/301/heartbeat HTTP/1.1" 200 OK
+2026-09-15 12:31:40,865 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:40,914 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:40,966 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:41,021 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:41,058 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:41,113 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:41,176 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:41,223 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:41,496 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:41,515 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:47352 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:31:43,549 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:43,584 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:45,620 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:45,653 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:47,692 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:47,726 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:49,768 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:49,802 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:51,850 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:38508 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:31:51,884 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:53,918 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:53,950 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:54,215 INFO httpx: HTTP Request: POST http://ollama:11434/api/generate "HTTP/1.1 200 OK"
+2026-09-15 12:31:54,216 INFO app.services.vision_client: {"event_type": "vision_probe", "model": "gemma4:12b", "images": 1, "duration_ms": 42487, "ok": true}
+2026-09-15 12:31:55,975 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:55,995 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:58,034 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:31:58,080 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:00,118 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:53306 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:32:00,157 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:02,189 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:02,223 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:05,849 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:05,884 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:07,910 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:07,938 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:09,972 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:10,005 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:10,715 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:10,748 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:10,793 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:10,827 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:10,878 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:10,924 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:10,958 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:11,005 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:60080 - "POST /api/pickings/301/heartbeat HTTP/1.1" 200 OK
+2026-09-15 12:32:11,050 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:11,089 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:12,034 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:12,069 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:14,109 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:14,140 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:16,176 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:16,211 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:18,250 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:18,282 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:55964 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:32:20,319 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:20,355 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:22,391 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:22,428 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:24,464 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:24,505 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:26,546 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:26,581 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:27,451 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:27,490 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:28,644 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:28,691 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:30,726 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:30,759 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:50226 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:32:32,797 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:32,835 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:36,490 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:36,531 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:38,573 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:38,608 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:39,644 INFO httpx: HTTP Request: POST http://ollama:11434/api/generate "HTTP/1.1 200 OK"
+2026-09-15 12:32:39,644 INFO app.services.vision_client: {"event_type": "vision_probe", "model": "gemma4:12b", "images": 1, "duration_ms": 42223, "ok": true}
+INFO:     172.28.10.133:33886 - "POST /api/internal/n8n/v2/assessments/quality HTTP/1.1" 200 OK
+2026-09-15 12:32:39,717 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.133:57848 - "POST /api/internal/n8n/v2/callbacks/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33398 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:32:40,622 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:40,634 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:40,764 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:40,782 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:40,796 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:40,809 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:40,824 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:40,839 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:40,852 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:53286 - "POST /api/pickings/301/heartbeat HTTP/1.1" 200 OK
+2026-09-15 12:32:40,866 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:40,882 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:40,896 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:42,648 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:42,660 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:44,675 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:44,687 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:46,700 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:46,713 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:48,727 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:33968 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:32:48,740 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:37408 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:32:50,759 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:50,775 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:52,792 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:52,806 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:54,820 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:54,832 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:56,847 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:56,859 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:58,874 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:32:58,887 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:00,902 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:00,915 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:02,931 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:02,948 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:04,962 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:04,975 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:08,551 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:08,564 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:10,580 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     172.28.10.2:49336 - "POST /api/pickings/301/heartbeat HTTP/1.1" 200 OK
+2026-09-15 12:33:10,595 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:10,839 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:10,856 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:10,873 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:10,889 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:10,905 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:10,924 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:10,940 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:10,960 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:10,980 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+INFO:     127.0.0.1:43650 - "GET /api/health/live HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42032 - "GET /api/health/live HTTP/1.1" 200 OK
+2026-09-15 12:33:10,997 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:12,610 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:12,622 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:14,642 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:14,655 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:16,688 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:16,707 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:18,724 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:18,739 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:20,753 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:20,767 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:22,784 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:22,802 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:24,814 INFO httpx: HTTP Request: POST http://odoo-lager-2:8069/jsonrpc "HTTP/1.0 200 OK"
+2026-09-15 12:33:24,829 INFO httpx: HTTP Request: POST http://odoo:8069/jsonrpc "HTTP/1.0 200 OK"

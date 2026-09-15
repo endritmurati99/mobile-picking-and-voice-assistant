@@ -77,6 +77,11 @@ services:
       PORT: 5432
       USER: ${ODOO_DB_USER:-odoo_app}
       PASSWORD: ${ODOO_DB_PASSWORD:?ODOO_DB_PASSWORD muss gesetzt sein}
+      # Wieviele Fotos einer Meldung an die Bewertungskette gehen. Vorgabe 3.
+      # Gemessen 2026-09-15: jedes Foto kostet 42-50 s Bildpruefung, die Kette
+      # hat gegen das n8n-Knotenlimit von 270 s bei drei Fotos noch 15 s Luft.
+      # Hochsetzen nur fuer Messungen, nicht im Betrieb.
+      QA_MAX_ASSESSMENT_PHOTOS: ${QA_MAX_ASSESSMENT_PHOTOS:-3}
     volumes:
       - odoo_data:/var/lib/odoo
       - ./odoo/odoo19.conf:/etc/odoo/odoo.conf:ro
@@ -308,6 +313,13 @@ services:
       # kostet der erste Aufruf wieder das Laden (gemessen 80-145 s).
       OLLAMA_KEEP_ALIVE: 2h
       OLLAMA_MAX_LOADED_MODELS: "2"
+      # OLLAMA_NUM_THREAD als Umgebungsvariable wirkt NICHT. Gemessen am
+      # 2026-09-15 auf leerem Ollama, qwen2.5:7b, 60 Token, gleicher Prompt:
+      # 1,21 tok/s mit gesetzter Variablen, 7,40 tok/s mit `num_thread: 8`
+      # in den `options` des Requests. Der Hebel steht deshalb im Code
+      # (backend/app/services/vision_client.py, llm_client.py,
+      # voice_intent_classifier.py), Vorgabe 8. Wer die Zahl aendern will,
+      # setzt OLLAMA_NUM_THREAD im backend-Dienst, nicht hier.
     volumes:
       - ollama_data:/root/.ollama
     networks:

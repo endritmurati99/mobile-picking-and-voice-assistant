@@ -110,7 +110,14 @@ class Settings(BaseSettings):
     piper_url: str = "http://piper:5500"
 
     # Lokales LLM (Ollama) fuer die KI-Qualitaetsbewertung. Laeuft offline auf dem
-    # Lab-PC; kein Cloud-Zugriff noetig. Faellt bei Ausfall auf die n8n-Heuristik zurueck.
+    # Lab-PC; kein Cloud-Zugriff noetig.
+    #
+    # Hier stand bis zum 2026-09-15: "Faellt bei Ausfall auf die n8n-Heuristik
+    # zurueck." Das stimmt seit dem v2-Umbau nicht mehr. Bei `ok=False` bleibt
+    # JEDES Urteilsfeld leer (`n8n_v2.py::_assess`), der Workflow geht in
+    # "Build Review Callback" und setzt `review_required` mit
+    # `error.code = llm_unavailable`. Es gibt keinen Heuristik-Knoten im
+    # Workflow. Niemand raet ersatzweise -- das ist Absicht.
     llm_provider: str = "ollama"
     llm_endpoint: str = "http://ollama:11434"
     llm_model: str = "qwen2.5:7b"
@@ -160,11 +167,15 @@ class Settings(BaseSettings):
     #   haelt einen Riss fuer ein Artikelmerkmal ("The right part is visibly
     #   damaged and not the same") und weist damit die echte Schadensmeldung
     #   als Falschlieferung ab. Das ist der teuerste Fehler der Kette.
-    # * Schadensachse: dort ist `qwen2.5vl:7b` bei 1024 px eingemessen
+    # * Schadensachse: dort war `qwen2.5vl:7b` bei 1024 px eingemessen
     #   (Commit `2532e3a`: bei 768 px "a leaf-like DESIGN", bei 1024 px "a
-    #   leaf-shaped INDENTATION"). Fuer `gemma4:12b` gibt es auf dieser Achse
-    #   KEINE Messung. Wer hier denselben Namen eintraegt, dreht eine
-    #   gemessene Verbesserung ungeprueft zurueck.
+    #   leaf-shaped INDENTATION").
+    #
+    #   Der Satz "Fuer `gemma4:12b` gibt es auf dieser Achse KEINE Messung"
+    #   stand hier bis zum 2026-09-15 und war ueberholt: Die Messung wurde am
+    #   2026-08-14 nachgeholt und steht oben bei `vision_model` -- acht von
+    #   Hand beschriftete Bilder, `gemma4:12b` 4/4 Schaeden gegen 2/4, beide
+    #   ohne Fehlalarm. Deshalb stehen heute beide Felder auf `gemma4:12b`.
     #
     # Beide Modelle gleichzeitig resident sind rund 9 GB + 6 GB; die
     # `.wslconfig` steht seit dem 2026-08-13 auf 26 GB.
@@ -190,6 +201,23 @@ class Settings(BaseSettings):
     # laeuft immer, die Schadenspruefung nur solange davon Zeit uebrig ist;
     # was liegen bleibt, wird gezaehlt und genannt.
     vision_budget_ms: int = 240000
+    # Frist des ANRUFERS, gerechnet ab dem Eintreffen der Anfrage im Backend.
+    # Der n8n-Knoten `quality-assessment-v2` wartet 270 s; danach schneidet er
+    # ab, und JEDER bereits fertige Befund geht ersatzlos verloren. Die 255 s
+    # lassen 15 s fuer Anfrage, Antwort und die Odoo-Lesezugriffe.
+    #
+    # Sie steht NEBEN `vision_budget_ms`, nicht statt dessen: das Bildbudget
+    # begrenzt die Bildstufe gegen die Lease, diese Frist begrenzt die ganze
+    # Bewertung gegen den, der auf sie wartet. Es gilt die fruehere von beiden.
+    # Ohne sie rechnete die Bildstufe gegen einen festen Wert und kannte das
+    # Knotenlimit nicht -- in Lauf 9 lief das Backend 24,2 s weiter, nachdem
+    # n8n die Verbindung geschnitten hatte.
+    caller_budget_ms: int = 255000
+    # Was ein Bildaufruf erfahrungsgemaess kostet. Gemessen ueber die Laeufe 7
+    # bis 9: Schadenspruefung 42-60 s je Foto. Ein Aufruf wird nur noch
+    # GESTARTET, wenn so viel Restzeit bleibt -- die Frage lautet "passt der
+    # naechste Aufruf noch", nicht "ist das Budget schon erschoepft".
+    vision_call_estimate_ms: int = 60000
     # Artikelabgleich ueber Bildabstand (Dienst `embed`) statt ueber zwei
     # Beschreibungen und ein Textmodell.
     #
