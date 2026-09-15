@@ -84,6 +84,21 @@ mit 232 Prompt- und nur 49 Bild-Token. Das Katalogbild aus Odoo ist 192 px groß
 | Katalogbild | `gemma4:12b` | 255 | 2,97 s | 18,14 s |
 | Artikelvergleich (Text) | `qwen2.5:7b` | 70 | — | 4,77 s |
 
+### 3.2 Die Bilddekodierung ist der zweitgrößte Posten
+
+| Aufruf | Dekodierung | Gesamt | Anteil |
+|---|---|---|---|
+| Foto 1 | 14,58 s | 48,48 s | 30 % |
+| Foto 2 | 15,27 s | 42,41 s | 36 % |
+| Foto 3 | 21,22 s | 43,49 s | 49 % |
+| Katalogbild | 2,97 s | 18,14 s | 16 % |
+
+Die reine Auswertezeit schwankt wenig (10,5–17,1 s), die Dekodierung dagegen um Faktor 1,5
+zwischen drei gleich großen Fotos. Kleinere Bilder wären der offensichtliche Hebel — aber genau
+den hat die Kette schon einmal verworfen: Laut Messung in `assessment_media` verschwanden bei
+512 px zwei von drei geprüften Rissen. `DAMAGE_MAX_EDGE = 1024` ist also kein Versehen, sondern
+eine bezahlte Entscheidung zugunsten der Erkennung.
+
 ## 4. Ergebnis der Systembewertung
 
 ```
@@ -127,21 +142,6 @@ Ergebnis, dass fünf englische Sätze im Odoo-Formular landen.
 (`DAMAGE_PROMPT` sagt bisher nur „array of short strings"), oder `_schadensworte` kürzt zu lange
 Einträge auf ihr erstes Schlüsselwort. Die erste Variante ist die ehrlichere: sie ändert, was das
 Modell liefert, statt nachträglich zu raten, was gemeint war.
-
-### 3.2 Die Bilddekodierung ist der zweitgrößte Posten
-
-| Aufruf | Dekodierung | Gesamt | Anteil |
-|---|---|---|---|
-| Foto 1 | 14,58 s | 48,48 s | 30 % |
-| Foto 2 | 15,27 s | 42,41 s | 36 % |
-| Foto 3 | 21,22 s | 43,49 s | 49 % |
-| Katalogbild | 2,97 s | 18,14 s | 16 % |
-
-Die reine Auswertezeit schwankt wenig (10,5–17,1 s), die Dekodierung dagegen um Faktor 1,5
-zwischen drei gleich großen Fotos. Kleinere Bilder wären der offensichtliche Hebel — aber genau
-den hat die Kette schon einmal verworfen: Laut Messung in `assessment_media` verschwanden bei
-512 px zwei von drei geprüften Rissen. `DAMAGE_MAX_EDGE = 1024` ist also kein Versehen, sondern
-eine bezahlte Entscheidung zugunsten der Erkennung.
 
 ## 6. Vergleich aller Fotoanzahlen
 
