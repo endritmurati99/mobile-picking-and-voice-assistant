@@ -686,6 +686,52 @@ def _ohne_artikelnummer(label: str) -> str:
     return gekuerzt.strip()
 
 
+# Die Befunde kommen englisch und einzeln je Foto aus `inspect_damage`. Zwei
+# Fotos desselben Risses liefern denselben Begriff zweimal -- in QA/0370 stand
+# deshalb "crack, broken edge, crack, split" im Odoo-Formular. Wer im Lager
+# darauf schaut, liest eine Aufzaehlung, die laenger wirkt als der Schaden ist.
+#
+# Also: Dopplungen raus (Reihenfolge bleibt, das erste Vorkommen zaehlt) und
+# die haeufigen Begriffe uebersetzen. Unbekanntes bleibt woertlich stehen --
+# ein falsch geratenes deutsches Wort waere schlimmer als ein englisches, das
+# man nachschlagen kann.
+_SCHADENSWORTE = {
+    "crack": "Riss",
+    "cracks": "Risse",
+    "crack/split": "Riss",
+    "split": "Bruch",
+    "broken edge": "gebrochene Kante",
+    "broken corner": "gebrochene Ecke",
+    "chip": "Abplatzer",
+    "chipped edge": "abgeplatzte Kante",
+    "chipped corner": "abgeplatzte Ecke",
+    "gouge": "Kerbe",
+    "gouged area": "Kerbe",
+    "dent": "Delle",
+    "scratch": "Kratzer",
+    "scratches": "Kratzer",
+    "hole": "Loch",
+    "tear": "Riss",
+    "torn area": "aufgerissene Stelle",
+    "broken stud": "abgebrochene Noppe",
+    "missing stud": "fehlende Noppe",
+    "deformation": "Verformung",
+    "rough area": "raue Stelle",
+    "ragged edge": "ausgefranste Kante",
+}
+
+
+def _schadensworte(befunde: list[str]) -> str:
+    """Englische Einzelbefunde zu einer lesbaren deutschen Aufzaehlung."""
+    gesehen: dict[str, str] = {}
+    for rohwort in befunde:
+        wort = " ".join(rohwort.split()).strip(" .,;").lower()
+        if not wort or wort in gesehen:
+            continue
+        gesehen[wort] = _SCHADENSWORTE.get(wort, rohwort.strip(" .,;"))
+    return ", ".join(gesehen.values())
+
+
 async def _check_damage(
     vision,
     llm,
@@ -782,7 +828,7 @@ async def _check_damage(
         # "feather" zurueck. Als ganze Zeile ("Schadenspruefung: feather.")
         # liest das im Lager niemand als Schaden; hinter der Aussage ist es ein
         # Hinweis, wo man hinschauen soll.
-        detail = ", ".join(seen)
+        detail = _schadensworte(seen)
         lines.append(
             "Schaden: SICHTBAR"
             + (f" -- {detail}" if detail else "")
