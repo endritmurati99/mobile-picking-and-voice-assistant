@@ -77,6 +77,11 @@ services:
       PORT: 5432
       USER: ${ODOO_DB_USER:-odoo_app}
       PASSWORD: ${ODOO_DB_PASSWORD:?ODOO_DB_PASSWORD muss gesetzt sein}
+      # Wieviele Fotos einer Meldung an die Bewertungskette gehen. Vorgabe 3.
+      # Gemessen 2026-09-15: jedes Foto kostet 42-50 s Bildpruefung, die Kette
+      # hat gegen das n8n-Knotenlimit von 270 s bei drei Fotos noch 15 s Luft.
+      # Hochsetzen nur fuer Messungen, nicht im Betrieb.
+      QA_MAX_ASSESSMENT_PHOTOS: ${QA_MAX_ASSESSMENT_PHOTOS:-3}
     volumes:
       - odoo_data:/var/lib/odoo
       - ./odoo/odoo19.conf:/etc/odoo/odoo.conf:ro

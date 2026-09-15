@@ -1,4 +1,5 @@
 import base64
+import os
 
 from odoo import models, fields, api
 from odoo.exceptions import ValidationError
@@ -231,10 +232,18 @@ class QualityAlert(models.Model):
         self.sudo().write(values)
         return True
 
-    # Mehr als drei Fotos zu pruefen kostet je Bild rund 21 Sekunden und bringt
-    # selten mehr Erkenntnis. Die Gesamtzahl reist trotzdem mit, damit niemand
-    # glaubt, es sei alles angesehen worden.
-    _MAX_ASSESSMENT_PHOTOS = 3
+    # Wie viele Fotos einer Meldung geprueft werden. Die Gesamtzahl reist
+    # trotzdem mit (`photo_total`), damit niemand glaubt, es sei alles
+    # angesehen worden.
+    #
+    # Der frueherer Kommentar begruendete die Drei mit "rund 21 Sekunden je
+    # Bild". Gemessen am 2026-09-15 ueber die Laeufe 6 bis 8 kostet ein Foto
+    # 42-50 s (gemma4:12b, 1024 px, num_thread 8) -- die Begruendung war um
+    # Faktor zwei veraltet. Der Wert bleibt bei 3, die Zahl steht aber jetzt in
+    # der Umgebung, damit man ihn messen kann, ohne Code zu aendern.
+    _MAX_ASSESSMENT_PHOTOS = int(
+        os.environ.get("QA_MAX_ASSESSMENT_PHOTOS", "3")
+    )
 
     @api.model
     def api_get_assessment_media(self, job_id, delivery_generation, processing_lease_token):

@@ -75,8 +75,17 @@ DAMAGE_PROMPT = (
     '  "surface_description": describe the surface: is it smooth and continuous '
     "everywhere, or is there a region that looks torn, split, gouged, ragged or "
     "broken open?,\n"
-    '  "anomalies": array of short strings for every region that breaks the '
-    "smooth surface. Empty array if the surface is continuous everywhere.,\n"
+    # "short strings" war die einzige Laengenvorgabe und blieb unbestimmt.
+    # Am 2026-09-15 lieferte `gemma4:12b` darauf beim Plattenfoto aus Lauf 8
+    # ganze Saetze ("a large cracked area with missing pieces", 7 Woerter),
+    # bei denselben Optionen und `temperature: 0` auf anderen Fotos aber
+    # weiter ein Wort. Die Vorgabe nennt die Laenge deshalb jetzt in Zahlen
+    # und gibt Beispiele. Die Entscheidungsregel unten bleibt unberuehrt --
+    # sie betrifft `damaged`, nicht dieses Feld.
+    '  "anomalies": array of short strings, ONE TO THREE WORDS EACH, for '
+    "every region that breaks the smooth surface "
+    '(for example "crack", "broken edge", "missing stud"). '
+    "Empty array if the surface is continuous everywhere.,\n"
     '  "damaged": true or false,\n'
     '  "confidence": number 0.0 to 1.0\n\n'
     "Decisive rule: a ragged, torn or gouged area on an otherwise smooth moulded "
