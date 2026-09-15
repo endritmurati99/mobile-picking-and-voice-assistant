@@ -14,7 +14,12 @@ import time
 
 from app.config import settings
 from app.routers.n8n_v2 import _check_damage
-from app.services.vision_client import DamageCheck
+from app.services.vision_client import (
+    DamageCheck,
+    _DAUERN,
+    geschaetzte_schadensdauer,
+    notiere_schadensdauer,
+)
 
 SCHAETZUNG = settings.vision_call_estimate_ms / 1000.0
 
@@ -92,7 +97,34 @@ async def main() -> None:
     assert damage == "unavailable", damage
     assert ungeprueft == 1, ungeprueft
 
-    print(f"alle Pruefungen bestanden (Schaetzung je Aufruf: {SCHAETZUNG:.0f} s)")
+    # 6. Der gleitende Schaetzwert. Ohne Messungen gilt die Vorgabe; ab drei
+    #    Messungen der 80-%-Wert der letzten acht.
+    _DAUERN.pop("pruefmodell", None)
+    assert geschaetzte_schadensdauer("pruefmodell", 60.0) == 60.0
+    for wert in (42.0, 59.0):
+        notiere_schadensdauer("pruefmodell", wert)
+    assert geschaetzte_schadensdauer("pruefmodell", 60.0) == 60.0, "zwei Werte genuegen nicht"
+    notiere_schadensdauer("pruefmodell", 83.0)
+    # sortiert 42, 59, 83 -> ceil(0.8*3)-1 = 2 -> 83
+    assert geschaetzte_schadensdauer("pruefmodell", 60.0) == 83.0
+
+    # 7. DER FALL AUS LAUF 11: ein einzelner Ausreisser darf die Schaetzung
+    #    nicht dauerhaft bestimmen. Nach fuenf normalen Aufrufen liegt sie
+    #    wieder im Band, nicht auf dem Hoechstwert.
+    for wert in (59.0, 47.0, 44.0, 52.0, 58.0):
+        notiere_schadensdauer("pruefmodell", wert)
+    schaetzung = geschaetzte_schadensdauer("pruefmodell", 60.0)
+    assert schaetzung < 83.0, f"Ausreisser bestimmt die Schaetzung weiter: {schaetzung}"
+    assert schaetzung >= 58.0, f"Schaetzung zu tief: {schaetzung}"
+
+    # 8. Nur die letzten acht zaehlen.
+    assert len(_DAUERN["pruefmodell"]) == 8, len(_DAUERN["pruefmodell"])
+    _DAUERN.pop("pruefmodell", None)
+
+    print(
+        f"alle Pruefungen bestanden (Vorgabe je Aufruf: {SCHAETZUNG:.0f} s, "
+        f"gleitender Wert ab {3} Messungen)"
+    )
 
 
 if __name__ == "__main__":

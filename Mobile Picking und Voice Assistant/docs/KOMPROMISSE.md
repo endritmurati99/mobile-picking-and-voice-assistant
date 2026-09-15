@@ -75,7 +75,7 @@ es keine Entscheidung, sondern eine Annahme — die gehört in Abschnitt 4.
 | Bildaufruf einzeln | 200 s | `config.py:187` |
 | Bildbudget für alle Bildaufrufe | 240 s | `config.py:192` |
 | **Frist des Anrufers** | **255 s** | `caller_budget_ms`, seit 15.09. |
-| **Reicht die Zeit für den nächsten Bildaufruf?** | **60 s** | `vision_call_estimate_ms`, seit 15.09. |
+| **Reicht die Zeit für den nächsten Bildaufruf?** | **gemessen**, Vorgabe 60 s | `geschaetzte_schadensdauer` (80-%-Wert der letzten acht Aufrufe), Vorgabe `vision_call_estimate_ms` |
 | Warten auf die Bewertungssperre | 150 s | `config.py:235` |
 | **n8n-Knoten** | **270 s** | `n8n/workflows/quality-assessment-v2.json` |
 
@@ -94,6 +94,20 @@ Der Preis: Fotos, die rechnerisch nicht mehr passen, werden nicht mehr versucht 
 wenn der Aufruf schneller gewesen wäre als der Schätzwert. In Lauf 10 lagen die Aufrufe bei
 40,2–46,2 s; ein viertes Foto hätte gepasst. Der Schätzwert ist bewusst konservativ: ein
 liegengebliebenes Foto wird genannt, eine abgeschnittene Antwort ist ganz weg.
+
+**Seit Lauf 12 misst die Kette selbst.** `vision_client` hält die Dauer der letzten acht
+Schadensaufrufe je Modell fest; die Schranke fragt den **80-%-Wert** ab, vor drei Messungen die
+Vorgabe. Nicht der Mittelwert — die Hälfte aller Aufrufe würde ihn reißen. Nicht der Höchstwert —
+nach Lauf 11 stünde die Schätzung acht Aufrufe lang auf 83 s. Abgebrochene Aufrufe zählen nicht
+mit: ihre Dauer ist die Restzeit, die sie noch hatten, nicht die, die sie gebraucht hätten.
+
+Messwert dafür: Läufe 11, 12 und 13 bei praktisch gleicher Laufzeit (247,9 / 252,5 / 248,3 s) —
+**2, dann 4, dann 5 von fünf Fotos geprüft**. In Lauf 13 fiel die Schätzung nach einem Aufruf von
+37,48 s auf 49,9 s und ließ Foto 5 zu, das gegen die feste Vorgabe liegengeblieben wäre.
+
+Der Preis: die Messreihe liegt im Prozess und überlebt keinen Neustart — nach jedem Backend-Start
+laufen die ersten drei Aufrufe wieder gegen die Vorgabe. Bewusst so: eine kalte Maschine rechnet
+ohnehin anders.
 
 **Nachtrag Lauf 11: 60 s sind auch zu wenig.** Ein Bildaufruf brauchte dort 82,88 s bei 519 Token,
 ein zweiter im selben Lauf 59,11 s bei 513 Token. Das Band ist damit **42–83 s**. Ein fester Wert

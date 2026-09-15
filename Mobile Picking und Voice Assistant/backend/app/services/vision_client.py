@@ -35,15 +35,63 @@ die Einladung, doch etwas daraus zu schliessen.
 from __future__ import annotations
 
 import base64
+import math
 import os
 import json
 import logging
 import time
+from collections import deque
 from dataclasses import dataclass, field
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+# Wie lange die letzten Schadensaufrufe je Modell gebraucht haben.
+#
+# Der Aufrufer muss vor jedem Bildaufruf wissen, ob die Restzeit noch fuer
+# einen GANZEN Aufruf reicht. Bis zum 2026-09-15 stand dafuer ein fester Wert
+# in der Konfiguration, und Lauf 11 hat ihn widerlegt: derselbe Prompt, fast
+# dieselbe Tokenzahl (519 gegen 513), einmal 82,88 s und einmal 59,11 s. Ein
+# fester Wert deckt entweder den schnellen Fall ab und laesst Aufrufe starten,
+# die ihn reissen, oder den langsamen und laesst Fotos liegen, die gepasst
+# haetten.
+#
+# Prozesslokal und absichtlich klein: nach einem Neustart gilt wieder die
+# Vorgabe aus der Konfiguration. Ein Messwert, der einen Neustart ueberlebt,
+# muesste gepflegt werden -- und eine kalte Maschine rechnet ohnehin anders.
+_DAUERN: dict[str, deque[float]] = {}
+# Ab wievielen Messungen der gemessene Wert die Vorgabe abloest. Unter drei
+# Werten ist der 80-%-Wert kein Quantil, sondern ein Zufall.
+_MINDESTMESSUNGEN = 3
+
+
+def notiere_schadensdauer(model: str, sekunden: float) -> None:
+    """Haelt die Dauer EINES abgeschlossenen Schadensaufrufs fest.
+
+    Abgebrochene Aufrufe gehoeren NICHT hierher: ihre Dauer ist die Restzeit,
+    die sie noch hatten, nicht die, die sie gebraucht haetten. Wer sie
+    mitzaehlt, zieht die Schaetzung genau dann nach unten, wenn es eng wird.
+    """
+    _DAUERN.setdefault(model, deque(maxlen=8)).append(sekunden)
+
+
+def geschaetzte_schadensdauer(model: str, vorgabe: float) -> float:
+    """Womit ein Aufruf dieses Modells zu rechnen hat, in Sekunden.
+
+    Der 80-%-Wert der letzten acht Messungen: hoch genug, dass ein einzelner
+    schneller Aufruf die Schaetzung nicht zu tief zieht, und robust genug, dass
+    ein einzelner Ausreisser nach oben sie nicht fuer die naechsten acht
+    Aufrufe bestimmt. Der Hoechstwert waere das nicht -- nach Lauf 11 stuende
+    die Schaetzung bei 83 s, und ein Foto, das in 59 s durchgelaufen waere,
+    bliebe liegen.
+
+    Vor `_MINDESTMESSUNGEN` Messungen gilt die uebergebene Vorgabe.
+    """
+    werte = sorted(_DAUERN.get(model, ()))
+    if len(werte) < _MINDESTMESSUNGEN:
+        return vorgabe
+    return werte[math.ceil(0.8 * len(werte)) - 1]
 
 # EIN Bild je Aufruf, und der Vergleich passiert spaeter im Text.
 #
@@ -254,7 +302,12 @@ class VisionClient:
         )
 
     async def inspect_damage(self, candidate: bytes) -> DamageCheck:
+        begonnen = time.monotonic()
         parsed = await self._ask(DAMAGE_PROMPT, [candidate], self._model)
+        # Auch ein Aufruf ohne verwertbare Antwort hat seine Zeit gekostet und
+        # gehoert in die Schaetzung. Ein ABGEBROCHENER kommt hier nie an --
+        # `_in_restzeit` bricht die Koroutine ab, und das ist richtig so.
+        notiere_schadensdauer(self._model, time.monotonic() - begonnen)
         if parsed is None or not isinstance(parsed.get("damaged"), bool):
             return DamageCheck(ok=False)
         raw = parsed.get("anomalies")

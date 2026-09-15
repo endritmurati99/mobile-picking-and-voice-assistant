@@ -28,6 +28,8 @@ Schätzungen. Uhrzeiten in UTC, wie dort protokolliert; die Ortszeit liegt zwei 
 | 9 (QA/0374) | 15.09. | Brick Bow 2x3x1 hellblau | 5 (3 geprüft) | weiß | 8 | **`match`** | `assessment unavailable` | **Abbruch nach 270 s** |
 | 10 (QA/0375) | 15.09. | Brick Bow 2x3x1 hellblau | 5 (3 geprüft) | weiß | 8 | **`match`** | **`completed`** | **3 min 31 s** |
 | 11 (QA/0376) | 15.09. | Plate 2x4 grün | 5 (2 geprüft) | weiß | 8 | **`match`** | **`completed`** | **4 min 8 s** |
+| 12 (QA/0377) | 15.09. | Brick 2x4 hellgelb | 5 (**4 geprüft**) | weiß | 8 | **`match`** | **`completed`** | **4 min 13 s** |
+| 13 (QA/0378) | 15.09. | Brick 2x2 hellblau | 5 (**5 geprüft**) | weiß | 8 | **`match`** | **`completed`** | **4 min 8 s** |
 
 Zwei Stellschrauben erklären die ganze Tabelle: **die Threadzahl** entscheidet, ob die Kette
 überhaupt fertig wird, und **der Bildhintergrund** entscheidet, ob die Artikelachse trägt.
@@ -121,6 +123,8 @@ nicht zwei Teile.
 | 9 | Brick Bow 2x3x1 hellblau | `match` | richtig, **0,9176** | 0,0886 |
 | 10 | Brick Bow 2x3x1 hellblau (dieselben Fotos wie 9) | `match` | richtig, **0,9176** | 0,0886 |
 | 11 | Plate 2x4 grün | `match` | richtig, **0,8829** | 0,0654 |
+| 12 | Brick 2x4 hellgelb | `match` | richtig, 0,8521 | **0,0276** (Geschwister im selben Auftrag) |
+| 13 | Brick 2x2 hellblau | `match` | richtig, **0,9139** | 0,0372 |
 
 In Lauf 5 lag *Brick 2x3 W. Inv. Bow gelb* punktgleich daneben: dieselbe Form, dieselbe Farbe,
 eine Noppenreihe weniger. Der Dienst rät nicht, sondern meldet `unsicher` mit Grund `zu_dicht`.
@@ -327,6 +331,38 @@ Nebenbefund: Die Bildaufrufe lagen mit 40,2–46,2 s (ollama) am unteren Rand de
 Der Schätzwert 60 s ist also konservativ — er lässt eher ein Foto liegen, als eine Antwort zu
 verlieren. Ein gleitender Mittelwert der letzten Aufrufe wäre genauer.
 
+### Läufe 12 und 13: der gleitende Schätzwert
+
+Nach Lauf 11 stand fest, dass ein fester Wert das Band 42–83 s nicht abdecken kann. Seit dem
+15.09. hält `vision_client` die Dauer der letzten **acht** Schadensaufrufe je Modell fest und
+liefert daraus den **80-%-Wert**; vor drei Messungen gilt weiter `vision_call_estimate_ms`.
+Warum nicht der Mittelwert: die Hälfte aller Aufrufe würde ihn reißen. Warum nicht der
+Höchstwert: nach Lauf 11 stünde die Schätzung acht Aufrufe lang auf 83 s.
+
+Dazu die Logzeile `vision_budget_stop` mit `stelle`, `restzeit_s`, `schaetzung_s` und
+`offene_fotos` — vorher stand über ein zurückgestelltes Foto **nichts** im Backend-Log.
+
+| | Lauf 11 | Lauf 12 | Lauf 13 |
+|---|---|---|---|
+| Schätzwert | fest 60 s | gleitend ab Foto 3 | gleitend von Anfang an |
+| **Fotos geprüft** | 2 von 5 | 4 von 5 | **5 von 5** |
+| Bildaufrufe | 82,9 / 59,1 s | 49,0 / 42,4 / 56,1 / 49,9 s | 45,8 / 37,5 / 39,6 / 42,3 / 40,6 s |
+| Laufzeit | 247,9 s | 252,5 s | 248,3 s |
+| Auslastung Knotenlimit | 92 % | 94 % | 92 % |
+
+**Bei praktisch gleicher Laufzeit steigt die Zahl der geprüften Fotos von zwei auf fünf.** Der
+Gewinn kommt nicht aus mehr Rechenleistung, sondern aus einer Schätzung, die dem tatsächlichen
+Verhalten folgt. In Lauf 12 sank sie nach drei Messungen auf 56,1 s und ließ damit Foto 4 zu, das
+gegen die 60-s-Vorgabe liegengeblieben wäre. In Lauf 13 fiel sie nach einem Aufruf von 37,48 s —
+dem schnellsten aller Läufe — auf 49,9 s und ließ Foto 5 zu.
+
+Der Artikel entscheidet mit: ein 2x2-Stein kostet 37–46 s je Aufruf, eine 2x4-Platte 42–83 s. Ein
+fester Wert kann das grundsätzlich nicht abbilden.
+
+**Was weiterhin liegen bleibt, ist der Zustandsvergleich.** Er steht am Ende der Kette und ist
+seit Lauf 9 in keinem Lauf mehr drangekommen. Ob er wichtiger ist als das fünfte Foto, ist eine
+fachliche Entscheidung.
+
 ### Lauf 11: der Schätzwert war zu niedrig, und es hat trotzdem gehalten
 
 Neuer Artikel (Plate 2x4 grün, in keinem Vorlauf), fünf Fotos, Antwort nach **247,9 s** mit
@@ -497,3 +533,5 @@ Zeit kosten:
 | 9 | `2026-09-15_run9_brickbow_hellblau/protokoll.md` |
 | 10 | `2026-09-15_run10_budgetbremse/protokoll.md` |
 | 11 | `2026-09-15_run11_plate2x4_gruen/protokoll.md` |
+| 12 | `2026-09-15_run12_brick2x4_hellgelb/protokoll.md` |
+| 13 | `2026-09-15_run13_brick2x2_hellblau/protokoll.md` |

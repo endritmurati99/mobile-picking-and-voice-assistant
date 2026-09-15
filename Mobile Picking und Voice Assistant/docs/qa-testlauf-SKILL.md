@@ -26,7 +26,13 @@ Ein Lauf ohne Frage ist verschwendete Rechenzeit. Lege vorher fest, was **eine**
 
 Stand 15.09.2026 bereits gemessen und **nicht zu wiederholen**: Threadzahl, Fotoanzahl 1 bis 5,
 Textmodellvergleich, Hintergrund freigestellt gegen Lager, Länge der Schadensbefunde, Wirkung der
-Budgetbremse (Lauf 9 gegen Lauf 10, dieselben fünf Fotos).
+Budgetbremse (Lauf 9 gegen Lauf 10, dieselben fünf Fotos), Wirkung des gleitenden Schätzwerts
+(Läufe 11 bis 13: 2, dann 4, dann 5 von fünf Fotos bei gleicher Laufzeit).
+
+**Vor jedem Lauf wissen, was die Messreihe gerade sagt.** Nach einem Backend-Neustart ist sie
+leer, und die ersten drei Bildaufrufe laufen gegen die Vorgabe von 60 s. Wer den gleitenden Wert
+messen will, darf das Backend vorher nicht neu starten — und wer eine Codeänderung misst, muss es.
+Beides gehört ins Protokoll.
 
 ---
 
@@ -229,7 +235,7 @@ Abschnitt 3, offene Punkte.
 | Bildaufruf einzeln | 200 s | `config.py:187` |
 | Bildbudget für alle Bildaufrufe | 240 s | `config.py:192` |
 | **Frist des Anrufers** | **255 s** | `caller_budget_ms` |
-| **Restzeit, die ein Bildaufruf braucht** | **60 s** | `vision_call_estimate_ms` |
+| **Restzeit, die ein Bildaufruf braucht** | **gemessen** (80-%-Wert der letzten 8), Vorgabe 60 s | `geschaetzte_schadensdauer`, `vision_call_estimate_ms` |
 | Warten auf die Bewertungssperre | 150 s | `config.py:235` |
 | **n8n-Knoten** | **270 s** | `quality-assessment-v2.json` |
 | Fotos je Meldung | 3 | `QA_MAX_ASSESSMENT_PHOTOS` (Odoo) |
@@ -252,7 +258,7 @@ Gemessene Kosten je Stufe (warme Modelle, `num_thread: 8`):
 |---|---|
 | Textbewertung | 20–75 s |
 | Einbettungsabgleich | unter 1 s |
-| Schadensprüfung je Foto | **42–83 s** (Lauf 11: 82,9 s und 59,1 s bei fast gleicher Tokenzahl) |
+| Schadensprüfung je Foto | **37–83 s** — hängt am Artikel: 2x2-Stein 37–46 s, 2x4-Platte 42–83 s |
 | Katalogbildvergleich | 18–33 s |
 | Artikelvergleich im Text | 5–22 s |
 

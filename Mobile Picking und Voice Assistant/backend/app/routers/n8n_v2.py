@@ -80,7 +80,11 @@ from app.models.events import (
 )
 from app.config import settings
 from app.services.llm_client import LlmClient
-from app.services.vision_client import DamageCheck, VisionClient
+from app.services.vision_client import (
+    DamageCheck,
+    VisionClient,
+    geschaetzte_schadensdauer,
+)
 from app.services.assessment_media import DAMAGE_MAX_EDGE, MediaError, prepare_image
 from app.services.embed_catalogue import katalog_sicherstellen
 from app.services.assessment_reconciliation import PhotoFinding, reconcile
@@ -368,7 +372,7 @@ def _no_finding(note: str) -> PhotoFinding:
     return PhotoFinding(article="unavailable", damage="unavailable", note=note)
 
 
-def _reicht_die_zeit(deadline: float) -> bool:
+def _reicht_die_zeit(deadline: float, stelle: str = "", offen: int = 0) -> bool:
     """Passt noch EIN Bildaufruf in die Restzeit?
 
     Die richtige Frage vor einem Aufruf ist nicht "ist das Budget erschoepft",
@@ -379,10 +383,32 @@ def _reicht_die_zeit(deadline: float) -> bool:
     n8n-Abbruch serverseitig beendet -- 65,6 s Rechenzeit ohne Ergebnis, ohne
     eine einzige Zeile im Backend-Log.
 
-    Der Schaetzwert steht in `vision_call_estimate_ms`. Er darf nicht knapp
-    sein: ein zu kleiner Wert startet Aufrufe, die niemand mehr entgegennimmt.
+    Womit zu rechnen ist, sagt seit dem 2026-09-15 die MESSUNG der letzten
+    Aufrufe (`geschaetzte_schadensdauer`), nicht mehr der feste Wert aus der
+    Konfiguration -- der gilt nur noch, solange zu wenige Messungen vorliegen.
+    Lauf 11 hat den festen Wert widerlegt: 82,88 s gegen 59,11 s bei fast
+    gleicher Tokenzahl im selben Lauf.
+
+    `stelle` und `offen` landen im Log, wenn die Antwort "nein" lautet. Bis
+    dahin stand ueber ein zurueckgestelltes Foto KEINE Zeile im Backend-Log --
+    die Zahl tauchte nur im Odoo-Formular auf, und wer den Grund suchte, fand
+    nichts.
     """
-    return deadline - time.monotonic() >= settings.vision_call_estimate_ms / 1000.0
+    rest = deadline - time.monotonic()
+    schaetzung = geschaetzte_schadensdauer(
+        settings.vision_model, settings.vision_call_estimate_ms / 1000.0
+    )
+    if rest >= schaetzung:
+        return True
+    if stelle:
+        logger.info(json.dumps({
+            "event_type": "vision_budget_stop",
+            "stelle": stelle,
+            "restzeit_s": round(rest, 1),
+            "schaetzung_s": round(schaetzung, 1),
+            "offene_fotos": offen,
+        }))
+    return False
 
 
 async def _in_restzeit(aufruf, deadline: float):
@@ -632,7 +658,7 @@ async def _artikel_ueber_text(
         reference_text = hinterlegt
         reference_source = "odoo"
     else:
-        if not _reicht_die_zeit(deadline):
+        if not _reicht_die_zeit(deadline, "artikel_katalogbild"):
             lines.append(
                 "Artikel: nicht geprüft (Zeitbudget erschöpft). "
                 f"Foto zeigt: {candidate_seen.text}."
@@ -806,7 +832,9 @@ async def _check_damage(
         # anderem Namen. Gekappt wird er trotzdem: seit Lauf 9 ist gemessen,
         # was ein ungefesselter Aufruf kostet, der den Anrufer ueberlebt.
         garantie = garantiert and index == 0
-        if not garantie and not _reicht_die_zeit(deadline):
+        if not garantie and not _reicht_die_zeit(
+            deadline, "schadenspruefung", len(candidates) - index
+        ):
             ungeprueft += len(candidates) - index
             budget_gerissen = True
             break
@@ -953,7 +981,7 @@ async def _zustandsvergleich(
         ist = befunde[0] if befunde else None
     if ist is None or not ist.description:
         return damage, None
-    if not _reicht_die_zeit(deadline):
+    if not _reicht_die_zeit(deadline, "zustandsvergleich"):
         return damage, "Zustand: nicht verglichen (Zeitbudget erschöpft)."
 
     soll = await _soll_befund(vision, reference, deadline)
