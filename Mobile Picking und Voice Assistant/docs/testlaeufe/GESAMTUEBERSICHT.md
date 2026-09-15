@@ -25,6 +25,7 @@ Schätzungen. Uhrzeiten in UTC, wie dort protokolliert; die Ortszeit liegt zwei 
 | 7 A (QA/0371) | 15.09. | Brick 2x2 blau | 3 | weiß | 8 | `match` | `assessment unavailable` (Fremdlast) | Abbruch nach 270 s |
 | 7 B (QA/0372) | 15.09. | Brick 2x2 blau | 3 | weiß | 8 | **`match`** | **`completed`** | 4 min 17 s |
 | 8 (QA/0373) | 15.09. | Plate 2x4 blau | 4 (3 geprüft) | weiß | 8 | **`match`** | **`completed`** | 3 min 10 s |
+| 9 (QA/0374) | 15.09. | Brick Bow 2x3x1 hellblau | 5 (3 geprüft) | weiß | 8 | **`match`** | `assessment unavailable` | **Abbruch nach 270 s** |
 
 Zwei Stellschrauben erklären die ganze Tabelle: **die Threadzahl** entscheidet, ob die Kette
 überhaupt fertig wird, und **der Bildhintergrund** entscheidet, ob die Artikelachse trägt.
@@ -115,6 +116,7 @@ nicht zwei Teile.
 | 6 | Roof Tile 4x2 rot | `match` | richtig, 0,846 | **0,2396** |
 | 7 | Brick 2x2 blau | `match` | richtig, 0,8467 | 0,0223 |
 | 8 | Plate 2x4 blau | `match` | richtig, **0,8978** | 0,08 |
+| 9 | Brick Bow 2x3x1 hellblau | `match` | richtig, **0,9176** | 0,06 |
 
 In Lauf 5 lag *Brick 2x3 W. Inv. Bow gelb* punktgleich daneben: dieselbe Form, dieselbe Farbe,
 eine Noppenreihe weniger. Der Dienst rät nicht, sondern meldet `unsicher` mit Grund `zu_dicht`.
@@ -241,6 +243,34 @@ gar nicht überlasten.
 
 Lauf 8 war mit einem Foto mehr **schneller** als Lauf 7: Die Streuung zwischen zwei Läufen
 (Textbewertung 25,1 s gegen 59,4 s) ist größer als der Unterschied zwischen drei und vier Fotos.
+
+### Lauf 9 mit fünf Fotos: die Budgetbremse greift nicht
+
+Für diese Messung wurde `QA_MAX_ASSESSMENT_PHOTOS` auf 5 gesetzt — zum ersten Mal gingen mehr als
+drei Fotos in die Kette. Ergebnis: **Abbruch am Knotenlimit nach 270 s**, `assessment unavailable`.
+Drei der fünf Fotos waren geprüft (59,8 s + 50,1 s + 58,1 s = 168,0 s), Foto 4, Foto 5 und der
+Katalogbildvergleich kamen nicht mehr dran.
+
+**Der Befund ist nicht der Abbruch, sondern warum die Bremse ihn nicht verhindert hat.** Zum
+Zeitpunkt des Abbruchs waren 168 s von 240 s Bildbudget verbraucht — 70 %. `_check_damage` hatte
+also keinen Grund, ein Foto zu überspringen, und hätte weitergeprüft. Der Aufrufer hatte da schon
+aufgegeben.
+
+| Posten | Grenze |
+|---|---|
+| Textbewertung | 90 s |
+| Bildbudget | 240 s |
+| zwei Textvergleiche | je bis 90 s |
+| **Summe möglich** | **bis 510 s** |
+| **n8n-Knoten wartet** | **270 s** |
+
+Das Backend misst gegen 240 s statt gegen die verbleibende Zeit bis 270 s. Die Odoo-Konstante
+`_MAX_ASSESSMENT_PHOTOS = 3` ist derzeit das Einzige, was diesen Rechenfehler verdeckt — sie ist
+kein Sparmaßnahme, sondern Schutz.
+
+Lauf 8 und Lauf 9 bekamen beide mehr Fotos, als die Kette prüfen kann. In Lauf 8 schnitt **Odoo**
+vorher ab: kostete nichts, endete sauber. In Lauf 9 nahm die Kette alle fünf an und starb über der
+Zeit — 168 s Rechenzeit und drei fertige Bildbefunde gingen dabei verloren.
 
 **Die bindende Grenze ist das Knotenlimit, nicht das Bildbudget.** Webhook bis Antwort:
 254,5 s von 270 s, **Reserve 15,5 s**. Das Bildbudget hat dagegen noch 66,7 s frei (173,3 s von
@@ -387,3 +417,5 @@ Zeit kosten:
 | 5 | `2026-09-15_run5_brick2x4bows_gelb/protokoll.md` |
 | 6 | `2026-09-15_run6_rooftile_rot/protokoll.md` |
 | 7 A und B | `2026-09-15_run7_brick2x2_blau/protokoll.md` |
+| 8 | `2026-09-15_run8_plate2x4_blau/protokoll.md` |
+| 9 | `2026-09-15_run9_brickbow_hellblau/protokoll.md` |
