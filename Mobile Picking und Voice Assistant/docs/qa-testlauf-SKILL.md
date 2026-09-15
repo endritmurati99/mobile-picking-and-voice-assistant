@@ -1,111 +1,138 @@
 ---
 name: qa-testlauf
-description: Führt einen dokumentierten End-to-End-Testlauf der Qualitätsmeldung durch — Picking-PWA (Problem melden mit Fotos) → Backend → n8n "Quality Assessment v2" → lokale Bilderkennung (ollama) → Odoo Quality Alert. Erzeugt Schadensfotos über ChatGPT aus dem echten Produktbild, misst die Laufzeiten pro Stufe und legt ein Protokoll unter docs/testlaeufe/ ab. Verwenden, wenn der Nutzer einen QA-Testlauf, Bilderkennungs-Test, Schadensmeldungs-Test, Quality-Alert-Test oder eine Messung der Modelllaufzeiten verlangt.
+description: Führt einen dokumentierten End-to-End-Testlauf der Qualitätsmeldung durch — Picking-PWA (Problem melden mit Fotos) → Backend → n8n "Quality Assessment v2" → lokale Bilderkennung (ollama) → Odoo Quality Alert. Erzeugt Schadensfotos über ChatGPT aus dem echten Katalogbild, misst die Laufzeiten pro Stufe und legt ein Protokoll unter docs/testlaeufe/ ab. Verwenden, wenn der Nutzer einen QA-Testlauf, Bilderkennungs-Test, Schadensmeldungs-Test, Quality-Alert-Test, eine Messung der Modelllaufzeiten oder einen Vergleich von Bild- oder Textmodellen verlangt.
 ---
 
 # QA-Testlauf: Schadensmeldung mit Bilderkennung
 
-Ziel: einen reproduzierbaren, für die Bachelorarbeit zitierfähigen Testlauf erzeugen. Jeder Lauf hinterlässt einen Ordner mit Bildern, Logs, Zeitmessungen und einem Protokoll.
+Ziel: ein reproduzierbarer, für die Bachelorarbeit zitierfähiger Testlauf. Jeder Lauf hinterlässt
+einen Ordner mit Bildern, Logs, Zeitmessungen und einem Protokoll.
 
-## Voraussetzungen prüfen
+**Vor jeder Änderung an der Kette `docs/KOMPROMISSE.md` lesen.** Dort steht jede Entscheidung, die
+schon einmal Messzeit gekostet hat, mit ihrem Messwert — und welche Codekommentare überholt sind.
+
+---
+
+## 0. Was soll dieser Lauf messen?
+
+Ein Lauf ohne Frage ist verschwendete Rechenzeit. Lege vorher fest, was **eine** Variable ist:
+
+| Frage | Was variieren | Was konstant halten |
+|---|---|---|
+| Wirkt eine Codeänderung? | die Änderung | Auftrag, Artikel, Foto (gleiche MD5), Text |
+| Was kostet ein weiteres Foto? | Fotoanzahl | Artikel, Bildwelt, Modelle warm |
+| Trägt die Artikelachse? | Artikel bzw. Formfamilie | Bildwelt weiß, Fotoanzahl |
+| Taugt ein anderes Modell? | Modell | **nicht die Kette fahren** — Skript nehmen, siehe Abschnitt 6 |
+
+Stand 15.09.2026 bereits gemessen und **nicht zu wiederholen**: Threadzahl, Fotoanzahl 1 bis 5,
+Textmodellvergleich, Hintergrund freigestellt gegen Lager, Länge der Schadensbefunde.
+
+---
+
+## 1. Voraussetzungen
 
 ```powershell
 docker ps --format "{{.Names}} {{.Status}}"
 ```
 
-Erwartet: `backend`, `pwa`, `n8n`, `odoo`, `odoo-lager-2`, `caddy`, `db`, `ollama` laufen (Präfix `mobilepickingundvoiceassistant-`).
+Erwartet: `backend`, `pwa`, `n8n`, `odoo`, `odoo-lager-2`, `caddy`, `db`, `ollama`, `embed`
+(Präfix `mobilepickingundvoiceassistant-`).
 
-Browser-Tabs, die in derselben Claude-Tabgruppe liegen müssen:
+Browser-Tabs in derselben Claude-Tabgruppe:
 
 | Zweck | URL |
 |---|---|
 | Picking Assistant | `https://localhost/` |
-| ChatGPT (Bildgenerierung) | `https://chatgpt.com/` |
+| ChatGPT | `https://chatgpt.com/` |
 | Odoo Quality Alerts | `http://127.0.0.1:8069/odoo/action-307` |
-| n8n Executions | `http://127.0.0.1:5678/workflow/<id>/executions` |
+| n8n Executions | `http://127.0.0.1:5678/home/executions` |
 
-## Browser-Besonderheiten (wichtig, sonst blockiert der Lauf)
+### Die vier Prüfungen vor dem Start
 
-Der Picking Assistant und ChatGPT kollabieren ihr Layout, sobald ihr Tab `document.visibilityState === "hidden"` ist: Elemente haben dann `getBoundingClientRect().width === 0`. Folgen:
-
-- **Screenshots** und **Klicks/Tastatur über Koordinaten** funktionieren auf diesen Tabs nur, wenn der Tab sichtbar ist. `Page.captureScreenshot` läuft sonst in einen 30-s-Timeout, weil ohne `requestAnimationFrame` kein Compositor-Frame entsteht.
-- **JavaScript funktioniert immer**, auch auf versteckten Tabs. Deshalb den ganzen Lauf per `javascript_tool` fahren, nicht per Maus.
-- Der aktive Tab lässt sich nicht selbst umschalten: `window.focus()` wird von Chrome blockiert, und neu erstellte Tabs übernehmen den Fokus nicht. Odoo und n8n rendern auch versteckt normal und sind blind bedienbar.
-
-Bewährte Bausteine:
-
-```js
-// Text in ein React-kontrolliertes <textarea> schreiben
-const ta = document.querySelector('textarea');
-const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-setter.call(ta, 'Meldungstext');
-ta.dispatchEvent(new Event('input', { bubbles: true }));
-```
-
-```js
-// Text in ChatGPTs contenteditable-Composer schreiben und absenden
-const t = document.querySelector('#prompt-textarea');
-t.focus();
-document.execCommand('selectAll');
-document.execCommand('insertText', false, 'Prompt-Text');
-document.querySelector('#composer-submit-button, [data-testid="send-button"]').click();
-```
-
-Direktes Tippen (`computer: type`) in den ChatGPT-Composer zerschießt den Inhalt — immer `execCommand` verwenden.
-
-```js
-// Bild aus der Seite heraus auf die Platte laden (umgeht fehlende Session im Shell-Kontext)
-const r = await fetch(url);                // url = img.src, gleiche Origin-Session
-const b = await r.blob();
-const u = URL.createObjectURL(b);
-const a = document.createElement('a');
-a.href = u; a.download = 'datei.png';
-document.body.appendChild(a); a.click(); a.remove();
-```
-
-Die Datei landet in `C:\Users\endri\Downloads`. Das funktioniert auch bei verstecktem Tab.
-
-Warten auf ChatGPT: `document.querySelector('[data-testid="stop-button"]')` existiert, solange generiert wird. Bilder werden aus dem DOM entladen, wenn der Tab lange versteckt ist — dann vor dem Download neu einlesen (`main img`, letztes Element ist das neueste).
-
-## Ablauf
-
-### 1. Lauf anlegen und Referenzbild holen
-
-Auftrag im Picking Assistant öffnen, Artikel und SKU notieren. Produktbild-URL aus dem DOM lesen und herunterladen:
-
-```js
-[...document.images].map(i => ({ src: i.currentSrc, w: i.naturalWidth }));
-// -> https://localhost/api/products/<id>/image?size=1024
-```
-
-Dieses Bild ist die Vorlage für ChatGPT. Ein Download per PowerShell scheitert mit
-`{"detail": "Ungueltige oder abgelaufene Sitzung."}` — nur der Weg über die Seite funktioniert.
-
-### 2. Schadensfotos erzeugen
-
-Vorlagebild an ChatGPT anhängen (`file_upload` auf das sichtbare `input[type=file]` mit `accept="image/*"`), dann pro Perspektive einen Prompt senden. Bewährte Serie:
-
-1. schräg von oben, abgebrochene Noppe + Riss
-2. strenge Draufsicht, Noppe komplett abgebrochen
-3. Nahaufnahme von der Seite, langer Riss
-4. schräg von hinten/unten, abgeplatzte Ecke, Kratzer
-5. im geöffneten Karton im Regal, Blitzlicht
-
-Jedes Bild direkt nach Fertigstellung herunterladen (`damage_01.png` … `damage_05.png`).
-
-### 3. Bilder aufbereiten
+Alle vier, jedes Mal. Jede hat schon einmal einen Lauf unbrauchbar gemacht.
 
 ```powershell
-pwsh -File .claude/skills/qa-testlauf/scripts/prepare-photos.ps1 -Quelle "$HOME\Downloads" -Ziel "<laufordner>"
+# 1. Mountet der Container den Code, den du aenderst?
+docker inspect mobilepickingundvoiceassistant-backend-1 --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}'
+
+# 2. Liegt Fremdlast auf ollama? Ueber 100 % heisst: da laeuft noch etwas.
+docker stats --no-stream mobilepickingundvoiceassistant-ollama-1
+
+# 3. Sind beide Modelle geladen?
+docker exec mobilepickingundvoiceassistant-ollama-1 ollama ps
+
+# 4. Wieviele Fotos nimmt Odoo an?
+docker exec mobilepickingundvoiceassistant-odoo-1 sh -c 'echo $QA_MAX_ASSESSMENT_PHOTOS'
 ```
 
-Skaliert auf 1024 px JPEG (entspricht `DAMAGE_MAX_EDGE`), baut einen Kontaktabzug und schreibt MD5-Summen. Nötig, weil fünf PNG-Originale zusammen das 10-MB-Limit von `file_upload` sprengen.
+Fehlt ein Modell oder stimmt die Kontextgröße nicht:
 
-### 4. Meldung absenden
+```powershell
+docker cp .claude/skills/qa-testlauf/scripts/warmlaufen.py mobilepickingundvoiceassistant-backend-1:/tmp/
+docker exec mobilepickingundvoiceassistant-backend-1 python /tmp/warmlaufen.py
+```
 
-Im Picking Assistant: „Problem" → „Artikel beschädigt" → Beschreibung setzen → `file_upload` der fünf JPEGs auf `input[type=file]` → „Absenden" per `.click()`.
+---
 
-Vor dem Absenden prüfen:
+## 2. Ablauf
+
+### 2.1 Auftrag und Artikel wählen
+
+Im Picking Assistant einen Auftrag öffnen. Für Varietät eine andere Position als Position 1
+nehmen — die Positionsliste ist anklickbar:
+
+```js
+[...document.querySelectorAll('button')].find(x => x.innerText.includes('<SKU>')).click();
+```
+
+SKU, Produkt-ID, Regal und Auftragsnummer notieren.
+
+### 2.2 Katalogbild holen
+
+**Nicht** über den Browser-Download — der schlägt still fehl, wenn Chrome mehrere Downloads
+hintereinander blockt. Direkt aus Odoo:
+
+```powershell
+docker cp .claude/skills/qa-testlauf/scripts/hol_katalogbild.py mobilepickingundvoiceassistant-backend-1:/tmp/
+docker exec mobilepickingundvoiceassistant-backend-1 python /tmp/hol_katalogbild.py <SKU> /tmp/vorlage.png
+docker cp mobilepickingundvoiceassistant-backend-1:/tmp/vorlage.png "<laufordner>/<name>.png"
+```
+
+### 2.3 Schadensfotos erzeugen
+
+Vorlage an ChatGPT anhängen (`file_upload` auf das `input[type=file]` im `form`), dann **je
+Ansicht einen Prompt**, nacheinander. Alle auf einmal anzufordern liefert nur ein Bild.
+
+**Immer freigestellt auf weißem Hintergrund.** Gemessen: dasselbe Teil mit demselben Schaden
+erreicht freigestellt 0,8723 auf Platz 1 des Artikelabgleichs, im Lagerfoto 0,393 auf Platz 5.
+Lagerfotos sind nur sinnvoll, wenn der Domänensprung selbst die Frage ist.
+
+Bewährte Ansichten:
+
+1. schräg von oben wie die Vorlage
+2. strenge Draufsicht auf die Noppen
+3. Nahaufnahme der Bruchstelle von der Seite
+4. Ansicht von hinten
+5. Ansicht von unten
+
+Jedes Bild direkt nach Fertigstellung herunterladen, `run<N>_damage_01.png` und so fort.
+
+### 2.4 Bilder aufbereiten
+
+```powershell
+pwsh -File .claude/skills/qa-testlauf/scripts/prepare-photos.ps1 -Quelle "$HOME\Downloads" -Muster "run<N>_damage_*.png" -Ziel "docs\testlaeufe\<laufordner>"
+```
+
+Skaliert auf 1 024 px JPEG (entspricht `DAMAGE_MAX_EDGE`), baut einen Kontaktabzug, schreibt
+MD5-Summen. Den Kontaktabzug ansehen, bevor der Lauf startet — ein Bild ohne sichtbaren Schaden
+misst nichts.
+
+### 2.5 Meldung absenden
+
+Im Picking Assistant: „Problem" → „Artikel beschädigt" → Beschreibung → `file_upload` der JPEGs →
+`button.qa-submit` per `.click()`.
+
+Vorher prüfen:
 
 ```js
 const fi = document.querySelector('input[type=file]');
@@ -114,160 +141,183 @@ const fi = document.querySelector('input[type=file]');
    desc: document.querySelector('textarea').value });
 ```
 
-Die Textarea zieht Diktat-Eingaben an, wenn der Tab den Fokus hat — Inhalt immer gegenprüfen.
+Absendezeit notieren — sie ist der Nullpunkt aller Zeitmessungen.
 
-### 5. Kette verifizieren
+### 2.6 Kette beobachten
 
-```powershell
-docker logs --since 5m mobilepickingundvoiceassistant-backend-1 2>&1 |
-  Select-String "quality-alerts|webhook/quality-assessment"
-```
-
-Erwartet: `POST /api/quality-alerts ... 200 OK` und `POST http://n8n:5678/webhook/quality-assessment-v2 ... 200 OK`.
-
-Danach n8n-Execution-Nummer und Odoo-Alert-Referenz (`QA/xxxx`) notieren.
-
-### 6. Laufzeiten messen
+Einen Subagenten mitlaufen lassen (Vorlage in Abschnitt 5). Selbst zusätzlich:
 
 ```powershell
-pwsh -File .claude/skills/qa-testlauf/scripts/collect-evidence.ps1 -Laufordner "<laufordner>"
+docker logs --since 15m mobilepickingundvoiceassistant-backend-1 2>&1 |
+  Select-String "embed_abgleich|vision_probe|assessments/quality|callbacks/status|Zeitbudget|llm_"
 ```
 
-Sammelt Logs von backend, n8n, ollama, odoo und zieht die Modell-Zeitmarken heraus.
+### 2.7 Ergebnis auslesen
 
-Relevante Werte für die Arbeit:
+Das Odoo-Formular rendert im versteckten Tab oft leer. Zuverlässig per RPC:
 
-- Modell-Ladezeit (Kaltstart) aus `srv llama_server: model loaded` bzw. `msg="loaded runners"`
-- Laufzeit je Inferenz aus den `prompt eval time` / `eval time` / `total time`-Zeilen
-- Gesamtlaufzeit der n8n-Execution aus der Executions-Liste
+```powershell
+docker cp .claude/skills/qa-testlauf/scripts/lies_alert.py mobilepickingundvoiceassistant-backend-1:/tmp/
+docker exec mobilepickingundvoiceassistant-backend-1 python /tmp/lies_alert.py QA/0374
+```
 
-### 7. Protokoll schreiben
+(Das Skript liest `quality.alert.custom` — **nicht** `quality.alert`, das Modell heißt anders.)
 
-`protokoll.md` im Laufordner, Abschnitte: Aufbau, Eingangsdaten, Zeitmarken, Ergebnis der Systembewertung, Abweichungen, Bewertung. Immer absolute Uhrzeiten, keine relativen Angaben.
+### 2.8 Belege einsammeln und Protokoll schreiben
 
-## Bekannte Zeitschranken
+```powershell
+pwsh -File .claude/skills/qa-testlauf/scripts/collect-evidence.ps1 -Laufordner "docs\testlaeufe\<laufordner>"
+```
+
+Protokoll als `protokoll.md` im Laufordner. Abschnitte: Was der Lauf prüft, Eingangsdaten,
+Zeitlicher Ablauf mit Quelle je Zeile, Inferenzzeiten, Ergebnis der Systembewertung, Vergleich mit
+den Vorläufen, Abweichungen, Belege. **Immer absolute Uhrzeiten in UTC**, wie im Log.
+
+Danach `docs/testlaeufe/GESAMTUEBERSICHT.md` nachziehen: Tabelle in Abschnitt 1, Artikelachse in
+Abschnitt 3, offene Punkte.
+
+---
+
+## 3. Zeitschranken und was sie bedeuten
 
 | Schranke | Wert | Quelle |
 |---|---|---|
-| Ollama-Timeout je Aufruf | 200 s | `backend/app/config.py:187` (`vision_timeout_ms`) |
-| Budget aller Vergleiche einer Meldung | 240 s | `backend/app/config.py:192` (`vision_budget_ms`) |
-| Wartezeit auf die Assessment-Sperre | 150 s | `backend/app/config.py:235` (`assessment_wait_ms`) |
-| n8n-Node-Timeout des Rückrufs | 270 s | `n8n/workflows/quality-assessment-v2.json:251` |
+| Textbewertung je Aufruf | 90 s | `LLM_TIMEOUT_MS` |
+| Bildaufruf einzeln | 200 s | `config.py:187` |
+| Bildbudget für alle Bildaufrufe | 240 s | `config.py:192` |
+| Warten auf die Bewertungssperre | 150 s | `config.py:235` |
+| **n8n-Knoten** | **270 s** | `quality-assessment-v2.json` |
+| Fotos je Meldung | 3 | `QA_MAX_ASSESSMENT_PHOTOS` (Odoo) |
 
-Nur **eine** Bewertung gleichzeitig (`_ASSESSMENT_GATE = asyncio.Semaphore(1)`, `backend/app/routers/n8n_v2.py:115`). Warten (bis 150 s) plus Laufzeit (bis 240 s) übersteigt das n8n-Timeout von 270 s. Deshalb Testmeldungen **nicht** kurz hintereinander absetzen, sondern erst absenden, wenn die vorherige Execution abgeschlossen ist.
+**Die Summe der Backend-Budgets erreicht 510 s, der Knoten wartet 270 s.** Das Backend misst
+gegen einen festen Wert, nicht gegen die Restzeit — in Lauf 9 lief es weiter, als n8n längst
+aufgegeben hatte. Die Fotoobergrenze in Odoo ist derzeit das Einzige, was das verdeckt.
 
-Modelle: Artikelabgleich und Schadensprüfung beide `gemma4:12b`, Textbewertung `qwen2.5:7b`
-(`backend/app/config.py:116,150,178`). Gemessen am 15.09.2026 mit `num_thread: 8` und warmen
-Modellen: Textbewertung 71,0 s, Bildprüfung 56,7 s, Kette gesamt 2 min 23 s.
+Gemessene Kosten je Stufe (warme Modelle, `num_thread: 8`):
 
-## Stolperfallen der Umgebung — vor jedem Lauf prüfen
+| Stufe | Dauer |
+|---|---|
+| Textbewertung | 20–74 s |
+| Einbettungsabgleich | unter 1 s |
+| Schadensprüfung je Foto | 42–60 s |
+| Katalogbildvergleich | 18–33 s |
+| Artikelvergleich im Text | 5–22 s |
 
-**1. Mountet der Container den Code, den du änderst?** Der Stack lief am 15.09.2026 aus einem
-Worktree, Änderungen im Projektverzeichnis erreichten den Container nie:
+Nur **eine** Bewertung gleichzeitig (`_ASSESSMENT_GATE`). Nächste Meldung erst absetzen, wenn die
+vorherige Execution abgeschlossen ist.
 
-```powershell
-docker inspect mobilepickingundvoiceassistant-backend-1 --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}'
-```
+---
 
-Zeigt das eine andere Quelle als das Projektverzeichnis, `docker compose up -d` aus dem
-Projektverzeichnis ausführen. Gegenprobe im Container, nicht auf der Platte:
+## 4. Stolperfallen — jede hat schon einen Lauf gekostet
 
-```powershell
-docker exec mobilepickingundvoiceassistant-backend-1 grep -c num_thread /app/app/services/vision_client.py
-```
+**1. Falscher Codepfad gemountet.** Der Stack lief aus einem Worktree; Änderungen im
+Projektverzeichnis erreichten den Container nie. Gegenprobe im Container, nicht auf der Platte:
+`docker exec ... grep -c <neues_symbol> /app/app/services/<datei>.py`.
 
-**2. Threadzahl prüfen.** Ohne `options.num_thread` startet llama.cpp mit 14 Threads und die Kette
-reißt jedes Zeitbudget. Der ollama-Log sagt es je Modell-Ladevorgang:
+**2. Threadzahl.** Ohne `options.num_thread` startet llama.cpp mit 14 Threads. Der ollama-Log
+sagt es je Ladevorgang: `n_threads = 8 (n_threads_batch = 8) / 14`. Die Umgebungsvariable
+`OLLAMA_NUM_THREAD` am ollama-Dienst wirkt **nicht** — 1,21 tok/s gegen 7,40 tok/s.
 
-```powershell
-docker logs --since 10m mobilepickingundvoiceassistant-ollama-1 2>&1 | Select-String "n_threads ="
-```
+**3. Modelle mit falscher Kontextgröße gewärmt.** `vision_client` ruft mit `num_ctx 8192`,
+`llm_client` mit 4096. Wärmt man anders, lädt ollama beim ersten echten Aufruf neu.
 
-Erwartet: `n_threads = 8 (n_threads_batch = 8) / 14`. Die Umgebungsvariable `OLLAMA_NUM_THREAD`
-am ollama-Dienst wirkt **nicht** — gemessen 1,21 tok/s mit Variablen gegen 7,40 tok/s mit der
-Option im Request.
-
-**3. Modelle vor dem Lauf warmlaufen lassen**, sonst misst du Ladezeiten statt Inferenz
-(`gemma4:12b` lädt 87–93 s). Wichtig: mit der **Produktiv-Kontextgröße**, sonst lädt ollama das
-Modell beim ersten echten Aufruf neu. `vision_client` benutzt `num_ctx: 8192`, `llm_client` die
-Vorgabe 4096.
-
-**4. CSRF-Token fehlt in jedem neuen Tab.** Er liegt im `sessionStorage` (`pwa/js/api.js:223`).
-Ohne ihn kommt `POST /api/pickings/<id>/claim` mit 403 zurück, und die PWA meldet irreführend
-„Profil bitte neu wählen." Vorher setzen:
+**4. CSRF fehlt im neuen Tab.** Er liegt im `sessionStorage`. Ohne ihn kommt `claim` mit 403, und
+die PWA meldet irreführend „Profil bitte neu wählen":
 
 ```js
 const j = await fetch('/api/auth/csrf', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'}).then(r=>r.json());
 sessionStorage.setItem('picking-assistant-csrf', j.csrf_token);
 ```
 
-**5. `gemma4:12b` lädt nicht immer.** Am 15.09.2026 wurde der Ladeprozess abgeschossen, während
-`qwen2.5:7b` im Speicher lag; ollama lief danach in einen Nil-Pointer-Absturz und startete neu:
+**5. Ein abgebrochener Client beendet keine Generierung in ollama.** Eine per `TaskStop`
+abgebrochene Messung lief weiter, erzeugte 1 718 Token, belegte acht Kerne und trieb den nächsten
+Lauf in den Abbruch. Aufräumen nur über `docker restart` des ollama-Containers.
 
-```
-msg="Load failed" error="llama-server process has terminated: signal: killed"
-panic: runtime error: invalid memory address or nil pointer dereference
-```
+**6. Idempotenz.** Der Schlüssel besteht aus Auftrag, Position, Priorität, Beschreibung und
+`Dateiname:Größe` (`pwa/js/app.js:3486`). Zweimal dieselbe Meldung liefert denselben Alert zurück,
+ohne n8n anzustoßen — erkennbar am fehlenden `POST .../webhook/quality-assessment-v2` im Log. Für
+eine Wiederholung mit identischem Bildinhalt: dieselbe Datei unter anderem Namen hochladen und die
+MD5-Gleichheit protokollieren.
 
-Ursache ungeklärt. Speichermangel liegt nahe (Docker-VM 25 GiB; `gemma4:12b` 9,2 GiB geladen plus
-5,0 GiB Repack-Puffer, `qwen2.5:7b` 5,1 GiB), ist aber nicht belegt: `docker stats` zeigte zum
-Zeitpunkt rund 25,3 GiB frei, `OOMKilled = false`, kein Speicherlimit am Container. Danach lud das
-Modell auch allein nicht mehr innerhalb von acht Minuten, obwohl es vorher zweimal 87 s und 93 s
-gebraucht hatte. Vor Modellmessungen deshalb `docker restart` auf ollama und die Ladezeit einzeln
-messen, bevor der eigentliche Vergleich läuft. Prüfen mit:
+**7. `gemma4:12b` lädt nicht immer.** Am 15.09.2026 dreimal gescheitert, einmal mit
+`llama-server process has terminated: signal: killed` und Nil-Pointer-Absturz im Scheduler.
+`docker stats` zeigte dabei 25,3 GiB frei — Ursache ungeklärt. Neustart hilft.
 
-```powershell
-docker logs mobilepickingundvoiceassistant-ollama-1 2>&1 | Select-String "signal: killed|panic:"
-```
-
-**6. Idempotenz blockiert die Wiederholung.** Der Schlüssel besteht aus Auftrag, Position,
-Priorität, Beschreibung und `Dateiname:Größe` (`pwa/js/app.js:3486`). Zweimal dieselbe Meldung
-liefert denselben Alert zurück, ohne n8n anzustoßen — erkennbar daran, dass im backend-Log die
-Zeile `POST http://n8n:5678/webhook/quality-assessment-v2` fehlt. Für einen Wiederholungslauf mit
-identischem Bildinhalt: dieselbe Datei unter anderem Namen hochladen und die MD5-Gleichheit im
-Protokoll belegen.
-
-**7. Ein abgebrochener Client beendet keine Generierung in ollama.** Am 15.09.2026 lief eine per
-`TaskStop` abgebrochene Modellmessung weiter, erzeugte 1 718 Token, belegte acht Kerne, verdrängte
-`qwen2.5:7b` aus dem Speicher und trieb den nächsten Lauf in den 270-s-Abbruch. Vor **jedem** Lauf:
-
-```powershell
-docker stats --no-stream mobilepickingundvoiceassistant-ollama-1
-```
-
-Steht die CPU über 100 %, läuft noch etwas. Aufräumen nur über `docker restart` des Containers.
-
-**8. Die Fotoanzahl ist in Odoo gedeckelt, nicht im Backend.** `QA_MAX_ASSESSMENT_PHOTOS`, Vorgabe
-3 (`odoo/addons/quality_alert_custom/models/quality_alert.py`). Ein Lauf mit vier Fotos prüft drei
-und schreibt `Fotos: 1 weitere ungeprüft.` ins Formular — das ist kein Fehler. Für Messungen mit
-mehr Fotos die Variable setzen und odoo neu starten:
+**8. Die Fotoanzahl deckelt Odoo, nicht das Backend.** Ein Lauf mit vier Fotos prüft drei und
+schreibt `Fotos: 1 weitere ungeprüft.` — kein Fehler. Für Messungen mit mehr Fotos:
 
 ```powershell
 $env:QA_MAX_ASSESSMENT_PHOTOS=5; docker compose up -d odoo
 ```
 
-## Bevor du etwas an der Kette änderst
+Danach **zurücksetzen**: `docker compose up -d odoo` ohne die Variable.
 
-`docs/KOMPROMISSE.md` lesen. Dort steht jede Entscheidung, die schon einmal Messzeit gekostet hat,
-mit dem Messwert und mit dem, was beim Zurückdrehen passiert. Dort steht auch, welche Angaben in
-den Codekommentaren inzwischen **überholt** sind — sechs Stück, Stand 15.09.2026.
+**9. Das Bildmodell ist nicht stabil.** Dasselbe Foto, derselbe Prompt, `temperature: 0` lieferte
+einmal fünf ganze Sätze als Befunde und einmal zwei Wörter. Einzelmessungen taugen nicht — immer
+eine Serie.
 
-Wer eine dieser Entscheidungen ändern will, misst vorher. Für die beiden häufigsten Fälle gibt es
-Skripte, die ohne die ganze Kette auskommen:
+**10. Nicht jede Ansicht taugt für die Artikelachse.** Die Unteransicht einer Platte ergab
+freigestellt ein `mismatch` mit dem erwarteten Artikel auf Platz 5. `_check_article` sieht nur das
+**erste** Foto (`n8n_v2.py:322`) — die Reihenfolge des Hochladens entscheidet mit.
+
+---
+
+## 5. Subagenten für die Beobachtung
+
+Ein Subagent je Lauf reicht. **Wichtig im Prompt**, sonst wartet er auf eine Benachrichtigung, die
+nie kommt:
+
+> Beobachte in DEINER EIGENEN Schleife. Starte KEINEN separaten Hintergrund-Watcher, auf dessen
+> Benachrichtigung du wartest — die bekommst du nicht. Setze wiederholt EIN Vordergrund-Kommando
+> der Form `sleep 45; docker logs --since 20m <container> 2>&1 | grep ... | tail -20` ab. Liefere
+> den Bericht erst, wenn du `callbacks/status` gesehen hast oder 14 Minuten vergangen sind.
+
+Ihm mitgeben: Absendezeit, Auftrag, Artikel, Fotoanzahl, die Zeitschranken aus Abschnitt 3 und die
+Vergleichswerte der Vorläufe. Verlangen: Tabelle Zeitstempel | Komponente | Ereignis | Dauer,
+dazu Bildaufrufzahl, Budgetauslastung, Endzustand und Verbesserungsvorschläge **mit Zahl aus
+diesem Lauf**.
+
+Subagentenberichte gegenprüfen. Sie haben mehrfach Aufrufe falsch zugeordnet — etwa das
+Katalogbild als „Foto 4" gezählt. Die Token-Zahlen im ollama-Log entscheiden: Meldefotos gehen mit
+439 Prompt- und 256 Bild-Token hinein, das 192-px-Katalogbild mit 232 und 49.
+
+---
+
+## 6. Messen ohne die ganze Kette
+
+Eine Modell- oder Promptfrage braucht keinen Testlauf. Alle Skripte laufen im Backend-Container
+mit `PYTHONPATH=/app` und benutzen die Produktiv-Prompts.
 
 | Frage | Skript |
 |---|---|
-| Wie lang sind die Schadensbefunde? | `scripts/bench_anomalien.py <foto> ...` |
-| Wie schnell ist ein Bildmodell? | `scripts/bench_vision_models.py <foto> <modell> ...` |
-| Wie schnell ist ein Textmodell? | `scripts/bench_text_models.py <modell> ...` |
+| Wie lang sind die Schadensbefunde? | `bench_anomalien.py <foto> ...` |
+| Wie schnell ist ein Bildmodell? | `bench_vision_models.py <foto> <modell> ...` |
+| Wie schnell ist ein Textmodell? | `bench_text_models.py <modell> ...` |
+| Welche Artikelwerte liefert die Einbettung? | `probe_schwellen.py <liste.txt>` |
 
-Alle drei laufen im Backend-Container mit `PYTHONPATH=/app` und benutzen die Produktiv-Prompts.
-**Immer mehrere Fotos messen**: Das Bildmodell ist nicht stabil — dasselbe Foto lieferte bei
-`temperature: 0` einmal fünf ganze Sätze und einmal zwei Wörter.
+`bench_vision_models.py` führt eine **eigene Kopie** der Prompts. Wer `vision_client.py` ändert,
+muss sie dort nachziehen, sonst misst er den alten Wortlaut.
 
-## Vorbelastung, die nicht zum Testlauf gehört
+Beispiel für die Liste von `probe_schwellen.py`, eine Zeile je Foto:
+
+```
+/tmp/foto1.jpg;6138111;frei
+/tmp/foto2.jpg;6138111;lager
+```
+
+---
+
+## 7. Vorbelastung, die nicht zum Testlauf gehört
 
 Odoo protokolliert alle 13–15 Sekunden
 `RuntimeError: Couldn't bind the websocket. Is the connection opened on the evented port (8072)?`
-gefolgt von `"GET /websocket?version=19.0-2 HTTP/1.1" 500`. Das ist unabhängig von der Meldungskette,
-sollte im Protokoll aber als bekannte Vorbelastung erwähnt werden, falls die PWA auf Bus-Updates wartet.
+mit `"GET /websocket" 500`. Unabhängig von der Meldungskette, gehört aber als bekannte
+Vorbelastung ins Protokoll.
+
+---
+
+## 8. Was bereits gemessen ist
+
+`docs/testlaeufe/GESAMTUEBERSICHT.md` — alle Läufe, Befunde, offene Punkte auf einer Seite.
+`docs/KOMPROMISSE.md` — jede bezahlte Entscheidung mit Messwert, und welche Codekommentare
+überholt sind.
