@@ -30,6 +30,7 @@ die Einladung, doch etwas daraus zu schliessen.
 from __future__ import annotations
 
 import base64
+import os
 import json
 import logging
 import time
@@ -89,6 +90,14 @@ DAMAGE_PROMPT = (
 # Kacheln und passt nicht in die Standardgroesse von 4096. 8192 hat in beiden
 # Messungen gereicht.
 _NUM_CTX = 8192
+# Gemessen am 2026-09-15 auf leerem Ollama, qwen2.5:7b, 60 Token, gleicher
+# Prompt: ohne diese Option 1,21 tok/s, mit num_thread=8 7,40 tok/s (Faktor 6).
+# Grund: Docker meldet 14 CPUs, der Host ist ein Intel Core Ultra 7 255H mit
+# 6 P-Cores, 8 E-Cores, 2 LP-E-Cores. llama.cpp synchronisiert bei jedem Token,
+# der schnellste Kern wartet auf den langsamsten. Die Umgebungsvariable
+# OLLAMA_NUM_THREAD wirkt NICHT -- gemessen am selben Tag, 1,21 tok/s trotz
+# gesetzter Variablen. Nur diese Option im Request wirkt.
+_NUM_THREAD = int(os.environ.get("OLLAMA_NUM_THREAD", "8"))
 
 
 @dataclass(frozen=True)
@@ -152,7 +161,11 @@ class VisionClient:
             "images": [base64.b64encode(image).decode("ascii") for image in images],
             "stream": False,
             "format": "json",
-            "options": {"temperature": 0, "num_ctx": _NUM_CTX},
+            "options": {
+                "temperature": 0,
+                "num_ctx": _NUM_CTX,
+                "num_thread": _NUM_THREAD,
+            },
         }
         try:
             async with httpx.AsyncClient(

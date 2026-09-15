@@ -308,6 +308,13 @@ services:
       # kostet der erste Aufruf wieder das Laden (gemessen 80-145 s).
       OLLAMA_KEEP_ALIVE: 2h
       OLLAMA_MAX_LOADED_MODELS: "2"
+      # OLLAMA_NUM_THREAD als Umgebungsvariable wirkt NICHT. Gemessen am
+      # 2026-09-15 auf leerem Ollama, qwen2.5:7b, 60 Token, gleicher Prompt:
+      # 1,21 tok/s mit gesetzter Variablen, 7,40 tok/s mit `num_thread: 8`
+      # in den `options` des Requests. Der Hebel steht deshalb im Code
+      # (backend/app/services/vision_client.py, llm_client.py,
+      # voice_intent_classifier.py), Vorgabe 8. Wer die Zahl aendern will,
+      # setzt OLLAMA_NUM_THREAD im backend-Dienst, nicht hier.
     volumes:
       - ollama_data:/root/.ollama
     networks:

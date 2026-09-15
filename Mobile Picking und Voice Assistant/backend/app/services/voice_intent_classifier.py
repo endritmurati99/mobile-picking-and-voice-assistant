@@ -7,6 +7,7 @@ auf das deterministische Ergebnis zurueckfaellt.
 from __future__ import annotations
 
 import json
+import os
 import logging
 from dataclasses import dataclass
 
@@ -74,7 +75,11 @@ class VoiceIntentClassifier:
             # num_predict kappt die Ausgabe: die JSON-Antwort ist ~15 Tokens, ohne
             # Cap generiert qwen ungebremst weiter (gemessen bis 13s kalt). Mit Cap
             # ist der warme Pfad ~0.3-0.8s statt mehrerer Sekunden.
-            "options": {"temperature": 0, "num_predict": 32},
+            "options": {
+                "temperature": 0,
+                "num_predict": 32,
+                "num_thread": int(os.environ.get("OLLAMA_NUM_THREAD", "8")),
+            },
             "messages": [
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": (text or "").strip()},
