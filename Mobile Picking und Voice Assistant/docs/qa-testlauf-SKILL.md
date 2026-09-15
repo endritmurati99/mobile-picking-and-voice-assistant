@@ -323,6 +323,14 @@ Danach **zurücksetzen**: derselbe Befehl ohne die Variable
 
 **Beide Compose-Dateien angeben, immer.** Siehe Stolperfalle 11 — genau hier ist sie entstanden.
 
+**9a. Die Kette sieht Oberflaechen, keine fehlende Geometrie.** Ein sauber abgebrochenes Eck
+laesst die Oberflaeche glatt: `DAMAGE_PROMPT` meldet `intact`, und der Zustandsvergleich findet
+denselben Text auf beiden Seiten. Lauf 15 hat es vorgefuehrt, `bench_umriss.py` hat den
+naheliegenden Fix widerlegt -- mit einem Umriss-Feld behauptet das Modell ausdruecklich
+"The body is complete with all corners and edges present". Wer ein Foto ohne ausgefranste Stelle
+erzeugt, misst also die Grenze des Modells, nicht die der Kette. Das Ergebnis ist dann
+`review_required` ueber den Widerspruchszweig -- richtig, aber kein Schadensbefund.
+
 **9. Das Bildmodell ist nicht stabil.** Dasselbe Foto, derselbe Prompt, `temperature: 0` lieferte
 einmal fünf ganze Sätze als Befunde und einmal zwei Wörter. Einzelmessungen taugen nicht — immer
 eine Serie.
@@ -386,6 +394,7 @@ mit `PYTHONPATH=/app` und benutzen die Produktiv-Prompts.
 | Wie schnell ist ein Bildmodell? | `bench_vision_models.py <foto> <modell> ...` |
 | Wie schnell ist ein Textmodell? | `bench_text_models.py <modell> ...` |
 | Welche Artikelwerte liefert die Einbettung? | `probe_schwellen.py <liste.txt>` |
+| Bringt ein Prompt-Zusatz etwas? | `bench_umriss.py <foto> ...` (stellt Produktiv- gegen Testprompt) |
 | Greifen die Zeitschranken der Schadensprüfung? | `pruef_budget.py` (ohne Modelle, fünf Fälle) |
 
 `bench_vision_models.py` führt eine **eigene Kopie** der Prompts. Wer `vision_client.py` ändert,

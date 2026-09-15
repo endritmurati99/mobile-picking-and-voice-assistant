@@ -31,6 +31,7 @@ Schätzungen. Uhrzeiten in UTC, wie dort protokolliert; die Ortszeit liegt zwei 
 | 12 (QA/0377) | 15.09. | Brick 2x4 hellgelb | 5 (**4 geprüft**) | weiß | 8 | **`match`** | **`completed`** | **4 min 13 s** |
 | 13 (QA/0378) | 15.09. | Brick 2x2 hellblau | 5 (**5 geprüft**) | weiß | 8 | **`match`** | **`completed`** | **4 min 8 s** |
 | 14 (QA/0379) | 15.09. | Brick 2x2 hellblau (dieselben Fotos wie 13) | 5 (4 geprüft) | weiß | 8 | **`match`** | **`completed`** | **4 min 4 s** |
+| 15 (QA/0380) | 15.09. | Brick 2x2 grün, **sauber fehlende Ecke** | 3 (3 geprüft) | weiß | 8 | `unsicher` | `review_required` (Widerspruch) | **4 min 11 s** |
 
 Zwei Stellschrauben erklären die ganze Tabelle: **die Threadzahl** entscheidet, ob die Kette
 überhaupt fertig wird, und **der Bildhintergrund** entscheidet, ob die Artikelachse trägt.
@@ -126,6 +127,7 @@ nicht zwei Teile.
 | 11 | Plate 2x4 grün | `match` | richtig, **0,8829** | 0,0654 |
 | 12 | Brick 2x4 hellgelb | `match` | richtig, 0,8521 | **0,0276** (Geschwister im selben Auftrag) |
 | 13 | Brick 2x2 hellblau | `match` | richtig, **0,9139** | 0,0372 |
+| 15 | Brick 2x2 grün | **`unsicher`** | richtig, 0,8799 | **0,0155** (`zu_dicht`) |
 
 In Lauf 5 lag *Brick 2x3 W. Inv. Bow gelb* punktgleich daneben: dieselbe Form, dieselbe Farbe,
 eine Noppenreihe weniger. Der Dienst rät nicht, sondern meldet `unsicher` mit Grund `zu_dicht`.
@@ -381,9 +383,45 @@ Nebenbei vermessen: Lauf 14 prüfte vier statt fünf Fotos, weil das Backend fü
 gestartet war und die Messreihe leer begann. **Eine leere Messreihe kostet genau ein Foto in der
 ersten Meldung nach einem Neustart** — mehr nicht.
 
-**Offen bleibt der Beleg für den anderen Fall.** Der Zustandsvergleich läuft jetzt nur noch bei
-`intact`; ein Lauf, der ihn tatsächlich arbeiten sieht, braucht Fotos eines Teils mit einem sauber
-abgebrochenen Eck, das die absolute Prüfung durchlässt.
+### Lauf 15: die Grenze des Verfahrens ist nicht die Zeit, sondern das Sehen
+
+Der Lauf konstruiert den Fall, für den der Zustandsvergleich gebaut ist: einem grünen 2x2-Stein
+fehlt **eine Ecke vollständig**, die Bruchfläche ist glatt wie geschnitten, kein Riss, keine
+ausgefranste Kante. Drei Fotos, `QA_MAX_ASSESSMENT_PHOTOS = 3` wie im Betrieb.
+
+Der Vergleich **lief zum ersten Mal seit Lauf 8** vollständig durch — Bildaufruf für das
+Katalogbild (252 Token, 21,2 s) plus Textvergleich (19,3 s). Und fand nichts:
+
+```json
+{"event_type": "condition_compare", "new_damage": false, "damage": "intact",
+ "reason": "Die Beschreibungen stimmen überein und deuten auf einen Neuzustand hin."}
+```
+
+Beide Bildstufen haben den Schaden übersehen. Die Ursache steht im Prompt: `surface_description`
+fragt ausschließlich nach der **Oberfläche**, und eine sauber fehlende Ecke lässt jede Oberfläche
+glatt. Soll und Ist sagen beide „glatt", der Textvergleich findet keinen Unterschied.
+
+**Der naheliegende Fix trägt nicht.** Mit `bench_umriss.py` gemessen, derselbe Prompt plus ein
+Feld `outline_description`: Auf beiden Lauf-15-Fotos antwortet das Modell *„The body is complete
+with all corners and edges present"* — es behauptet die Vollständigkeit eines Steins, dem sichtbar
+eine Ecke fehlt. Auf den beschädigten Teilen aus den Läufen 12 und 13 bleibt `damaged` korrekt
+true, aber jeder Aufruf kostet 46–55 s statt 8–41 s. Kosten ohne Nutzen, nicht eingebaut.
+
+**Damit ist die Grenze benannt und belegt: Die Kette erkennt Oberflächenschäden, keine fehlende
+Geometrie.** Für die Arbeit ist das eine Eigenschaft des Verfahrens, kein offener Fehler.
+
+**Die Kette selbst hat richtig entschieden.** Texturteil `scrap` gegen Bildbefund „keine
+Auffälligkeit" — der Widerspruchszweig machte daraus `review_required` mit beiden Seiten im
+Klartext, statt eine der Halbwahrheiten wirksam zu machen. Zum ersten Mal greift dieser Zweig an
+einem echten Fall.
+
+Nebenbefund: Der Artikelabgleich meldete `unsicher` (`zu_dicht`, Abstand 0,0155) und löste den
+Textweg aus — 72,3 s, 29 % der Laufzeit. Ironischerweise hat genau dieser Umweg den Lauf
+gerettet: ohne ihn wäre die Zeit früher verbraucht gewesen.
+
+Offen bleibt die Frage nach einem **anderen Bildmodell** auf dieser Achse. Die Messung vom 14.08.
+(`gemma4:12b` 4/4 gegen `qwen2.5vl:7b` 2/4) lief über acht Bilder, die alle Oberflächenschäden
+zeigten. Für fehlende Geometrie liegt keine Modellmessung vor.
 
 ### Lauf 11: der Schätzwert war zu niedrig, und es hat trotzdem gehalten
 
@@ -558,3 +596,4 @@ Zeit kosten:
 | 12 | `2026-09-15_run12_brick2x4_hellgelb/protokoll.md` |
 | 13 | `2026-09-15_run13_brick2x2_hellblau/protokoll.md` |
 | 14 | `2026-09-15_run14_zustandsvergleich/protokoll.md` |
+| 15 | `2026-09-15_run15_sauberer_bruch/protokoll.md` |

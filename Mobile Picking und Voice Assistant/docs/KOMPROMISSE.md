@@ -120,6 +120,17 @@ spart Rechenzeit, die Kappung rettet Ergebnisse — erst beide zusammen tragen.
 
 ---
 
+## 3b. Was gemessen und VERWORFEN wurde
+
+| Idee | Warum sie naheliegt | Messung | Ergebnis |
+|---|---|---|---|
+| Feld `outline_description` im Schadensprompt | Lauf 15: beide Bildstufen übersahen eine sauber fehlende Ecke, weil `surface_description` nur die Oberfläche beschreibt | `bench_umriss.py` über vier Fotos aus den Läufen 12, 13 und 15 | **Verworfen.** Das Modell antwortet auf den Lauf-15-Fotos „The body is complete with all corners and edges present" — es sieht die fehlende Geometrie nicht. Zusätzlich 46–55 s statt 8–41 s je Aufruf |
+
+Daraus die Eigenschaft, die für die Arbeit gilt: **die Kette erkennt Oberflächenschäden, keine
+fehlende Geometrie.** Der Widerspruchszweig fängt diesen Fall ab (`review_required`, Lauf 15).
+
+---
+
 ## 4. Angaben, die überholt sind
 
 Diese Kommentare stehen so im Code und stimmen nicht mehr. Sie sind hier aufgeführt, damit sie
