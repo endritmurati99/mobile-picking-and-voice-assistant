@@ -304,7 +304,14 @@ Drei Begriffe statt neun. `broken piece` steht nicht im Glossar und bleibt wört
    (Abschnitt 7), das vierte würde den Lauf abbrechen. Die Zählung übersprungener Fotos steht
    bereits im Code (`n8n_v2.py:727-730`); eine harte Grenze von drei geprüften Fotos macht das
    Verhalten vorhersagbar, statt es vom Zeitbudget abhängen zu lassen.
-6. **Freistellen vor dem Abgleich.** Solange Meldefotos im Lager entstehen, trägt die Artikelachse
+6. **Verwaiste Arbeit abbrechen.** In Lauf 7 A gab der n8n-Knoten um 08:09:00 auf, das Backend
+   rechnete aber bis 08:09:40 weiter — 40 s auf einer ohnehin knappen CPU, deren Ergebnis niemand
+   mehr abholt. Ein `request.is_disconnected()` vor jedem teuren Bildaufruf würde das beenden.
+7. **Katalog-Einbettung aus dem Zeitfenster nehmen.** In Lauf 7 A kostete `embed_katalog`
+   **25 859 ms**, weil der Cache nach einem Backend-Neustart leer war — diese Zeit geht direkt vom
+   Bildbudget ab. In Lauf 7 B war der Katalog warm und kostete nichts. Ein periodischer Aufbau im
+   Hintergrund statt im Request gibt bei jedem kalten Start rund 26 s zurück.
+8. **Freistellen vor dem Abgleich.** Solange Meldefotos im Lager entstehen, trägt die Artikelachse
    nicht (Abschnitt 3). Ein Segmentierungsschritt vor der Einbettung wäre der kleinere Eingriff
    als ein zweiter Katalog mit Lageraufnahmen.
 
