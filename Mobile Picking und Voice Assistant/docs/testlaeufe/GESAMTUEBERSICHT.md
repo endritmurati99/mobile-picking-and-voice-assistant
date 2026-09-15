@@ -26,6 +26,7 @@ Schätzungen. Uhrzeiten in UTC, wie dort protokolliert; die Ortszeit liegt zwei 
 | 7 B (QA/0372) | 15.09. | Brick 2x2 blau | 3 | weiß | 8 | **`match`** | **`completed`** | 4 min 17 s |
 | 8 (QA/0373) | 15.09. | Plate 2x4 blau | 4 (3 geprüft) | weiß | 8 | **`match`** | **`completed`** | 3 min 10 s |
 | 9 (QA/0374) | 15.09. | Brick Bow 2x3x1 hellblau | 5 (3 geprüft) | weiß | 8 | **`match`** | `assessment unavailable` | **Abbruch nach 270 s** |
+| 10 (QA/0375) | 15.09. | Brick Bow 2x3x1 hellblau | 5 (3 geprüft) | weiß | 8 | **`match`** | **`completed`** | **3 min 31 s** |
 
 Zwei Stellschrauben erklären die ganze Tabelle: **die Threadzahl** entscheidet, ob die Kette
 überhaupt fertig wird, und **der Bildhintergrund** entscheidet, ob die Artikelachse trägt.
@@ -116,7 +117,8 @@ nicht zwei Teile.
 | 6 | Roof Tile 4x2 rot | `match` | richtig, 0,846 | **0,2396** |
 | 7 | Brick 2x2 blau | `match` | richtig, 0,8467 | 0,0223 |
 | 8 | Plate 2x4 blau | `match` | richtig, **0,8978** | 0,08 |
-| 9 | Brick Bow 2x3x1 hellblau | `match` | richtig, **0,9176** | 0,06 |
+| 9 | Brick Bow 2x3x1 hellblau | `match` | richtig, **0,9176** | 0,0886 |
+| 10 | Brick Bow 2x3x1 hellblau (dieselben Fotos wie 9) | `match` | richtig, **0,9176** | 0,0886 |
 
 In Lauf 5 lag *Brick 2x3 W. Inv. Bow gelb* punktgleich daneben: dieselbe Form, dieselbe Farbe,
 eine Noppenreihe weniger. Der Dienst rät nicht, sondern meldet `unsicher` mit Grund `zu_dicht`.
@@ -169,8 +171,21 @@ arbeiten, als der Knoten wartet.
 Gemessene Auslastung in Lauf 6: 59 % des Knotenlimits, 54 % des Bildbudgets, 26 % des größten
 Einzelaufrufs. Mit vier Fotos blieben vom Bildbudget noch 20–30 s.
 
-**Nicht geändert.** Welche Seite verschoben wird — Knotenlimit hoch oder Budgets runter — ist eine
-Entscheidung, keine Reparatur.
+**Geändert am 15.09. nach Lauf 9, gegengeprüft in Lauf 10.** Die Einzelbudgets sind unverändert —
+sie addieren sich weiterhin auf mehr als das Knotenlimit. Darüber liegt jetzt aber eine zweite
+Grenze, die von der Frist des Anrufers her rechnet:
+
+| Neu | Wert | Was sie tut |
+|---|---|---|
+| `caller_budget_ms` | 255 s | Frist ab Eintreffen der Anfrage im Backend, 15 s unter dem Knotenlimit. Es gilt die frühere aus ihr und dem Bildbudget. |
+| `vision_call_estimate_ms` | 60 s | Ein Bildaufruf startet nur, wenn so viel Restzeit bleibt. Die Frage lautet „passt der nächste Aufruf noch", nicht „ist das Budget erschöpft". |
+
+Der garantierte erste Bildaufruf startet weiterhin auch bei knapper Restzeit — eine Bildprüfung,
+die stillschweigend gar nichts ansieht, wäre schlimmer —, läuft aber nicht mehr ungefesselt: er
+wird gekappt, statt den Anrufer zu überleben.
+
+Welche Seite grundsätzlich verschoben wird — Knotenlimit hoch oder Einzelbudgets runter — bleibt
+eine offene Entscheidung. Der Rechenfehler selbst ist behoben.
 
 ---
 
@@ -281,6 +296,35 @@ das Maximum, das die Kette in dieser Konfiguration trägt.** Die Hochrechnung au
 vier Fotos noch 20-30 s Reserve") war zu optimistisch; sie hatte den Zustandsvergleich mit 33 s
 angesetzt statt der hier gemessenen 25,7 s und die Fotos mit 40 s statt 48 s.
 
+### Lauf 10: dieselben fünf Fotos, diesmal mit Budgetbremse
+
+Gegenprobe zu Lauf 9 mit **denselben Bilddateien** (MD5 gleich, nur neue Namen wegen des
+Idempotenzschlüssels), demselben Auftrag und derselben Position. Einzige Änderung: die zwei neuen
+Grenzen aus Abschnitt 5.
+
+| | Lauf 9 | Lauf 10 |
+|---|---|---|
+| Artikelabgleich | `match`, 0,9176 | `match`, 0,9176 |
+| Textbewertung | 51,14 s | 54,16 s |
+| Fotos geprüft | 3 (+ Foto 4 angefangen und verloren) | 3 (Foto 4 und 5 gar nicht erst gestartet) |
+| Bildaufrufe | 59,8 / 50,1 / 58,1 s | 47,1 / 42,5 / 42,2 s |
+| Laufzeit bis Antwort | **Abbruch bei 270,1 s** | **210,9 s** |
+| verlorene Rechenzeit | 65,6 s | 0 s |
+| Odoo | `assessment unavailable` | `completed`, `scrap`, Konfidenz 0,95 |
+
+Foto 4 startete nicht, weil bei 210,9 s noch rund 48 s bis zur Anruferfrist blieben — weniger als
+die veranschlagten 60 s je Aufruf. Dieselbe Prüfung hielt den Katalogbildvergleich zurück. Beides
+steht im Klartext im Alert: `Zustand: nicht verglichen (Zeitbudget erschöpft).` und
+`Fotos: 2 weitere ungeprüft.` Im ollama-Log steht **kein** `cancel task` — in Lauf 9 stand dort
+`id_task=198` und 65,6 s Rechenzeit ohne Ergebnis.
+
+**Was der Lauf nicht zeigt:** dass fünf Fotos jetzt durchlaufen. Sie laufen nicht durch — die
+Kette trägt weiterhin drei. Der Unterschied ist, dass sie das jetzt sagt, statt daran zu sterben.
+
+Nebenbefund: Die Bildaufrufe lagen mit 40,2–46,2 s (ollama) am unteren Rand des Bandes 42–60 s.
+Der Schätzwert 60 s ist also konservativ — er lässt eher ein Foto liegen, als eine Antwort zu
+verlieren. Ein gleitender Mittelwert der letzten Aufrufe wäre genauer.
+
 ### Erster Versuch: was Fremdlast anrichtet
 
 Lauf 7 A (QA/0371) endete nach exakt 270 s mit `assessment unavailable` — nicht wegen der drei
@@ -353,7 +397,12 @@ zu lange Einträge. Die erste Variante ändert, was das Modell liefert, statt na
 
 ## 10. Offene Punkte
 
-1. **Budgetrechnung gegen Knotenlimit** (Abschnitt 5). Eine Entscheidung, keine Reparatur.
+1. ~~**Budgetrechnung gegen Knotenlimit**~~ — **behoben am 15.09., gegengeprüft in Lauf 10.**
+   `caller_budget_ms` (255 s) und `vision_call_estimate_ms` (60 s), Details in Abschnitt 5.
+   Offen bleibt daran zweierlei: der Schätzwert je Bildaufruf ist fest verdrahtet statt gemessen
+   (ein gleitender Mittelwert wäre genauer), und das Backend schreibt **keine Logzeile**, wenn es
+   ein Foto zurückstellt — die Zahl steht nur im Alert. Ob stattdessen das Knotenlimit steigen
+   oder die Einzelbudgets sinken sollen, ist weiterhin eine Entscheidung, keine Reparatur.
 2. **Irreführende Meldung „Bildmodell antwortet nicht".** In Lauf 5 stand sie im Datensatz,
    obwohl drei Bildaufrufe mit `ok: true` protokolliert sind. `VisionClient.describe` liefert auch
    dann `ok = False`, wenn das Modell antwortet, die Antwort aber keine verwertbaren Felder
@@ -419,3 +468,4 @@ Zeit kosten:
 | 7 A und B | `2026-09-15_run7_brick2x2_blau/protokoll.md` |
 | 8 | `2026-09-15_run8_plate2x4_blau/protokoll.md` |
 | 9 | `2026-09-15_run9_brickbow_hellblau/protokoll.md` |
+| 10 | `2026-09-15_run10_budgetbremse/protokoll.md` |

@@ -255,7 +255,8 @@ async def apply_callback(
 
 
 async def _collect_photo_finding(
-    odoo, vision: VisionClient, llm: LlmClient, body, runtime=None
+    odoo, vision: VisionClient, llm: LlmClient, body, runtime=None,
+    anrufer_frist: float | None = None,
 ) -> tuple[PhotoFinding, bool]:
     """Holt die Bilder und laesst das Bildmodell darauf schauen.
 
@@ -263,6 +264,10 @@ async def _collect_photo_finding(
     zu sehen war -- dann steht der Grund im Klartext und das Texturteil bleibt
     allein stehen. Ein halber Bildbefund entsteht hier nie: jeder Fehlerpfad
     endet in "unavailable", nicht in einer Vermutung.
+
+    `anrufer_frist` ist der `time.monotonic()`-Zeitpunkt, an dem der n8n-Knoten
+    aufgibt. Fehlt sie, gilt allein das Bildbudget -- so laufen Aufrufer ohne
+    eigene Frist (Messskripte) unveraendert weiter.
     """
     try:
         media = await odoo.execute_kw(
@@ -317,7 +322,12 @@ async def _collect_photo_finding(
             reference_damage = None
 
     lines: list[str] = []
+    # Die fruehere der beiden Fristen gewinnt. Das Bildbudget schuetzt die
+    # Lease, die Anruferfrist den, der auf die Antwort wartet: wer sie
+    # ueberlaeuft, rechnet in einen abgeschnittenen Kanal hinein.
     deadline = time.monotonic() + max(0.0, settings.vision_budget_ms / 1000.0)
+    if anrufer_frist is not None:
+        deadline = min(deadline, anrufer_frist)
     article = await _check_article(
         vision, llm, media, candidates[0], lines, deadline,
         runtime=runtime, odoo=odoo, instanz=getattr(body, "odoo_instance", "") or "",
@@ -356,6 +366,23 @@ async def _collect_photo_finding(
 
 def _no_finding(note: str) -> PhotoFinding:
     return PhotoFinding(article="unavailable", damage="unavailable", note=note)
+
+
+def _reicht_die_zeit(deadline: float) -> bool:
+    """Passt noch EIN Bildaufruf in die Restzeit?
+
+    Die richtige Frage vor einem Aufruf ist nicht "ist das Budget erschoepft",
+    sondern "reicht es fuer den naechsten". Die alte Form liess jeden Aufruf
+    los, solange auch nur eine Sekunde uebrig war. In Lauf 9 startete Foto 4
+    mit 30,6 s Restzeit fuer einen Aufruf, der 42-60 s braucht: er dekodierte
+    20,74 s, verarbeitete den Prompt zu 99 % und wurde 24,2 s nach dem
+    n8n-Abbruch serverseitig beendet -- 65,6 s Rechenzeit ohne Ergebnis, ohne
+    eine einzige Zeile im Backend-Log.
+
+    Der Schaetzwert steht in `vision_call_estimate_ms`. Er darf nicht knapp
+    sein: ein zu kleiner Wert startet Aufrufe, die niemand mehr entgegennimmt.
+    """
+    return deadline - time.monotonic() >= settings.vision_call_estimate_ms / 1000.0
 
 
 async def _in_restzeit(aufruf, deadline: float):
@@ -605,7 +632,7 @@ async def _artikel_ueber_text(
         reference_text = hinterlegt
         reference_source = "odoo"
     else:
-        if time.monotonic() >= deadline:
+        if not _reicht_die_zeit(deadline):
             lines.append(
                 "Artikel: nicht geprüft (Zeitbudget erschöpft). "
                 f"Foto zeigt: {candidate_seen.text}."
@@ -757,12 +784,15 @@ async def _check_damage(
     der Vergleich nichts zuruecknehmen -- am 2026-08-08 (QA/0223) hat er einen
     gefundenen Riss wegerklaert; die Begruendung steht in `_zustandsvergleich`.
 
-    `deadline` begrenzt die Reihe als Ganzes. `garantiert` erzwingt das erste
-    Foto auch bei abgelaufenem Budget -- ein Budget, das gar keinen Bildaufruf
-    zulaesst, waere dasselbe wie eine abgeschaltete Bildpruefung, nur
-    unausgesprochen. Gesetzt wird es nur, wenn der Artikelabgleich ausfiel;
-    sonst hat der den garantierten Aufruf schon getragen. Liefert neben dem
-    Befund die Zahl der Fotos, die dafuer liegen blieben.
+    `deadline` begrenzt die Reihe als Ganzes. Jeder weitere Aufruf wird nur
+    noch gestartet, wenn die Restzeit fuer einen GANZEN Aufruf reicht
+    (`_reicht_die_zeit`). `garantiert` nimmt das erste Foto von dieser Pruefung
+    aus -- ein Budget, das gar keinen Bildaufruf zulaesst, waere dasselbe wie
+    eine abgeschaltete Bildpruefung, nur unausgesprochen. Es laeuft aber
+    ebenfalls gegen die Frist und wird gekappt, statt den Anrufer zu
+    ueberleben. Gesetzt wird es nur, wenn der Artikelabgleich ausfiel; sonst
+    hat der den garantierten Aufruf schon getragen. Liefert neben dem Befund
+    die Zahl der Fotos, die dafuer liegen blieben.
     """
     damage = "unavailable"
     seen: list[str] = []
@@ -770,22 +800,21 @@ async def _check_damage(
     ungeprueft = 0
     budget_gerissen = False
     for index, candidate in enumerate(candidates):
-        if not (garantiert and index == 0) and time.monotonic() >= deadline:
+        # Der garantierte erste Aufruf darf STARTEN, auch wenn die Restzeit
+        # rechnerisch nicht mehr fuer ihn reicht -- ein Budget, das gar keinen
+        # Bildaufruf zulaesst, waere eine abgeschaltete Bildpruefung unter
+        # anderem Namen. Gekappt wird er trotzdem: seit Lauf 9 ist gemessen,
+        # was ein ungefesselter Aufruf kostet, der den Anrufer ueberlebt.
+        garantie = garantiert and index == 0
+        if not garantie and not _reicht_die_zeit(deadline):
             ungeprueft += len(candidates) - index
             budget_gerissen = True
             break
-        # Der garantierte erste Aufruf laeuft ohne Fessel -- ein Budget, das
-        # gar keinen Bildaufruf zulaesst, waere eine abgeschaltete Bildpruefung
-        # unter anderem Namen. Jeder weitere Aufruf muss das Budget einhalten,
-        # auch waehrend er laeuft.
-        if garantiert and index == 0:
-            check = await vision.inspect_damage(candidate)
-        else:
-            check = await _in_restzeit(vision.inspect_damage(candidate), deadline)
-            if check is None:
-                ungeprueft += len(candidates) - index
-                budget_gerissen = True
-                break
+        check = await _in_restzeit(vision.inspect_damage(candidate), deadline)
+        if check is None:
+            ungeprueft += len(candidates) - index
+            budget_gerissen = True
+            break
         if not check.ok:
             # Ein Foto ohne Antwort ist ein UNGEPRUEFTES Foto. Vorher wurde es
             # uebersprungen und nirgends gezaehlt: bei drei Fotos, von denen
@@ -924,7 +953,7 @@ async def _zustandsvergleich(
         ist = befunde[0] if befunde else None
     if ist is None or not ist.description:
         return damage, None
-    if time.monotonic() >= deadline:
+    if not _reicht_die_zeit(deadline):
         return damage, "Zustand: nicht verglichen (Zeitbudget erschöpft)."
 
     soll = await _soll_befund(vision, reference, deadline)
@@ -995,6 +1024,11 @@ async def assess_quality(
     Text bewerten, abgleichen. Das Textmodell bekommt den Bildbefund NICHT --
     nur deshalb laesst sich sein Urteil anschliessend daran pruefen.
     """
+    # Nullpunkt der Anruferfrist: hier wartet der n8n-Knoten bereits. Die
+    # Wartezeit an der Sperre zaehlt mit -- sie verbraucht seine Geduld genauso
+    # wie ein Modellaufruf.
+    anrufer_frist = time.monotonic() + max(0.0, settings.caller_budget_ms / 1000.0)
+
     body = _verified_body(
         QualityAssessmentV2Request, verified, idempotency_key, "event_id"
     )
@@ -1011,7 +1045,7 @@ async def assess_quality(
         )
         return _busy_response()
     try:
-        return await _assess(llm, vision, runtime, body)
+        return await _assess(llm, vision, runtime, body, anrufer_frist)
     finally:
         _ASSESSMENT_GATE.release()
 
@@ -1042,7 +1076,9 @@ def _busy_response() -> QualityAssessmentV2Response:
     )
 
 
-async def _assess(llm, vision, runtime, body) -> QualityAssessmentV2Response:
+async def _assess(
+    llm, vision, runtime, body, anrufer_frist: float | None = None
+) -> QualityAssessmentV2Response:
     result = await llm.classify_disposition(
         description=body.description,
         priority=body.priority,
@@ -1056,7 +1092,9 @@ async def _assess(llm, vision, runtime, body) -> QualityAssessmentV2Response:
         checked = False
     else:
         odoo = get_callback_odoo_client(runtime, body.odoo_instance)
-        finding, checked = await _collect_photo_finding(odoo, vision, llm, body, runtime)
+        finding, checked = await _collect_photo_finding(
+            odoo, vision, llm, body, runtime, anrufer_frist
+        )
 
     # Konfidenz und Begruendung reisen mit, damit ein widersprochenes
     # Texturteil im Klartext nachlesbar bleibt: der Widerspruchszweig in n8n

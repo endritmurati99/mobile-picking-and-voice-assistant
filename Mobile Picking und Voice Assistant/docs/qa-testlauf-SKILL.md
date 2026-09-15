@@ -25,7 +25,8 @@ Ein Lauf ohne Frage ist verschwendete Rechenzeit. Lege vorher fest, was **eine**
 | Taugt ein anderes Modell? | Modell | **nicht die Kette fahren** — Skript nehmen, siehe Abschnitt 6 |
 
 Stand 15.09.2026 bereits gemessen und **nicht zu wiederholen**: Threadzahl, Fotoanzahl 1 bis 5,
-Textmodellvergleich, Hintergrund freigestellt gegen Lager, Länge der Schadensbefunde.
+Textmodellvergleich, Hintergrund freigestellt gegen Lager, Länge der Schadensbefunde, Wirkung der
+Budgetbremse (Lauf 9 gegen Lauf 10, dieselben fünf Fotos).
 
 ---
 
@@ -38,7 +39,30 @@ docker ps --format "{{.Names}} {{.Status}}"
 Erwartet: `backend`, `pwa`, `n8n`, `odoo`, `odoo-lager-2`, `caddy`, `db`, `ollama`, `embed`
 (Präfix `mobilepickingundvoiceassistant-`).
 
-Browser-Tabs in derselben Claude-Tabgruppe:
+### Immer „Claude in Chrome", nie der eingebaute Browser
+
+**Den echten Chrome des Nutzers benutzen (`mcp__claude-in-chrome__*`), nicht die Browser-Pane
+(`mcp__Claude_Browser__*`).** In Chrome laufen die angemeldeten Sitzungen: Picking Assistant
+(Odoo-Benutzer), ChatGPT, Odoo, n8n. Die Browser-Pane hat ein eigenes, leeres Profil — dort steht
+am Anfang die Anmeldemaske, und Anmeldedaten darf der Agent nicht eintippen. Ein Lauf ist damit
+sofort blockiert.
+
+Zu Beginn einmal:
+
+```
+ToolSearch: select:mcp__claude-in-chrome__tabs_context_mcp,mcp__claude-in-chrome__navigate,
+            mcp__claude-in-chrome__computer,mcp__claude-in-chrome__read_page,
+            mcp__claude-in-chrome__find,mcp__claude-in-chrome__file_upload,
+            mcp__claude-in-chrome__javascript_tool,mcp__claude-in-chrome__tabs_create_mcp
+```
+
+Dann `tabs_context_mcp` mit `createIfEmpty: true` — es liefert die `tabId`, die **jedes** weitere
+Chrome-Kommando braucht. `list_connected_browsers` zeigt, ob die Erweiterung überhaupt hängt.
+
+Die Anmeldung ist da, der CSRF-Token aber nicht: er liegt je Tab im `sessionStorage` und fehlt in
+einem frisch geöffneten Tab (Stolperfalle 4).
+
+Browser-Tabs in derselben Chrome-Tabgruppe:
 
 | Zweck | URL |
 |---|---|
@@ -78,11 +102,18 @@ docker exec mobilepickingundvoiceassistant-backend-1 python /tmp/warmlaufen.py
 
 ### 2.1 Auftrag und Artikel wählen
 
-Im Picking Assistant einen Auftrag öffnen. Für Varietät eine andere Position als Position 1
-nehmen — die Positionsliste ist anklickbar:
+Im Picking Assistant einen Auftrag öffnen. **Die Auftragskarte in der Liste ist kein `button`** —
+sie ist ein `article` mit Klick-Handler, und `.click()` auf das Element bleibt wirkungslos. Sie
+braucht einen echten Mausklick: `find` nach der Auftragsnummer, dann `computer` mit
+`left_click` auf `ref` oder auf die Koordinaten aus dem Screenshot.
+
+Die Positionsliste **innerhalb** des Auftrags besteht dagegen aus `button`-Elementen und lässt sich
+direkt anklicken. Für Varietät eine andere Position als Position 1 nehmen:
 
 ```js
-[...document.querySelectorAll('button')].find(x => x.innerText.includes('<SKU>')).click();
+[...document.querySelectorAll('button')]
+  .filter(x => x.innerText && x.innerText.includes('<SKU>') && x.innerText.length < 200)
+  .pop().click();
 ```
 
 SKU, Produkt-ID, Regal und Auftragsnummer notieren.
@@ -131,6 +162,18 @@ misst nichts.
 
 Im Picking Assistant: „Problem" → „Artikel beschädigt" → Beschreibung → `file_upload` der JPEGs →
 `button.qa-submit` per `.click()`.
+
+Die Beschreibung **nicht** über `textarea.value = ...` setzen — React liest den Wert dann nie und
+sendet ein leeres Feld. Über den nativen Setter, damit das `input`-Ereignis echt ist:
+
+```js
+const ta = document.querySelector('textarea');
+Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(ta, '<text>');
+ta.dispatchEvent(new Event('input', {bubbles: true}));
+```
+
+`file_upload` bekommt die `ref` des `input[type=file]` (über `find`) und absolute Pfade; alle fünf
+Bilder in EINEM Aufruf, Grenze 10 MB.
 
 Vorher prüfen:
 
@@ -185,13 +228,23 @@ Abschnitt 3, offene Punkte.
 | Textbewertung je Aufruf | 90 s | `LLM_TIMEOUT_MS` |
 | Bildaufruf einzeln | 200 s | `config.py:187` |
 | Bildbudget für alle Bildaufrufe | 240 s | `config.py:192` |
+| **Frist des Anrufers** | **255 s** | `caller_budget_ms` |
+| **Restzeit, die ein Bildaufruf braucht** | **60 s** | `vision_call_estimate_ms` |
 | Warten auf die Bewertungssperre | 150 s | `config.py:235` |
 | **n8n-Knoten** | **270 s** | `quality-assessment-v2.json` |
 | Fotos je Meldung | 3 | `QA_MAX_ASSESSMENT_PHOTOS` (Odoo) |
 
-**Die Summe der Backend-Budgets erreicht 510 s, der Knoten wartet 270 s.** Das Backend misst
-gegen einen festen Wert, nicht gegen die Restzeit — in Lauf 9 lief es weiter, als n8n längst
-aufgegeben hatte. Die Fotoobergrenze in Odoo ist derzeit das Einzige, was das verdeckt.
+**Die Summe der Backend-Budgets erreicht weiterhin 510 s, der Knoten wartet 270 s.** Seit dem
+15.09. deckelt das die Anruferfrist: Die Bildstufe rechnet ab dem Eintreffen der Anfrage, und ein
+Bildaufruf startet nur, wenn die Restzeit für einen **ganzen** Aufruf reicht. Vorher galt „ist das
+Budget erschöpft" — Lauf 9 startete damit ein Foto mit 30,6 s Restzeit und verlor 65,6 s
+Rechenzeit; Lauf 10 mit denselben Fotos antwortete nach 210,9 s.
+
+Was ein Lauf davon sieht: Steht im Alert `Fotos: N weitere ungeprüft.` oder `Zustand: nicht
+verglichen (Zeitbudget erschöpft).`, hat die Bremse gegriffen — **kein Fehler, sondern die
+Ansage**. Ein Abbruch am Knotenlimit sieht anders aus: `assessment unavailable` und gar kein
+Bildbefund. Das Backend schreibt beim Zurückstellen **keine** Logzeile; die Zahl steht nur im
+Alert.
 
 Gemessene Kosten je Stufe (warme Modelle, `num_thread: 8`):
 
@@ -294,6 +347,7 @@ mit `PYTHONPATH=/app` und benutzen die Produktiv-Prompts.
 | Wie schnell ist ein Bildmodell? | `bench_vision_models.py <foto> <modell> ...` |
 | Wie schnell ist ein Textmodell? | `bench_text_models.py <modell> ...` |
 | Welche Artikelwerte liefert die Einbettung? | `probe_schwellen.py <liste.txt>` |
+| Greifen die Zeitschranken der Schadensprüfung? | `pruef_budget.py` (ohne Modelle, fünf Fälle) |
 
 `bench_vision_models.py` führt eine **eigene Kopie** der Prompts. Wer `vision_client.py` ändert,
 muss sie dort nachziehen, sonst misst er den alten Wortlaut.

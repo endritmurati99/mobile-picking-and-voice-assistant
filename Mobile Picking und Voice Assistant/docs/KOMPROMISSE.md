@@ -74,12 +74,26 @@ es keine Entscheidung, sondern eine Annahme — die gehört in Abschnitt 4.
 | Textbewertung je Aufruf | 90 s | `LLM_TIMEOUT_MS` |
 | Bildaufruf einzeln | 200 s | `config.py:187` |
 | Bildbudget für alle Bildaufrufe | 240 s | `config.py:192` |
+| **Frist des Anrufers** | **255 s** | `caller_budget_ms`, seit 15.09. |
+| **Reicht die Zeit für den nächsten Bildaufruf?** | **60 s** | `vision_call_estimate_ms`, seit 15.09. |
 | Warten auf die Bewertungssperre | 150 s | `config.py:235` |
 | **n8n-Knoten** | **270 s** | `n8n/workflows/quality-assessment-v2.json` |
 
 Gemessene Auslastung des Knotenlimits: 59 % (2 Fotos), 70 % (4 Fotos, davon 3 geprüft),
-94 % (3 Fotos). **Die Summe der Einzelbudgets übersteigt das Knotenlimit** — 90 s Text plus 240 s
-Bild plus zwei Textvergleiche à 90 s. Das ist ungelöst, siehe Abschnitt 4.
+94 % (3 Fotos), 78 % (Lauf 10, 5 Fotos, davon 3 geprüft). **Die Summe der Einzelbudgets übersteigt
+das Knotenlimit** — 90 s Text plus 240 s Bild plus zwei Textvergleiche à 90 s.
+
+**Bezahlt am 15.09. nach Lauf 9.** Die Einzelbudgets blieben, darüber liegt jetzt die Frist des
+Anrufers: Die Bildstufe rechnet ab dem Eintreffen der Anfrage, nicht ab dem Start der Bildstufe,
+und startet einen Aufruf nur, wenn dessen Schätzwert noch hineinpasst. Messwert: Lauf 9 und
+Lauf 10 mit **denselben fünf Fotos** (MD5 gleich) — 270 s Abbruch mit leerem Befund gegen 210,9 s
+mit vollem Befund und der Zeile `Fotos: 2 weitere ungeprüft.` Verlorene Rechenzeit 65,6 s gegen
+0 s.
+
+Der Preis: Fotos, die rechnerisch nicht mehr passen, werden nicht mehr versucht — auch dann nicht,
+wenn der Aufruf schneller gewesen wäre als der Schätzwert. In Lauf 10 lagen die Aufrufe bei
+40,2–46,2 s; ein viertes Foto hätte gepasst. Der Schätzwert ist bewusst konservativ: ein
+liegengebliebenes Foto wird genannt, eine abgeschnittene Antwort ist ganz weg.
 
 ---
 

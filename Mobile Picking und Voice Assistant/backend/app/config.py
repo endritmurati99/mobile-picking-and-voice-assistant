@@ -201,6 +201,23 @@ class Settings(BaseSettings):
     # laeuft immer, die Schadenspruefung nur solange davon Zeit uebrig ist;
     # was liegen bleibt, wird gezaehlt und genannt.
     vision_budget_ms: int = 240000
+    # Frist des ANRUFERS, gerechnet ab dem Eintreffen der Anfrage im Backend.
+    # Der n8n-Knoten `quality-assessment-v2` wartet 270 s; danach schneidet er
+    # ab, und JEDER bereits fertige Befund geht ersatzlos verloren. Die 255 s
+    # lassen 15 s fuer Anfrage, Antwort und die Odoo-Lesezugriffe.
+    #
+    # Sie steht NEBEN `vision_budget_ms`, nicht statt dessen: das Bildbudget
+    # begrenzt die Bildstufe gegen die Lease, diese Frist begrenzt die ganze
+    # Bewertung gegen den, der auf sie wartet. Es gilt die fruehere von beiden.
+    # Ohne sie rechnete die Bildstufe gegen einen festen Wert und kannte das
+    # Knotenlimit nicht -- in Lauf 9 lief das Backend 24,2 s weiter, nachdem
+    # n8n die Verbindung geschnitten hatte.
+    caller_budget_ms: int = 255000
+    # Was ein Bildaufruf erfahrungsgemaess kostet. Gemessen ueber die Laeufe 7
+    # bis 9: Schadenspruefung 42-60 s je Foto. Ein Aufruf wird nur noch
+    # GESTARTET, wenn so viel Restzeit bleibt -- die Frage lautet "passt der
+    # naechste Aufruf noch", nicht "ist das Budget schon erschoepft".
+    vision_call_estimate_ms: int = 60000
     # Artikelabgleich ueber Bildabstand (Dienst `embed`) statt ueber zwei
     # Beschreibungen und ein Textmodell.
     #
