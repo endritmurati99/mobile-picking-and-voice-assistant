@@ -66,7 +66,10 @@ class QualityAlert(models.Model):
         "res.users", string="Erfasst von", default=lambda self: self.env.user,
     )
 
-    # Systembewertung (automatische Auswertung via n8n-Heuristik)
+    # Systembewertung. Die Felder fuellt der Rueckruf aus dem Backend, nicht
+    # eine Heuristik in n8n -- die gibt es seit dem v2-Umbau nicht mehr.
+    # Antwortet das Modell nicht, bleiben sie leer und der Alert geht auf
+    # `review_required`.
     ai_disposition = fields.Selection(
         [
             ("sellable", "Verkaufbar"),

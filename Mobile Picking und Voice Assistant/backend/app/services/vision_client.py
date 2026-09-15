@@ -17,12 +17,17 @@ Satz ueber "ragged, torn or gouged" traf das Modell null von vier
 Pruefbildern; mit ihm drei von vier, ohne einen einzigen Fehlalarm auf den
 heilen Teilen.
 
-**Zwei getrennte MODELLE, seit dem 2026-08-14.** `describe` fragt
-`vision_article_model` (`gemma4:12b`), `inspect_damage` fragt `vision_model`
-(`qwen2.5vl:7b`). Begruendung und Messwerte stehen bei den beiden Feldern in
-`config.py`; kurz: auf der Artikelachse haelt `qwen2.5vl:7b` einen Riss fuer
-ein Artikelmerkmal (Schadenstoleranz 2/6 gegen 5/6), auf der Schadensachse ist
-es bei 1024 px eingemessen und `gemma4:12b` ungemessen.
+**Zwei getrennte FELDER, ein Modell.** `describe` fragt
+`vision_article_model`, `inspect_damage` fragt `vision_model`. Beide stehen
+seit dem 2026-08-14 auf `gemma4:12b` (`config.py`). Die Trennung bleibt, damit
+sich die Achsen einzeln umstellen lassen.
+
+Hier stand bis zum 2026-09-15, `inspect_damage` frage `qwen2.5vl:7b` und
+`gemma4:12b` sei auf der Schadensachse ungemessen. Beides ist ueberholt: Der
+Wechsel am 2026-08-14 ist bei `vision_model` in `config.py` mit acht von Hand
+beschrifteten Bildern belegt -- `qwen2.5vl:7b` 2/4 Schaeden, `gemma4:12b` 4/4,
+beide ohne Fehlalarm. Auf der Artikelachse haelt `qwen2.5vl:7b` einen Riss fuer
+ein Artikelmerkmal (Schadenstoleranz 2/6 gegen 5/6).
 
 Jeder Fehler endet in `ok=False` mit leeren Feldern. Ein halber Befund waere
 die Einladung, doch etwas daraus zu schliessen.
