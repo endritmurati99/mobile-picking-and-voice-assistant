@@ -41,13 +41,22 @@ Fotos:        5  (fotos/qa_photo_01.jpg bis _05.jpg, je 1 024 px JPEG)
 | 09:25:43,6 | 0 s | Absenden in der PWA, `POST /api/quality-alerts` → 200 OK | — |
 | ≈09:25:45 | 1,4 s | `POST http://n8n:5678/webhook/quality-assessment-v2` → 200 OK | — |
 | ≈09:26:56 | 73 s | Textbewertung `qwen2.5:7b` fertig | **51,14 s** |
-| 09:26:57,7 | 74,1 s | `embed_abgleich`: Urteil **`match`**, 6138111 auf **0,9176** | < 1 s |
+| 09:26:57,4 | 73,8 s | `embed_katalog`: 47 Artikel neu eingebettet — Cache war nach meinem Odoo-Neustart leer | **16,90 s** |
+| 09:26:57,7 | 74,1 s | `embed_abgleich`: Urteil **`match`**, 6138111 auf **0,9176**, Abstand 0,0886 | 254 ms |
 | 09:27:57,4 | 133,8 s | `vision_probe` Foto 1 (Bilddekodierung 18,34 s), `ok: true` | **59,77 s** |
 | 09:28:47,5 | 183,9 s | `vision_probe` Foto 2 (Bilddekodierung 16,81 s), `ok: true` | **50,13 s** |
 | 09:29:45,6 | 242,0 s | `vision_probe` Foto 3 (Bilddekodierung 18,55 s), `ok: true` | **58,09 s** |
-| **09:30:16** | **273 s** | **n8n bricht ab: `timeout of 270000ms exceeded`**, `callbacks/status` → 200 OK, Odoo bekommt `assessment unavailable` | — |
+| 09:29:48,4 | 244,8 s | Bilddekodierung Foto 4 beginnt | 20,74 s |
+| **09:30:16,3** | **270,1 s** | **n8n bricht ab: `timeout of 270000ms exceeded`**, `callbacks/status` → 200 OK, Odoo bekommt `assessment unavailable` | — |
+| 09:30:40,4 | 294 s | ollama bricht Foto 4 ab: `srv stop: cancel task, id_task=198` | — |
 
-**Foto 4, Foto 5 und der Katalogbildvergleich kamen nicht mehr an die Reihe.**
+**Foto 4 wurde gestartet und nie fertig.** Es war dekodiert und zu 99 % prompt-verarbeitet
+(455 von 459 Token), als der Abbruch kam — mindestens **65,6 s** Rechenzeit ohne Ergebnis. Foto 5
+wurde nie angefragt, der Katalogbildvergleich kam nicht mehr dran.
+
+Im **backend**-Log steht dazu nichts: kein `vision_probe_failed`, keine Zeile über den Abbruch.
+Ohne das ollama-Rohlog wäre dieser Aufruf unsichtbar geblieben. Das ist eine eigene Lücke im
+Logging.
 
 ### 3.1 Inferenzzeiten
 
@@ -82,6 +91,12 @@ aber gegen 240 s statt gegen den Rest bis 270 s.
 **Das ist kein Grenzfall, sondern ein Rechenfehler in der Budgetierung.** Er fällt nur deshalb
 selten auf, weil die Odoo-Konstante die Fotoanzahl bei drei deckelt — sie ist derzeit das
 einzige, was die Kette vor ihrem eigenen Budget schützt.
+
+Die schärfste Zahl dazu: **Foto 4 startete um 09:29:48, als bereits 244,8 s der 270 s verbraucht
+waren.** Ein Bildaufruf kostet in dieser Serie 50–60 s. Der Aufruf konnte also nicht mehr fertig
+werden, und das war vor dem Start bekannt — die Kette hat es nur nicht geprüft. Die richtige
+Frage ist nicht „ist das Budget erschöpft", sondern „passt der nächste Aufruf noch in die
+Restzeit".
 
 ## 5. Die Bildaufrufe waren langsamer als in allen Vorläufen
 
