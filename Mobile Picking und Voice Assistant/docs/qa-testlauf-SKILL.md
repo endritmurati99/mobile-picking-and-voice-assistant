@@ -29,6 +29,24 @@ Textmodellvergleich, Hintergrund freigestellt gegen Lager, Länge der Schadensbe
 Budgetbremse (Lauf 9 gegen Lauf 10, dieselben fünf Fotos), Wirkung des gleitenden Schätzwerts
 (Läufe 11 bis 13: 2, dann 4, dann 5 von fünf Fotos bei gleicher Laufzeit).
 
+Stand 16.09.2026 zusätzlich gemessen und **nicht zu wiederholen**:
+
+| Frage | Ergebnis | Lauf |
+|---|---|---|
+| Kaltstart ohne Vorwärmen | 3 min 11 s Startzeit; `MODEL_WARMUP` erledigt das jetzt selbst | 16 |
+| Artikelsuche über mehrere Fotos bei `zu_dicht` | 59,8 s → 0,25 s, ein Bildaufruf weniger | 17 |
+| Soll-Befund-Cache über Neustarts | Zustandsvergleich 22,2 s → 3,9 s | 18 |
+| Drei Modellplätze statt zwei | 15,62 GiB von 25,44 GiB; Bild-Warmlauf 88,8 s → 7,76 s | 19 |
+| Schadensachse bei echtem Riss | `completed`, `scrap` 0,9 | 20 |
+| **Textmodell `gemma4:12b` statt `qwen2.5:7b`** | 11/12 gegen 11/12, aber Median **216 s gegen 11,7 s** bei 90 s Zeitschranke — **verworfen** | — |
+| **Knappheitsschwelle unter 0,02 senken** | 61 Fotos: unter der Schwelle ist Platz 1 in 5 von 9 Fällen richtig, Werte überlappen (0,0026 falsch, 0,0027 richtig) — **verworfen** | — |
+| **Artikelachse ohne Katalogbild-Herkunft** | erwarteter Artikel auf **Platz 6**, Spitzenwert 0,6087, Abstand 0,0546 — die Achse ist bildweltgebunden | 21 |
+
+**Das Vorwärmen läuft seit dem 16.09. von selbst.** Nach `docker compose up -d backend` lädt das
+Backend Sprache, Text und Bild nacheinander vor; auf leerem ollama dauert das rund 3 Minuten, auf
+warmem unter 10 Sekunden. Vorher senden heißt, gegen den Warmlauf zu messen — erst `ollama ps`
+abwarten, bis alle drei Modelle stehen.
+
 **Vor jedem Lauf wissen, was die Messreihe gerade sagt.** Nach einem Backend-Neustart ist sie
 leer, und die ersten drei Bildaufrufe laufen gegen die Vorgabe von 60 s. Wer den gleitenden Wert
 messen will, darf das Backend vorher nicht neu starten — und wer eine Codeänderung misst, muss es.
@@ -152,6 +170,29 @@ docker cp mobilepickingundvoiceassistant-backend-1:/tmp/vorlage.png "<laufordner
 Vorlage an ChatGPT anhängen (`file_upload` auf das `input[type=file]` im `form`), dann **je
 Ansicht einen Prompt**, nacheinander. Alle auf einmal anzufordern liefert nur ein Bild.
 
+**Wenn ChatGPT `You've hit your rate limit.` meldet: Gemini nehmen** (`https://gemini.google.com`,
+angemeldet). Zwei Unterschiede, beide kosten sonst Zeit:
+
+* **Gemini nimmt keinen Bildanhang an, wenn man das Upload-Menü über die Oberfläche bedient.** Der
+  `input[type=file]` entsteht erst mit dem geöffneten Menü und wird verworfen, sobald es schließt;
+  ein programmatisch gesetzter `files`-Wert erreicht Geminis Handler nie. **Die Vorlage stattdessen
+  im Prompt beschreiben** (Form, Noppenzahl, Höhe, Material, Farbe).
+* **Das Herunterladen muss der Nutzer selbst anstoßen.** Drei automatische Wege sind gesperrt: der
+  Klick auf „Download full size image" läuft durch, die Datei landet aber nie in `~/Downloads`
+  (Erweiterungs-Sandkasten); die signierte `lh3.googleusercontent.com`-URL antwortet der
+  Kommandozeile mit `403`; ein lokaler Empfänger auf `127.0.0.1` wird von Chromes
+  Private-Network-Sperre blockiert, auch mit `Access-Control-Allow-Private-Network`. **Den Nutzer
+  bitten, je Bild einmal auf „Download full size image" zu klicken** — danach läuft alles wieder
+  skriptgesteuert aus `~/Downloads`.
+
+**Aufpassen beim Einsammeln:** In `~/Downloads` liegen oft ältere `Gemini_Generated_Image_*`-Dateien.
+Nur die nach Zeitstempel nehmen, nicht nach Namensmuster.
+
+**Beschreibungs-Prompts liefern eine ANDERE Bildwelt.** Ohne Katalogbild als Vorlage teilt das
+Meldefoto weder Pose noch Rendering mit dem Katalog — der Einbettungsabgleich scheitert dann
+(Lauf 21: erwarteter Artikel auf Platz 6). Das ist kein Fehler des Laufs, sondern ein Befund; wer
+die Artikelachse messen will, muss diesen Unterschied bewusst setzen und protokollieren.
+
 **Immer freigestellt auf weißem Hintergrund.** Gemessen: dasselbe Teil mit demselben Schaden
 erreicht freigestellt 0,8723 auf Platz 1 des Artikelabgleichs, im Lagerfoto 0,393 auf Platz 5.
 Lagerfotos sind nur sinnvoll, wenn der Domänensprung selbst die Frage ist.
@@ -251,6 +292,8 @@ Abschnitt 3, offene Punkte.
 | Warten auf die Bewertungssperre | 150 s | `config.py:235` |
 | **n8n-Knoten** | **270 s** | `quality-assessment-v2.json` |
 | Fotos je Meldung | 3 | `QA_MAX_ASSESSMENT_PHOTOS` (Odoo) |
+| Modellplätze in ollama | **3** (seit 16.09.) | `OLLAMA_MAX_LOADED_MODELS` |
+| Vorwärmen beim Backend-Start | an | `MODEL_WARMUP`, `VOICE_LLM_WARMUP` |
 
 **Die Summe der Backend-Budgets erreicht weiterhin 510 s, der Knoten wartet 270 s.** Seit dem
 15.09. deckelt das die Anruferfrist: Die Bildstufe rechnet ab dem Eintreffen der Anfrage, und ein
@@ -271,7 +314,7 @@ Gemessene Kosten je Stufe (warme Modelle, `num_thread: 8`):
 | Textbewertung | 20–75 s |
 | Einbettungsabgleich | unter 1 s |
 | Schadensprüfung je Foto | **37–83 s** — hängt am Artikel: 2x2-Stein 37–46 s, 2x4-Platte 42–83 s |
-| Katalogbildvergleich | 18–33 s |
+| Katalogbildvergleich | 18–33 s beim ERSTEN Mal je Artikel, danach 0 s (Cache in `backend_cache`) |
 | Artikelvergleich im Text | 5–22 s |
 
 Nur **eine** Bewertung gleichzeitig (`_ASSESSMENT_GATE`). Nächste Meldung erst absetzen, wenn die
@@ -365,6 +408,21 @@ Erwartet: **beide** Compose-Dateien, und die Netze `core-net` **und** `edge-net`
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d odoo db
 ```
 
+**12. Ein „Profil bitte neu wählen" ist fast immer der fehlende CSRF-Token.** Sieht die PWA nach
+einem Neustart oder in einem frischen Tab wie die Anmeldemaske aus, ist die Sitzung meist intakt —
+es fehlt nur der Token aus Stolperfalle 4. Erst setzen, dann `location.reload()`, und die
+Auftragsliste steht wieder. **Nicht** den Nutzer zur Anmeldung auffordern, ohne das geprüft zu
+haben.
+
+**13. Der Renderer des PWA-Tabs friert gelegentlich ein.** `javascript_tool` endet dann mit
+`CDP sendCommand "Runtime.evaluate" timed out after 45000ms`, Screenshots mit
+`Cannot take screenshot with 0 width`. Heilung: `navigate` auf `https://localhost/`, danach 4–5 s
+warten. Am 16.09. zweimal passiert, beide Male ohne Folgen für die Kette.
+
+**14. Die Chrome-Tabgruppe überlebt keine Neuverbindung der Erweiterung.** Danach melden alle
+Tab-Werkzeuge `not in Claude's tab group`. `tabs_context_mcp` mit `createIfEmpty: true` aufrufen
+und die Tabs neu holen — die Seiten selbst laufen weiter, nur die Kennungen sind neu.
+
 ---
 
 ## 5. Subagenten für die Beobachtung
@@ -401,6 +459,8 @@ mit `PYTHONPATH=/app` und benutzen die Produktiv-Prompts.
 | Welche Artikelwerte liefert die Einbettung? | `probe_schwellen.py <liste.txt>` |
 | Bringt ein Prompt-Zusatz etwas? | `bench_umriss.py <foto> ...` (stellt Produktiv- gegen Testprompt) |
 | Greifen die Zeitschranken der Schadensprüfung? | `pruef_budget.py` (ohne Modelle, fünf Fälle) |
+| Stimmt die Artikelsuche über mehrere Fotos? | `pruef_artikelsuche.py` (ohne Dienste, vier Zusagen) |
+| Wieviel Speicher brauchen die Modelle zusammen? | `mess_speicher.py` (lädt einzeln, liest `docker stats`) |
 
 `bench_vision_models.py` führt eine **eigene Kopie** der Prompts. Wer `vision_client.py` ändert,
 muss sie dort nachziehen, sonst misst er den alten Wortlaut.
