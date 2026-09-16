@@ -1,0 +1,6 @@
+
+Datei             Hash
+-----             ----
+run4_weiss_01.png E8B9746643C1BEEA9664D8DFE9729272
+qa_photo_01.jpg   603339A5F8826F63ABF7F34DF9A689C9
+

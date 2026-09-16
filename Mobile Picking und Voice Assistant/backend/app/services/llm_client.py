@@ -12,10 +12,16 @@ bewusst NICHT: nur so laesst sich sein Urteil anschliessend dagegen pruefen.
 from __future__ import annotations
 
 import json
+import os
 import logging
 from dataclasses import dataclass
 
 import httpx
+
+# Siehe vision_client.py: die Umgebungsvariable OLLAMA_NUM_THREAD wirkt nicht,
+# nur diese Option im Request. Gemessen 2026-09-15: 1,21 tok/s ohne, 7,40 tok/s
+# mit num_thread=8 (qwen2.5:7b, 60 Token, leeres Ollama).
+_NUM_THREAD = int(os.environ.get("OLLAMA_NUM_THREAD", "8"))
 
 logger = logging.getLogger(__name__)
 
@@ -284,6 +290,20 @@ class LlmClient:
         # Quellen saehe, koennte einen Widerspruch wegerklaeren.
         return "\n".join(lines)
 
+    async def warmup(self) -> bool:
+        """Laedt das Textmodell in den Ollama-Speicher.
+
+        Derselbe Grund wie bei `VisionClient.warmup`: sonst zahlt die erste
+        Meldung den Kaltstart aus ihrem eigenen Zeitbudget. Ueber den echten
+        Bewertungsweg, damit ollama genau den Runner laedt, den der erste echte
+        Aufruf dann vorfindet -- eine andere Kontextgroesse laedt neu.
+
+        `classify_disposition` schluckt jeden Fehler und liefert `ok=False`;
+        Warmup ist damit best-effort und kann keinen Start verhindern.
+        """
+        result = await self.classify_disposition(description="Ware in Ordnung")
+        return result.ok
+
     async def classify_disposition(
         self,
         *,
@@ -297,7 +317,7 @@ class LlmClient:
             "model": self._model,
             "stream": False,
             "format": "json",
-            "options": {"temperature": 0},
+            "options": {"temperature": 0, "num_thread": _NUM_THREAD},
             "messages": [
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {
@@ -352,7 +372,7 @@ class LlmClient:
             "model": self._model,
             "stream": False,
             "format": "json",
-            "options": {"temperature": 0},
+            "options": {"temperature": 0, "num_thread": _NUM_THREAD},
             "messages": [
                 {"role": "system", "content": _COMPARE_SYSTEM_PROMPT},
                 {"role": "user", "content": "\n".join(lines)},
@@ -416,7 +436,7 @@ class LlmClient:
             "model": self._model,
             "stream": False,
             "format": "json",
-            "options": {"temperature": 0},
+            "options": {"temperature": 0, "num_thread": _NUM_THREAD},
             "messages": [
                 {"role": "system", "content": _CONDITION_SYSTEM_PROMPT},
                 {"role": "user", "content": "\n".join(lines)},

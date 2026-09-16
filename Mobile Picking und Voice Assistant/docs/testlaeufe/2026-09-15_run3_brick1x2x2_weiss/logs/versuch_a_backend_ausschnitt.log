@@ -1,0 +1,11 @@
+# Versuch A (Code aus .worktrees/voice-latency, ohne num_thread) -- gesichert aus
+# `docker logs mobilepickingundvoiceassistant-backend-1` vor dem Neuaufbau des
+# Containers um 06:55 UTC. Der Container wurde danach neu erstellt, das Original-Log
+# existiert nicht mehr.
+INFO:     172.28.10.2:39290 - "POST /api/quality-alerts HTTP/1.1" 200 OK
+2026-09-15 06:45:44,956 INFO httpx: HTTP Request: POST http://n8n:5678/webhook/quality-assessment-v2 "HTTP/1.1 200 OK"
+2026-09-15 06:47:14,959 WARNING app.services.llm_client: {"event_type": "llm_quality_disposition_failed", "model": "qwen2.5:7b", "error": ""}
+2026-09-15 06:47:30,264 INFO app.services.embed_client: {"event_type": "embed_katalog", "artikel": 47, "duration_ms": 14052}
+2026-09-15 06:47:30,264 INFO app.services.embed_catalogue: {"event_type": "embed_katalog_bereit", "instanz": "local", "artikel": 47, "duration_ms": 14945}
+2026-09-15 06:47:30,519 INFO app.services.embed_client: {"event_type": "embed_abgleich", "urteil": "mismatch", "grund_art": "anderer_artikel", "erwartet": "6101121", "rang": [["301124", 0.4957], ["4183780", 0.4186], ["4159527", 0.401]], "abstand": 0.0772, "duration_ms": 254}
+2026-09-15 06:50:50,492 WARNING app.services.vision_client: {"event_type": "vision_probe_failed", "model": "gemma4:12b", "error_type": "ReadTimeout", "error": "", "duration_ms": 200014}

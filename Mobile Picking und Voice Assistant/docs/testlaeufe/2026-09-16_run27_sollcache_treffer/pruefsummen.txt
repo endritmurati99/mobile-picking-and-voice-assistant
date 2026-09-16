@@ -1,0 +1,6 @@
+3a512f3c8966022ccc7067328dd4f48e *docs/testlaeufe/2026-09-16_run25_unbeschaedigt/fotos/qa_photo_01.jpg
+34e4ed248932dd2f7fd72ff482c47fda *docs/testlaeufe/2026-09-16_run25_unbeschaedigt/fotos/qa_photo_02.jpg
+c4db6918b055448a0275b1612855cd25 *docs/testlaeufe/2026-09-16_run25_unbeschaedigt/fotos/qa_photo_03.jpg
+3a512f3c8966022ccc7067328dd4f48e *docs/testlaeufe/2026-09-16_run27_sollcache_treffer/fotos/r27_foto_01.jpg
+34e4ed248932dd2f7fd72ff482c47fda *docs/testlaeufe/2026-09-16_run27_sollcache_treffer/fotos/r27_foto_02.jpg
+c4db6918b055448a0275b1612855cd25 *docs/testlaeufe/2026-09-16_run27_sollcache_treffer/fotos/r27_foto_03.jpg

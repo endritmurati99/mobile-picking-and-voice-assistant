@@ -77,6 +77,11 @@ services:
       PORT: 5432
       USER: ${ODOO_DB_USER:-odoo_app}
       PASSWORD: ${ODOO_DB_PASSWORD:?ODOO_DB_PASSWORD muss gesetzt sein}
+      # Wieviele Fotos einer Meldung an die Bewertungskette gehen. Vorgabe 3.
+      # Gemessen 2026-09-15: jedes Foto kostet 42-50 s Bildpruefung, die Kette
+      # hat gegen das n8n-Knotenlimit von 270 s bei drei Fotos noch 15 s Luft.
+      # Hochsetzen nur fuer Messungen, nicht im Betrieb.
+      QA_MAX_ASSESSMENT_PHOTOS: ${QA_MAX_ASSESSMENT_PHOTOS:-3}
     volumes:
       - odoo_data:/var/lib/odoo
       - ./odoo/odoo19.conf:/etc/odoo/odoo.conf:ro
@@ -179,6 +184,10 @@ services:
       # Voice-Intent-Modell beim Start vorwaermen (haelt die erste Aeusserung
       # aus dem Kaltstart heraus; Ollama KEEP_ALIVE haelt es danach 24h).
       VOICE_LLM_WARMUP: ${VOICE_LLM_WARMUP:-true}
+      # Text- und Bildmodell beim Start vorwaermen. Ohne das zahlt die erste
+      # Meldung nach einem Start den Kaltstart (gemessen 80-145 s) aus ihrem
+      # eigenen 255-s-Budget und prueft statt drei Fotos eines.
+      MODEL_WARMUP: ${MODEL_WARMUP:-true}
       N8N_WEBHOOK_BASE: http://n8n:5678/webhook
       SESSION_THROTTLE_HMAC_SECRET_B64: ${SESSION_THROTTLE_HMAC_SECRET_B64}
       N8N_WEBHOOK_SECRET: ${N8N_WEBHOOK_SECRET}
@@ -207,6 +216,11 @@ services:
       - ./backend/app:/app/app:ro
       - ./docs:/obsidian:ro
       - ./n8n/workflow-registry.json:/run/pwr/workflow-registry.json:ro
+      # Einziger beschreibbarer Ort des Backends. Haelt den Zustandsbefund der
+      # Katalogbilder ueber Neustarts: sonst zahlt die jeweils erste Meldung je
+      # Artikel den Katalogbildaufruf erneut (22,0 s in Lauf 16) aus ihrem
+      # eigenen Bildbudget.
+      - backend_cache:/var/cache/pwr
     command: [ "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info" ]
     healthcheck:
       test: [ "CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health/live',timeout=5).status==200 else 1)" ]
@@ -307,7 +321,29 @@ services:
       # im Spiel sind. Zwei Stunden decken eine Arbeitssitzung ab; danach
       # kostet der erste Aufruf wieder das Laden (gemessen 80-145 s).
       OLLAMA_KEEP_ALIVE: 2h
-      OLLAMA_MAX_LOADED_MODELS: "2"
+      # Drei Plaetze seit dem 16.09.2026, gemessen in Lauf 19. Zwei reichten
+      # nicht mehr, seit der Sprach-Warmlauf wirklich laedt: drei Modelle
+      # wollten in zwei Plaetze, und Ollama warf das am laengsten ungenutzte
+      # weg -- am 16.09. um 10:14:13 war das `gemma4:12b`, Nachladen 121 s.
+      #
+      # Gemessen mit den Produktiv-Kontextgroessen, alle drei resident:
+      #   gemma4:12b     9.2 GB  ctx 8192
+      #   qwen2.5:7b     5.1 GB  ctx 4096
+      #   qwen2.5:1.5b   1.2 GB  ctx 4096
+      #   Container gesamt: 15,62 GiB von 25,44 GiB (61 %), knapp 10 GiB Luft.
+      #
+      # Der OOM vom 2026-08-14 lag bei 20,5 GB Modellgewicht (`gemma4` plus
+      # `qwen2.5:7b` plus `qwen2.5vl:7b`) -- das dritte Modell war damals
+      # 6,2 GB schwer, dieses ist 1,2 GB. Wer ein weiteres 7B-Modell
+      # dazunimmt, misst vorher neu.
+      OLLAMA_MAX_LOADED_MODELS: ${OLLAMA_MAX_LOADED_MODELS:-3}
+      # OLLAMA_NUM_THREAD als Umgebungsvariable wirkt NICHT. Gemessen am
+      # 2026-09-15 auf leerem Ollama, qwen2.5:7b, 60 Token, gleicher Prompt:
+      # 1,21 tok/s mit gesetzter Variablen, 7,40 tok/s mit `num_thread: 8`
+      # in den `options` des Requests. Der Hebel steht deshalb im Code
+      # (backend/app/services/vision_client.py, llm_client.py,
+      # voice_intent_classifier.py), Vorgabe 8. Wer die Zahl aendern will,
+      # setzt OLLAMA_NUM_THREAD im backend-Dienst, nicht hier.
     volumes:
       - ollama_data:/root/.ollama
     networks:
@@ -476,6 +512,7 @@ volumes:
   n8n_data:
   ollama_data:
   whisper_cache:
+  backend_cache:
 
 
 secrets:

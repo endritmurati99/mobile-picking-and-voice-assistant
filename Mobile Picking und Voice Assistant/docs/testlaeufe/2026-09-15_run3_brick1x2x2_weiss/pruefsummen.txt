@@ -1,0 +1,6 @@
+
+Datei              Hash
+-----              ----
+run3_damage_01.png 391657D13EFF7E1C240EE29BE494EDFF
+qa_photo_01.jpg    F24D60A534DBC9DDA89D04334130220E
+
