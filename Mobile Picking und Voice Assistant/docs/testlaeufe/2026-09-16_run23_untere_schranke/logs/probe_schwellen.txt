@@ -1,0 +1,48 @@
+Datei                       Welt          Urteil    Platz1        Wert  Abstand  erwartet
+QA0365_qa_photo_01.jpg      lager         mismatch  301124      0.7655   0.0492  4648231 auf Platz 4
+QA0365_qa_photo_02.jpg      lager         mismatch  301124      0.7484   0.0461  4648231 auf Platz 2
+QA0365_qa_photo_03.jpg      lager         mismatch  301124      0.7245   0.0927  4648231 auf Platz 3
+QA0365_qa_photo_04.jpg      lager         mismatch  301124      0.6292   0.0324  4648231 auf Platz 2
+QA0365_qa_photo_05.jpg      lager         unsicher  6004979     0.4263   0.0188  4648231 auf Platz None
+run3_qa_photo_01.jpg        lager         mismatch  301124      0.4973   0.0774  6101121 auf Platz 5
+run4_qa_photo_01.jpg        frei          match     6101121     0.8723   0.0694  6101121 auf Platz 1
+run5_qa_photo_01.jpg        frei          unsicher  6171865     0.9301   0.0027  6171865 auf Platz 1
+run6_qa_photo_01.jpg        frei          match     6256703     0.8494   0.2392  6256703 auf Platz 1
+run6_qa_photo_02.jpg        frei          match     6256703     0.7827   0.1352  6256703 auf Platz 1
+run7_qa_photo_01.jpg        frei          match     4166960     0.8467   0.0247  4166960 auf Platz 1
+run7_qa_photo_02.jpg        frei          match     4166960     0.7108   0.0549  4166960 auf Platz 1
+run7_qa_photo_03.jpg        frei          match     4166960     0.7681   0.0814  4166960 auf Platz 1
+run8_qa_photo_01.jpg        frei          match     4216758     0.9020   0.0797  4216758 auf Platz 1
+run8_qa_photo_02.jpg        frei          match     4216758     0.6640   0.0660  4216758 auf Platz 1
+run8_qa_photo_03.jpg        frei          match     4216758     0.7879   0.0245  4216758 auf Platz 1
+run8_qa_photo_04.jpg        frei          mismatch  6294943     0.6391   0.0468  4216758 auf Platz 5
+run9_qa_photo_01.jpg        frei          match     6138111     0.9124   0.0829  6138111 auf Platz 1
+run9_qa_photo_02.jpg        frei          match     6138111     0.6970   0.0317  6138111 auf Platz 1
+run9_qa_photo_03.jpg        frei          unsicher  6138111     0.8032   0.0074  6138111 auf Platz 1
+run9_qa_photo_04.jpg        frei          match     6138111     0.9136   0.0667  6138111 auf Platz 1
+run9_qa_photo_05.jpg        frei          match     6138111     0.7210   0.0425  6138111 auf Platz 1
+run11_qa_photo_01.jpg       frei          match     4185178     0.8919   0.0656  4185178 auf Platz 1
+run11_qa_photo_02.jpg       frei          match     4185178     0.6943   0.0214  4185178 auf Platz 1
+run11_qa_photo_03.jpg       frei          mismatch  4183780     0.8187   0.0228  4185178 auf Platz 3
+run11_qa_photo_04.jpg       frei          unsicher  4185178     0.8315   0.0030  4185178 auf Platz 1
+run11_qa_photo_05.jpg       frei          unsicher  6004979     0.7327   0.0016  4185178 auf Platz 2
+run12_qa_photo_01.jpg       frei          match     6294939     0.8548   0.0281  6294939 auf Platz 1
+run12_qa_photo_02.jpg       frei          match     6294939     0.7438   0.0454  6294939 auf Platz 1
+run12_qa_photo_03.jpg       frei          unsicher  301124      0.7232   0.0026  6294939 auf Platz None
+run12_qa_photo_04.jpg       frei          match     6294939     0.8687   0.0412  6294939 auf Platz 1
+run12_qa_photo_05.jpg       frei          unsicher  6380873     0.7016   0.0046  6294939 auf Platz 3
+run13_qa_photo_01.jpg       frei          match     6294237     0.9170   0.0398  6294237 auf Platz 1
+run13_qa_photo_02.jpg       frei          match     6294237     0.8016   0.0712  6294237 auf Platz 1
+run13_qa_photo_03.jpg       frei          match     6294237     0.7621   0.0319  6294237 auf Platz 1
+run13_qa_photo_04.jpg       frei          match     6294237     0.8834   0.0401  6294237 auf Platz 1
+run13_qa_photo_05.jpg       frei          unsicher  6294237     0.7127   0.0083  6294237 auf Platz 1
+run15_qa_photo_01.jpg       frei          unsicher  4183780     0.8806   0.0164  4183780 auf Platz 1
+run15_qa_photo_02.jpg       frei          match     4183780     0.7623   0.0389  4183780 auf Platz 1
+run15_qa_photo_03.jpg       frei          match     4183780     0.8402   0.0273  4183780 auf Platz 1
+run21_qa_photo_01.jpg       ohne_vorlage  mismatch  343701      0.6096   0.0550  6096680 auf Platz None
+run21_qa_photo_02.jpg       ohne_vorlage  match     6096680     0.8085   0.1720  6096680 auf Platz 1
+
+Spitzenwerte je Bildwelt:
+  lager          n=6   min=0.4263 max=0.7655 schnitt=0.6319
+  frei           n=34  min=0.6391 max=0.9301 schnitt=0.8006
+  ohne_vorlage   n=2   min=0.6096 max=0.8085 schnitt=0.7090

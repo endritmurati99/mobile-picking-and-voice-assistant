@@ -19,6 +19,10 @@ import httpx
 
 ENDPOINT = "http://ollama:11434"
 NUM_CTX = 8192
+# Ohne num_thread startet llama.cpp mit 14 Threads (1,21 tok/s statt 7,40 tok/s).
+# Muss dem Wert in vision_client._NUM_THREAD entsprechen, sonst sind die Zahlen
+# nicht mit den Kettenlaeufen vergleichbar.
+NUM_THREAD = 8
 
 DESCRIBE_PROMPT = (
     "Describe the single object in this image factually. Ignore the background, "
@@ -60,7 +64,7 @@ def ask(model: str, prompt: str, bild_b64: str, timeout_s: float) -> dict:
         "images": [bild_b64],
         "stream": False,
         "format": "json",
-        "options": {"temperature": 0, "num_ctx": NUM_CTX},
+        "options": {"temperature": 0, "num_ctx": NUM_CTX, "num_thread": NUM_THREAD},
     }
     begonnen = time.monotonic()
     ergebnis: dict = {"model": model}

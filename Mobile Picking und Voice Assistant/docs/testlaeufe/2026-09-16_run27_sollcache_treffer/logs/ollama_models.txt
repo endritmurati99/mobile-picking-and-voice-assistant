@@ -1,0 +1,9 @@
+NAME                ID              SIZE      MODIFIED     
+gemma4:12b          4eb23ef187e2    7.6 GB    4 weeks ago     
+minicpm-v4.5:8b     0c40168f46d1    6.1 GB    4 weeks ago     
+qwen3-vl:8b         901cae732162    6.1 GB    4 weeks ago     
+qwen2.5:1.5b        65ec06548149    986 MB    7 weeks ago     
+qwen2.5vl:3b        fb90415cde1e    3.2 GB    2 months ago    
+qwen2.5vl:7b        5ced39dfa4ba    6.0 GB    2 months ago    
+moondream:latest    55fc3abd3867    1.7 GB    2 months ago    
+qwen2.5:7b          845dbda0ea48    4.7 GB    2 months ago    

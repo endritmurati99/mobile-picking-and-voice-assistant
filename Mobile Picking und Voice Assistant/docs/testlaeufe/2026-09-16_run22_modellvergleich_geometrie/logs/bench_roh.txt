@@ -1,0 +1,33 @@
+##### FOTO r15_01
+{"model": "gemma4:12b", "ok": true, "antwort": "{\"object_type\": \"toy building brick\", \"colour\": \"lime green\", \"shape\": \"rectangular block with four cylindrical studs on top\", \"markings\": \"none\", \"is_a_product\": true}", "total_duration_ms": 49597, "load_duration_ms": 559, "prompt_eval_duration_ms": 34728, "eval_duration_ms": 13878, "prompt_eval_count": 439, "eval_count": 47, "wanduhr_ms": 49789, "aufgabe": "artikel"}
+{"model": "gemma4:12b", "ok": true, "antwort": "{\"surface_description\": \"The surface of the brick is smooth and continuous everywhere.\", \"anomalies\": [], \"damaged\": false}", "total_duration_ms": 37703, "load_duration_ms": 462, "prompt_eval_duration_ms": 30775, "eval_duration_ms": 6323, "prompt_eval_count": 459, "eval_count": 29, "wanduhr_ms": 37719, "aufgabe": "schaden"}
+{"model": "qwen2.5vl:7b", "ok": true, "antwort": "{\n  \"object_type\": \"toy building brick\",\n  \"colour\": \"green\",\n  \"shape\": \"square with four circular studs\",\n  \"markings\": \"none\",\n  \"is_a_product\": true\n}", "total_duration_ms": 134092, "load_duration_ms": 28504, "prompt_eval_duration_ms": 99566, "eval_duration_ms": 5974, "prompt_eval_count": 1546, "eval_count": 47, "wanduhr_ms": 134103, "aufgabe": "artikel"}
+{"model": "qwen2.5vl:7b", "ok": true, "antwort": "{\n  \"surface_description\": \"The surface appears to be smooth and continuous with no visible tears, splits, gouges, rags, or broken areas.\",\n  \"anomalies\": [],\n  \"damaged\": false,\n  \"confidence\": 1.0\n}", "total_duration_ms": 14606, "load_duration_ms": 164, "prompt_eval_duration_ms": 7445, "eval_duration_ms": 6942, "prompt_eval_count": 1577, "eval_count": 57, "wanduhr_ms": 14616, "aufgabe": "schaden"}
+=== ZUSAMMENFASSUNG ===
+gemma4:12b           artikel  gesamt    49.8s  laden    0.6s  eval   13.9s  tokens 47
+gemma4:12b           schaden  gesamt    37.7s  laden    0.5s  eval    6.3s  tokens 29
+qwen2.5vl:7b         artikel  gesamt   134.1s  laden   28.5s  eval    6.0s  tokens 47
+qwen2.5vl:7b         schaden  gesamt    14.6s  laden    0.2s  eval    6.9s  tokens 57
+##### FOTO r15_02
+{"model": "gemma4:12b", "ok": true, "antwort": "{\"object_type\": \"toy building brick\", \"colour\": \"green\", \"shape\": \"rectangular block with four circular studs\", \"markings\": \"none\"}", "total_duration_ms": 75155, "load_duration_ms": 39976, "prompt_eval_duration_ms": 28246, "eval_duration_ms": 6851, "prompt_eval_count": 439, "eval_count": 35, "wanduhr_ms": 75198, "aufgabe": "artikel"}
+{"model": "gemma4:12b", "ok": true, "antwort": "{\"surface_description\": \"smooth and continuous everywhere\", \"anomalies\": [], \"damaged\": false,\n  \"confidence\": 1.0}", "total_duration_ms": 39150, "load_duration_ms": 350, "prompt_eval_duration_ms": 29664, "eval_duration_ms": 9082, "prompt_eval_count": 459, "eval_count": 33, "wanduhr_ms": 39160, "aufgabe": "schaden"}
+{"model": "qwen2.5vl:7b", "ok": true, "antwort": "{\n  \"object_type\": \"toy building brick\",\n  \"colour\": \"green\",\n  \"shape\": \"square with four circular studs\",\n  \"markings\": \"none\",\n  \"is_a_product\": true\n}", "total_duration_ms": 110332, "load_duration_ms": 205, "prompt_eval_duration_ms": 103552, "eval_duration_ms": 6010, "prompt_eval_count": 1546, "eval_count": 47, "wanduhr_ms": 110344, "aufgabe": "artikel"}
+{"model": "qwen2.5vl:7b", "ok": true, "antwort": "{\n  \"surface_description\": \"The surface appears to be smooth and continuous with no visible tears, splits, gouges, or broken areas.\",\n  \"anomalies\": [],\n  \"damaged\": false,\n  \"confidence\": 1.0\n}", "total_duration_ms": 15062, "load_duration_ms": 144, "prompt_eval_duration_ms": 8336, "eval_duration_ms": 6534, "prompt_eval_count": 1577, "eval_count": 54, "wanduhr_ms": 15071, "aufgabe": "schaden"}
+=== ZUSAMMENFASSUNG ===
+gemma4:12b           artikel  gesamt    75.2s  laden   40.0s  eval    6.9s  tokens 35
+gemma4:12b           schaden  gesamt    39.2s  laden    0.3s  eval    9.1s  tokens 33
+qwen2.5vl:7b         artikel  gesamt   110.3s  laden    0.2s  eval    6.0s  tokens 47
+qwen2.5vl:7b         schaden  gesamt    15.1s  laden    0.1s  eval    6.5s  tokens 54
+##### FOTO r15_03
+{"model": "gemma4:12b", "ok": false, "fehler": "ReadTimeout: timed out", "wanduhr_ms": 600155, "aufgabe": "artikel"}
+{"model": "gemma4:12b", "ok": true, "antwort": "{\"surface_description\": \"The surface is smooth and continuous everywhere.\", \"anomalies\": [], \"damaged\": false}", "total_duration_ms": 36970, "load_duration_ms": 656, "prompt_eval_duration_ms": 30337, "eval_duration_ms": 5047, "prompt_eval_count": 459, "eval_count": 26, "wanduhr_ms": 36991, "aufgabe": "schaden"}
+{"model": "qwen2.5vl:7b", "ok": true, "antwort": "{\n  \"object_type\": \"toy building brick\",\n  \"colour\": \"green\",\n  \"shape\": \"square with four circular holes\",\n  \"markings\": \"none\",\n  \"is_a_product\": true\n}", "total_duration_ms": 107087, "load_duration_ms": 142, "prompt_eval_duration_ms": 102016, "eval_duration_ms": 4753, "prompt_eval_count": 1546, "eval_count": 47, "wanduhr_ms": 107099, "aufgabe": "artikel"}
+{"model": "qwen2.5vl:7b", "ok": true, "antwort": "{\n  \"surface_description\": \"The surface appears to be smooth and continuous with no visible tears, splits, gouges, or broken areas.\",\n  \"anomalies\": [],\n  \"damaged\": false,\n  \"confidence\": 0.95\n}", "total_duration_ms": 12524, "load_duration_ms": 192, "prompt_eval_duration_ms": 6566, "eval_duration_ms": 5698, "prompt_eval_count": 1577, "eval_count": 55, "wanduhr_ms": 12539, "aufgabe": "schaden"}
+=== ZUSAMMENFASSUNG ===
+gemma4:12b           artikel  FEHLER ReadTimeout: timed out
+gemma4:12b           schaden  gesamt    37.0s  laden    0.7s  eval    5.0s  tokens 26
+qwen2.5vl:7b         artikel  gesamt   107.1s  laden    0.1s  eval    4.8s  tokens 47
+qwen2.5vl:7b         schaden  gesamt    12.5s  laden    0.2s  eval    5.7s  tokens 55
+DONE
+
+[exited with code 0]

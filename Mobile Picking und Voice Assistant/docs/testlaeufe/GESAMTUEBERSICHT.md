@@ -38,6 +38,13 @@ Schätzungen. Uhrzeiten in UTC, wie dort protokolliert; die Ortszeit liegt zwei 
 | 19 | 16.09. | — | — | — | — | — | Messung ohne Kettenlauf: drei Modellplätze | — |
 | 20 (QA/0384) | 16.09. | **Plate 2x4 blau** (dieselben Fotos wie 8) | 3 (3 geprüft) | weiß | 8 | **`match`** | **`completed`**, `scrap` 0.9 | **2 min 31 s** |
 | 21 (QA/0385) | 16.09. | **Brick Round 2x2x2 weiß**, Fotos **ohne Katalogbild** erzeugt | 2 (2 geprüft) | weiß | 8 | **`mismatch` (falsch)** | `review_required` (Widerspruch) | **1 min 45 s** |
+| 22 | 16.09. | — | — | — | 8 | — | Messung ohne Kettenlauf: Modellvergleich fehlende Geometrie | — |
+| 23 | 16.09. | — | — | — | — | — | Messung ohne Kettenlauf: untere Schranke Spitzenwert | — |
+| 24 (QA/0386) | 16.09. | **Brick 2x2x2 R=15 gelb**, rund, Fotos **aus** dem Katalogbild | 3 (3 geprüft) | weiß | 8 | **`match`**, 0,9146 | **`completed`**, `quarantine` 0,8 | **3 min 19 s** |
+| 25 (QA/0387) | 16.09. | **Brick 2x2 gelb, UNBESCHÄDIGT** | 3 (3 geprüft) | weiß | 8 | **`match`**, 0,9534 | **`completed`**, **`sellable` 1,0** | **2 min 45 s** |
+| 26 (QA/0388) | 16.09. | Brick 2x2 gelb, **feiner Kratzer** (sonst wie Lauf 25) | 3 (3 geprüft) | weiß | 8 | **`match`**, 0,9708 | `review_required` (Widerspruch) | **2 min 29 s** |
+| 27 (QA/0389) | 16.09. | Brick 2x2 gelb, **dieselben Fotos wie Lauf 25** | 3 (3 geprüft) | weiß | 8 | **`match`**, 0,9534 | **`completed`**, `sellable` 0,9 | **1 min 44 s** |
+| 28 (QA/0390) | 16.09. | **Flower hellblau**, neuer Auftrag L1/OUT/00263, **frische Fotos** | 3 (3 geprüft) | weiß | 8 | **`match`**, 0,9241 | **`completed`**, **`rework` 0,8** | **2 min 22 s** |
 
 Zwei Stellschrauben erklären die ganze Tabelle: **die Threadzahl** entscheidet, ob die Kette
 überhaupt fertig wird, und **der Bildhintergrund** entscheidet, ob die Artikelachse trägt.
@@ -134,6 +141,10 @@ nicht zwei Teile.
 | 12 | Brick 2x4 hellgelb | `match` | richtig, 0,8521 | **0,0276** (Geschwister im selben Auftrag) |
 | 13 | Brick 2x2 hellblau | `match` | richtig, **0,9139** | 0,0372 |
 | 15 | Brick 2x2 grün | **`unsicher`** | richtig, 0,8799 | **0,0155** (`zu_dicht`) |
+| 24 | Brick 2x2x2 R=15 gelb, **rund** | `match` | richtig, **0,9146** | **0,1585** (zweitgrößter Abstand) |
+| 25 | Brick 2x2 gelb, **unbeschädigt** | `match` | richtig, 0,9534 | 0,0571 (drei gelbe 2x2 im Katalog) |
+| 26 | Brick 2x2 gelb, **Kratzer** | `match` | richtig, **0,9708** (höchster Wert aller Läufe) | 0,086 |
+| 28 | **Flower hellblau** (filigran, fünf Blätter) | `match` | richtig, 0,9241 | **0,1793** (drittgrößter Abstand) |
 
 In Lauf 5 lag *Brick 2x3 W. Inv. Bow gelb* punktgleich daneben: dieselbe Form, dieselbe Farbe,
 eine Noppenreihe weniger. Der Dienst rät nicht, sondern meldet `unsicher` mit Grund `zu_dicht`.
@@ -141,6 +152,13 @@ Der Dachstein in Lauf 6 hat dagegen eine Silhouette, die im Katalog kein zweites
 
 **Der Hintergrund entscheidet, ob der richtige Artikel vorne landet. Die Formvielfalt des Katalogs
 entscheidet, ob der Abstand für ein Urteil reicht.**
+
+**Gegenprobe zur Form, Lauf 24.** Lauf 21 änderte zwei Dinge auf einmal: runde Form und fremde
+Bildwelt. Lauf 24 hält die Bildwelt fest und lässt nur die Form neu sein — derselbe Formtyp
+erreicht mit katalogstämmigen Fotos **0,9146 auf Platz 1** mit dem zweitgrößten Abstand aller
+Läufe (0,1585), mit frei erzeugten Fotos dagegen 0,6096 auf Platz 6. **Nicht die runde Form hat
+Lauf 21 gekippt, sondern die Erzeugungsherkunft der Fotos.** Die Bildweltbindung steht damit auf
+zwei unabhängigen Beinen: Lagerhintergrund (Läufe 1 bis 4) und Herkunft (Lauf 21 gegen 24).
 
 ---
 
@@ -471,6 +489,75 @@ fremder Generierungslauf genügt, um eine Bewertung zu kippen, die sonst in 257 
 
 ---
 
+## 7a. Die negative Seite: was die Kette bei einem heilen Teil tut
+
+Alle Läufe bis 24 enthielten einen echten Schaden. Lauf 25 dreht den Fall um: drei makellose Fotos
+eines Brick 2x2 gelb, Schnellauswahl „Sonstiges" statt „Artikel beschädigt", Beschreibung ohne
+Schadenswort — damit nimmt keine Stufe den Befund vorweg.
+
+**Ergebnis: `sellable`, Konfidenz 1,0, `Schaden: keine Auffälligkeit sichtbar.`** Alle drei Fotos
+ergaben `intact`, kein erfundener Befund.
+
+| Fall | Läufe | Ergebnis |
+|---|---|---|
+| Oberflächenschaden vorhanden, erkannt | 5–14, 20, 24 | `scrap` / `quarantine` |
+| Schaden vorhanden, nicht erkannt (fehlende Geometrie) | 15–18 | `review_required` über den Widerspruchszweig |
+| **Kein Schaden, kein Befund** | **25** | **`sellable`, 1,0** |
+| **Risse an einem reparablen Teil** | **28** | **`rework`, 0,8** |
+
+Mit Lauf 28 sind **alle fünf Einstufungen an echten Fällen belegt**: `scrap` (Lauf 5),
+`review_required` (15), `quarantine` (24), `sellable` (25), `rework` (28). Bemerkenswert daran: Die
+Bildachse lieferte in Lauf 24 und Lauf 28 denselben Befund `Riss, gebrochene Kante` — die
+Unterscheidung zwischen `quarantine` und `rework` entsteht allein auf der Textachse, aus Artikelname
+und Meldungstext.
+
+Der Lauf schließt zugleich zwei Nebenfragen:
+
+* **Der Zustandsvergleich lief zum ersten Mal seit Lauf 15 vollständig durch** — 20,3 s
+  Katalogbild plus 18,8 s Textvergleich, Ergebnis `new_damage: false`. Die Reihenfolge-Entscheidung
+  aus Lauf 14 ist damit an beiden Enden belegt: bei `damaged` übersprungen (Lauf 24), bei `intact`
+  gelaufen.
+* **Der Soll-Befund-Cache greift wie gedacht.** `soll_cache_geladen` mit einem Eintrag — dem aus
+  Lauf 18, für einen anderen Artikel. Der Katalogbildaufruf fiel deshalb an. Der Cache spart ab der
+  **zweiten** Meldung je Artikel, nicht bei der ersten.
+
+**Offene Beobachtung:** `ai_recommended_action` lautet auch hier „Sichtprüfung durch Qualitätsteam".
+Bei `sellable` mit Konfidenz 1,0 widerspricht die Handlungsempfehlung der Einstufung. Kein Fehler
+der Bewertung, aber eine Stelle, die einem Lagerarbeiter das Gegenteil nahelegt.
+
+### Lauf 26: die Schwereskala liegt auf der Textachse, nicht auf der Bildachse
+
+Gegenprobe zu Lauf 25 mit **allem identisch außer einem feinen Kratzer**: gleicher Artikel, Auftrag,
+Position, gleiche drei Ansichten, gleiche Schnellauswahl.
+
+| | Lauf 25 (kein Schaden) | Lauf 26 (Kratzer) |
+|---|---|---|
+| Bildbefund | `intact`, dreimal | **`Riss, Bruch`** |
+| Textbefund | `sellable` 1,0 | `sellable` 1,0, „Kratzer ohne Schaden an Form oder Funktionalitaet" |
+| Ergebnis | `sellable` 1,0 | **`review_required`** |
+
+**Die Textachse stuft ab, die Bildachse nicht.** Der `DAMAGE_PROMPT` kennt nur `damaged: true/false`
+und eine Wortliste aus Riss, Bruch und gebrochener Kante — eine Schwereskala existiert dort gar
+nicht, also wird ein Kratzer auf das nächstliegende Wort abgebildet. Das ist die Umkehrung von
+Lauf 15: dort übersah das Bildmodell einen echten Schaden, hier übertreibt es einen geringfügigen.
+
+| | Lauf 15 | Lauf 26 |
+|---|---|---|
+| Realer Zustand | Ecke sauber abgebrochen | feiner Kratzer |
+| Textachse | `scrap` | `sellable` |
+| Bildachse | `intact` (übersehen) | `Riss, Bruch` (übertrieben) |
+| Ergebnis | `review_required` | `review_required` |
+
+**Der Widerspruchszweig fängt beide Fehlerrichtungen ab.** `ai_disposition` bleibt leer,
+`ai_confidence` 0,0 — nichts wird automatisch verfügt. Das ist das belastbarste Ergebnis der beiden
+Läufe: nicht dass eine Achse irrt, sondern dass die Konstruktion aus zwei unabhängigen Achsen plus
+Widerspruchsregel den Irrtum nicht wirksam werden lässt.
+
+Betrieblich heißt das: Die Bildachse ist empfindlich eingestellt und lässt eher prüfen als
+durchgehen — richtig für eine Qualitätsmeldung, kostet aber Handarbeit bei Bagatellschäden.
+
+---
+
 ## 8. Was an der Kette geändert wurde
 
 | Datei | Änderung | Beleg |
@@ -543,7 +630,11 @@ zu lange Einträge. Die erste Variante ändert, was das Modell liefert, statt na
    Scheduler. `docker stats` zeigte dabei rund 25,3 GiB frei, `OOMKilled = false`, kein
    Speicherlimit am Container — die Ursache ist **nicht** geklärt. Zweimal lud dasselbe Modell am
    selben Tag in 87 s und 93 s.
-4. ~~**Soll-Befund-Cache überlebt keinen Neustart.**~~ — **behoben am 16.09., belegt in Lauf 18.**
+4. ~~**Soll-Befund-Cache überlebt keinen Neustart.**~~ — **behoben am 16.09., belegt in Lauf 18,
+   im Kettenbetrieb gegengeprüft in Lauf 27** (Zustandsvergleich 39,1 s auf **8,2 s**, der
+   Katalogbildaufruf entfällt ganz — vier Bildaufrufe werden zu drei).
+
+   Ursprünglich:
    `_SOLL_BEFUNDE` liegt jetzt zusätzlich als Datei im Volume `backend_cache`
    (`SOLL_BEFUND_CACHE`, Vorgabe `/var/cache/pwr/soll_befunde.json`). Nach dem Neustart meldete
    Lauf 18 `soll_cache_geladen` mit einem Eintrag, und der Zustandsvergleich kostete **3,9 s statt
@@ -582,7 +673,17 @@ zu lange Einträge. Die erste Variante ändert, was das Modell liefert, statt na
    Die Zahl gilt für genau diese drei Modelle — ein weiteres 7B verlangt eine neue Messung.
 12. ~~**Der runde Stein ist nicht gemessen.**~~ — **gemessen in Lauf 21**, mit Gemini statt
    ChatGPT. Ergebnis siehe Befund unten: die Artikelachse scheiterte.
-13. **Die Artikelachse ist an die Bildwelt gebunden — und das war bisher verdeckt.** In den Läufen
+13. ~~**Die Artikelachse ist an die Bildwelt gebunden — untere Schranke fehlt.**~~ — **gemessen
+   in Lauf 23, Einbau offen.** Über 42 entdoppelte Fotos: auf der produktiv wirksamen Menge (nur
+   erste Fotos, n = 13) trennen die Gruppen sauber — schlechtester richtiger Spitzenwert
+   **0,8467**, bester falscher **0,7655**. Eine Schranke bei **0,80** fängt alle drei Fehlurteile
+   (Lauf 1, Lauf 3, Lauf 21) und verwirft keines der zehn richtigen. Über alle 42 Fotos überlappen
+   die Gruppen dagegen (richtig ab 0,6640, falsch bis 0,8187) — Unter- und Rückansichten liefern
+   niedrige Werte, gehen aber nie in den Artikelabgleich. Offen bleibt der Einbau: als `unsicher`,
+   nicht als `mismatch`, denn ein niedriger Spitzenwert heißt „nicht wiedererkannt", nicht
+   „falsches Teil". Stichprobe klein (drei Gegenbeispiele).
+
+    Der ursprüngliche Befund: **Die Artikelachse ist an die Bildwelt gebunden.** In den Läufen
    4 bis 20 entstanden die Schadensfotos AUS dem Katalogbild; Meldefoto und Katalogbild teilten
    Pose, Licht und Rendering. Lauf 21 erzeugte die Fotos ohne Vorlage, nur aus einer
    Textbeschreibung — und der Einbettungsabgleich setzte den erwarteten Artikel auf **Platz 6**,
@@ -592,9 +693,33 @@ zu lange Einträge. Die erste Variante ändert, was das Modell liefert, statt na
 14. **Ob ein ECHTES Foto trägt, ist weiterhin unbekannt.** Beide Enden der Reihe sind synthetisch —
    aus dem Katalogbild gerechnet oder frei erfunden. Ein Handyfoto eines realen Bausteins gegen das
    Katalogbild wäre die Messung, die das schließt.
-15. **Für fehlende Geometrie gibt es weiterhin keinen Modellvergleich.** Offen aus Lauf 15:
-   `gemma4:12b` sieht ein sauber fehlendes Eck nicht. `bench_vision_models.py` auf den
-   Lauf-15-Fotos gegen `qwen2.5vl:7b` wäre die letzte offene Zahl — ohne Kettenlauf.
+15. ~~**Für fehlende Geometrie gibt es keinen Modellvergleich.**~~ — **gemessen in Lauf 22,
+   geschlossen.** `gemma4:12b` gegen `qwen2.5vl:7b` auf den drei Lauf-15-Fotos: **0 von 6
+   Aufrufen** erkennen die fehlende Ecke, beide mit Konfidenz 0,95 bis 1,0. Es ist kein
+   Modellproblem — beide beantworten die gestellte Frage korrekt, denn die Oberfläche *ist* glatt.
+   Ein Modellwechsel ist damit kein Weg, und `bench_umriss.py` hat den Prompt-Weg schon widerlegt.
+   Wer fehlende Geometrie erkennen will, braucht einen Umrissvergleich gegen das Katalogbild.
+   Nebenbefund: Die Schadensprüfung von `qwen2.5vl:7b` läuft in 12,5–15,1 s statt 37,0–39,2 s.
+   Weiterer Nebenbefund: **`bench_vision_models.py` setzte `num_thread` nicht** und maß mit 14
+   statt 8 Threads — alle früher damit erzeugten Zahlen, auch der Vergleich vom 14.08., sind nicht
+   mit Kettenläufen vergleichbar. Behoben.
+18. **Wiederholungsläufe mit identischen Bilddateien messen einen warmen Prompt-Cache.** In
+   Lauf 27 wertete ollama je Bildaufruf **5 statt 459 Prompt-Token** aus, weil dieselben Dateien
+   schon in Lauf 25 durchgelaufen waren; die Aufrufe dauerten 12–25 s statt 31–45 s. Der
+   Idempotenzschlüssel erzwingt neue Dateinamen, nicht neue Bildinhalte — genau diese Lücke hat den
+   Effekt verdeckt. **Betroffen sind die Zeitangaben** der Läufe 10 (Fotos wie 9), 14 (wie 13),
+   16–18 (wie 15) und 20 (wie 8), und damit auch die Eingangsgrößen des gleitenden Schätzwerts aus
+   den Läufen 11 bis 13. **Nicht betroffen sind die Verhaltensbefunde** dieser Läufe — ob ein Foto
+   zurückgestellt wird, ob ein Zweig läuft, welches Urteil herauskommt. Regel für künftige
+   Messungen: Zeitfragen nur auf frischen Bilddateien, Wiederholungen nur für Verhaltensfragen.
+   **In Lauf 28 an einem unabhängigen Fall gegengeprüft:** frische Dateien, 459 Token je Aufruf,
+   33,6–43,3 s — vollständig über dem Cache-Lauf 27 (5 Token, 12,1–24,5 s).
+
+17. **Handlungsempfehlung folgt der Einstufung nicht.** In Lauf 25 steht bei `sellable` mit
+   Konfidenz 1,0 trotzdem `ai_recommended_action: Sichtprüfung durch Qualitätsteam`. Der Satz
+   widerspricht dem Urteil und legt einem Lagerarbeiter das Gegenteil nahe. Zu klären, ob der Text
+   aus dem Prompt stammt oder aus einer Vorgabe im Backend.
+
 16. **Gemini nimmt keinen Bildanhang über die Oberfläche an.** Der Datei-Eingang wird verworfen,
    sobald das Upload-Menü schließt; ein programmatisch gesetzter `files`-Wert erreicht Geminis
    Handler nicht. Auch der Umweg über den Download-Knopf trägt nicht (der Erweiterungs-Sandkasten
@@ -652,3 +777,10 @@ Zeit kosten:
 | 19 | `2026-09-16_run19_drei_modellplaetze/protokoll.md` (Messung ohne Kettenlauf) |
 | 20 | `2026-09-16_run20_plate2x4_blau/protokoll.md` |
 | 21 | `2026-09-16_run21_brickround_weiss/protokoll.md` |
+| 22 | `2026-09-16_run22_modellvergleich_geometrie/protokoll.md` (Messung ohne Kettenlauf) |
+| 23 | `2026-09-16_run23_untere_schranke/protokoll.md` (Messung ohne Kettenlauf) |
+| 24 | `2026-09-16_run24_brickround_gelb/protokoll.md` |
+| 25 | `2026-09-16_run25_unbeschaedigt/protokoll.md` |
+| 26 | `2026-09-16_run26_kratzer/protokoll.md` |
+| 27 | `2026-09-16_run27_sollcache_treffer/protokoll.md` |
+| 28 | `2026-09-16_run28_flower_hellblau/protokoll.md` |
