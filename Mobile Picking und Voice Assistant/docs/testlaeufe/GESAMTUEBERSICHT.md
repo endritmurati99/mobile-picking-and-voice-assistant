@@ -35,6 +35,8 @@ Schätzungen. Uhrzeiten in UTC, wie dort protokolliert; die Ortszeit liegt zwei 
 | 16 (QA/0381) | **16.09.** | Brick 2x2 grün (dieselben Fotos wie 15) | 3 (3 geprüft) | weiß | 8 | `unsicher` | `review_required` (Widerspruch) | **4 min 35 s** |
 | 17 (QA/0382) | 16.09. | Brick 2x2 grün (dieselben Fotos wie 15) | 3 (3 geprüft) | weiß | 8 | **`match`** (Foto 2) | `review_required` (Widerspruch) | **4 min 4 s** |
 | 18 (QA/0383) | 16.09. | Brick 2x2 grün (dieselben Fotos wie 15) | 3 (3 geprüft) | weiß | 8 | **`match`** (Foto 2) | `review_required` (Widerspruch) | **2 min 52 s** |
+| 19 | 16.09. | — | — | — | — | — | Messung ohne Kettenlauf: drei Modellplätze | — |
+| 20 (QA/0384) | 16.09. | **Plate 2x4 blau** (dieselben Fotos wie 8) | 3 (3 geprüft) | weiß | 8 | **`match`** | **`completed`**, `scrap` 0.9 | **2 min 31 s** |
 
 Zwei Stellschrauben erklären die ganze Tabelle: **die Threadzahl** entscheidet, ob die Kette
 überhaupt fertig wird, und **der Bildhintergrund** entscheidet, ob die Artikelachse trägt.
@@ -577,7 +579,12 @@ zu lange Einträge. Die erste Variante ändert, was das Modell liefert, statt na
    vom 14.08. lag bei 20,5 GB Modellgewicht gegen 15,4 GB hier. `OLLAMA_MAX_LOADED_MODELS` steht
    jetzt auf **3**; der Bild-Warmlauf nach einem Neustart kostet damit **7,76 s statt 88,8 s**.
    Die Zahl gilt für genau diese drei Modelle — ein weiteres 7B verlangt eine neue Messung.
-12. **Für fehlende Geometrie gibt es weiterhin keinen Modellvergleich.** Offen aus Lauf 15:
+12. **Der runde Stein ist nicht gemessen.** Für Lauf 20 war `Brick Round 2x2x2 weiß`
+   (SKU 6096680, L1/OUT/00239 Position 3) vorgesehen — eine Formfamilie, die in keinem Lauf
+   vorkommt. ChatGPT blockte die Bilderzeugung mit `You've hit your rate limit.`, deshalb lief
+   Lauf 20 mit den Fotos aus Lauf 8. Katalogbild und Auftragsdaten liegen unter
+   `2026-09-16_run20_brickround_weiss/`; es fehlen nur drei Schadensfotos.
+13. **Für fehlende Geometrie gibt es weiterhin keinen Modellvergleich.** Offen aus Lauf 15:
    `gemma4:12b` sieht ein sauber fehlendes Eck nicht. `bench_vision_models.py` auf den
    Lauf-15-Fotos gegen `qwen2.5vl:7b` wäre die letzte offene Zahl — ohne Kettenlauf.
 
@@ -628,3 +635,4 @@ Zeit kosten:
 | 17 | `2026-09-16_run17_artikelsuche/protokoll.md` |
 | 18 | `2026-09-16_run18_sollbefund_cache/protokoll.md` |
 | 19 | `2026-09-16_run19_drei_modellplaetze/protokoll.md` (Messung ohne Kettenlauf) |
+| 20 | `2026-09-16_run20_plate2x4_blau/protokoll.md` |
