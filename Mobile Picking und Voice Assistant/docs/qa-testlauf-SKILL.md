@@ -95,7 +95,10 @@ docker exec mobilepickingundvoiceassistant-ollama-1 ollama ps
 docker exec mobilepickingundvoiceassistant-odoo-1 sh -c 'echo $QA_MAX_ASSESSMENT_PHOTOS'
 ```
 
-Fehlt ein Modell oder stimmt die Kontextgröße nicht:
+Seit dem 16.09. wärmt das Backend Text- und Bildmodell beim Start selbst vor
+(`MODEL_WARMUP`, Vorgabe `true`); nach rund 3 min stehen beide mit den richtigen Kontextgrößen.
+`warmlaufen.py` braucht nur noch, wer ohne Backend misst — oder wer ollama zwischendurch neu
+gestartet hat:
 
 ```powershell
 docker cp .claude/skills/qa-testlauf/scripts/warmlaufen.py mobilepickingundvoiceassistant-backend-1:/tmp/
@@ -287,7 +290,9 @@ sagt es je Ladevorgang: `n_threads = 8 (n_threads_batch = 8) / 14`. Die Umgebung
 `OLLAMA_NUM_THREAD` am ollama-Dienst wirkt **nicht** — 1,21 tok/s gegen 7,40 tok/s.
 
 **3. Modelle mit falscher Kontextgröße gewärmt.** `vision_client` ruft mit `num_ctx 8192`,
-`llm_client` mit 4096. Wärmt man anders, lädt ollama beim ersten echten Aufruf neu.
+`llm_client` mit 4096. Wärmt man anders, lädt ollama beim ersten echten Aufruf neu. Das
+eingebaute Vorwärmen geht über die echten Clients und trifft die Größen deshalb von selbst;
+von Hand gewärmt gilt die Falle weiter.
 
 **4. CSRF fehlt im neuen Tab.** Er liegt im `sessionStorage`. Ohne ihn kommt `claim` mit 403, und
 die PWA meldet irreführend „Profil bitte neu wählen":

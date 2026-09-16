@@ -265,6 +265,15 @@ class Settings(BaseSettings):
     # Sprachaeusserung nicht den Kaltstart (bis ~13s) bezahlt. Default False, damit
     # Tests kein erreichbares Ollama brauchen; im Compose auf true gesetzt.
     voice_llm_warmup: bool = False
+    # Beim Start Text- und Bildmodell vorwaermen. Ohne das zahlt die ERSTE
+    # Meldung nach einem Start den Kaltstart aus ihrem eigenen Zeitbudget:
+    # gemessen 80-145 s Ladezeit bei 255 s Anruferfrist -- die Kette prueft
+    # dann statt drei Fotos eines. Das traf bisher jede Vorfuehrung, weil dort
+    # niemand das Testskript `warmlaufen.py` in den Container legt.
+    #
+    # Default False aus demselben Grund wie oben: Tests brauchen kein
+    # erreichbares Ollama. Im Compose auf true.
+    model_warmup: bool = False
     openai_api_key: str = ""
 
     n8n_webhook_base: str = "http://n8n:5678/webhook"

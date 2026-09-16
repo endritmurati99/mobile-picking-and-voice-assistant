@@ -1,6 +1,6 @@
 # Qualitätsmeldung mit lokaler Bilderkennung — Gesamtübersicht aller Testläufe
 
-**Stand:** 15.09.2026
+**Stand:** 16.09.2026
 **Kette:** Picking-PWA → Backend → n8n „Quality Assessment v2" → ollama (CPU) und
 Einbettungsdienst → Odoo Quality Alert
 **Zweck dieses Dokuments:** eine Seite, auf der alle Läufe, alle Messwerte und alle offenen
@@ -32,6 +32,7 @@ Schätzungen. Uhrzeiten in UTC, wie dort protokolliert; die Ortszeit liegt zwei 
 | 13 (QA/0378) | 15.09. | Brick 2x2 hellblau | 5 (**5 geprüft**) | weiß | 8 | **`match`** | **`completed`** | **4 min 8 s** |
 | 14 (QA/0379) | 15.09. | Brick 2x2 hellblau (dieselben Fotos wie 13) | 5 (4 geprüft) | weiß | 8 | **`match`** | **`completed`** | **4 min 4 s** |
 | 15 (QA/0380) | 15.09. | Brick 2x2 grün, **sauber fehlende Ecke** | 3 (3 geprüft) | weiß | 8 | `unsicher` | `review_required` (Widerspruch) | **4 min 11 s** |
+| 16 (QA/0381) | **16.09.** | Brick 2x2 grün (dieselben Fotos wie 15) | 3 (3 geprüft) | weiß | 8 | `unsicher` | `review_required` (Widerspruch) | **4 min 35 s** |
 
 Zwei Stellschrauben erklären die ganze Tabelle: **die Threadzahl** entscheidet, ob die Kette
 überhaupt fertig wird, und **der Bildhintergrund** entscheidet, ob die Artikelachse trägt.
@@ -554,6 +555,20 @@ zu lange Einträge. Die erste Variante ändert, was das Modell liefert, statt na
 8. **Freistellen vor dem Abgleich.** Solange Meldefotos im Lager entstehen, trägt die Artikelachse
    nicht (Abschnitt 3). Ein Segmentierungsschritt vor der Einbettung wäre der kleinere Eingriff
    als ein zweiter Katalog mit Lageraufnahmen.
+9. ~~**Kaltstart geht vom Zeitbudget der ersten Meldung ab.**~~ — **behoben am 16.09., belegt in
+   Lauf 16.** `MODEL_WARMUP` wärmt Text- und Bildmodell beim Backend-Start vor
+   (`main.py`, `LlmClient.warmup`, `VisionClient.warmup`). Vorher tat das nur das Testskript
+   `warmlaufen.py`, das von Hand in den Container gelegt werden muss — in einer Vorführung also
+   nie. Messwert: 3 min 11 s Startzeit, danach lief die Kette mit drei von drei Fotos **und**
+   Zustandsvergleich durch.
+10. **Das Sprach-Vorwärmen wärmt nichts.** `llm_voice_timeout_ms = 4000` reicht nicht, um ein
+   Modell von der Platte zu laden; auf kaltem ollama endet der Aufruf in Lauf 16 nach rund 11 s
+   mit `{"event_type": "voice_intent_llm_failed", "error": ""}`. Best-effort, blockiert nichts,
+   nützt aber auch nichts. Entweder eigenes, längeres Zeitlimit für den Warmlauf oder den Zweig
+   streichen.
+11. **Für fehlende Geometrie gibt es weiterhin keinen Modellvergleich.** Offen aus Lauf 15:
+   `gemma4:12b` sieht ein sauber fehlendes Eck nicht. `bench_vision_models.py` auf den
+   Lauf-15-Fotos gegen `qwen2.5vl:7b` wäre die letzte offene Zahl — ohne Kettenlauf.
 
 ---
 
@@ -566,7 +581,8 @@ Zeit kosten:
    erreichten den Container nie. Vor jeder Messung `docker inspect` auf die Mounts.
 2. Die Threadzahl gehört gegengeprüft: `n_threads = 8` im ollama-Log, nicht nur in der Konfiguration.
 3. Modelle vor dem Lauf warmlaufen lassen, **mit der Produktiv-Kontextgröße** — sonst lädt ollama
-   beim ersten echten Aufruf neu.
+   beim ersten echten Aufruf neu. Seit dem 16.09. erledigt `MODEL_WARMUP` das beim Backend-Start
+   selbst; `warmlaufen.py` braucht nur noch, wer ohne Backend misst.
 4. Ein neuer Browser-Tab hat keinen CSRF-Token; die PWA meldet das irreführend als
    „Profil bitte neu wählen".
 5. Zwei große Modelle gleichzeitig: siehe offener Punkt 3.
@@ -597,3 +613,4 @@ Zeit kosten:
 | 13 | `2026-09-15_run13_brick2x2_hellblau/protokoll.md` |
 | 14 | `2026-09-15_run14_zustandsvergleich/protokoll.md` |
 | 15 | `2026-09-15_run15_sauberer_bruch/protokoll.md` |
+| 16 | `2026-09-16_run16_kaltstart_vorwaermen/protokoll.md` |

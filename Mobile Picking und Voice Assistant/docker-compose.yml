@@ -184,6 +184,10 @@ services:
       # Voice-Intent-Modell beim Start vorwaermen (haelt die erste Aeusserung
       # aus dem Kaltstart heraus; Ollama KEEP_ALIVE haelt es danach 24h).
       VOICE_LLM_WARMUP: ${VOICE_LLM_WARMUP:-true}
+      # Text- und Bildmodell beim Start vorwaermen. Ohne das zahlt die erste
+      # Meldung nach einem Start den Kaltstart (gemessen 80-145 s) aus ihrem
+      # eigenen 255-s-Budget und prueft statt drei Fotos eines.
+      MODEL_WARMUP: ${MODEL_WARMUP:-true}
       N8N_WEBHOOK_BASE: http://n8n:5678/webhook
       SESSION_THROTTLE_HMAC_SECRET_B64: ${SESSION_THROTTLE_HMAC_SECRET_B64}
       N8N_WEBHOOK_SECRET: ${N8N_WEBHOOK_SECRET}

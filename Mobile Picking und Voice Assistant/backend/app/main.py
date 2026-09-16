@@ -166,14 +166,41 @@ def build_lifespan(candidate_settings: Settings):
 
                 tasks.append(asyncio.create_task(watchdog_loop()))
 
-            # Voice-LLM-Warmup (best-effort, nicht blockierend): laedt das
-            # Ollama-Modell in den Speicher, damit die ERSTE unsichere
-            # Sprachaeusserung nicht den Kaltstart (gemessen bis ~13s) bezahlt.
-            # Eigenes Opt-in-Flag (nicht an den Dispatcher gekoppelt, der hier
-            # aus ist); Default False haelt Tests ohne erreichbares Ollama frei.
-            if candidate_settings.voice_llm_warmup:
-                warmup_task = asyncio.create_task(get_classifier().warmup())
-                tasks.append(warmup_task)
+            # Modell-Warmup (best-effort, nicht blockierend): laedt die
+            # Ollama-Modelle in den Speicher, damit nicht der erste echte
+            # Aufruf den Kaltstart aus seinem eigenen Zeitbudget bezahlt.
+            # Zwei Opt-in-Flags, nicht an den Dispatcher gekoppelt; Default
+            # False haelt Tests ohne erreichbares Ollama frei.
+            if candidate_settings.voice_llm_warmup or candidate_settings.model_warmup:
+
+                async def warmup_models() -> None:
+                    # Reihenfolge ist hier die ganze Entscheidung. Drei Modelle
+                    # wollen in zwei Plaetze (OLLAMA_MAX_LOADED_MODELS = 2), also
+                    # raeumt Ollama beim dritten Laden das aelteste weg. Zuerst
+                    # das billigste, zuletzt das teuerste:
+                    #
+                    #   Sprache  qwen2.5:1.5b   Nachladen kostet ~13 s
+                    #   Text     qwen2.5:7b     Median 11,7 s je Aufruf
+                    #   Bild     gemma4:12b     Nachladen kostet 80-145 s
+                    #
+                    # Verdraengt wird damit die Sprache. Ihr Nachladen faellt in
+                    # einen Dialog, der ohnehin auf eine Antwort wartet; das
+                    # Nachladen des Bildmodells faellt in eine Meldung mit 255 s
+                    # Gesamtfrist und kostet dort Fotos.
+                    #
+                    # NACHEINANDER, nicht parallel: zwei gleichzeitige
+                    # Ladevorgaenge konkurrieren um denselben Speicher -- am
+                    # 2026-08-14 starb so ein zweiter Ladeversuch mit
+                    # "llama-server process has terminated: signal: killed".
+                    if candidate_settings.voice_llm_warmup:
+                        await get_classifier().warmup()
+                    if candidate_settings.model_warmup:
+                        await app.state.runtime.llm_client().warmup()
+                        vision = app.state.runtime.vision_client()
+                        if vision is not None:
+                            await vision.warmup()
+
+                tasks.append(asyncio.create_task(warmup_models()))
             yield
         finally:
             stop_event.set()

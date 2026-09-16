@@ -290,6 +290,20 @@ class LlmClient:
         # Quellen saehe, koennte einen Widerspruch wegerklaeren.
         return "\n".join(lines)
 
+    async def warmup(self) -> bool:
+        """Laedt das Textmodell in den Ollama-Speicher.
+
+        Derselbe Grund wie bei `VisionClient.warmup`: sonst zahlt die erste
+        Meldung den Kaltstart aus ihrem eigenen Zeitbudget. Ueber den echten
+        Bewertungsweg, damit ollama genau den Runner laedt, den der erste echte
+        Aufruf dann vorfindet -- eine andere Kontextgroesse laedt neu.
+
+        `classify_disposition` schluckt jeden Fehler und liefert `ok=False`;
+        Warmup ist damit best-effort und kann keinen Start verhindern.
+        """
+        result = await self.classify_disposition(description="Ware in Ordnung")
+        return result.ok
+
     async def classify_disposition(
         self,
         *,

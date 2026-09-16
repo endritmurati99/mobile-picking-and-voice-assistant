@@ -35,6 +35,7 @@ die Einladung, doch etwas daraus zu schliessen.
 from __future__ import annotations
 
 import base64
+import io
 import math
 import os
 import json
@@ -42,8 +43,10 @@ import logging
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 import httpx
+from PIL import Image
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +163,21 @@ _NUM_CTX = 8192
 # OLLAMA_NUM_THREAD wirkt NICHT -- gemessen am selben Tag, 1,21 tok/s trotz
 # gesetzter Variablen. Nur diese Option im Request wirkt.
 _NUM_THREAD = int(os.environ.get("OLLAMA_NUM_THREAD", "8"))
+
+# Warmup: ein Bild, weil erst ein Bild im Request den Projektor laedt. 64 px
+# grau reicht dafuer und kostet eine Kachel -- der Inhalt ist gleichgueltig,
+# geladen wird so oder so. Der Prompt verlangt dasselbe JSON-Format wie die
+# echten Aufrufe, damit ollama denselben Runner mit derselben Kontextgroesse
+# nimmt und nicht beim ersten echten Aufruf neu laedt (Stolperfalle 3 im
+# Testlauf-Skill).
+WARMUP_PROMPT = 'Answer with {"ok": true} and nothing else.'
+
+
+@lru_cache(maxsize=1)
+def _warmup_bild() -> bytes:
+    puffer = io.BytesIO()
+    Image.new("RGB", (64, 64), (128, 128, 128)).save(puffer, format="JPEG")
+    return puffer.getvalue()
 
 
 @dataclass(frozen=True)
@@ -301,6 +319,31 @@ class VisionClient:
             is_a_product=product if isinstance(product, bool) else None,
         )
 
+    async def warmup(self) -> bool:
+        """Laedt das Bildmodell samt Projektor in den Ollama-Speicher.
+
+        Ohne das zahlt der ERSTE echte Aufruf den Kaltstart -- gemessen 80-145 s
+        -- und zwar aus dem Zeitbudget der ersten Meldung heraus. Bei 255 s
+        Anruferfrist prueft die Kette dann statt drei Fotos eines.
+
+        Mit Bild, nicht mit reinem Text: erst ein Bild im Request laedt den
+        Projektor. Ein Textaufruf laedt nur die Sprachhaelfte und laesst die
+        andere fuer den ersten echten Aufruf liegen.
+
+        Fehler sind geschluckt -- `_ask` gibt bei jedem Fehler `None` zurueck.
+        Warmup ist best-effort und darf einen Start nie verhindern.
+        """
+        ok = await self._ask(WARMUP_PROMPT, [_warmup_bild()], self._model) is not None
+        if self._article_model != self._model:
+            ok = (
+                await self._ask(
+                    WARMUP_PROMPT, [_warmup_bild()], self._article_model
+                )
+                is not None
+                and ok
+            )
+        return ok
+
     async def inspect_damage(self, candidate: bytes) -> DamageCheck:
         begonnen = time.monotonic()
         parsed = await self._ask(DAMAGE_PROMPT, [candidate], self._model)
@@ -338,3 +381,50 @@ def _text(value) -> str | None:
         teile = [str(item).strip() for item in value]
         return ", ".join(teil for teil in teile if teil) or None
     return str(value).strip() or None
+
+
+def _selbstpruefung() -> None:
+    """Prueft das Warmup ohne Ollama: `python -m app.services.vision_client`.
+
+    Drei Zusagen, an denen es haengt: das Warmbild ist ein gueltiges JPEG, der
+    Aufruf geht mit Bild hinaus (sonst bleibt der Projektor ungeladen), und ein
+    Ausfall von Ollama bleibt ein `False` statt einer Ausnahme -- sonst
+    verhinderte ein abgeschaltetes Ollama den Start des Backends.
+    """
+    import asyncio as _asyncio
+
+    bild = _warmup_bild()
+    assert bild[:2] == b"\xff\xd8", "Warmbild ist kein JPEG"
+    assert Image.open(io.BytesIO(bild)).size == (64, 64)
+
+    gesehen: list[dict] = []
+
+    def antwort(request: httpx.Request) -> httpx.Response:
+        gesehen.append(json.loads(request.content))
+        return httpx.Response(200, json={"response": '{"ok": true}'})
+
+    client = VisionClient(
+        endpoint="http://ollama:11434",
+        model="bildmodell",
+        article_model="artikelmodell",
+        transport=httpx.MockTransport(antwort),
+    )
+    assert _asyncio.run(client.warmup()) is True
+    assert [p["model"] for p in gesehen] == ["bildmodell", "artikelmodell"], gesehen
+    assert all(p["images"] for p in gesehen), "Warmup ohne Bild laedt keinen Projektor"
+    assert all(p["options"]["num_ctx"] == _NUM_CTX for p in gesehen)
+
+    def kaputt(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500)
+
+    taub = VisionClient(
+        endpoint="http://ollama:11434",
+        model="bildmodell",
+        transport=httpx.MockTransport(kaputt),
+    )
+    assert _asyncio.run(taub.warmup()) is False, "Ausfall muss False sein, nicht werfen"
+    print("vision_client Selbstpruefung ok")
+
+
+if __name__ == "__main__":
+    _selbstpruefung()
