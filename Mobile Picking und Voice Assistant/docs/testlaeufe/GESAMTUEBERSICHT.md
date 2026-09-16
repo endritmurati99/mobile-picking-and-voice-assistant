@@ -570,14 +570,13 @@ zu lange Einträge. Die erste Variante ändert, was das Modell liefert, statt na
    mit `{"event_type": "voice_intent_llm_failed", "error": ""}`. Best-effort, blockiert nichts,
    nützt aber auch nichts. Entweder eigenes, längeres Zeitlimit für den Warmlauf oder den Zweig
    streichen.
-11. **Das Sprach-Vorwärmen verdrängt das Bildmodell.** Seit der Warmlauf eine eigene Frist hat
-   (Lauf 17), lädt er das Sprachmodell wirklich — und bei `OLLAMA_MAX_LOADED_MODELS = 2` fliegt
-   dafür das am längsten ungenutzte Modell heraus. Am 16.09. um 10:14:13 war das `gemma4:12b`,
-   Nachladen 121 s. Vor der Änderung scheiterte der Warmlauf nach 4 s und lud nichts, weshalb das
-   Bildmodell liegen blieb. Zwei Auswege: `OLLAMA_MAX_LOADED_MODELS: "3"` (15,5 GB Modellgewicht
-   bei 25,44 GiB; der OOM vom 14.08. lag bei 20,5 GB) oder den Sprach-Warmlauf streichen. **Vor
-   einer Umstellung den tatsächlichen Speicherbedarf bei drei geladenen Modellen messen** — die
-   Modellgröße ist nicht der Speicherbedarf.
+11. ~~**Das Sprach-Vorwärmen verdrängt das Bildmodell.**~~ — **behoben am 16.09., gemessen in
+   Lauf 19.** Seit der Warmlauf eine eigene Frist hat (Lauf 17), lädt er das Sprachmodell
+   wirklich — und bei zwei Plätzen flog dafür `gemma4:12b` heraus, Nachladen 121 s. Gemessen mit
+   den Produktiv-Kontextgrößen: drei Modelle belegen **15,62 GiB von 25,44 GiB (61 %)**, der OOM
+   vom 14.08. lag bei 20,5 GB Modellgewicht gegen 15,4 GB hier. `OLLAMA_MAX_LOADED_MODELS` steht
+   jetzt auf **3**; der Bild-Warmlauf nach einem Neustart kostet damit **7,76 s statt 88,8 s**.
+   Die Zahl gilt für genau diese drei Modelle — ein weiteres 7B verlangt eine neue Messung.
 12. **Für fehlende Geometrie gibt es weiterhin keinen Modellvergleich.** Offen aus Lauf 15:
    `gemma4:12b` sieht ein sauber fehlendes Eck nicht. `bench_vision_models.py` auf den
    Lauf-15-Fotos gegen `qwen2.5vl:7b` wäre die letzte offene Zahl — ohne Kettenlauf.
@@ -628,3 +627,4 @@ Zeit kosten:
 | 16 | `2026-09-16_run16_kaltstart_vorwaermen/protokoll.md` |
 | 17 | `2026-09-16_run17_artikelsuche/protokoll.md` |
 | 18 | `2026-09-16_run18_sollbefund_cache/protokoll.md` |
+| 19 | `2026-09-16_run19_drei_modellplaetze/protokoll.md` (Messung ohne Kettenlauf) |

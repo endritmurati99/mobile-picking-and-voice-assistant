@@ -321,7 +321,22 @@ services:
       # im Spiel sind. Zwei Stunden decken eine Arbeitssitzung ab; danach
       # kostet der erste Aufruf wieder das Laden (gemessen 80-145 s).
       OLLAMA_KEEP_ALIVE: 2h
-      OLLAMA_MAX_LOADED_MODELS: "2"
+      # Drei Plaetze seit dem 16.09.2026, gemessen in Lauf 19. Zwei reichten
+      # nicht mehr, seit der Sprach-Warmlauf wirklich laedt: drei Modelle
+      # wollten in zwei Plaetze, und Ollama warf das am laengsten ungenutzte
+      # weg -- am 16.09. um 10:14:13 war das `gemma4:12b`, Nachladen 121 s.
+      #
+      # Gemessen mit den Produktiv-Kontextgroessen, alle drei resident:
+      #   gemma4:12b     9.2 GB  ctx 8192
+      #   qwen2.5:7b     5.1 GB  ctx 4096
+      #   qwen2.5:1.5b   1.2 GB  ctx 4096
+      #   Container gesamt: 15,62 GiB von 25,44 GiB (61 %), knapp 10 GiB Luft.
+      #
+      # Der OOM vom 2026-08-14 lag bei 20,5 GB Modellgewicht (`gemma4` plus
+      # `qwen2.5:7b` plus `qwen2.5vl:7b`) -- das dritte Modell war damals
+      # 6,2 GB schwer, dieses ist 1,2 GB. Wer ein weiteres 7B-Modell
+      # dazunimmt, misst vorher neu.
+      OLLAMA_MAX_LOADED_MODELS: ${OLLAMA_MAX_LOADED_MODELS:-3}
       # OLLAMA_NUM_THREAD als Umgebungsvariable wirkt NICHT. Gemessen am
       # 2026-09-15 auf leerem Ollama, qwen2.5:7b, 60 Token, gleicher Prompt:
       # 1,21 tok/s mit gesetzter Variablen, 7,40 tok/s mit `num_thread: 8`

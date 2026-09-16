@@ -1,0 +1,26 @@
+=== Ladereihe (mess_speicher.py) ===
+Sprache  qwen2.5:1.5b   ctx=4096  wanduhr=  10.0s laden=  9.3s | geladen: 1 Modelle, Summe 1.2 GB -> qwen2.5:1.5b
+Text     qwen2.5:7b     ctx=4096  wanduhr=  30.2s laden= 26.0s | geladen: 2 Modelle, Summe 6.2 GB -> qwen2.5:7b, qwen2.5:1.5b
+Bild     gemma4:12b     ctx=8192  wanduhr= 101.0s laden= 91.6s | geladen: 3 Modelle, Summe 15.4 GB -> gemma4:12b, qwen2.5:7b, qwen2.5:1.5b
+
+[exited with code 0]
+
+=== Speicherverlauf (docker stats) ===
+10:44:55  Modelle=0  1.226GiB / 25.44GiB
+10:45:17  Modelle=1  5.068GiB / 25.44GiB
+10:45:38  Modelle=2  8.017GiB / 25.44GiB
+10:46:00  Modelle=2  11.42GiB / 25.44GiB
+10:46:22  Modelle=2  12.73GiB / 25.44GiB
+10:46:43  Modelle=2  13.76GiB / 25.44GiB
+10:47:05  Modelle=2  15.32GiB / 25.44GiB
+10:47:27  Modelle=3  15.62GiB / 25.44GiB
+DREI GELADEN
+final: 15.62GiB / 25.44GiB (61.40%)
+
+[exited with code 0]
+
+=== Vorwaermen nach Neustart, 3 Plaetze ===
+10:48:08.9 Backend neu gestartet
+10:48:20 POST /api/chat     5.63781671s  (Sprache)
+10:49:07 POST /api/chat    42.000457218s (Text)
+10:49:15 POST /api/generate 7.75286768s  (Bild, KEIN Nachladen)
