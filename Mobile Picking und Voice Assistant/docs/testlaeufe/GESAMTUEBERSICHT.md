@@ -33,6 +33,8 @@ Schätzungen. Uhrzeiten in UTC, wie dort protokolliert; die Ortszeit liegt zwei 
 | 14 (QA/0379) | 15.09. | Brick 2x2 hellblau (dieselben Fotos wie 13) | 5 (4 geprüft) | weiß | 8 | **`match`** | **`completed`** | **4 min 4 s** |
 | 15 (QA/0380) | 15.09. | Brick 2x2 grün, **sauber fehlende Ecke** | 3 (3 geprüft) | weiß | 8 | `unsicher` | `review_required` (Widerspruch) | **4 min 11 s** |
 | 16 (QA/0381) | **16.09.** | Brick 2x2 grün (dieselben Fotos wie 15) | 3 (3 geprüft) | weiß | 8 | `unsicher` | `review_required` (Widerspruch) | **4 min 35 s** |
+| 17 (QA/0382) | 16.09. | Brick 2x2 grün (dieselben Fotos wie 15) | 3 (3 geprüft) | weiß | 8 | **`match`** (Foto 2) | `review_required` (Widerspruch) | **4 min 4 s** |
+| 18 (QA/0383) | 16.09. | Brick 2x2 grün (dieselben Fotos wie 15) | 3 (3 geprüft) | weiß | 8 | **`match`** (Foto 2) | `review_required` (Widerspruch) | **2 min 52 s** |
 
 Zwei Stellschrauben erklären die ganze Tabelle: **die Threadzahl** entscheidet, ob die Kette
 überhaupt fertig wird, und **der Bildhintergrund** entscheidet, ob die Artikelachse trägt.
@@ -538,10 +540,12 @@ zu lange Einträge. Die erste Variante ändert, was das Modell liefert, statt na
    Scheduler. `docker stats` zeigte dabei rund 25,3 GiB frei, `OOMKilled = false`, kein
    Speicherlimit am Container — die Ursache ist **nicht** geklärt. Zweimal lud dasselbe Modell am
    selben Tag in 87 s und 93 s.
-4. **Soll-Befund-Cache überlebt keinen Neustart.** Der Zustandsvergleich kostete in Lauf 6
-   33,2 s, weil der Katalogbild-Befund nicht im Prozess-Cache `_SOLL_BEFUNDE` lag
-   (`n8n_v2.py:812`). Ein Warmlauf über die aktiven Artikel nach dem Start spart diese Zeit bei
-   der jeweils ersten Meldung je Artikel.
+4. ~~**Soll-Befund-Cache überlebt keinen Neustart.**~~ — **behoben am 16.09., belegt in Lauf 18.**
+   `_SOLL_BEFUNDE` liegt jetzt zusätzlich als Datei im Volume `backend_cache`
+   (`SOLL_BEFUND_CACHE`, Vorgabe `/var/cache/pwr/soll_befunde.json`). Nach dem Neustart meldete
+   Lauf 18 `soll_cache_geladen` mit einem Eintrag, und der Zustandsvergleich kostete **3,9 s statt
+   22,2 s** — der Katalogbildaufruf entfiel ganz. Nicht über einen Warmlauf aller Artikel gelöst:
+   44 Artikel mal rund 22 s wären gut 16 Minuten Startzeit.
 5. ~~Fotoanzahl deckeln~~ — **erledigt, war bereits umgesetzt.** `_MAX_ASSESSMENT_PHOTOS = 3`
    in `odoo/addons/quality_alert_custom/models/quality_alert.py:237`. In Lauf 8 mit vier Fotos
    belegt: drei geprüft, `Fotos: 1 weitere ungeprüft.` im Formular.
@@ -566,7 +570,15 @@ zu lange Einträge. Die erste Variante ändert, was das Modell liefert, statt na
    mit `{"event_type": "voice_intent_llm_failed", "error": ""}`. Best-effort, blockiert nichts,
    nützt aber auch nichts. Entweder eigenes, längeres Zeitlimit für den Warmlauf oder den Zweig
    streichen.
-11. **Für fehlende Geometrie gibt es weiterhin keinen Modellvergleich.** Offen aus Lauf 15:
+11. **Das Sprach-Vorwärmen verdrängt das Bildmodell.** Seit der Warmlauf eine eigene Frist hat
+   (Lauf 17), lädt er das Sprachmodell wirklich — und bei `OLLAMA_MAX_LOADED_MODELS = 2` fliegt
+   dafür das am längsten ungenutzte Modell heraus. Am 16.09. um 10:14:13 war das `gemma4:12b`,
+   Nachladen 121 s. Vor der Änderung scheiterte der Warmlauf nach 4 s und lud nichts, weshalb das
+   Bildmodell liegen blieb. Zwei Auswege: `OLLAMA_MAX_LOADED_MODELS: "3"` (15,5 GB Modellgewicht
+   bei 25,44 GiB; der OOM vom 14.08. lag bei 20,5 GB) oder den Sprach-Warmlauf streichen. **Vor
+   einer Umstellung den tatsächlichen Speicherbedarf bei drei geladenen Modellen messen** — die
+   Modellgröße ist nicht der Speicherbedarf.
+12. **Für fehlende Geometrie gibt es weiterhin keinen Modellvergleich.** Offen aus Lauf 15:
    `gemma4:12b` sieht ein sauber fehlendes Eck nicht. `bench_vision_models.py` auf den
    Lauf-15-Fotos gegen `qwen2.5vl:7b` wäre die letzte offene Zahl — ohne Kettenlauf.
 
@@ -614,3 +626,5 @@ Zeit kosten:
 | 14 | `2026-09-15_run14_zustandsvergleich/protokoll.md` |
 | 15 | `2026-09-15_run15_sauberer_bruch/protokoll.md` |
 | 16 | `2026-09-16_run16_kaltstart_vorwaermen/protokoll.md` |
+| 17 | `2026-09-16_run17_artikelsuche/protokoll.md` |
+| 18 | `2026-09-16_run18_sollbefund_cache/protokoll.md` |

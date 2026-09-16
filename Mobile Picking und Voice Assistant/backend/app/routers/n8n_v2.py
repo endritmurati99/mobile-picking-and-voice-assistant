@@ -52,9 +52,11 @@ import binascii
 import hashlib
 import json
 import logging
+import os
 import re
 import time
 from hmac import compare_digest
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -333,7 +335,7 @@ async def _collect_photo_finding(
     if anrufer_frist is not None:
         deadline = min(deadline, anrufer_frist)
     article = await _check_article(
-        vision, llm, media, candidates[0], lines, deadline,
+        vision, llm, media, candidates, lines, deadline,
         runtime=runtime, odoo=odoo, instanz=getattr(body, "odoo_instance", "") or "",
     )
     # Lief der Artikelabgleich, sind seine Bildaufrufe verbraucht und die
@@ -554,10 +556,12 @@ async def _abgleich_ueber_einbettung(
 
 
 async def _check_article(
-    vision, llm, media, candidate: bytes, lines: list[str], deadline: float,
+    vision, llm, media, candidates: list[bytes], lines: list[str], deadline: float,
     *, runtime=None, odoo=None, instanz: str = "",
 ) -> str:
-    """Artikelabgleich gegen das Katalogbild. Nur auf dem ersten Foto.
+    """Artikelabgleich gegen das Katalogbild.
+
+    Der Einbettungsweg darf jedes Foto sehen, der Textweg nur das erste.
 
     ZWEI Wege, in dieser Reihenfolge: erst der Bildabstand ueber den
     Einbettungsdienst, dann -- wenn der nichts sagen kann -- der bisherige
@@ -571,13 +575,44 @@ async def _check_article(
     # noch das Katalogbild und ist gemessen zwei Groessenordnungen schneller
     # (0,2 s gegen 45-165 s). Faellt er aus, laeuft alles darunter unveraendert
     # weiter.
-    ueber_einbettung, hinweis, fremd = await _abgleich_ueber_einbettung(
-        runtime, odoo, instanz, media, candidate, lines, deadline
-    )
-    if ueber_einbettung is not None:
-        return ueber_einbettung
+    #
+    # `zu_dicht` heisst NICHT "dieses Teil ist nicht zu erkennen", sondern
+    # "auf DIESEM Foto liegen zwei Artikel zu dicht beieinander". Ein anderes
+    # Foto desselben Teils kann denselben Artikel eindeutig treffen: in den
+    # Laeufen 15 und 16 sagte Foto 1 `unsicher` bei einem Abstand von 0,0164,
+    # Foto 2 `match` bei 0,0389 und Foto 3 `match` bei 0,0273 -- gemessen am
+    # 16.09.2026 ueber alle 61 archivierten Meldefotos. Weil nur Foto 1 zaehlte,
+    # sprang der Textweg an und kostete 59,8 s, also 22 % der Laufzeit eines
+    # Laufes. Ein weiterer Abgleich kostet 0,23 s.
+    #
+    # NUR bei `zu_dicht` weitersuchen. `kein_treffer` heisst, dass ueberhaupt
+    # kein Katalogartikel dem Bild nahekommt -- das ist eine Aussage ueber das
+    # Foto, und sie traegt den Hundefall (QA/0340-0342). Sie darf nicht durch
+    # ein zweites Foto weggesucht werden.
+    hinweis = None
+    fremd = False
+    for nummer, kandidat in enumerate(candidates, start=1):
+        ueber_einbettung, hinweis, fremd = await _abgleich_ueber_einbettung(
+            runtime, odoo, instanz, media, kandidat, lines, deadline
+        )
+        if ueber_einbettung is not None:
+            return ueber_einbettung
+        if fremd or hinweis is None:
+            # `kein_treffer`, oder der Weg steht gar nicht zur Verfuegung
+            # (kein Dienst, keine Kennung, kein Katalogbild). Beides beendet
+            # die Suche -- ein weiteres Foto aendert daran nichts.
+            break
+        if nummer < len(candidates):
+            logger.info(json.dumps({
+                "event_type": "article_retry",
+                "grund": "zu_dicht",
+                "foto": nummer,
+                "von": len(candidates),
+            }, ensure_ascii=False))
 
-    ergebnis = await _artikel_ueber_text(vision, llm, media, candidate, lines, deadline)
+    ergebnis = await _artikel_ueber_text(
+        vision, llm, media, candidates[0], lines, deadline
+    )
     if ergebnis != "unavailable" or not hinweis:
         # Sagt der alte Weg etwas, hat er das letzte Wort. Zwei sich
         # widersprechende Zeilen im Odoo-Formular waeren schlimmer als eine
@@ -1015,6 +1050,79 @@ async def _check_damage(
 # hart abschneidet. Er lebt im Prozess und ist nach einem Neustart des Backends
 # wieder leer; das kostet dann einmal je Artikel, nicht je Meldung.
 _SOLL_BEFUNDE: dict[str, DamageCheck] = {}
+# Der Speicher haelt den Befund nur bis zum naechsten Neustart -- und danach
+# zahlt die jeweils erste Meldung je Artikel den Katalogbildaufruf erneut:
+# 33,2 s in Lauf 6, 22,0 s in Lauf 16, gemessen aus dem Bildbudget derselben
+# Meldung. Ein Warmlauf ueber ALLE Artikel beim Start scheidet aus (44 Artikel
+# mal rund 22 s sind gut 16 Minuten Startzeit); eine Datei daneben kostet
+# nichts und traegt genau so weit, wie der Speicher ohnehin traegt.
+#
+# Der Schluessel ist der SHA-256 des Katalogbildes. Aendert sich das Bild,
+# aendert sich der Schluessel -- ein veralteter Befund kann nicht wirksam
+# werden, und die Datei braucht keine Versionierung.
+_SOLL_CACHE_PFAD = Path(os.environ.get("SOLL_BEFUND_CACHE", "/var/cache/pwr/soll_befunde.json"))
+_SOLL_GELADEN = False
+
+
+def _soll_cache_laden() -> None:
+    """Liest den Cache EINMAL je Prozess. Jeder Fehler heisst: leer anfangen.
+
+    Ein kaputter oder fehlender Cache ist kein Problem, sondern der Zustand vor
+    dem ersten Lauf. Er darf die Kette nie aufhalten.
+    """
+    global _SOLL_GELADEN
+    if _SOLL_GELADEN:
+        return
+    _SOLL_GELADEN = True
+    try:
+        roh = json.loads(_SOLL_CACHE_PFAD.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - fehlend, leer, kaputt: alles gleich
+        return
+    if not isinstance(roh, dict):
+        return
+    for schluessel, eintrag in roh.items():
+        if not isinstance(eintrag, dict) or not eintrag.get("ok"):
+            continue
+        _SOLL_BEFUNDE[schluessel] = DamageCheck(
+            ok=True,
+            damaged=eintrag.get("damaged"),
+            anomalies=tuple(eintrag.get("anomalies") or ()),
+            description=eintrag.get("description"),
+        )
+    logger.info(json.dumps({
+        "event_type": "soll_cache_geladen",
+        "eintraege": len(_SOLL_BEFUNDE),
+        "pfad": str(_SOLL_CACHE_PFAD),
+    }, ensure_ascii=False))
+
+
+def _soll_cache_schreiben() -> None:
+    """Schreibt den ganzen Cache neu. Fehler werden geschluckt.
+
+    Ganz statt anhaengend, weil die Datei klein bleibt (ein Eintrag je Artikel
+    mit Katalogbild) und ein Vollschreiben keine halben Zustaende kennt.
+    """
+    try:
+        _SOLL_CACHE_PFAD.parent.mkdir(parents=True, exist_ok=True)
+        vorlaeufig = _SOLL_CACHE_PFAD.with_suffix(".tmp")
+        vorlaeufig.write_text(
+            json.dumps({
+                schluessel: {
+                    "ok": True,
+                    "damaged": befund.damaged,
+                    "anomalies": list(befund.anomalies),
+                    "description": befund.description,
+                }
+                for schluessel, befund in _SOLL_BEFUNDE.items()
+            }, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        # Umbenennen statt Ueberschreiben: ein Absturz mitten im Schreiben
+        # hinterlaesst sonst eine halbe Datei, die beim naechsten Start als
+        # kaputt verworfen wird -- und damit jeden bereits bezahlten Befund.
+        vorlaeufig.replace(_SOLL_CACHE_PFAD)
+    except Exception:  # noqa: BLE001 - der Cache darf nie die Kette stoppen
+        logger.warning(json.dumps({"event_type": "soll_cache_schreiben_fehlgeschlagen"}))
 
 
 async def _soll_befund(vision, reference: bytes, deadline: float) -> DamageCheck | None:
@@ -1027,6 +1135,7 @@ async def _soll_befund(vision, reference: bytes, deadline: float) -> DamageCheck
     `None` heisst: das Budget riss waehrend des Aufrufs. Aus dem Speicher
     beantwortete Anfragen kosten keine Zeit und laufen deshalb vor der Grenze.
     """
+    _soll_cache_laden()
     schluessel = hashlib.sha256(reference).hexdigest()
     gespeichert = _SOLL_BEFUNDE.get(schluessel)
     if gespeichert is not None:
@@ -1036,6 +1145,7 @@ async def _soll_befund(vision, reference: bytes, deadline: float) -> DamageCheck
         return None
     if befund.ok:
         _SOLL_BEFUNDE[schluessel] = befund
+        _soll_cache_schreiben()
     return befund
 
 

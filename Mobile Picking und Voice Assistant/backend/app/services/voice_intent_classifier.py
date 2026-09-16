@@ -97,15 +97,40 @@ class VoiceIntentClassifier:
             )
             return VoiceIntentResult(ok=False, model=self._model)
 
+    # Eigene Frist fuer den Warmlauf. `self._timeout` stammt aus
+    # `llm_voice_timeout_ms` (4000) und ist die Frist fuer eine ECHTE
+    # Aeusserung: wer spricht, wartet nicht laenger als vier Sekunden. Zum
+    # LADEN reicht das nicht. In Lauf 16 (16.09.2026) endete der Warmlauf auf
+    # leerem Ollama nach rund 11 s mit
+    # `{"event_type": "voice_intent_llm_failed", "error": ""}` -- der Zweig
+    # lief, waermte aber nichts, und die erste Aeusserung zahlte den Kaltstart
+    # trotzdem. 120 s decken den gemessenen Ladevorgang eines 1.5B-Modells mit
+    # Abstand ab und blockieren nichts: der Warmlauf laeuft als eigener Task.
+    _WARMUP_FRIST = httpx.Timeout(connect=5.0, read=120.0, write=30.0, pool=5.0)
+
     async def warmup(self) -> bool:
         """Laedt das Modell beim Start in den Ollama-Speicher (KEEP_ALIVE haelt es
         dann). Ohne Warmup bezahlt die ERSTE unsichere Aeusserung des Nutzers den
         Kaltstart (bis ~13s). Fehler werden geschluckt — Warmup ist best-effort."""
+        eigentlich = self._timeout
+        self._timeout = self._WARMUP_FRIST
+        # Der persistente Client haelt die alte Frist fest; einmal wegwerfen,
+        # damit `_get_client` mit der Warmlauffrist neu baut. Danach dasselbe
+        # zurueck, sonst waertete eine echte Aeusserung zwei Minuten.
+        await self._client_schliessen()
         try:
             result = await self.classify("bestaetigen")
             return result.ok
         except Exception:  # noqa: BLE001 - Warmup nie fatal
             return False
+        finally:
+            self._timeout = eigentlich
+            await self._client_schliessen()
+
+    async def _client_schliessen(self) -> None:
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+        self._client = None
 
     def _parse(self, content: str | None) -> VoiceIntentResult:
         if not content or not isinstance(content, str):

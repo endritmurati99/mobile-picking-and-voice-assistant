@@ -1,0 +1,11 @@
+mobilepickingundvoiceassistant-backend-1	mobilepickingundvoiceassistant-backend
+mobilepickingundvoiceassistant-odoo-1	mobilepickingundvoiceassistant-odoo
+mobilepickingundvoiceassistant-db-1	postgres:16-alpine
+mobilepickingundvoiceassistant-pwa-1	caddy:2-alpine
+mobilepickingundvoiceassistant-ollama-1	ollama/ollama:latest
+mobilepickingundvoiceassistant-n8n-1	mobilepickingundvoiceassistant-n8n
+mobilepickingundvoiceassistant-odoo-lager-2-1	mobilepickingundvoiceassistant-odoo-lager-2
+mobilepickingundvoiceassistant-caddy-1	caddy:2-alpine
+mobilepickingundvoiceassistant-whisper-1	onerahmet/openai-whisper-asr-webservice:latest
+mobilepickingundvoiceassistant-piper-1	mobilepickingundvoiceassistant-piper
+mobilepickingundvoiceassistant-embed-1	mobilepickingundvoiceassistant-embed
